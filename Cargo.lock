@@ -877,6 +877,7 @@ dependencies = [
  "gate-agents-format",
  "gate-sdk",
  "globset",
+ "jsonschema",
  "regex",
  "serde_json",
 ]

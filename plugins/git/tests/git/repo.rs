@@ -23,6 +23,8 @@ pub struct Repo {
     branch: Option<String>,
     range: Option<CommitRange>,
     sync: HashMap<String, SyncState>,
+    message: Option<String>,
+    hook: bool,
 }
 
 impl Repo {
@@ -76,6 +78,16 @@ impl Repo {
     /// The checked-out branch, as `git symbolic-ref --short HEAD` names it; `None` is detached.
     pub fn set_branch(&mut self, name: Option<&str>) {
         self.branch = name.map(str::to_owned);
+    }
+
+    /// The commit message `--commit-message` passes; `None` for a run without one.
+    pub fn set_message(&mut self, message: Option<&str>) {
+        self.message = message.map(str::to_owned);
+    }
+
+    /// Whether a git hook starts the run (`--hook`).
+    pub fn set_hook(&mut self, hook: bool) {
+        self.hook = hook;
     }
 
     /// The run's range, as `--push` passes it: `head` is the pushed tip, `target_ref` the remote
@@ -275,6 +287,14 @@ impl GitHost for Repo {
 
     fn sync_state(&self, commit: &str) -> SyncState {
         self.sync.get(commit).cloned().unwrap_or_default()
+    }
+
+    fn message(&self) -> Option<String> {
+        self.message.clone()
+    }
+
+    fn hook(&self) -> bool {
+        self.hook
     }
 }
 
