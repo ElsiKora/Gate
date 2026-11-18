@@ -57,7 +57,7 @@ pub use findings::{
 };
 pub use git::Git;
 pub use lock::{LOCK_FILE, Lock, Pin, Wanted};
-pub use plugins::{JsonSchemaValidator, PluginGenerators, PluginReads};
+pub use plugins::{JsonSchemaValidator, PluginGenerators, PluginReads, SyncStates};
 pub use projects::{Origin, Project, Projects};
 pub use report::{EXIT_CLEAN, EXIT_ERRORS, EXIT_FAILURE, Format, Report, SelectionFormat};
 pub use snapshot::{BlobId, Snapshot, Source};
@@ -170,6 +170,8 @@ pub struct Checked {
     /// What each plugin call read, with repository paths: the read-set record of the result
     /// cache, as the workspace's inputs record what its configuration was read from.
     pub reads: Vec<PluginReads>,
+    /// The `sync-state` answers the run computed and read from the cache.
+    pub sync_states: SyncStates,
 }
 
 /// Runs `gate check` on the repository that contains `start`.
@@ -218,6 +220,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
         report,
         timings,
         reads: run.ran.reads,
+        sync_states: run.ran.sync_states,
     })
 }
 

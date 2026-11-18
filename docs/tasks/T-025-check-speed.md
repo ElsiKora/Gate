@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | planned |
+| Status | in progress |
 | Release | v0.2.0 |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -46,4 +46,20 @@
 
 ## Resume point
 
-2026-11-18: planned; branch `task/T-025-check-speed`.
+2026-11-18T22:53:08+00:00: from `release/v0.1.0` 3320ce6 on `task/T-025-check-speed`.
+
+- Why warm missed: the result cache was never built. Read sets were recorded, but nothing stored a
+  call's result or looked one up (`Cache::results()` had no caller; the cache of the first consumer's
+  copy has no `results/` after two runs). With the rc.1 core on that copy, two runs: 7.54 s and
+  7.37 s wall, plugins 7071 ms of 7289 ms (`gate check --timings`).
+- Built: `cache/results.rs`, a call's findings and read set by (core version, plugin sha256,
+  request, grant), reused while every listed prefix, read blob id, change selection, ref answer and
+  `sync-state` answer is unchanged. `sync-state` records a digest of its answer, since a fallback
+  answer follows the run's configuration. `--timings` prints one line per call (cached, or its time
+  and the host's time by kind) and the `sync-state` answers computed and read from the cache.
+- `sync-state` per commit per rule: within a run one memo already served every call and rule, but
+  two calls running in parallel could both compute the same commit. The memo now computes each
+  commit once (a `OnceLock` per commit).
+- Not yet: the tests run; the measurement on the copy needs this branch's plugins (the interface
+  changed after rc.1, so the rc.1 components do not load); per-rule time needs the plugin to say
+  where a rule starts, an interface question for the lead.

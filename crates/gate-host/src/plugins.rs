@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use gate_runtime::{
@@ -75,6 +76,15 @@ pub(crate) struct Ran {
     pub(crate) rules: usize,
     pub(crate) per_scope: RulesRan,
     pub(crate) reads: Vec<PluginReads>,
+    pub(crate) sync_states: SyncStates,
+}
+
+/// The `sync-state` answers of a run: how many it computed, and how many it read from the cache.
+/// Each commit counts once, however many calls and rules ask for it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SyncStates {
+    pub computed: usize,
+    pub stored: usize,
 }
 
 /// Loads every plugin the configuration declares: the local build `--plugin` gave for its name
@@ -442,7 +452,7 @@ impl Loaded {
             changed: changed_paths.clone(),
             snapshot: Arc::clone(&snapshot),
         });
-        let history: Arc<dyn History> = Arc::new(GitHistory {
+        let git_history = Arc::new(GitHistory {
             git: snapshot.git().clone(),
             head: snapshot.commit().map(str::to_owned),
             range,
@@ -451,7 +461,9 @@ impl Loaded {
             run: OnceLock::new(),
             commit_plugins: Mutex::new(BTreeMap::new()),
             states: Mutex::new(BTreeMap::new()),
+            counted: SyncStateCount::default(),
         });
+        let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
         let mut planned = Vec::new();
         for (project, settings) in scopes(workspace) {
@@ -577,6 +589,10 @@ impl Loaded {
                 time: outcome.time,
             });
         }
+        ran.sync_states = SyncStates {
+            computed: git_history.counted.computed.load(Ordering::Relaxed),
+            stored: git_history.counted.stored.load(Ordering::Relaxed),
+        };
         Ok(ran)
     }
 }
@@ -708,7 +724,7 @@ impl<'w> PluginGenerators<'w> {
     fn failed(&self, error: &gate_runtime::Error) -> Error {
         if passing_call_failure(error.kind()) {
             self.passing
-                .store(true, std::sync::atomic::Ordering::Relaxed);
+                .store(true, Ordering::Relaxed);
         }
         Error::environment(error.to_string())
     }
@@ -725,7 +741,7 @@ impl<'w> PluginGenerators<'w> {
 
     /// Whether a generator call failed in a way that may pass by the next call.
     fn had_passing_failure(&self) -> bool {
-        self.passing.load(std::sync::atomic::Ordering::Relaxed)
+        self.passing.load(Ordering::Relaxed)
     }
 
     /// The loaded plugin of `item`, with its name.
@@ -1123,8 +1139,20 @@ struct GitHistory {
     run: OnceLock<std::result::Result<RunContext, Error>>,
     /// The plugins loaded for commits' own configurations, by what they were loaded from.
     commit_plugins: Mutex<BTreeMap<Sha256Sum, CommitPlugins>>,
-    /// The `sync-state` answers of this run, by commit id.
-    states: Mutex<BTreeMap<String, SyncState>>,
+    /// The `sync-state` answers of this run, by commit id, each computed once.
+    states: Mutex<BTreeMap<String, Arc<StateSlot>>>,
+    /// How many `sync-state` answers this run computed, and how many it read from the cache.
+    counted: SyncStateCount,
+}
+
+/// The `sync-state` answer of one commit in a run.
+type StateSlot = OnceLock<std::result::Result<SyncState, HostError>>;
+
+/// How many `sync-state` answers a run computed and how many it read from the cache.
+#[derive(Debug, Default)]
+struct SyncStateCount {
+    computed: AtomicUsize,
+    stored: AtomicUsize,
 }
 
 /// The run's configuration as `sync-state` uses it, computed once per run.
@@ -1324,22 +1352,21 @@ impl History for GitHistory {
     }
 
     fn sync_state(&self, commit: &str) -> std::result::Result<SyncState, HostError> {
-        if let Some(state) = self
-            .states
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(commit)
-        {
-            return Ok(state.clone());
-        }
-        let state = self.sync_state_at(commit).map_err(|error| {
-            HostError::new(format!("git.sync-state at commit {commit}: {error}"))
-        })?;
-        self.states
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(commit.to_owned(), state.clone());
-        Ok(state)
+        // One answer per commit and run, whichever call or rule asks first: a call that asks
+        // while another computes the same commit waits for that answer.
+        let slot = Arc::clone(
+            self.states
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(commit.to_owned())
+                .or_default(),
+        );
+        slot.get_or_init(|| {
+            self.sync_state_at(commit).map_err(|error| {
+                HostError::new(format!("git.sync-state at commit {commit}: {error}"))
+            })
+        })
+        .clone()
     }
 }
 
@@ -1393,16 +1420,21 @@ impl GitHistory {
         let cache = Cache::from_env()?;
         let own_key = self.state_key(commit, None);
         match stored(&cache, &own_key)? {
-            Some((ANSWER, state)) => return Ok(state),
+            Some((ANSWER, state)) => {
+                self.counted.stored.fetch_add(1, Ordering::Relaxed);
+                return Ok(state);
+            }
             Some(_) => {
                 let run_key = self.state_key(commit, Some(self.run_key()?));
                 if let Some((_, state)) = stored(&cache, &run_key)? {
+                    self.counted.stored.fetch_add(1, Ordering::Relaxed);
                     return Ok(state);
                 }
             }
             None => {}
         }
 
+        self.counted.computed.fetch_add(1, Ordering::Relaxed);
         let computed = self.compute(commit)?;
         if !computed.lasting {
             return Ok(computed.state);

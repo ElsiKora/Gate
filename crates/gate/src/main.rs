@@ -397,6 +397,13 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
         for call in &checked.reads {
             eprintln!("timings: {}", call_timing(call));
         }
+        let states = checked.sync_states;
+        if states.computed + states.stored > 0 {
+            eprintln!(
+                "timings: sync-state: {} computed, {} from the cache",
+                states.computed, states.stored
+            );
+        }
     }
 
     write_out(&checked.report.render(format)?)?;
