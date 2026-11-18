@@ -109,8 +109,6 @@ Measured on the same messages against `@commitlint/cli` 20.5.3:
 - Lengths are counted in characters, where the reference counts UTF-16 code units: a character
   outside the Basic Multilingual Plane, such as an emoji, counts once here and twice there.
 - The comment character is always `#`; the reference reads git's `core.commentChar`.
-- A blank message passes; the reference stops with `[input] is required`. Git refuses an empty
-  message on its own.
 
 ## How to fix it
 
