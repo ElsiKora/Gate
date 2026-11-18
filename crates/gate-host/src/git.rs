@@ -281,6 +281,43 @@ impl CatFile {
 
         Ok(Some(content))
     }
+
+    /// Reads the blob `spec` names (`<commit>:<path>`); `None` when it names nothing.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks, or when `spec` names an object that is not a blob.
+    pub fn read_blob(&mut self, spec: &str) -> Result<Option<Vec<u8>>> {
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| Error::environment("git cat-file is closed"))?;
+        writeln!(stdin, "{spec}")?;
+        stdin.flush()?;
+
+        let mut header = String::new();
+        self.stdout.read_line(&mut header)?;
+        if header.is_empty() || header.ends_with(" missing\n") {
+            return Ok(None);
+        }
+        let mut fields = header.trim_end().rsplitn(3, ' ');
+        let size = fields.next().and_then(|value| value.parse::<usize>().ok());
+        let kind = fields.next();
+        let (Some(size), Some(kind)) = (size, kind) else {
+            return Err(Error::environment(format!(
+                "unexpected git cat-file header {header:?} for {spec:?}"
+            )));
+        };
+        let mut content = vec![0; size];
+        self.stdout.read_exact(&mut content)?;
+        let mut newline = [0; 1];
+        self.stdout.read_exact(&mut newline)?;
+        if kind != "blob" {
+            return Err(Error::environment(format!(
+                "{spec:?} names a {kind}, not a file"
+            )));
+        }
+        Ok(Some(content))
+    }
 }
 
 impl Drop for CatFile {

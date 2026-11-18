@@ -3,7 +3,7 @@
 //! well-named branch (`#merge`), a release commit that changes only the release files
 //! (`#release`), or a direct commit that changes only documentation (`#direct`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use gate_agents_format::parse_rule_file;
 use gate_sdk::schemars::JsonSchema;
@@ -92,7 +92,11 @@ impl Rule for MainHistory {
         let mut found = Vec::new();
         for commit in &history.mainline {
             match policy.form(commit) {
-                Some(form) => found.push((commit, policy.classify(form, commit), None)),
+                Some(form) => found.push((
+                    commit,
+                    policy.classify(form, commit, &history.on_mainline),
+                    None,
+                )),
                 None => found.push((
                     commit,
                     vec![(unmatched_aspect(commit), unmatched(commit))],
@@ -215,9 +219,10 @@ impl<'r> Policy<'r> {
         form_of(&self.forms, commit, self.release.as_ref())
     }
 
-    fn classify(&self, form: &Compiled, commit: &Commit) -> Found {
+    /// `mainline` holds the first-parent commits of main since activation.
+    fn classify(&self, form: &Compiled, commit: &Commit, mainline: &HashSet<String>) -> Found {
         match form.kind {
-            Kind::Merge => self.merge(form, commit),
+            Kind::Merge => self.merge(form, commit, mainline),
             Kind::Release => match (
                 form.runs(Check::Files),
                 commit.parents.first(),
@@ -235,7 +240,7 @@ impl<'r> Policy<'r> {
         }
     }
 
-    fn merge(&self, form: &Compiled, commit: &Commit) -> Found {
+    fn merge(&self, form: &Compiled, commit: &Commit, mainline: &HashSet<String>) -> Found {
         let short = commit.short();
         let mut found = Vec::new();
         let first = commit.parents.first();
@@ -302,8 +307,11 @@ impl<'r> Policy<'r> {
             found.push(("merge", format!("{short} has an edited merge message body")));
         }
         if let [first, second] = commit.parents.as_slice() {
-            // A second parent on main's first-parent line is an ancestor of the first parent too.
-            if form.runs(Check::Sync) && self.git.is_ancestor(second, first) {
+            // A second parent on main's first-parent line is an ancestor of the first parent: a
+            // set lookup answers it; git is asked only when the lookup misses.
+            if form.runs(Check::Sync)
+                && (mainline.contains(second) || self.git.is_ancestor(second, first))
+            {
                 found.push((
                     "merge",
                     format!("{short} is a sync merge: its second parent is already on main"),

@@ -26,7 +26,7 @@ use crate::config::{
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
 use crate::findings::{Finding, Findings, Level, Location, RuleFilter, RulesRan, Span};
-use crate::git::Git;
+use crate::git::{CatFile, Git};
 use crate::lock::{Lock, Wanted};
 use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
@@ -484,6 +484,7 @@ impl Loaded {
             commit_plugins: Mutex::new(BTreeMap::new()),
             states: Mutex::new(BTreeMap::new()),
             counted: SyncStateCount::default(),
+            reader: Mutex::new(None),
         });
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
@@ -1173,6 +1174,8 @@ struct GitHistory {
     states: Mutex<BTreeMap<String, Arc<StateSlot>>>,
     /// How many `sync-state` answers this run computed, and how many it read from the cache.
     counted: SyncStateCount,
+    /// The one `git cat-file --batch` reader `read-at` asks, started on first use.
+    reader: Mutex<Option<CatFile>>,
 }
 
 /// The `sync-state` answer of one commit in a run.
@@ -1345,6 +1348,21 @@ impl History for GitHistory {
 
     fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
         let spec = format!("{commit}:{path}");
+        // The batch reader takes one name per line; a name with a line break is asked alone.
+        if !spec.contains('\n') {
+            let mut reader = self.reader.lock().unwrap_or_else(PoisonError::into_inner);
+            if reader.is_none() {
+                *reader = Some(self.git.cat_file().map_err(host)?);
+            }
+            if let Some(batch) = reader.as_mut() {
+                let answer = batch.read_blob(&spec);
+                if answer.is_err() {
+                    // The protocol may be out of step: the next read starts a fresh reader.
+                    *reader = None;
+                }
+                return answer.map_err(host);
+            }
+        }
         let Some(object) = self
             .git
             .try_text(&[
