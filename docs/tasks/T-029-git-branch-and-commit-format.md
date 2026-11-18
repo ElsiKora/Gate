@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | planned |
+| Status | in progress |
 | Release | v0.2.0 |
 | Writer | "Gate 002: plugin form spike" |
 | Reviewer | a separate review session |
@@ -77,3 +77,10 @@ with no Node step:
 ## Resume point
 
 2026-11-18: planned; branch `task/T-029-git-branch-and-commit-format`.
+2026-11-18: branch from `release/v0.1.0` `d30ecb8` (rebase on its tip after the v0.1.0 short round).
+The references are read: git-branch-lint `9718c1a` (template policy, lint use case, default
+configuration) and commitlint 20.5.3 with config-conventional 20.5.3, the conventionalcommits preset
+9.3.1 and conventional-commits-parser 6.4.0, installed outside the repository for the comparison.
+Decided (lead): the generated hook scripts pass `--hook`, the plugin interface answers `hook()`,
+and `prohibited` applies only when a hook runs, so a CI `--push` to main passes. Next: the
+interface (`message()`, `hook()`), then the two rules.
