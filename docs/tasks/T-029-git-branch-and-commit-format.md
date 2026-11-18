@@ -82,5 +82,9 @@ The references are read: git-branch-lint `9718c1a` (template policy, lint use ca
 configuration) and commitlint 20.5.3 with config-conventional 20.5.3, the conventionalcommits preset
 9.3.1 and conventional-commits-parser 6.4.0, installed outside the repository for the comparison.
 Decided (lead): the generated hook scripts pass `--hook`, the plugin interface answers `hook()`,
-and `prohibited` applies only when a hook runs, so a CI `--push` to main passes. Next: the
-interface (`message()`, `hook()`), then the two rules.
+and `prohibited` applies only when a hook runs, so a CI `--push` to main passes.
+2026-11-18: done on the branch: the interface (`message()`, `hook()`, the hooks' `--hook`),
+`git/branch-name` templates, `git/commit-message` (one aspect per commitlint rule), both pages,
+architecture §4 and §7, the plugin changelog. Native `cargo test -p gate-plugin-git` and its clippy
+pass. Open: how the two warning aspects get `warning` by default (asked the lead; the page shows
+`levels` meanwhile). Next: the 60 + 60 comparison, then a lane round.

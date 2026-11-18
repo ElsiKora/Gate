@@ -172,6 +172,8 @@ interface git {       // granted only to rules that declare reads-history
   is-ancestor: func(ancestor: string, descendant: string) -> bool;
   sync-state: func(commit: string) -> sync-state;         // what gate sync produces at that commit,
                                                            // and which of it differs
+  message: func() -> option<string>;                       // the --commit-message file's text
+  hook: func() -> bool;                                    // a git hook runs the check (--hook)
 }
 
 world plugin {
@@ -260,6 +262,8 @@ source = "ElsiKora/Gate:markdown@0.1.0"
 
 [rules]
 "git/no-ci-skip" = { level = "error", norm = "RULE-GIT-001" }
+"git/branch-name" = { options = { template = ":type/:ticket-:name" } }
+"git/commit-message" = { levels = { header-min-length = "warning", scope-max-length = "warning" } }
 
 [hooks]
 pre-commit = ["check --staged"]

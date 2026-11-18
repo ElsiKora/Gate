@@ -2,6 +2,21 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 
+## Unreleased
+
+- `git/branch-name`: the branch a push updates, or else the checked-out branch, has an allowed
+  name, checked as `@elsikora/git-branch-lint` checks it: a placeholder `template` (`:type`,
+  `:ticket`, free placeholders taking `subject`, optional ones written `:name-`) or a regular
+  expression `pattern`, exactly one of them; `types`, `subject`, `prohibited` (refused in hook runs
+  only), `ignore`, `min-length` and `max-length` default to the reference's values. Outside a hook
+  run, main passes; a detached HEAD always does.
+- `git/commit-message`: the message of the commit being made (`gate check --commit-message`) has the
+  conventional form, checked as commitlint checks it with `@commitlint/config-conventional` and the
+  rule levels of git-branch-lint's `commitlint.config.js`; one aspect per commitlint rule, every
+  limit and the type list an option.
+- The rules read the commit message and whether a git hook runs the check through the git
+  interface (`message()`, `hook()`); the generated hooks pass `--hook`.
+
 # 0.1.0
 
 - `git/main-history`: every first-parent commit of main since activation matches one of the forms of
