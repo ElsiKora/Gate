@@ -93,9 +93,7 @@ impl Stored {
             && changed
             && self.read_set.git.iter().all(|(query, recorded)| {
                 history.is_some_and(|history| {
-                    query
-                        .depends_on(history)
-                        .is_ok_and(|now| now == *recorded)
+                    query.depends_on(history).is_ok_and(|now| now == *recorded)
                 })
             })
     }
@@ -288,6 +286,10 @@ fn decode_finding(value: &Value) -> Option<Finding> {
 }
 
 /// A JSON string or null; `None` for anything else.
+#[expect(
+    clippy::option_option,
+    reason = "a stored optional string: null, a string, or not one, which fails the entry"
+)]
 fn optional(value: &Value) -> Option<Option<String>> {
     match value {
         Value::Null => Some(None),

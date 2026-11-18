@@ -428,9 +428,7 @@ fn call_timing(call: &gate_host::PluginReads) -> String {
     host.sort_by(|left, right| right.1.time.cmp(&left.1.time).then(left.0.cmp(right.0)));
     let host = host
         .iter()
-        .map(|(kind, spent)| {
-            format!("{kind} {} ms in {}", spent.time.as_millis(), spent.calls)
-        })
+        .map(|(kind, spent)| format!("{kind} {} ms in {}", spent.time.as_millis(), spent.calls))
         .collect::<Vec<_>>();
     let mut line = format!(
         "call {} {scope}: ran {} ms",

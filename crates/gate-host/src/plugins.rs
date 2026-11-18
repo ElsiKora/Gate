@@ -523,76 +523,22 @@ impl Loaded {
             }
         }
 
-        // The result cache: a call whose recorded inputs answer as they did is not run.
-        let cache = Cache::from_env().ok();
-        let blob = |path: &str| {
-            snapshot
-                .blob_id(path)
-                .map(|id| id.as_str().to_owned())
-        };
+        let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
         let inputs = results::Inputs {
             paths: &tree_paths,
             blob: &blob,
             changed: changed_paths.as_deref(),
         };
-        let keys: Vec<Sha256Sum> = planned
+        let calls: Vec<_> = planned
             .iter()
-            .map(|(_, _, _, _, plugin, request, grant)| {
-                results::key(plugin.sha256(), request, grant)
-            })
+            .map(|(_, _, _, _, plugin, request, grant)| (*plugin, request, grant))
             .collect();
-        let mut outcomes: Vec<Option<(gate_runtime::Result<CallOutcome>, bool)>> = keys
-            .iter()
-            .map(|key| {
-                let stored = results::load(cache.as_ref()?, key)?;
-                stored
-                    .holds(&inputs, Some(history.as_ref()))
-                    .then(|| {
-                        (
-                            Ok(CallOutcome {
-                                findings: stored.findings,
-                                read_set: stored.read_set,
-                                log: Vec::new(),
-                                time: CallTime::default(),
-                            }),
-                            true,
-                        )
-                    })
-            })
-            .collect();
-        let missed: Vec<usize> = (0..planned.len())
-            .filter(|index| outcomes[*index].is_none())
-            .collect();
-        let calls: Vec<Call<'_>> = missed
-            .iter()
-            .map(|index| {
-                let (_, _, _, _, plugin, request, grant) = &planned[*index];
-                Call {
-                    plugin,
-                    request: request.clone(),
-                    tree: Arc::clone(&tree),
-                    history: Some(Arc::clone(&history)),
-                    grant: grant.clone(),
-                }
-            })
-            .collect();
-        for (index, outcome) in missed.iter().zip(self.runtime.check_all(&calls)) {
-            if let (Some(cache), Ok(outcome)) = (cache.as_ref(), outcome.as_ref()) {
-                let stored = results::Stored::new(
-                    outcome.findings.clone(),
-                    outcome.read_set.clone(),
-                    &inputs,
-                );
-                results::store(cache, &keys[*index], &stored)?;
-            }
-            outcomes[*index] = Some((outcome, false));
-        }
+        let outcomes = self.calls(&calls, &tree, &history, &inputs)?;
 
         let mut ran = Ran::default();
-        for ((project, settings, name, rules, _, _, _), outcome) in planned.iter().zip(outcomes) {
-            let Some((outcome, from_cache)) = outcome else {
-                continue;
-            };
+        for ((project, settings, name, rules, _, _, _), (outcome, from_cache)) in
+            planned.iter().zip(outcomes)
+        {
             let outcome = outcome.map_err(|error| Error::environment(error.to_string()))?;
             for finding in outcome.findings {
                 if let Some(finding) = reported(name, settings, rules, *project, finding)? {
@@ -616,6 +562,69 @@ impl Loaded {
             stored: git_history.counted.stored.load(Ordering::Relaxed),
         };
         Ok(ran)
+    }
+
+    /// Runs each of `calls` (plugin, request, grant): from the result cache when every input it
+    /// recorded answers as it did, else on the worker pool, and stores what a run call answers.
+    /// The outcomes are in the order of `calls`, each with whether it came from the cache.
+    ///
+    /// # Errors
+    /// Fails when a result cannot be stored.
+    fn calls(
+        &self,
+        calls: &[(&Plugin, &gate_sdk::CheckRequest, &Grant)],
+        tree: &Arc<dyn Tree>,
+        history: &Arc<dyn History>,
+        inputs: &results::Inputs<'_>,
+    ) -> Result<Vec<(gate_runtime::Result<CallOutcome>, bool)>> {
+        let cache = Cache::from_env().ok();
+        let keys: Vec<Sha256Sum> = calls
+            .iter()
+            .map(|(plugin, request, grant)| results::key(plugin.sha256(), request, grant))
+            .collect();
+        let mut outcomes: Vec<Option<(gate_runtime::Result<CallOutcome>, bool)>> = keys
+            .iter()
+            .map(|key| {
+                let stored = results::load(cache.as_ref()?, key)?;
+                stored.holds(inputs, Some(history.as_ref())).then(|| {
+                    let outcome = CallOutcome {
+                        findings: stored.findings,
+                        read_set: stored.read_set,
+                        log: Vec::new(),
+                        time: CallTime::default(),
+                    };
+                    (Ok(outcome), true)
+                })
+            })
+            .collect();
+        let missed: Vec<usize> = (0..calls.len())
+            .filter(|index| outcomes[*index].is_none())
+            .collect();
+        let run: Vec<Call<'_>> = missed
+            .iter()
+            .map(|index| {
+                let (plugin, request, grant) = calls[*index];
+                Call {
+                    plugin,
+                    request: request.clone(),
+                    tree: Arc::clone(tree),
+                    history: Some(Arc::clone(history)),
+                    grant: grant.clone(),
+                }
+            })
+            .collect();
+        for (index, outcome) in missed.iter().zip(self.runtime.check_all(&run)) {
+            if let (Some(cache), Ok(outcome)) = (cache.as_ref(), outcome.as_ref()) {
+                let stored = results::Stored::new(
+                    outcome.findings.clone(),
+                    outcome.read_set.clone(),
+                    inputs,
+                );
+                results::store(cache, &keys[*index], &stored)?;
+            }
+            outcomes[*index] = Some((outcome, false));
+        }
+        Ok(outcomes.into_iter().flatten().collect())
     }
 }
 
@@ -745,8 +754,7 @@ impl<'w> PluginGenerators<'w> {
     /// One that may pass by the next call is noted for [`PluginGenerators::had_passing_failure`].
     fn failed(&self, error: &gate_runtime::Error) -> Error {
         if passing_call_failure(error.kind()) {
-            self.passing
-                .store(true, Ordering::Relaxed);
+            self.passing.store(true, Ordering::Relaxed);
         }
         Error::environment(error.to_string())
     }

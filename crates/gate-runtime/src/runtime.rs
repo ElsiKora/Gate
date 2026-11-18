@@ -651,9 +651,10 @@ impl Runtime {
             grant: grant.clone(),
         };
         let label = format!("generate {name}");
-        let (answer, read_set, log, _) = self.invoke(plugin, &label, access, |bindings, store| {
-            bindings.call_generate(store, name, &project, options)
-        })?;
+        let (answer, read_set, log, _) =
+            self.invoke(plugin, &label, access, |bindings, store| {
+                bindings.call_generate(store, name, &project, options)
+            })?;
         let output =
             answer.map_err(|message| Error::new(&plugin.name, ErrorKind::Reported, message))?;
         let output = GenerateOutput {

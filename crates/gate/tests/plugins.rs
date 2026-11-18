@@ -1995,7 +1995,14 @@ fn a_missing_git_plugin_option_is_a_configuration_error_at_load() {
 /// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
 fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {
     let plugin = format!("probe={}", probe().0.display());
-    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json", "--timings"]);
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &plugin,
+        "--format",
+        "json",
+        "--timings",
+    ]);
     let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
         .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
     let mut messages: Vec<String> = report["findings"]
@@ -2069,7 +2076,10 @@ fn changing_one_read_file_reruns_exactly_the_calls_that_read_it() {
         messages.contains(&"a.txt: one, changed\n".to_owned()),
         "{messages:?}"
     );
-    assert!(messages.contains(&"a.txt: two\n".to_owned()), "{messages:?}");
+    assert!(
+        messages.contains(&"a.txt: two\n".to_owned()),
+        "{messages:?}"
+    );
 
     repo.write("apps/two/b.txt", "new\n");
     repo.commit("add a file below what two lists");
@@ -2099,7 +2109,11 @@ fn a_moved_ref_reruns_only_the_calls_whose_read_set_holds_a_ref_answer() {
     repo.write("apps/two/a.txt", "two\n");
     repo.write(
         "gate.lock",
-        &lock(source, "https://example.invalid/probe.wasm", &"b".repeat(64)),
+        &lock(
+            source,
+            "https://example.invalid/probe.wasm",
+            &"b".repeat(64),
+        ),
     );
     repo.commit("a history reader and a file reader");
     let (_, _, ran, _) = probe_timed(&repo);
@@ -2107,11 +2121,18 @@ fn a_moved_ref_reruns_only_the_calls_whose_read_set_holds_a_ref_answer() {
 
     repo.git(&["branch", "other"]);
     let (_, _, ran, _) = probe_timed(&repo);
-    assert!(ran.is_empty(), "a ref no call asked about moves nothing: {ran:?}");
+    assert!(
+        ran.is_empty(),
+        "a ref no call asked about moves nothing: {ran:?}"
+    );
 
     repo.git(&["commit", "-q", "--allow-empty", "-m", "move HEAD and main"]);
     let (_, messages, ran, _) = probe_timed(&repo);
-    assert_eq!(ran, ["one"], "only the call that asked for HEAD and main runs");
+    assert_eq!(
+        ran,
+        ["one"],
+        "only the call that asked for HEAD and main runs"
+    );
     assert!(messages.contains(&"log: 2".to_owned()), "{messages:?}");
 }
 

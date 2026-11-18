@@ -239,18 +239,37 @@ mod tests {
             GitQuery::Head,
             GitQuery::Branch,
             GitQuery::Range,
-            GitQuery::Resolve { rev: "main".to_owned() },
+            GitQuery::Resolve {
+                rev: "main".to_owned(),
+            },
             GitQuery::Tree { commit: id('a') },
-            GitQuery::MergeTree { first: id('a'), second: id('b') },
-            GitQuery::Log { range: "main..HEAD".to_owned() },
-            GitQuery::ChangedPaths { parent: id('a'), commit: id('b') },
-            GitQuery::ReadAt { commit: id('a'), path: "a b/c".to_owned() },
-            GitQuery::IsAncestor { ancestor: id('a'), descendant: id('b') },
+            GitQuery::MergeTree {
+                first: id('a'),
+                second: id('b'),
+            },
+            GitQuery::Log {
+                range: "main..HEAD".to_owned(),
+            },
+            GitQuery::ChangedPaths {
+                parent: id('a'),
+                commit: id('b'),
+            },
+            GitQuery::ReadAt {
+                commit: id('a'),
+                path: "a b/c".to_owned(),
+            },
+            GitQuery::IsAncestor {
+                ancestor: id('a'),
+                descendant: id('b'),
+            },
             GitQuery::SyncState { commit: id('c') },
         ];
         for query in queries {
             assert_eq!(GitQuery::from_words(&query.to_words()), Some(query));
         }
-        assert_eq!(GitQuery::from_words(&["head".to_owned(), "x".to_owned()]), None);
+        assert_eq!(
+            GitQuery::from_words(&["head".to_owned(), "x".to_owned()]),
+            None
+        );
     }
 }
