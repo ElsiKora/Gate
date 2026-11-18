@@ -14,7 +14,7 @@ A folder has a barrel when it holds a tracked file named `barrel-name`. For each
 (`.ts`, `.tsx`, `.mts`, `.cts`, declarations included), the rule reads its static imports and
 re-exports:
 
-- `import … from "x"`, `import type … from "x"`, `import "x"`;
+- `import … from "x"`, `import type … from "x"`, `import "x"`, `import name = require("x")`;
 - `export { … } from "x"`, `export type { … } from "x"`, `export * from "x"`,
   `export * as name from "x"`.
 
@@ -30,13 +30,14 @@ a barrel, but not the importer:
   barrel exports. The barrel's exports are its exported declarations, `export { a, b as c }`,
   `export default`, `export { a as b } from`, `export * as name from`, and every name but the default
   of the modules `export * from` names, followed through tracked files. A default import takes the
-  name `default`; `import * as` and `export *` take no single name and are not checked. When the
-  barrel's exports cannot all be known (an `export =`, or `export * from` a module that does not
-  resolve to a tracked file), no name is reported.
+  name `default`; `import * as`, `import name = require` and `export *` take no single name and are
+  not checked. A cycle of `export *` passes every name of each barrel on it. When the barrel's
+  exports cannot all be known (an `export =`, or `export * from` a module that does not resolve to
+  a tracked file), no name is reported.
 
 Type-only imports follow the same rule. Files inside a folder import its files directly, and a
-folder without a barrel is not checked. The rule does not read `require`, `import x = require(…)`
-or dynamic `import()`.
+folder without a barrel is not checked. The rule does not read a `require(…)` call or a dynamic
+`import()`.
 
 **Owners.** Inside an owner, a folder `owners` matches, the kind children of the owner (its
 subfolders, each with its own barrel) import each other and the owner's files directly: a folder

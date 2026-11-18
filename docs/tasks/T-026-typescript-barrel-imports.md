@@ -43,4 +43,6 @@ The second consumer's structure requirement (plan, "From the second consumer's r
 ## Resume point
 
 2026-11-18: rule, schema, page and synthetic tests written on `task/T-026-typescript-barrel-imports`
-from `release/v0.1.0` d30ecb8; the plugin's gates run in the lane next, then the workspace round.
+from `release/v0.1.0` d30ecb8. Review round 1 applied: `export *` cycles resolve as a closure,
+tsconfig aliases and `import x = require` tested. Next: the plugin's gates in the lane, the rebase
+onto `release/v0.1.0` once T-027 is merged there, then the workspace round.

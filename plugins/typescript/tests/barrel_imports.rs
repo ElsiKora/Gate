@@ -1,6 +1,7 @@
 //! `typescript/barrel-imports` run natively through the SDK against synthetic trees: an import
 //! through the barrel and past it, names the barrel exports and does not, owners, exempt test
-//! roots, re-exports, nested barrels, a folder without a barrel, and the option errors.
+//! roots, re-exports and their cycles, tsconfig aliases, `import x = require`, nested barrels, a
+//! folder without a barrel, and the option errors.
 
 use std::collections::BTreeMap;
 
@@ -38,6 +39,15 @@ impl Host for Fixture {
 }
 
 fn check(files: &[(&str, &str)], options: &str) -> gate_sdk::Result<Vec<Finding>> {
+    check_in(files, options, "{}")
+}
+
+/// A run with the `[languages]` settings `languages`, as JSON.
+fn check_in(
+    files: &[(&str, &str)],
+    options: &str,
+    languages: &str,
+) -> gate_sdk::Result<Vec<Finding>> {
     let fixture = Fixture {
         files: files
             .iter()
@@ -53,7 +63,7 @@ fn check(files: &[(&str, &str)], options: &str) -> gate_sdk::Result<Vec<Finding>
             exceptions: Vec::new(),
         }],
         plugin_options: "{}".to_owned(),
-        languages: "{}".to_owned(),
+        languages: languages.to_owned(),
         norms: Vec::new(),
     };
     gate_sdk::check(&typescript::PLUGIN, &fixture, &request)
@@ -61,7 +71,11 @@ fn check(files: &[(&str, &str)], options: &str) -> gate_sdk::Result<Vec<Finding>
 
 /// Each finding as `aspect path:line message`.
 fn found(files: &[(&str, &str)], options: &str) -> Vec<String> {
-    check(files, options)
+    found_in(files, options, "{}")
+}
+
+fn found_in(files: &[(&str, &str)], options: &str, languages: &str) -> Vec<String> {
+    check_in(files, options, languages)
         .expect("runs")
         .iter()
         .map(|finding| {
@@ -249,6 +263,87 @@ fn re_exports_through_export_star_and_renames_count_as_exported() {
         found(&files, "{}"),
         [
             "not-exported src/app.ts:2 src/app.ts imports inner from the barrel src/shapes/index.ts, which does not export it"
+        ]
+    );
+}
+
+#[test]
+fn a_cycle_of_export_star_passes_every_name_in_either_order() {
+    // Two barrels re-export each other. The answer is the same whichever barrel is read first:
+    // `src/c.ts` reads `src/a` first in one tree, `src/b` first in the other.
+    let barrels = [
+        (
+            "src/a/index.ts",
+            "export * from '../b';\nexport const x = 1;\n",
+        ),
+        (
+            "src/b/index.ts",
+            "export * from '../a';\nexport const y = 1;\n",
+        ),
+    ];
+    for (c, d) in [
+        ("import { y } from './a';\n", "import { x } from './b';\n"),
+        ("import { x } from './b';\n", "import { y } from './a';\n"),
+    ] {
+        let files: Vec<_> = barrels
+            .iter()
+            .copied()
+            .chain([("src/c.ts", c), ("src/d.ts", d)])
+            .collect();
+        assert_eq!(found(&files, "{}"), Vec::<String>::new(), "{c}{d}");
+    }
+    // A name neither barrel declares is still missing.
+    let files: Vec<_> = barrels
+        .iter()
+        .copied()
+        .chain([("src/e.ts", "import { x, z } from './b';\n")])
+        .collect();
+    assert_eq!(
+        found(&files, "{}"),
+        [
+            "not-exported src/e.ts:1 src/e.ts imports z from the barrel src/b/index.ts, which does not export it"
+        ]
+    );
+}
+
+#[test]
+fn an_alias_of_the_tsconfig_paths_resolves_like_a_relative_path() {
+    let files = with(&[
+        (
+            "tsconfig.app.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@accounts\": [\"./src/accounts\"], \
+             \"@accounts/*\": [\"./src/accounts/*\"] } } }\n",
+        ),
+        (
+            "src/app.ts",
+            "import { UserService } from '@accounts';\nimport { hash } from '@accounts/hash';\n",
+        ),
+    ]);
+    assert_eq!(
+        found_in(
+            &files,
+            "{}",
+            r#"{"typescript": {"tsconfig": "tsconfig.app.json"}}"#
+        ),
+        [
+            "deep-path src/app.ts:2 src/app.ts imports @accounts/hash (src/accounts/hash.ts) past the barrel src/accounts/index.ts of src/accounts"
+        ]
+    );
+    // Without that tsconfig the aliases resolve to no tracked file, like a package.
+    assert_eq!(found(&files, "{}"), Vec::<String>::new());
+}
+
+#[test]
+fn an_import_equals_require_is_an_import_of_the_whole_module() {
+    let files = with(&[(
+        "src/app.ts",
+        "import accounts = require('./accounts');\nimport hash = require('./accounts/hash');\n\
+         import Alias = accounts.UserService;\nexport = accounts;\n",
+    )]);
+    assert_eq!(
+        found(&files, "{}"),
+        [
+            "deep-path src/app.ts:2 src/app.ts imports ./accounts/hash (src/accounts/hash.ts) past the barrel src/accounts/index.ts of src/accounts"
         ]
     );
 }

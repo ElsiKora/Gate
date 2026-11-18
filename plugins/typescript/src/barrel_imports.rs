@@ -17,7 +17,9 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run};
 use gate_typescript::owners::export_name;
-use gate_typescript::oxc_ast::ast::{Declaration, ImportDeclarationSpecifier, Statement};
+use gate_typescript::oxc_ast::ast::{
+    Declaration, ImportDeclarationSpecifier, Statement, TSModuleReference,
+};
 use gate_typescript::{Allocator, ReadSource, Settings, SourceFile, TypeScript};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
@@ -90,7 +92,7 @@ impl Rule for BarrelImports {
             files: typescript.files().iter().copied().collect(),
             barrel_name,
             owners: &owners,
-            exports: RefCell::new(HashMap::new()),
+            own: RefCell::new(HashMap::new()),
         };
 
         let mut found = Vec::new();
@@ -208,15 +210,37 @@ fn loads(file: &SourceFile<'_>) -> Vec<Load> {
                 names: None,
                 line: line(export.span.start),
             }),
+            // `import x = require("x")` takes the whole module, as `import * as x` does.
+            Statement::TSImportEqualsDeclaration(import) => {
+                if let TSModuleReference::ExternalModuleReference(reference) =
+                    &import.module_reference
+                {
+                    loads.push(Load {
+                        specifier: reference.expression.value.to_string(),
+                        names: None,
+                        line: line(import.span.start),
+                    });
+                }
+            }
             _ => {}
         }
     }
     loads
 }
 
-/// The names a module exports; `open` when they cannot all be known (an `export =`, a re-export
-/// from a module that does not resolve to a tracked file, a destructured export).
+/// What one module exports by itself: the names it declares or re-exports by name, the tracked
+/// modules it re-exports with `export *`, and whether its names cannot all be known (`open`: an
+/// `export =`, an `export *` from a module that does not resolve to a tracked file, a file that
+/// does not parse).
 #[derive(Clone, Debug, Default)]
+struct Own {
+    names: BTreeSet<String>,
+    stars: Vec<String>,
+    open: bool,
+}
+
+/// The names a module exports, followed through `export *`; `open` when one module on the way is.
+#[derive(Debug, Default)]
 struct Exports {
     names: BTreeSet<String>,
     open: bool,
@@ -237,8 +261,8 @@ struct Checker<'c, 'a> {
     files: HashSet<&'a str>,
     barrel_name: &'c str,
     owners: &'c GlobSet,
-    /// The exports of each module asked, by path; `None` while it is being read (a cycle).
-    exports: RefCell<HashMap<String, Option<Exports>>>,
+    /// What each module read exports by itself, by path.
+    own: RefCell<HashMap<String, Own>>,
 }
 
 impl<'a> Checker<'_, 'a> {
@@ -320,41 +344,61 @@ impl<'a> Checker<'_, 'a> {
             .map(str::to_owned)
     }
 
-    /// The names `path` exports, following `export * from` through tracked files.
+    /// The names `path` exports, following `export * from` through tracked files. `export *`
+    /// passes on every name but the default, so they are the module's own names and the names but
+    /// the default of every module its stars reach. Each module is read once, so a cycle of
+    /// `export *` ends and the answer does not depend on the order the files are read in.
     fn exports(&self, path: &str) -> Result<Exports> {
-        if let Some(known) = self.exports.borrow().get(path) {
-            // A module still being read is a cycle; what it adds is read by its first visit.
-            return Ok(known.clone().unwrap_or_default());
-        }
-        self.exports.borrow_mut().insert(path.to_owned(), None);
-
         let mut exports = Exports::default();
-        match self.parse(path)? {
-            None => exports.open = true,
-            Some(file) => {
-                for statement in &file.program().body {
-                    self.statement_exports(path, statement, &mut exports)?;
+        let mut seen = HashSet::from([path.to_owned()]);
+        let mut pending = vec![(path.to_owned(), true)];
+        while let Some((module, root)) = pending.pop() {
+            let own = self.own(&module)?;
+            exports.open |= own.open;
+            exports.names.extend(
+                own.names
+                    .into_iter()
+                    .filter(|name| root || name != "default"),
+            );
+            for star in own.stars {
+                if seen.insert(star.clone()) {
+                    pending.push((star, false));
                 }
             }
         }
-        self.exports
-            .borrow_mut()
-            .insert(path.to_owned(), Some(exports.clone()));
         Ok(exports)
+    }
+
+    /// What `path` exports by itself, read once per run.
+    fn own(&self, path: &str) -> Result<Own> {
+        if let Some(known) = self.own.borrow().get(path) {
+            return Ok(known.clone());
+        }
+        let mut own = Own::default();
+        match self.parse(path)? {
+            None => own.open = true,
+            Some(file) => {
+                for statement in &file.program().body {
+                    self.statement_exports(path, statement, &mut own)?;
+                }
+            }
+        }
+        self.own.borrow_mut().insert(path.to_owned(), own.clone());
+        Ok(own)
     }
 
     fn statement_exports(
         &self,
         path: &str,
         statement: &Statement<'_>,
-        exports: &mut Exports,
+        own: &mut Own,
     ) -> Result<()> {
         match statement {
             Statement::ExportDeclaration(export) => {
-                declaration_names(&export.declaration, exports);
+                declaration_names(&export.declaration, &mut own.names);
             }
             Statement::ExportNamedDeclaration(export) => {
-                exports.names.extend(
+                own.names.extend(
                     export
                         .specifiers
                         .iter()
@@ -362,7 +406,7 @@ impl<'a> Checker<'_, 'a> {
                 );
             }
             Statement::ExportFromDeclaration(export) => {
-                exports.names.extend(
+                own.names.extend(
                     export
                         .specifiers
                         .iter()
@@ -370,40 +414,30 @@ impl<'a> Checker<'_, 'a> {
                 );
             }
             Statement::ExportDefaultDeclaration(_) => {
-                exports.names.insert("default".to_owned());
+                own.names.insert("default".to_owned());
             }
             Statement::ExportAllDeclaration(export) => match &export.exported {
                 Some(name) => {
-                    exports.names.insert(export_name(name));
+                    own.names.insert(export_name(name));
                 }
-                None => {
-                    let target = self
-                        .typescript
-                        .resolve(path, &export.source.value)
-                        .map_err(|error| Error::new(error.to_string()))?;
-                    match target {
-                        Some(target) => {
-                            let inner = self.exports(&target)?;
-                            exports.open |= inner.open;
-                            // `export *` passes on every name but the default.
-                            exports
-                                .names
-                                .extend(inner.names.into_iter().filter(|name| name != "default"));
-                        }
-                        None => exports.open = true,
-                    }
-                }
+                None => match self
+                    .typescript
+                    .resolve(path, &export.source.value)
+                    .map_err(|error| Error::new(error.to_string()))?
+                {
+                    Some(target) => own.stars.push(target),
+                    None => own.open = true,
+                },
             },
-            Statement::TSExportAssignment(_) => exports.open = true,
+            Statement::TSExportAssignment(_) => own.open = true,
             _ => {}
         }
         Ok(())
     }
 }
 
-/// The names an exported declaration binds.
-fn declaration_names(declaration: &Declaration<'_>, exports: &mut Exports) {
-    let names = &mut exports.names;
+/// The names an exported declaration binds, destructured variables included.
+fn declaration_names(declaration: &Declaration<'_>, names: &mut BTreeSet<String>) {
     match declaration {
         Declaration::VariableDeclaration(variable) => {
             for declarator in &variable.declarations {
