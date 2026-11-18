@@ -74,8 +74,9 @@ Scope: repository. Reads history: yes (the message, through the host's git inter
 
 ## Options
 
-Every option defaults to the reference's value. A length is counted in characters; 0 turns a
-longest-length check off.
+Every option defaults to the reference's value. A length is counted as the reference counts it, in
+UTF-16 code units: a character outside the Basic Multilingual Plane, such as an emoji, counts twice.
+0 turns a longest-length check off.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -104,10 +105,8 @@ The finding has no location, since the commit does not exist yet; its target is 
 
 ## How it differs from the reference
 
-Measured on the same messages against `@commitlint/cli` 20.5.3:
+The rule gives the verdicts of `@commitlint/cli` 20.5.3 with that configuration, except:
 
-- Lengths are counted in characters, where the reference counts UTF-16 code units: a character
-  outside the Basic Multilingual Plane, such as an emoji, counts once here and twice there.
 - The comment character is always `#`; the reference reads git's `core.commentChar`.
 
 ## How to fix it

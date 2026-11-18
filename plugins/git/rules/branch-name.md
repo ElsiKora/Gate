@@ -26,7 +26,9 @@ The checks run in the reference's order, and the first one that fails is reporte
    which checks main out and checks a push to main, do not, and there the list does not apply.
 2. **ignore**: a name listed in `ignore` (by default `dev`) passes every other check.
 3. **min-length** and **max-length**: the name is at least `min-length` and at most `max-length`
-   characters long (by default 5 and 50); 0 turns a limit off.
+   long (by default 5 and 50); 0 turns a limit off. A length is counted as the reference counts it,
+   in UTF-16 code units: a character outside the Basic Multilingual Plane, such as an emoji, counts
+   twice.
 4. **the name**: the whole name matches `template`, or `pattern` matches it.
 
 Outside a hook run, main passes: a name one of the references `main` of `[plugins.git] options`
@@ -67,8 +69,8 @@ The rule reads `main` from `[plugins.git] options`, and has its own options. Exa
 | `subject` | string (regex), or a table of them by placeholder name | `"[a-z0-9-]+"` | The pattern of the other placeholders. |
 | `prohibited` | list of strings | `["main", "master", "release"]` | Names refused in a hook run. |
 | `ignore` | list of strings | `["dev"]` | Names that pass every check but `prohibited`. |
-| `min-length` | integer | `5` | The shortest name, in characters; 0 for no limit. |
-| `max-length` | integer | `50` | The longest name, in characters; 0 for no limit. A `min-length` above it is refused. |
+| `min-length` | integer | `5` | The shortest name, in UTF-16 code units; 0 for no limit. |
+| `max-length` | integer | `50` | The longest name, in UTF-16 code units; 0 for no limit. A `min-length` above it is refused. |
 
 ```toml
 [plugins.git]
@@ -106,14 +108,12 @@ the branch name.
 
 ## How it differs from the reference
 
-Measured on the same names against `@elsikora/git-branch-lint` 1.2.2 (commit 9718c1a):
+The rule gives the verdicts of `@elsikora/git-branch-lint` 1.2.2 (commit 9718c1a), except:
 
 - The reference lints `git rev-parse --abbrev-ref HEAD`, which is `HEAD` on a detached head; the rule
   checks nothing there.
 - `prohibited` applies only in a hook run, and main passes outside one; the reference has no notion
   of the run and refuses `main` in CI too.
-- Lengths are counted in characters, where the reference counts UTF-16 code units: a name with a
-  character outside the Basic Multilingual Plane is one shorter here.
 - The patterns are Rust regular expressions: no look-around or back-references, and `\w`, `\d` and
   `\b` are Unicode-aware. A template or subject the Rust syntax refuses is a configuration error.
 - A `$` in `subject` or `types` is taken literally; the reference reads `$&`, `` $` `` and `$'` in

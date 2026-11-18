@@ -219,6 +219,13 @@ fn both_length_limits_apply_and_zero_turns_one_off() {
         ),
         ["branch support/a is 9 characters long, shorter than min-length 10"]
     );
+    // Lengths are JavaScript's, in UTF-16 code units: an emoji counts twice.
+    let emoji = r#"{"pattern": ".", "min-length": 0, "max-length": 5}"#;
+    assert_eq!(verdict("ab\u{1F600}c", emoji, false), Vec::<String>::new());
+    assert_eq!(
+        verdict("ab\u{1F600}cd", emoji, false),
+        ["branch ab\u{1F600}cd is 6 characters long, longer than max-length 5"]
+    );
 }
 
 #[test]

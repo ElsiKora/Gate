@@ -21,7 +21,7 @@ use crate::settings::pattern;
 pub struct CommitMessage;
 
 /// The options of `git/commit-message`; every one defaults to the reference's value. A length is
-/// counted in characters; 0 turns a longest-length check off.
+/// counted as the reference counts it, in UTF-16 code units; 0 turns a longest-length check off.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(
     crate = "gate_sdk::serde",
@@ -221,8 +221,10 @@ fn trim_new_lines(text: &str) -> &str {
     text.trim_matches(['\r', '\n'])
 }
 
+/// The length the reference measures: JavaScript's `length`, in UTF-16 code units, so a character
+/// outside the Basic Multilingual Plane (an emoji) counts twice.
 fn length(text: &str) -> usize {
-    text.chars().count()
+    text.encode_utf16().count()
 }
 
 /// The message is of a form `commitlint`'s default ignores skip: a merge (`Merge branch`,

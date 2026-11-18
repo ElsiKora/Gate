@@ -132,6 +132,12 @@ fn each_subject_body_and_footer_check_fails_as_the_reference_fails_it() {
             "{}",
             vec!["subject-max-length"],
         ),
+        // JavaScript's length: the emoji is two UTF-16 code units.
+        (
+            format!("feat(core): {}\u{1F600}", "a".repeat(79)),
+            "{}",
+            vec!["subject-max-length"],
+        ),
         (
             "feat(core): add the thing\nThe body.".to_owned(),
             "{}",

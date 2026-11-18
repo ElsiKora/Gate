@@ -70,9 +70,9 @@ pub struct Options {
     pub prohibited: Vec<String>,
     /// Names that pass every check but `prohibited`.
     pub ignore: Vec<String>,
-    /// The shortest name, in characters; 0 for no limit.
+    /// The shortest name, in UTF-16 code units as the reference counts; 0 for no limit.
     pub min_length: usize,
-    /// The longest name, in characters; 0 for no limit.
+    /// The longest name, in UTF-16 code units as the reference counts; 0 for no limit.
     pub max_length: usize,
 }
 
@@ -214,7 +214,8 @@ impl<'o> Policy<'o> {
         if options.ignore.iter().any(|ignored| ignored == name) {
             return None;
         }
-        let length = name.chars().count();
+        // The reference measures JavaScript's `length`: UTF-16 code units.
+        let length = name.encode_utf16().count();
         if options.min_length > 0 && length < options.min_length {
             return Some((
                 format!(
