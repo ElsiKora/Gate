@@ -60,6 +60,16 @@
 - `sync-state` per commit per rule: within a run one memo already served every call and rule, but
   two calls running in parallel could both compute the same commit. The memo now computes each
   commit once (a `OnceLock` per commit).
-- Not yet: the tests run; the measurement on the copy needs this branch's plugins (the interface
-  changed after rc.1, so the rc.1 components do not load); per-rule time needs the plugin to say
-  where a rule starts, an interface question for the lead.
+- Measured on the copy (this branch's core and plugins through `--plugin`, gate check --timings, a
+  machine at load average 110 to 185, so only the shape counts): cold 20.75 s wall on an empty cache;
+  warm 0 of 12 calls run, 1.5 to 2.8 s wall, of which loading the seven plugins took 0.57 to 2.05 s
+  and checking the stored results 0.26 to 0.69 s. Plugins now load on a thread each; `--timings`
+  prints `load` apart from `plugins`.
+- 2026-11-18T23:36:13+00:00: merged release/v0.1.0 c32848a (version 0.1.0, fixtures pin the core under
+  test). Local: `cargo test --locked -p gate-runtime -p gate-host` exit 0; `cargo test --locked -p
+  gate --test plugins` 40 passed, 4 failed (the version fixtures, before the merge); fmt and clippy of
+  the three crates exit 0. Lane ticket 143 queued: the five gates, the four new tests on c32848a (each
+  must fail), then one cold and three warm runs on the copy.
+- Open: per-rule time needs the plugin to say where a rule starts (an interface question, put to the
+  lead); git answers about commits other than `sync-state` are not stored on disk although
+  architecture §9 says so (each is a git process); the second goal waits for the per-rule split.
