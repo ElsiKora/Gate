@@ -77,4 +77,12 @@ pub trait History: Send + Sync {
     fn is_ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool, HostError>;
     /// What `gate sync` produces at a commit and which of it differs, repository-relative.
     fn sync_state(&self, commit: &str) -> Result<SyncState, HostError>;
+    /// The commit message under review (`--commit-message`), as its file holds it.
+    fn message(&self) -> Result<Option<String>, HostError> {
+        Ok(None)
+    }
+    /// Whether a git hook started the run (`--hook`).
+    fn hook(&self) -> Result<bool, HostError> {
+        Ok(false)
+    }
 }

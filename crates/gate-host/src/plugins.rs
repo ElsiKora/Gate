@@ -422,7 +422,7 @@ impl Loaded {
         workspace: &Workspace,
         selection: &Selection,
         changes: Option<&ChangeSet>,
-        range: Option<CommitRange>,
+        run_git: RunGit,
         filter: &RuleFilter,
         findings: &mut Findings,
     ) -> Result<Ran> {
@@ -437,7 +437,9 @@ impl Loaded {
         let history: Arc<dyn History> = Arc::new(GitHistory {
             git: snapshot.git().clone(),
             head: snapshot.commit().map(str::to_owned),
-            range,
+            range: run_git.range,
+            message: run_git.message,
+            hook: run_git.hook,
             overrides: Arc::clone(&self.overrides),
             run_workspace: workspace.clone(),
             run: OnceLock::new(),
@@ -1042,12 +1044,28 @@ fn location(location: gate_sdk::Location) -> Location {
 }
 
 /// The repository's history as the plugin runtime reads it.
+/// What a run's git interface answers about the run itself, beyond its snapshot: the range of
+/// `--rev` or `--push`, the message of `--commit-message` and whether a hook started it.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RunGit {
+    /// The run's range under `--rev` or `--push`.
+    pub(crate) range: Option<CommitRange>,
+    /// The commit message under review.
+    pub(crate) message: Option<String>,
+    /// A git hook started the run.
+    pub(crate) hook: bool,
+}
+
 struct GitHistory {
     git: Git,
     /// The commit of the run's snapshot: the `--rev` commit, or `HEAD`.
     head: Option<String>,
     /// The run's range under `--rev` or `--push`.
     range: Option<CommitRange>,
+    /// The commit message under review (`--commit-message`).
+    message: Option<String>,
+    /// A git hook started the run (`--hook`).
+    hook: bool,
     /// The run's `--plugin` builds, used again for the generators at another commit.
     overrides: Arc<Overrides>,
     /// The run's workspace: its configuration answers `sync-state` at a commit whose own
@@ -1124,6 +1142,14 @@ impl History for GitHistory {
 
     fn range(&self) -> std::result::Result<Option<CommitRange>, HostError> {
         Ok(self.range.clone())
+    }
+
+    fn message(&self) -> std::result::Result<Option<String>, HostError> {
+        Ok(self.message.clone())
+    }
+
+    fn hook(&self) -> std::result::Result<bool, HostError> {
+        Ok(self.hook)
     }
 
     fn resolve(&self, rev: &str) -> std::result::Result<Option<String>, HostError> {

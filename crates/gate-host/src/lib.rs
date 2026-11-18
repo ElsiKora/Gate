@@ -145,6 +145,8 @@ pub struct CheckRequest {
     /// The commit message under review (`--commit-message <file>`, read by the caller), for the
     /// rules that check it.
     pub commit_message: Option<String>,
+    /// A git hook started the run (`--hook`, which the generated hooks pass).
+    pub hook: bool,
     /// The rules the run is narrowed to (`--rule`); empty: every rule.
     pub rules: RuleFilter,
 }
@@ -361,7 +363,11 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
                 &workspace,
                 &selection,
                 changes.as_ref(),
-                range,
+                plugins::RunGit {
+                    range,
+                    message: request.commit_message.clone(),
+                    hook: request.hook,
+                },
                 &request.rules,
                 &mut findings,
             )?

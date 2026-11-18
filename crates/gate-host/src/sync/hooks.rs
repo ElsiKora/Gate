@@ -69,6 +69,11 @@ pub fn scripts(hooks: &HooksSection) -> Result<Vec<(String, String)>> {
                 words.push(budget.to_string());
             }
 
+            // A check a hook starts says so: rules that apply only while a developer works read it.
+            if is_check {
+                words.push("--hook".to_owned());
+            }
+
             if has_flag(command, "--commit-message") {
                 if !MESSAGE_HOOKS.contains(&hook) {
                     return Err(Error::config(format!(

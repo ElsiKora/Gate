@@ -611,6 +611,20 @@ impl wit_git::Host for State {
             drift: granted(state.drift),
         })
     }
+
+    fn message(&mut self) -> wasmtime::Result<Option<String>> {
+        let history = self.history("message")?;
+        let message = self.host_call(|| history.message()).map_err(host)?;
+        self.record(GitQuery::Message, message.iter().cloned().collect())?;
+        Ok(message)
+    }
+
+    fn hook(&mut self) -> wasmtime::Result<bool> {
+        let history = self.history("hook")?;
+        let hook = self.host_call(|| history.hook()).map_err(host)?;
+        self.record(GitQuery::Hook, vec![hook.to_string()])?;
+        Ok(hook)
+    }
 }
 
 impl PluginImports for State {

@@ -374,7 +374,9 @@ budget = 10
 Each git hook runs the listed `gate` commands in order: `check ...`, `run <step or suite> [--staged |
 --push]` or `sync --check`, with no shell syntax. `--push` (in `pre-push` only) and `--commit-message`
 (in `commit-msg` and the other hooks that receive a message file) take no value: the hook passes the
-pushed ranges or the message file. A `run` entry passes the hook's arguments to its steps (`-- "$@"`)
+pushed ranges or the message file. Every `check` a hook runs also gets `--hook`, so rules that apply only
+while a developer works (a prohibited branch name) know a hook started them; an entry, of a hook or a
+job, does not write `--hook` itself. A `run` entry passes the hook's arguments to its steps (`-- "$@"`)
 and, in `pre-push`, the pushed refs on their standard input (`--stdin`). `budget` applies
 `--budget <seconds>` to hook runs: a hook that takes longer warns, it does not fail. `gate sync` writes
 the hooks to `.githooks/` and sets `core.hooksPath` once per clone; every worktree of the clone shares

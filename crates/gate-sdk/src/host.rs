@@ -37,6 +37,15 @@ pub trait GitHost {
     fn is_ancestor(&self, ancestor: &str, descendant: &str) -> bool;
     /// What `gate sync` produces at `commit`, and which of it differs.
     fn sync_state(&self, commit: &str) -> SyncState;
+    /// The commit message under review (`gate check --commit-message <file>`), as the file holds
+    /// it; `None` for a run without one. A native fixture without a message keeps the default.
+    fn message(&self) -> Option<String> {
+        None
+    }
+    /// Whether a git hook started the run (`gate check --hook`); the default is `false`.
+    fn hook(&self) -> bool {
+        false
+    }
 }
 
 /// Everything a call may reach.

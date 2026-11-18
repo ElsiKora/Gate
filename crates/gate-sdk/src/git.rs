@@ -173,6 +173,24 @@ impl<'h> Git<'h> {
     pub fn sync_state(&self, commit: &str) -> SyncState {
         self.host.sync_state(commit)
     }
+
+    /// The commit message under review: what the file `gate check --commit-message <file>` names
+    /// holds, as git wrote it for the `commit-msg` hook, its comment lines (`#` by default) and any
+    /// scissors line included. `None` for a run without `--commit-message`; a rule about the
+    /// message then checks nothing. A rule that removes comments does so itself: git's
+    /// `core.commentChar` is not known to the plugin.
+    #[must_use]
+    pub fn message(&self) -> Option<String> {
+        self.host.message()
+    }
+
+    /// Whether a git hook started the run: the generated hooks pass `gate check --hook`, and a run
+    /// by hand or in CI does not. A rule that applies only while a developer works, such as a
+    /// branch-name policy that refuses `main`, asks this.
+    #[must_use]
+    pub fn hook(&self) -> bool {
+        self.host.hook()
+    }
 }
 
 #[cfg(test)]

@@ -159,6 +159,11 @@ interface git {
   /// answers the paths it could not produce; a pinned plugin that cannot be fetched or does not
   /// match its pin, a failure of git, and a failure that may pass by the next run fail the call.
   sync-state: func(commit: string) -> sync-paths;
+  /// The commit message under review, as the file `gate check --commit-message <file>` names holds
+  /// it (comment lines included); none for a run without one.
+  message: func() -> option<string>;
+  /// Whether a git hook started the run: `gate check --hook`, which the generated hooks pass.
+  hook: func() -> bool;
 }
 
 world plugin {

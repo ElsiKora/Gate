@@ -95,6 +95,14 @@ impl GitHost for ComponentHost {
             drift: state.drift,
         }
     }
+
+    fn message(&self) -> Option<String> {
+        wit_git::message()
+    }
+
+    fn hook(&self) -> bool {
+        wit_git::hook()
+    }
 }
 
 impl Host for ComponentHost {
