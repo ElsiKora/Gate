@@ -1,6 +1,7 @@
 //! The git plugin's rules run natively through the SDK against synthetic histories.
 
 mod branch_name;
+mod commit_message;
 mod main_history;
 mod no_ci_skip;
 mod repo;
@@ -11,7 +12,15 @@ use repo::{Repo, settings};
 fn the_rules_read_history_over_the_repository() {
     let info = gate_sdk::describe(&git::PLUGIN);
     let names: Vec<&str> = info.rules.iter().map(|rule| rule.name.as_str()).collect();
-    assert_eq!(names, ["main-history", "no-ci-skip", "branch-name"]);
+    assert_eq!(
+        names,
+        [
+            "main-history",
+            "no-ci-skip",
+            "branch-name",
+            "commit-message"
+        ]
+    );
     for rule in &info.rules {
         assert!(rule.reads_history, "{}", rule.name);
         assert_eq!(rule.scope, gate_sdk::Scope::Repository);
