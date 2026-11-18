@@ -394,6 +394,9 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
             .collect::<Vec<_>>()
             .join(", ");
         eprintln!("timings: {line}");
+        for call in &checked.reads {
+            eprintln!("timings: {}", call_timing(call));
+        }
     }
 
     write_out(&checked.report.render(format)?)?;
@@ -405,6 +408,33 @@ fn workspace() -> Result<Workspace, Error> {
     let workspace = Workspace::open(Path::new("."), Source::WorkTree)?;
     gate_host::lock::check_core(&workspace, gate_host::lock::CORE_VERSION)?;
     Ok(workspace)
+}
+
+/// One plugin call of `--timings`: whether it ran or came from the result cache, its time, and
+/// the host's share by kind of host call, the largest first.
+fn call_timing(call: &gate_host::PluginReads) -> String {
+    let scope = call.project.as_deref().unwrap_or("repository");
+    if call.from_cache {
+        return format!("call {} {scope}: cached", call.plugin);
+    }
+    let mut host: Vec<_> = call.time.host.iter().collect();
+    host.sort_by(|left, right| right.1.time.cmp(&left.1.time).then(left.0.cmp(right.0)));
+    let host = host
+        .iter()
+        .map(|(kind, spent)| {
+            format!("{kind} {} ms in {}", spent.time.as_millis(), spent.calls)
+        })
+        .collect::<Vec<_>>();
+    let mut line = format!(
+        "call {} {scope}: ran {} ms",
+        call.plugin,
+        call.time.elapsed.as_millis()
+    );
+    if !host.is_empty() {
+        line.push_str("; host ");
+        line.push_str(&host.join(", "));
+    }
+    line
 }
 
 fn list(arguments: &ListArgs) -> Result<u8, Error> {

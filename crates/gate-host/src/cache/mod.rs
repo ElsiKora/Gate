@@ -30,6 +30,8 @@ use sha2::{Digest as _, Sha256};
 
 use crate::error::{Error, Result};
 
+pub(crate) mod results;
+
 /// The variable that names the cache directory.
 pub const CACHE_DIR_VARIABLE: &str = "GATE_CACHE_DIR";
 
@@ -314,6 +316,22 @@ impl Cache {
     pub fn answer(&self, kind: &str, key: &Sha256Sum) -> PathBuf {
         let digits = key.as_str();
         self.git().join(kind).join(&digits[..2]).join(digits)
+    }
+
+    /// The file of a stored plugin call result under `key`, in [`Cache::results`].
+    #[must_use]
+    pub fn result(&self, key: &Sha256Sum) -> PathBuf {
+        let digits = key.as_str();
+        self.results().join(&digits[..2]).join(digits)
+    }
+
+    /// Moves a written temporary file into place as the result of [`Cache::result`] for `key`.
+    /// When another process filled it first, this one replaces it with an equally valid result.
+    ///
+    /// # Errors
+    /// Fails when the file cannot be synced or renamed.
+    pub fn insert_result(&self, temporary: Temporary, key: &Sha256Sum) -> Result<PathBuf> {
+        Self::place(temporary, self.result(key))
     }
 
     /// Moves a written temporary file into place as the answer of [`Cache::answer`] for `kind`

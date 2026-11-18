@@ -10,12 +10,14 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use gate_runtime::{Blob, Call, Grant, History, HostError, Plugin, ReadSet, Runtime, Tree};
+use gate_runtime::{
+    Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Plugin, ReadSet, Runtime, Tree,
+};
 use gate_sdk::{Commit, CommitRange, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::cache::{Cache, Sha256Sum};
+use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
     PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings,
@@ -61,6 +63,10 @@ pub struct PluginReads {
     pub plugin: String,
     /// The paths listed and read (repository paths, with blob ids) and the git queries.
     pub read_set: ReadSet,
+    /// Whether the result came from the result cache, the call not run.
+    pub from_cache: bool,
+    /// Where the call's time went; zero for a result from the cache.
+    pub time: CallTime,
 }
 
 /// What the plugins of a run reported.
@@ -427,11 +433,13 @@ impl Loaded {
         findings: &mut Findings,
     ) -> Result<Ran> {
         let snapshot = workspace.shared_snapshot();
+        let tree_paths: Vec<String> = snapshot.paths().map(str::to_owned).collect();
+        let changed_paths: Option<Vec<String>> = changes
+            .filter(|set| !set.everything)
+            .map(|set| set.paths.iter().cloned().collect());
         let tree: Arc<dyn Tree> = Arc::new(SnapshotTree {
-            paths: snapshot.paths().map(str::to_owned).collect(),
-            changed: changes
-                .filter(|set| !set.everything)
-                .map(|set| set.paths.iter().cloned().collect()),
+            paths: tree_paths.clone(),
+            changed: changed_paths.clone(),
             snapshot: Arc::clone(&snapshot),
         });
         let history: Arc<dyn History> = Arc::new(GitHistory {
@@ -481,20 +489,76 @@ impl Loaded {
             }
         }
 
-        let calls: Vec<Call<'_>> = planned
+        // The result cache: a call whose recorded inputs answer as they did is not run.
+        let cache = Cache::from_env().ok();
+        let blob = |path: &str| {
+            snapshot
+                .blob_id(path)
+                .map(|id| id.as_str().to_owned())
+        };
+        let inputs = results::Inputs {
+            paths: &tree_paths,
+            blob: &blob,
+            changed: changed_paths.as_deref(),
+        };
+        let keys: Vec<Sha256Sum> = planned
             .iter()
-            .map(|(_, _, _, _, plugin, request, grant)| Call {
-                plugin,
-                request: request.clone(),
-                tree: Arc::clone(&tree),
-                history: Some(Arc::clone(&history)),
-                grant: grant.clone(),
+            .map(|(_, _, _, _, plugin, request, grant)| {
+                results::key(plugin.sha256(), request, grant)
             })
             .collect();
-        let outcomes = self.runtime.check_all(&calls);
+        let mut outcomes: Vec<Option<(gate_runtime::Result<CallOutcome>, bool)>> = keys
+            .iter()
+            .map(|key| {
+                let stored = results::load(cache.as_ref()?, key)?;
+                stored
+                    .holds(&inputs, Some(history.as_ref()))
+                    .then(|| {
+                        (
+                            Ok(CallOutcome {
+                                findings: stored.findings,
+                                read_set: stored.read_set,
+                                log: Vec::new(),
+                                time: CallTime::default(),
+                            }),
+                            true,
+                        )
+                    })
+            })
+            .collect();
+        let missed: Vec<usize> = (0..planned.len())
+            .filter(|index| outcomes[*index].is_none())
+            .collect();
+        let calls: Vec<Call<'_>> = missed
+            .iter()
+            .map(|index| {
+                let (_, _, _, _, plugin, request, grant) = &planned[*index];
+                Call {
+                    plugin,
+                    request: request.clone(),
+                    tree: Arc::clone(&tree),
+                    history: Some(Arc::clone(&history)),
+                    grant: grant.clone(),
+                }
+            })
+            .collect();
+        for (index, outcome) in missed.iter().zip(self.runtime.check_all(&calls)) {
+            if let (Some(cache), Ok(outcome)) = (cache.as_ref(), outcome.as_ref()) {
+                let stored = results::Stored::new(
+                    outcome.findings.clone(),
+                    outcome.read_set.clone(),
+                    &inputs,
+                );
+                results::store(cache, &keys[*index], &stored)?;
+            }
+            outcomes[*index] = Some((outcome, false));
+        }
 
         let mut ran = Ran::default();
         for ((project, settings, name, rules, _, _, _), outcome) in planned.iter().zip(outcomes) {
+            let Some((outcome, from_cache)) = outcome else {
+                continue;
+            };
             let outcome = outcome.map_err(|error| Error::environment(error.to_string()))?;
             for finding in outcome.findings {
                 if let Some(finding) = reported(name, settings, rules, *project, finding)? {
@@ -509,6 +573,8 @@ impl Loaded {
                 project: project.map(str::to_owned),
                 plugin: name.to_string(),
                 read_set: outcome.read_set,
+                from_cache,
+                time: outcome.time,
             });
         }
         Ok(ran)

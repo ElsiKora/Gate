@@ -1,5 +1,6 @@
 //! The data of one store (one call) and the host side of the `tree`, `git` and `log` imports.
 
+use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
@@ -16,7 +17,8 @@ use wasmtime_wasi::{
 
 use crate::grant::Grant;
 use crate::host::{History, HostError, Tree};
-use crate::read_set::{GitQuery, ReadSet};
+use crate::runtime::HostTime;
+use crate::read_set::{GitQuery, ReadSet, range_ids, sync_state_digest};
 
 wasmtime::component::bindgen!({
     world: "plugin",
@@ -72,6 +74,8 @@ pub(crate) struct State {
     stderr: Output,
     /// The time spent in host calls (`git`, `tree.read`), which the call's deadline does not count.
     host_time: Duration,
+    /// The time spent in the host, by kind of host call (`git.sync-state`, `tree.read`).
+    host_kinds: BTreeMap<&'static str, HostTime>,
 }
 
 impl State {
@@ -113,6 +117,7 @@ impl State {
             stdout,
             stderr,
             host_time: Duration::ZERO,
+            host_kinds: BTreeMap::new(),
         }
     }
 
@@ -139,7 +144,7 @@ impl State {
 
     /// The read set, and the log lines followed by what the plugin wrote to stdout and stderr,
     /// one entry per line.
-    pub(crate) fn into_log(self) -> (ReadSet, Vec<String>) {
+    pub(crate) fn into_log(self) -> (ReadSet, Vec<String>, BTreeMap<&'static str, HostTime>) {
         let mut log = self.log;
         for (stream, output) in [("stdout", &self.stdout), ("stderr", &self.stderr)] {
             let captured = output.take();
@@ -154,7 +159,7 @@ impl State {
                 ));
             }
         }
-        (self.read_set, log)
+        (self.read_set, log, self.host_kinds)
     }
 
     /// The time this call has spent in host calls so far.
@@ -163,10 +168,14 @@ impl State {
     }
 
     /// Runs the host side of a call, its time kept apart from the plugin's own.
-    fn host_call<T>(&mut self, call: impl FnOnce() -> T) -> T {
+    fn host_call<T>(&mut self, kind: &'static str, call: impl FnOnce() -> T) -> T {
         let started = Instant::now();
         let answer = call();
-        self.host_time += started.elapsed();
+        let spent = started.elapsed();
+        self.host_time += spent;
+        let entry = self.host_kinds.entry(kind).or_default();
+        entry.time += spent;
+        entry.calls += 1;
         answer
     }
 
@@ -447,7 +456,7 @@ impl gate::plugin::tree::Host for State {
             return Ok(None);
         };
         let tree = Arc::clone(&self.access.tree);
-        let blob = self.host_call(|| tree.read(&path)).map_err(host)?;
+        let blob = self.host_call("tree.read", || tree.read(&path)).map_err(host)?;
         self.record_read(path, blob.as_ref().map(|blob| blob.id.clone()))?;
         Ok(blob.map(|blob| blob.bytes))
     }
@@ -468,33 +477,22 @@ impl gate::plugin::tree::Host for State {
 impl wit_git::Host for State {
     fn head(&mut self) -> wasmtime::Result<Option<String>> {
         let history = self.history("head")?;
-        let head = self.host_call(|| history.head()).map_err(host)?;
+        let head = self.host_call("git.head", || history.head()).map_err(host)?;
         self.record(GitQuery::Head, head.iter().cloned().collect())?;
         Ok(head)
     }
 
     fn branch(&mut self) -> wasmtime::Result<Option<String>> {
         let history = self.history("branch")?;
-        let branch = self.host_call(|| history.branch()).map_err(host)?;
+        let branch = self.host_call("git.branch", || history.branch()).map_err(host)?;
         self.record(GitQuery::Branch, branch.iter().cloned().collect())?;
         Ok(branch)
     }
 
     fn range(&mut self) -> wasmtime::Result<Option<wit_git::CommitRange>> {
         let history = self.history("range")?;
-        let range = self.host_call(|| history.range()).map_err(host)?;
-        let ids = range
-            .iter()
-            .flat_map(|range| {
-                range
-                    .base
-                    .iter()
-                    .chain([&range.head])
-                    .chain(range.target_ref.iter())
-            })
-            .cloned()
-            .collect();
-        self.record(GitQuery::Range, ids)?;
+        let range = self.host_call("git.range", || history.range()).map_err(host)?;
+        self.record(GitQuery::Range, range_ids(range.as_ref()))?;
         Ok(range.map(|range| wit_git::CommitRange {
             base: range.base,
             head: range.head,
@@ -504,7 +502,7 @@ impl wit_git::Host for State {
 
     fn resolve(&mut self, rev: String) -> wasmtime::Result<Option<String>> {
         let history = self.history("resolve")?;
-        let id = self.host_call(|| history.resolve(&rev)).map_err(host)?;
+        let id = self.host_call("git.resolve", || history.resolve(&rev)).map_err(host)?;
         self.record(GitQuery::Resolve { rev }, id.iter().cloned().collect())?;
         Ok(id)
     }
@@ -512,7 +510,7 @@ impl wit_git::Host for State {
     fn tree(&mut self, commit: String) -> wasmtime::Result<String> {
         let history = self.history("tree")?;
         self.full_id("tree", &commit)?;
-        let tree = self.host_call(|| history.tree(&commit)).map_err(host)?;
+        let tree = self.host_call("git.tree", || history.tree(&commit)).map_err(host)?;
         self.record(GitQuery::Tree { commit }, Vec::new())?;
         Ok(tree)
     }
@@ -522,7 +520,7 @@ impl wit_git::Host for State {
         self.full_id("merge-tree", &first)?;
         self.full_id("merge-tree", &second)?;
         let tree = self
-            .host_call(|| history.merge_tree(&first, &second))
+            .host_call("git.merge-tree", || history.merge_tree(&first, &second))
             .map_err(host)?;
         self.record(GitQuery::MergeTree { first, second }, Vec::new())?;
         Ok(tree)
@@ -531,7 +529,7 @@ impl wit_git::Host for State {
     fn log(&mut self, range: String) -> wasmtime::Result<Vec<wit_git::Commit>> {
         let history = self.history("log")?;
         let (commits, revisions) = self
-            .host_call(|| Ok::<_, HostError>((history.log(&range)?, history.revisions(&range)?)))
+            .host_call("git.log", || Ok::<_, HostError>((history.log(&range)?, history.revisions(&range)?)))
             .map_err(host)?;
         self.record(GitQuery::Log { range }, revisions)?;
         Ok(commits
@@ -550,7 +548,7 @@ impl wit_git::Host for State {
         self.full_id("changed-paths", &parent)?;
         self.full_id("changed-paths", &commit)?;
         let paths = self
-            .host_call(|| history.changed_paths(&parent, &commit))
+            .host_call("git.changed-paths", || history.changed_paths(&parent, &commit))
             .map_err(host)?;
         self.record(GitQuery::ChangedPaths { parent, commit }, Vec::new())?;
         let grant = &self.access.grant;
@@ -568,7 +566,7 @@ impl wit_git::Host for State {
             return Ok(None);
         };
         let bytes = self
-            .host_call(|| history.read_at(&commit, &path))
+            .host_call("git.read-at", || history.read_at(&commit, &path))
             .map_err(host)?;
         self.record(GitQuery::ReadAt { commit, path }, Vec::new())?;
         Ok(bytes)
@@ -579,7 +577,7 @@ impl wit_git::Host for State {
         self.full_id("is-ancestor", &ancestor)?;
         self.full_id("is-ancestor", &descendant)?;
         let answer = self
-            .host_call(|| history.is_ancestor(&ancestor, &descendant))
+            .host_call("git.is-ancestor", || history.is_ancestor(&ancestor, &descendant))
             .map_err(host)?;
         self.record(
             GitQuery::IsAncestor {
@@ -595,9 +593,9 @@ impl wit_git::Host for State {
         let history = self.history("sync-state")?;
         self.full_id("sync-state", &commit)?;
         let state = self
-            .host_call(|| history.sync_state(&commit))
+            .host_call("git.sync-state", || history.sync_state(&commit))
             .map_err(host)?;
-        self.record(GitQuery::SyncState { commit }, Vec::new())?;
+        self.record(GitQuery::SyncState { commit }, vec![sync_state_digest(&state)])?;
         let grant = &self.access.grant;
         let granted = |paths: Vec<String>| -> Vec<String> {
             paths

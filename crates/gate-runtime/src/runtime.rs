@@ -1,5 +1,6 @@
 //! The engine, loaded plugins, and calls.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -225,6 +226,47 @@ pub struct CallOutcome {
     pub read_set: ReadSet,
     /// `log` lines, then stdout and stderr lines prefixed `stdout: ` and `stderr: `.
     pub log: Vec<String>,
+    /// Where the call's time went.
+    pub time: CallTime,
+}
+
+/// Where a call's time went: in all, and in the host by kind of host call.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CallTime {
+    /// From instantiation to the answer, host calls included.
+    pub elapsed: Duration,
+    /// The time spent answering the plugin, by kind of host call (`git.sync-state`, `tree.read`).
+    pub host: BTreeMap<String, HostTime>,
+}
+
+/// The time spent in one kind of host call, and how many calls.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HostTime {
+    pub time: Duration,
+    pub calls: u64,
+}
+
+impl CallTime {
+    /// The time of one invocation: `elapsed` in all, `host` by kind.
+    fn new(elapsed: Duration, host: BTreeMap<&'static str, HostTime>) -> Self {
+        Self {
+            elapsed,
+            host: host
+                .into_iter()
+                .map(|(kind, spent)| (kind.to_owned(), spent))
+                .collect(),
+        }
+    }
+
+    /// Adds the time of another invocation of the same call.
+    fn merge(&mut self, other: Self) {
+        self.elapsed += other.elapsed;
+        for (kind, spent) in other.host {
+            let entry = self.host.entry(kind).or_default();
+            entry.time += spent.time;
+            entry.calls += spent.calls;
+        }
+    }
 }
 
 /// The tree of a call that reads nothing: `describe`.
@@ -373,7 +415,7 @@ impl Runtime {
             history: None,
             grant: Grant::repository(),
         };
-        let (info, _, _) = self.invoke(&plugin, "describe", access, |bindings, store| {
+        let (info, _, _, _) = self.invoke(&plugin, "describe", access, |bindings, store| {
             bindings.call_describe(store)
         })?;
         plugin.info = info_from(info);
@@ -508,7 +550,7 @@ impl Runtime {
                     .join(", ")
             );
             let request = request_to_wit(&request);
-            let (answer, read_set, log) =
+            let (answer, read_set, log, time) =
                 self.invoke(plugin, &label, access, |bindings, store| {
                     bindings.call_check(store, &request)
                 })?;
@@ -521,6 +563,7 @@ impl Runtime {
             }
             outcome.read_set.merge(read_set);
             outcome.log.extend(log);
+            outcome.time.merge(time);
         }
         Ok(outcome)
     }
@@ -608,7 +651,7 @@ impl Runtime {
             grant: grant.clone(),
         };
         let label = format!("generate {name}");
-        let (answer, read_set, log) = self.invoke(plugin, &label, access, |bindings, store| {
+        let (answer, read_set, log, _) = self.invoke(plugin, &label, access, |bindings, store| {
             bindings.call_generate(store, name, &project, options)
         })?;
         let output =
@@ -661,7 +704,7 @@ impl Runtime {
         label: &str,
         access: Access,
         call: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<T>,
-    ) -> Result<(T, ReadSet, Vec<String>)> {
+    ) -> Result<(T, ReadSet, Vec<String>, CallTime)> {
         let mut store = Store::new(&self.engine, State::new(access, self.config.memory_bytes));
         store.limiter(|state| &mut state.limits);
         store
@@ -698,7 +741,8 @@ impl Runtime {
             });
         let limit_hit = store.data().limit_hit();
         let refused = store.data().refused().map(str::to_owned);
-        let (read_set, log) = store.into_data().into_log();
+        let (read_set, log, host) = store.into_data().into_log();
+        let time = CallTime::new(started.elapsed(), host);
         let answer = answer.map_err(|error| match (error.kind, limit_hit, refused) {
             (ErrorKind::Trap, Some(limit), _) => {
                 Error::new(&plugin.name, ErrorKind::OutOfMemory, limit)
@@ -725,7 +769,7 @@ impl Runtime {
             _ => error,
         });
         match answer {
-            Ok(answer) => Ok((answer, read_set, log)),
+            Ok(answer) => Ok((answer, read_set, log, time)),
             Err(mut error) => {
                 let stderr: Vec<&str> = log
                     .iter()
