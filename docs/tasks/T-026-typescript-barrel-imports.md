@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | planned |
+| Status | in progress |
 | Release | v0.2.0 |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
@@ -42,4 +42,5 @@ The second consumer's structure requirement (plan, "From the second consumer's r
 
 ## Resume point
 
-2026-11-18: planned; branch `task/T-026-typescript-barrel-imports`.
+2026-11-18: rule, schema, page and synthetic tests written on `task/T-026-typescript-barrel-imports`
+from `release/v0.1.0` d30ecb8; the plugin's gates run in the lane next, then the workspace round.
