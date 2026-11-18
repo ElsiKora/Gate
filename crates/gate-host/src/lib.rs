@@ -351,6 +351,8 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     } else {
         plugins::load(&workspace, lock.as_ref(), &files)?
     };
+    phase("load", at);
+    let at = Instant::now();
     let ran = match loaded {
         None => {
             // No plugin is loaded: --rule knows only the rules [rules] names.

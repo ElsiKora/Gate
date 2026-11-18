@@ -220,8 +220,30 @@ fn instantiate(
     let mut plugin_schemas = BTreeMap::new();
     let mut unloadable = BTreeMap::new();
 
-    for component in fetched {
-        match compile(&runtime, &component) {
+    // Each component compiles (or loads its compiled module) and describes itself on a thread of
+    // its own: a warm run spends most of its time here, and the slowest plugin bounds it.
+    let compiled: Vec<std::result::Result<Compiled, LoadFailure>> = std::thread::scope(|scope| {
+        let runtime = &runtime;
+        let handles: Vec<_> = fetched
+            .iter()
+            .map(|component| scope.spawn(move || compile(runtime, component)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle.join().unwrap_or_else(|_| {
+                    Err(LoadFailure {
+                        error: Error::environment(
+                            "a thread loading a plugin panicked; run gate again, and report it if it recurs",
+                        ),
+                        lasting: false,
+                    })
+                })
+            })
+            .collect()
+    });
+    for (component, compiled) in fetched.into_iter().zip(compiled) {
+        match compiled {
             Ok((plugin, options, rules)) => {
                 plugin_schemas.insert(component.name.clone(), options);
                 schemas.extend(
