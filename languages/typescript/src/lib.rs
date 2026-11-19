@@ -261,14 +261,13 @@ pub fn parse_source<'a>(
     path: &str,
     text: &str,
 ) -> Result<SourceFile<'a>> {
-    let source_type = SourceType::from_path(path)
-        .map_err(|_| {
-            Error::new(format!(
-                "{path} is not a JavaScript or TypeScript file, so it cannot be parsed; the option \
+    let source_type = SourceType::from_path(path).map_err(|_| {
+        Error::new(format!(
+            "{path} is not a JavaScript or TypeScript file, so it cannot be parsed; the option \
                  that names it should name a file ending in {}",
-                extensions()
-            ))
-        })?;
+            extensions()
+        ))
+    })?;
     let source = allocator.alloc_str(text);
     let parsed = Parser::new(allocator, source, source_type).parse();
     let lines = LineIndex::new(source);

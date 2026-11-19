@@ -2717,7 +2717,10 @@ fn a_configured_tsconfig_that_is_not_tracked_is_a_configuration_error() {
             "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"app\"\n\n[plugins]\ntypescript = {{ source = \"acme/rules:typescript@0.1.0\" }}\n\n[languages.typescript]\ntsconfig = \"tsconfig.app.json\"\n\n[rules]\n\"typescript/barrel-imports\" = {{ level = \"error\" }}\n"
         ),
     );
-    repo.write("src/accounts/index.ts", "export { account } from \"./account\";\n");
+    repo.write(
+        "src/accounts/index.ts",
+        "export { account } from \"./account\";\n",
+    );
     repo.write("src/accounts/account.ts", "export const account = 1;\n");
     repo.write("src/main.ts", "import { account } from \"./accounts\";\n");
     repo.commit("init");

@@ -286,9 +286,7 @@ fn the_settings_are_required_and_checked() {
         // Read as JavaScript reads it: an inline flag is not JavaScript.
         let flag = settings(&root).replace(r"(\\d+\\.\\d+\\.\\d+)", r"(?i)(\\d+\\.\\d+\\.\\d+)");
         assert_ne!(flag, settings(&root));
-        let error = repo
-            .check(rule, &flag, "{}")
-            .expect_err("an inline flag");
+        let error = repo.check(rule, &flag, "{}").expect_err("an inline flag");
         assert!(
             error
                 .message()
