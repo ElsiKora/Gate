@@ -126,5 +126,21 @@
   fix re-asked a recorded yes too, so a warm run read a stored answer per call: a stored result now
   asks again only what can change (`GitQuery::lasting`). Not fixed:
   `read-at` of a commit the clone lacks is still stored as absent.
+- 2026-11-19T06:19:00+00:00: the warm check of the git call. A profile of a warm `--rule 'git/*'` run on the
+  second copy (macOS `sample`, 1 ms, release with debug symbols): checking the call's stored result
+  asks `sync-state` again, and all 12 stored answers follow the run's configuration, so finding
+  each one needed `run_key`: 6921 of 9592 samples, 6181 of them running every generator on the
+  run's tree, 740 loading every plugin a second time; `state_key` hashed the 17.5 MB of `--plugin`
+  builds per key (2645). The CPU of the whole run was 0.85 s user and 0.83 s sys
+  (`/usr/bin/time`) at load average about 270, so its 15 to 22 s wall time is the machine's load.
+  992fad9 hashes the builds once per run; 40308c8 stores a generator's output with its read set in
+  the result cache (format 2), so the run's generators, `sync-state` at a commit and `gate sync` run
+  only generators whose read files changed; 7ac0379 gives the history the run's own loaded plugins.
+  At 7ac0379 (profile build, `--rule 'git/*'`, a copy of the measured cache, one run to store the
+  format-2 entries first): warm 2.12 s wall, 0.28 s user, 0.46 s sys at load average 124; the call
+  "cached, checked in 570 ms", generators "0 ran, 4 from the cache". On 943fea1 (ticket 151) the
+  same run took 5.73 s wall, 0.77 s user, 0.53 s sys, plugins 4805 ms. What is left of a warm run is
+  loading the plugins (`Runtime::new`, compiled modules read back). The cold run's largest host
+  share is `read-at`: 19.2 s in 810, the next item.
 - Open: per-rule time and fuel need the plugin to say where a rule starts (an interface question,
   put to the lead); the 12 `sync-state` answers at about 4 s each.
