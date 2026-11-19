@@ -2,6 +2,22 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 
+# 0.3.0 (unreleased)
+
+### Breaking Changes
+
+- `git/commit-message` also checks the message of each commit a `gate check --push` run sends (the
+  `pre-push` hook and the CI job), oldest first, with every aspect and option, the ignores
+  included: `<base>..<head>`, or the head commit alone for a new branch. A finding is on the
+  commit, starts with its short id, and its target and key are the commit id. A `--rev` run checks
+  nothing more than before.
+
+  For a consumer, a push that passed can now fail: a pushed commit whose message breaks the rule
+  (made with `git commit -n`, cherry-picked, rebased or edited on the web) is reported by the
+  `pre-push` hook and by the CI job, under the same aspects as in the `commit-msg` hook. Reword such
+  a commit before the push (`git rebase -i`), or, when it is already shared, give it an exception by
+  its commit id. Commits already on the remote ref are outside the range and are not checked.
+
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.2.0...plugin-git-v0.2.1) (2026-11-20)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.

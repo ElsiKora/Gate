@@ -1,8 +1,9 @@
 //! `git/commit-message`: the message of the commit being made (`gate check --commit-message
-//! <file>`, which the generated `commit-msg` hook passes) has the conventional form, as
-//! `commitlint` checks it with `@commitlint/config-conventional` and the rule levels of
-//! `@elsikora/git-branch-lint`: `<type>(<scope>): <subject>`, then a blank line and a body, then a
-//! blank line and a footer.
+//! <file>`, which the generated `commit-msg` hook passes), and the message of each commit a push
+//! sends (`gate check --push`: `<base>..<head>`, or the head commit alone for a new branch), have
+//! the conventional form, as `commitlint` checks it with `@commitlint/config-conventional` and the
+//! rule levels of `@elsikora/git-branch-lint`: `<type>(<scope>): <subject>`, then a blank line and
+//! a body, then a blank line and a footer.
 //!
 //! Each check is an aspect named after the `commitlint` rule it ports. The message is read as
 //! `commitlint --edit` reads it: comment lines (`#`) and what follows the scissors line are not
@@ -11,7 +12,7 @@
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
+use gate_sdk::{Commit, Error, Git, Location, Result, Rule, Run, Scope};
 use regex::Regex;
 
 use crate::javascript::{ANY, translate};
@@ -58,9 +59,9 @@ pub struct Options {
     /// reapplies, `amend!`, `fixup!` and `squash!` commits, and a release whose header is a
     /// version.
     pub default_ignores: bool,
-    /// Regular expressions of the trailers the message being written may not carry, each searched
-    /// in every trailer of its trailer block, written `Token: value`. An ignored message is
-    /// checked too.
+    /// Regular expressions of the trailers the message being written and the pushed commits'
+    /// messages may not carry, each searched in every trailer of its trailer block, written
+    /// `Token: value`. An ignored message is checked too.
     pub prohibited_trailers: Vec<String>,
 }
 
@@ -119,52 +120,92 @@ impl Rule for CommitMessage {
 
     const NAME: &'static str = "commit-message";
     const TITLE: &'static str =
-        "The message of the commit being made has the conventional form: type(scope): subject";
+        "Each commit message, made or pushed, has the conventional form: type(scope): subject";
     const ASPECTS: &'static [&'static str] = ASPECTS;
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let patterns = Patterns::new(run.options())?;
-        let Some(message) = run.git()?.message() else {
-            return Ok(());
-        };
-        if let Some((header, found)) = verdicts(&message, run.options(), &patterns) {
-            for (aspect, text, help) in found {
-                let finding = run.report().finding(aspect, None::<Location>, text);
-                if let Some(header) = &header {
-                    finding.target(header.clone()).key(header.as_str());
-                }
-                finding.help(help);
-            }
+        let git = run.git()?;
+        if let Some(message) = git.message() {
+            report(run, &patterns, &message, None);
         }
-        // A trailer stays in history whatever the header says, so an ignored message is checked
-        // too.
-        for trailer in trailers(&message) {
-            let Some(pattern) = patterns
-                .prohibited
-                .iter()
-                .find(|(_, prohibited)| prohibited.is_match(&trailer))
-                .map(|(text, _)| text)
-            else {
-                continue;
-            };
-            run.report()
-                .finding(
-                    "prohibited-trailers",
-                    None::<Location>,
-                    format!(
-                        "the trailer {trailer:?} is prohibited: it matches prohibited-trailers \
-                         {pattern:?}"
-                    ),
-                )
-                .target(trailer.clone())
-                .key(trailer.as_str())
-                .help("remove the trailer from the message");
+        for commit in pushed(&git) {
+            report(run, &patterns, &commit.message, Some(&commit.id));
         }
         Ok(())
     }
 }
+
+/// The commits a push sends, oldest first: `<base>..<head>`, or the head commit alone for a new
+/// branch (no base). None for a run that is not a push, `--rev` included.
+fn pushed(git: &Git<'_>) -> Vec<Commit> {
+    let Some(range) = git.range().filter(|range| range.target_ref.is_some()) else {
+        return Vec::new();
+    };
+    let revisions = match &range.base {
+        Some(base) => format!("{base}..{}", range.head),
+        None => format!("{}^!", range.head),
+    };
+    let mut commits = git.log(&revisions);
+    commits.reverse();
+    commits
+}
+
+/// Reports what `message` fails: the message being written when `commit` is `None`, else the
+/// message of the pushed commit `commit`, whose findings are on that commit, name it as their
+/// target, are keyed by it and start with its short id.
+fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit: Option<&str>) {
+    let location = commit.map(Location::commit);
+    let text = |text: String| match commit {
+        Some(id) => format!("{}: {text}", id.get(..SHORT).unwrap_or(id)),
+        None => text,
+    };
+    if let Some((header, found)) = verdicts(message, run.options(), patterns) {
+        for (aspect, failure, help) in found {
+            let finding = run
+                .report()
+                .finding(aspect, location.clone(), text(failure));
+            match (commit, &header) {
+                (Some(id), _) => {
+                    finding.target(id).key(id);
+                }
+                (None, Some(header)) => {
+                    finding.target(header.clone()).key(header.as_str());
+                }
+                (None, None) => {}
+            }
+            finding.help(help);
+        }
+    }
+    // A trailer stays in history whatever the header says, so an ignored message is checked too.
+    for trailer in trailers(message) {
+        let Some(pattern) = patterns
+            .prohibited
+            .iter()
+            .find(|(_, prohibited)| prohibited.is_match(&trailer))
+            .map(|(text, _)| text)
+        else {
+            continue;
+        };
+        let finding = run.report().finding(
+            "prohibited-trailers",
+            location.clone(),
+            text(format!(
+                "the trailer {trailer:?} is prohibited: it matches prohibited-trailers {pattern:?}"
+            )),
+        );
+        match commit {
+            Some(id) => finding.target(id).key(format!("{id} {trailer}")),
+            None => finding.target(trailer.clone()).key(trailer.as_str()),
+        };
+        finding.help("remove the trailer from the message");
+    }
+}
+
+/// The length of a short commit id in a finding's message.
+const SHORT: usize = 12;
 
 /// The header of `message` and the checks it fails, as aspect, message and help, in [`ASPECTS`]
 /// order; `None` for a message that is blank, has no line but comments, or is of a form the

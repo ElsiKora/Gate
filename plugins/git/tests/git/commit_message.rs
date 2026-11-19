@@ -594,3 +594,182 @@ fn a_prohibited_trailer_pattern_that_cannot_work_fails_closed() {
         assert!(error.is_config(), "a configuration error: {options}");
     }
 }
+
+/// A remote main at `base` and a branch of three commits on it, with `messages`, oldest first:
+/// the repository, `base` and the three ids, oldest first.
+fn branch(messages: [&str; 3]) -> (Repo, String, [String; 3]) {
+    let mut repo = Repo::default();
+    let base = repo.commit(&[], "chore: init", &[("README.md", Some("# r\n"))]);
+    repo.set_ref("refs/heads/main", &base);
+    let first = repo.commit(&[&base], messages[0], &[("a.txt", Some("a\n"))]);
+    let second = repo.commit(&[&first], messages[1], &[("b.txt", Some("b\n"))]);
+    let third = repo.commit(&[&second], messages[2], &[("c.txt", Some("c\n"))]);
+    repo.set_head(&third);
+    (repo, base, [first, second, third])
+}
+
+/// The findings of `repo` as aspect, location, target, key and message.
+fn pushed(repo: &Repo, options: &str) -> Vec<(String, String, String, String, String)> {
+    repo.check("commit-message", "{}", options)
+        .expect("runs")
+        .into_iter()
+        .map(|finding| {
+            (
+                finding.aspect,
+                format!("{:?}", finding.location),
+                finding.target.unwrap_or_default(),
+                finding.key.unwrap_or_default(),
+                finding.message,
+            )
+        })
+        .collect()
+}
+
+const PUSH_GOOD: [&str; 3] = [
+    "feat(core): add the thing",
+    "fix(core): mend the thing",
+    "docs: say how the thing works",
+];
+
+#[test]
+fn a_push_whose_commits_all_pass_passes() {
+    let (mut repo, base, [.., head]) = branch(PUSH_GOOD);
+    repo.set_push(Some(&base), &head, "refs/heads/main");
+    assert_eq!(pushed(&repo, NO_AGENT), []);
+}
+
+#[test]
+fn each_pushed_commit_that_fails_is_reported_on_that_commit() {
+    let (mut repo, base, [first, second, third]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again\n\nThe body says why.\n\nCo-authored-by: Example Agent",
+    ]);
+    repo.set_push(Some(&base), &third, "refs/heads/main");
+    let found = pushed(&repo, NO_AGENT);
+    let short = |id: &str| id[..12].to_owned();
+    assert_eq!(
+        found
+            .iter()
+            .map(|(aspect, location, target, key, _)| (
+                aspect.as_str(),
+                location.clone(),
+                target.clone(),
+                key.clone()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "type-enum",
+                format!("{:?}", Some(gate_sdk::Location::commit(first.clone()))),
+                first.clone(),
+                first.clone(),
+            ),
+            (
+                "prohibited-trailers",
+                format!("{:?}", Some(gate_sdk::Location::commit(third.clone()))),
+                third.clone(),
+                format!("{third} Co-authored-by: Example Agent"),
+            ),
+        ]
+    );
+    assert!(
+        found[0]
+            .4
+            .starts_with(&format!("{}: type feature", short(&first))),
+        "{found:?}"
+    );
+    assert!(
+        found[1]
+            .4
+            .starts_with(&format!("{}: the trailer", short(&third))),
+        "{found:?}"
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|(.., message)| message.contains(&short(&second)))
+    );
+}
+
+#[test]
+fn a_merge_and_a_fixup_in_a_push_are_skipped_by_the_default_ignores() {
+    let (mut repo, base, [first, second, third]) = branch([
+        "feat(core): add the thing",
+        "fixup! feat(core): add the thing",
+        "Merge branch 'main' into feat/the-thing",
+    ]);
+    repo.set_push(Some(&base), &third, "refs/heads/main");
+    assert_eq!(pushed(&repo, "{}"), []);
+    // Without the default ignores both are checked, oldest first.
+    let keys: Vec<String> = pushed(&repo, r#"{"default-ignores": false}"#)
+        .into_iter()
+        .map(|(.., key, _)| key)
+        .collect();
+    assert!(!keys.is_empty());
+    assert!(!keys.contains(&first));
+    let at = |id: &String| keys.iter().position(|key| key == id);
+    assert!(
+        at(&second).zip(at(&third)).is_some_and(|(s, t)| s < t),
+        "{keys:?}"
+    );
+}
+
+#[test]
+fn a_new_branch_checks_its_head_commit_alone() {
+    let (mut repo, _, [_, second, third]) = branch([
+        "feature(core): add the thing",
+        "feature(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    repo.set_push(None, &third, "refs/heads/feat/the-thing");
+    assert_eq!(pushed(&repo, "{}"), []);
+    repo.set_push(None, &second, "refs/heads/feat/the-thing");
+    let keys: Vec<String> = pushed(&repo, "{}")
+        .into_iter()
+        .map(|(.., key, _)| key)
+        .collect();
+    assert_eq!(keys, [second]);
+}
+
+#[test]
+fn a_rev_run_and_a_run_with_neither_range_nor_message_check_nothing() {
+    let (mut repo, _, [.., head]) = branch([
+        "feature(core): add the thing",
+        "feature(core): mend the thing",
+        "feature(core): mend it again",
+    ]);
+    assert_eq!(pushed(&repo, "{}"), []);
+    repo.set_range(&head, None);
+    assert_eq!(pushed(&repo, "{}"), []);
+}
+
+#[test]
+fn the_message_being_written_and_a_push_are_checked_in_one_run() {
+    let (mut repo, base, [first, _, third]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    repo.set_push(Some(&base), &third, "refs/heads/main");
+    repo.set_message(Some("feature(core): the next thing\n"));
+    let found: Vec<(String, String, String)> = pushed(&repo, "{}")
+        .into_iter()
+        .map(|(aspect, location, target, ..)| (aspect, location, target))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            (
+                "type-enum".to_owned(),
+                "None".to_owned(),
+                "feature(core): the next thing".to_owned()
+            ),
+            (
+                "type-enum".to_owned(),
+                format!("{:?}", Some(gate_sdk::Location::commit(first.clone()))),
+                first,
+            ),
+        ]
+    );
+}

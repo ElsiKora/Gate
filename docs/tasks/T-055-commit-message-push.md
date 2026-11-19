@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved; code after T-042 merges |
+| Status | in progress |
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
-| Depends on | `main` at `f0d7ca4`; T-042 (`prohibited-trailers`) merged first |
-| Touches | `plugins/git/src/commit_message.rs`, its tests, `plugins/git/rules/commit-message.md`, `plugins/git/CHANGELOG.md` |
+| Depends on | T-042 (`prohibited-trailers`) at its tip `5e98a9f`; rebased onto `main` once T-042 merges |
+| Touches | `plugins/git/src/commit_message.rs`, `plugins/git/src/lib.rs` (its doc), its tests and the test repository, `plugins/git/rules/commit-message.md`, `plugins/git/CHANGELOG.md` |
 
 ## Goal
 
@@ -70,7 +70,8 @@ it separately, outside this task.
   range skipped by the default ignores; a new branch (the head commit alone); a `--rev` run and a
   run with neither range nor message checking nothing; the message being written and a push range
   in one run.
-- The rule page (what is read, when) and the changelog under `Unreleased`, `Breaking`.
+- The rule page (what is read, when) and the changelog under `0.3.0 (unreleased)`, `Breaking
+  Changes`.
 - `rustfmt --edition 2024 --check` on the changed `.rs` files exits 0 before each commit.
 - fmt, clippy, test (`--no-fail-fast`), deny, build and the plugins' wasm builds exit 0 in one lane
   round on the pushed tip.
@@ -80,3 +81,15 @@ it separately, outside this task.
 
 2026-11-19: branch `task/T-055-commit-message-push` from `origin/main` at `f0d7ca4`; this file
 first, with the design, sent to the lead before any code.
+2026-11-19: at the lead's word, coded on the T-042 tip `5e98a9f` before T-042 merges (the three
+design commits rebased onto it; to be rebased onto main after T-042 merges). `check` reports the
+message being written as before, then each commit of the push range, oldest first, through one
+`report`: `pushed` reads `git.log("<base>..<head>")`, or `git.log("<head>^!")` (the head commit
+alone) for a new branch, and nothing when the range has no target ref (`--rev`). A pushed commit's
+findings are on `Location::commit`, start with its 12-character id, have the commit id as target
+and key (the key `<id> <trailer>` for `prohibited-trailers`). The test repository gains
+`set_push(base, head, target_ref)` and reads `<commit>^!` in `log`. Tests: the six of "Done when".
+Title, module and option docs, rule page (what is read, when, an example finding of a pushed
+commit, the difference for a new branch) and the changelog under `# 0.3.0 (unreleased)`,
+`### Breaking Changes`, above the v0.2.1 `## Unreleased`, as T-048's branch heads it, with the
+consumer paragraph. rustfmt --edition 2024 --check on the changed `.rs` files: exit 0.

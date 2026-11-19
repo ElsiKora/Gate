@@ -100,6 +100,16 @@ impl Repo {
         });
     }
 
+    /// The range of a push of `head` to `target_ref`, from `base`, the remote ref's commit; `None`
+    /// for a new branch.
+    pub fn set_push(&mut self, base: Option<&str>, head: &str, target_ref: &str) {
+        self.range = Some(CommitRange {
+            base: base.map(str::to_owned),
+            head: head.to_owned(),
+            target_ref: Some(target_ref.to_owned()),
+        });
+    }
+
     /// What `gate sync` produces at `id`, and which of it drifts there.
     pub fn set_sync(&mut self, id: &str, produced: &[&str], drift: &[&str]) {
         let owned = |paths: &[&str]| paths.iter().map(|path| (*path).to_owned()).collect();
@@ -237,6 +247,11 @@ impl GitHost for Repo {
 
     fn log(&self, range: &str) -> Vec<Commit> {
         let ids = match range.split_once("..") {
+            // `<commit>^!`: the commit alone, without its parents.
+            None if range.ends_with("^!") => self
+                .find(range.trim_end_matches("^!"))
+                .into_iter()
+                .collect(),
             Some((from, to)) => {
                 let excluded = self.ancestry(from);
                 self.ancestry(to)
