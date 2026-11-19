@@ -10,30 +10,43 @@ use serde_json::Value;
 use crate::git::Git;
 use crate::host::Host;
 use crate::report::{Finding, Report};
-use crate::rule::{Generate, GeneratedFile, Generator, GeneratorInfo, Rule, RuleInfo, Run};
+use crate::rule::{
+    Call, CallState, Enter, Entered, Generate, GeneratedFile, Generator, GeneratorInfo, Rule,
+    RuleInfo, Run,
+};
 use crate::{Error, Result};
 
-/// One rule of a plugin, erased to what the host calls.
-#[derive(Clone, Copy)]
-pub struct RuleEntry {
+/// How the call runs one rule: the host, the rule's run and the call's shared state.
+type RunRule<S> = fn(&dyn Host, &RuleRun, &Shared<'_, S>) -> Result<Vec<Finding>>;
+
+/// One rule of a plugin, erased to what the host calls. `S` is the plugin's [`CallState`].
+pub struct RuleEntry<S: CallState = ()> {
     name: &'static str,
     info: fn() -> RuleInfo,
-    run: fn(&dyn Host, &RuleRun, &Shared<'_>) -> Result<Vec<Finding>>,
+    run: RunRule<S>,
 }
 
-impl RuleEntry {
+impl<S: CallState> RuleEntry<S> {
     /// The entry of rule `R`.
     #[must_use]
-    pub const fn of<R: Rule>() -> Self {
+    pub const fn of<R: Rule<S>>() -> Self {
         Self {
             name: R::NAME,
             info: R::info,
-            run: run_rule::<R>,
+            run: run_rule::<R, S>,
         }
     }
 }
 
-impl std::fmt::Debug for RuleEntry {
+impl<S: CallState> Clone for RuleEntry<S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S: CallState> Copy for RuleEntry<S> {}
+
+impl<S: CallState> std::fmt::Debug for RuleEntry<S> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_tuple("RuleEntry")
@@ -88,18 +101,39 @@ pub struct Preset {
 #[serde(deny_unknown_fields)]
 pub struct NoOptions {}
 
-/// Everything a plugin declares; [`crate::plugin!`] builds it as a `static`.
-#[derive(Clone, Copy, Debug)]
-pub struct PluginSpec {
+/// Everything a plugin declares; [`crate::plugin!`] builds it as a `static`. `S` is the state the
+/// rules of one call share ([`CallState`]); `()` for a plugin without one.
+pub struct PluginSpec<S: CallState = ()> {
     /// The plugin's name, lowercase kebab: the prefix of its rule ids (`typescript/barrel-exports`).
     pub name: &'static str,
     pub version: &'static str,
     /// The JSON Schema of the `[plugins.<name>] options`, generated from the `options` type of
     /// [`crate::plugin!`].
     pub options_schema: fn() -> String,
-    pub rules: &'static [RuleEntry],
+    pub rules: &'static [RuleEntry<S>],
     pub generators: &'static [GeneratorEntry],
     pub presets: &'static [Preset],
+}
+
+impl<S: CallState> Clone for PluginSpec<S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S: CallState> Copy for PluginSpec<S> {}
+
+impl<S: CallState> std::fmt::Debug for PluginSpec<S> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PluginSpec")
+            .field("name", &self.name)
+            .field("version", &self.version)
+            .field("rules", &self.rules)
+            .field("generators", &self.generators)
+            .field("presets", &self.presets)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A preset as `describe` declares it.
@@ -158,16 +192,15 @@ pub struct GenerateOutput {
 }
 
 /// The parts of a `check` request every rule of it shares.
-pub(crate) struct Shared<'r> {
-    project: &'r str,
-    plugin_options: Value,
-    languages: Value,
-    norms: &'r [String],
+pub(crate) struct Shared<'r, S: CallState> {
+    call: Call<'r>,
+    /// The state the call's rules share; dropped when the call ends.
+    state: &'r (dyn Enter<S> + 'r),
 }
 
 /// The declaration of `spec`.
 #[must_use]
-pub fn describe(spec: &PluginSpec) -> PluginInfo {
+pub fn describe<S: CallState>(spec: &PluginSpec<S>) -> PluginInfo {
     PluginInfo {
         name: spec.name.to_owned(),
         version: spec.version.to_owned(),
@@ -190,16 +223,31 @@ pub fn describe(spec: &PluginSpec) -> PluginInfo {
 }
 
 /// Runs every rule `request` names over `host` and returns their findings in rule order.
+/// The call's state ([`CallState`]) is built once, before the first rule, and dropped after the
+/// last.
 ///
 /// # Errors
 /// A rule the plugin does not declare, options that do not match a rule's type, or a rule's own
 /// error; the message names the rule.
-pub fn check(spec: &PluginSpec, host: &dyn Host, request: &CheckRequest) -> Result<Vec<Finding>> {
-    let shared = Shared {
+pub fn check<S: CallState>(
+    spec: &PluginSpec<S>,
+    host: &dyn Host,
+    request: &CheckRequest,
+) -> Result<Vec<Finding>> {
+    let plugin_options = json(&request.plugin_options, "the [plugins] options")?;
+    let languages = json(&request.languages, "the [languages] settings")?;
+    let call = Call {
+        host,
         project: &request.project,
-        plugin_options: json(&request.plugin_options, "the [plugins] options")?,
-        languages: json(&request.languages, "the [languages] settings")?,
+        plugin_options: &plugin_options,
+        languages: &languages,
         norms: &request.norms,
+    };
+    let owner = S::own(&call);
+    let state = Entered::<S>(S::state(&owner));
+    let shared = Shared {
+        call,
+        state: &state,
     };
     let mut findings = Vec::new();
 
@@ -230,8 +278,8 @@ pub fn check(spec: &PluginSpec, host: &dyn Host, request: &CheckRequest) -> Resu
 ///
 /// # Errors
 /// A generator the plugin does not declare, options that do not match, or the generator's error.
-pub fn generate(
-    spec: &PluginSpec,
+pub fn generate<S: CallState>(
+    spec: &PluginSpec<S>,
     host: &dyn Host,
     name: &str,
     project: &str,
@@ -271,10 +319,14 @@ fn named(what: &str, error: Error) -> Error {
     error.with_message(message)
 }
 
-fn run_rule<R: Rule>(host: &dyn Host, rule: &RuleRun, shared: &Shared<'_>) -> Result<Vec<Finding>> {
+fn run_rule<R: Rule<S>, S: CallState>(
+    host: &dyn Host,
+    rule: &RuleRun,
+    shared: &Shared<'_, S>,
+) -> Result<Vec<Finding>> {
     let what = format!("rule {}", R::NAME);
     let mut run = Run {
-        host,
+        call: shared.call,
         git: if R::READS_HISTORY {
             host.git().map(Git::new)
         } else {
@@ -284,10 +336,7 @@ fn run_rule<R: Rule>(host: &dyn Host, rule: &RuleRun, shared: &Shared<'_>) -> Re
         options: options::<R::Options>(&rule.options, &what)?,
         options_file: rule.options_file.clone(),
         exceptions: rule.exceptions.clone(),
-        project: shared.project.to_owned(),
-        plugin_options: &shared.plugin_options,
-        languages: &shared.languages,
-        norms: shared.norms,
+        state: shared.state,
     };
     R::default()
         .check(&mut run)

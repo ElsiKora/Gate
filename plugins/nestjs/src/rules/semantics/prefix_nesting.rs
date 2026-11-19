@@ -21,7 +21,6 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
 
 use crate::layout::PluginOptions;
-use crate::shared::project;
 use crate::shared::tree as walk;
 
 /// The rule.
@@ -57,7 +56,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "prefix-nesting";
@@ -65,50 +64,52 @@ impl gate_sdk::Rule for Rule {
         "Sibling resources and same-kind files sharing a prefix are nested under it";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
 
-        if options.word_separator.is_empty() {
-            return Err(gate_sdk::Error::config(
-                "the option word-separator is empty; set it to the text between the words of a name, such as \"-\"",
-            ));
-        }
-
-        let grouping = Grouping {
-            resource_files: options.resource_files.clone(),
-            ignored_stems: options.ignored_stems.clone(),
-            separator: options.word_separator.clone(),
-        };
-        let root = layout.source_root;
-        let source = project::source(run);
-        let tree = Tree::new(walk::files(&source, &root, &walk::UNSKIPPED));
-        let below = crate::layout::folder_prefix(&root);
-
-        for (directory, entries) in &tree.directories {
-            if !directory.starts_with(&below) {
-                continue;
+            if options.word_separator.is_empty() {
+                return Err(gate_sdk::Error::config(
+                    "the option word-separator is empty; set it to the text between the words of a name, such as \"-\"",
+                ));
             }
 
-            for (count, prefix, kind) in grouping
-                .resource_groups(&tree, directory, entries)
-                .into_iter()
-                .chain(grouping.file_groups(&tree, directory, entries))
-            {
-                run.report()
-                    .finding(
-                        "",
-                        Location::file(directory.as_str()),
-                        format!(
-                            "{directory} has {count} {kind} sharing \"{prefix}\"; nest them under {directory}/{prefix}"
-                        ),
-                    )
-                    .help(format!("move the {kind} into {directory}/{prefix}"))
-                    .key(format!("{prefix}#{}", kind.replace(' ', "-")));
-            }
-        }
+            let grouping = Grouping {
+                resource_files: options.resource_files.clone(),
+                ignored_stems: options.ignored_stems.clone(),
+                separator: options.word_separator.clone(),
+            };
+            let root = layout.source_root;
+            let source = shared.source();
+            let tree = Tree::new(walk::files(source, &root, &walk::UNSKIPPED));
+            let below = crate::layout::folder_prefix(&root);
 
-        Ok(())
+            for (directory, entries) in &tree.directories {
+                if !directory.starts_with(&below) {
+                    continue;
+                }
+
+                for (count, prefix, kind) in grouping
+                    .resource_groups(&tree, directory, entries)
+                    .into_iter()
+                    .chain(grouping.file_groups(&tree, directory, entries))
+                {
+                    run.report()
+                        .finding(
+                            "",
+                            Location::file(directory.as_str()),
+                            format!(
+                                "{directory} has {count} {kind} sharing \"{prefix}\"; nest them under {directory}/{prefix}"
+                            ),
+                        )
+                        .help(format!("move the {kind} into {directory}/{prefix}"))
+                        .key(format!("{prefix}#{}", kind.replace(' ', "-")));
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 

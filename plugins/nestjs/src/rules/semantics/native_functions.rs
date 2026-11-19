@@ -37,11 +37,9 @@ use gate_typescript::syntax::{
     class_start, constructor, decorator_identity, key_name, member_name, member_start, method_kind,
     object_literal, object_property,
 };
-use gate_typescript::{Allocator, TypeScript};
 
 use super::native_repository::Service;
 use crate::layout::PluginOptions;
-use crate::shared::project;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -131,7 +129,7 @@ struct Settings {
     options: Options,
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "native-functions";
@@ -148,101 +146,101 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
 
-        if options.function_decorators.is_empty() {
-            return Err(gate_sdk::Error::config(
-                "`function-decorators` is empty; name at least one automator function decorator",
-            ));
-        }
+            if options.function_decorators.is_empty() {
+                return Err(gate_sdk::Error::config(
+                    "`function-decorators` is empty; name at least one automator function decorator",
+                ));
+            }
 
-        let settings = Settings {
-            service: Service {
-                package: super::package::resolve(
-                    "framework-package",
-                    options.framework_package.as_deref(),
-                    &layout.automator_package,
-                )?,
-                decorator: options.service_decorator.clone(),
-                base: options.service_base.clone(),
-            },
-            options: options.clone(),
-        };
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)?;
-        let report = run.report();
+            let settings = Settings {
+                service: Service {
+                    package: super::package::resolve(
+                        "framework-package",
+                        options.framework_package.as_deref(),
+                        &layout.automator_package,
+                    )?,
+                    decorator: options.service_decorator.clone(),
+                    base: options.service_base.clone(),
+                },
+                options: options.clone(),
+            };
+            let typescript = shared.typescript()?;
+            let sources = Sources::new(typescript, &layout.source_root)?;
+            let report = run.report();
 
-        for source in sources.iter() {
-            for statement in top_level(&source.file) {
-                let Some(class) = class_declaration(statement) else {
-                    continue;
-                };
-                let name = class
-                    .id
-                    .as_ref()
-                    .map_or("<anonymous>", |id| id.name.as_str());
-                let line = source.file.line(class_start(statement, class));
-                let path = source.path.as_str();
-                let is_native = settings
-                    .service
-                    .native(&sources, source, class, &HashSet::new());
-                let repository_service = !is_native
-                    && settings.service_file(path)
-                    && settings.injects_repository(source, class);
+            for source in sources.iter() {
+                for statement in top_level(&source.file) {
+                    let Some(class) = class_declaration(statement) else {
+                        continue;
+                    };
+                    let name = class
+                        .id
+                        .as_ref()
+                        .map_or("<anonymous>", |id| id.name.as_str());
+                    let line = source.file.line(class_start(statement, class));
+                    let path = source.path.as_str();
+                    let is_native = settings
+                        .service
+                        .native(&sources, source, class, &HashSet::new());
+                    let repository_service = !is_native
+                        && settings.service_file(path)
+                        && settings.injects_repository(source, class);
 
-                if is_native
-                    && !class
-                        .decorators
-                        .iter()
-                        .any(|decorator| settings.entity_service_decorator(source, decorator))
-                {
-                    report
-                        .finding(
-                            "api-service",
-                            at(path, line),
-                            format!(
-                                "{path}:{line} {name} is a native service without its own Crud Automator {} decorator that names its entity",
-                                settings.service.decorator
-                            ),
-                        )
-                        .help(format!(
-                            "decorate the class with {}({{ {}: ... }})",
-                            settings.service.decorator, settings.options.entity_option
-                        ))
-                        .key(name);
-                }
+                    if is_native
+                        && !class
+                            .decorators
+                            .iter()
+                            .any(|decorator| settings.entity_service_decorator(source, decorator))
+                    {
+                        report
+                            .finding(
+                                "api-service",
+                                at(path, line),
+                                format!(
+                                    "{path}:{line} {name} is a native service without its own Crud Automator {} decorator that names its entity",
+                                    settings.service.decorator
+                                ),
+                            )
+                            .help(format!(
+                                "decorate the class with {}({{ {}: ... }})",
+                                settings.service.decorator, settings.options.entity_option
+                            ))
+                            .key(name);
+                    }
 
-                if repository_service {
-                    report
-                        .finding(
-                            "api-service",
-                            at(path, line),
-                            format!(
-                                "{path}:{line} {name} injects a repository through {} but is no Crud Automator {}",
-                                settings.options.inject_repository.decorator,
-                                settings.service.decorator
-                            ),
-                        )
-                        .help(format!(
-                            "decorate the class with {}({{ {}: ... }})",
-                            settings.service.decorator, settings.options.entity_option
-                        ))
-                        .key(name);
-                }
+                    if repository_service {
+                        report
+                            .finding(
+                                "api-service",
+                                at(path, line),
+                                format!(
+                                    "{path}:{line} {name} injects a repository through {} but is no Crud Automator {}",
+                                    settings.options.inject_repository.decorator,
+                                    settings.service.decorator
+                                ),
+                            )
+                            .help(format!(
+                                "decorate the class with {}({{ {}: ... }})",
+                                settings.service.decorator, settings.options.entity_option
+                            ))
+                            .key(name);
+                    }
 
-                let native_members = is_native || repository_service;
+                    let native_members = is_native || repository_service;
 
-                for element in &class.body.body {
-                    settings.member(source, report, name, native_members, element);
+                    for element in &class.body.body {
+                        settings.member(source, report, name, native_members, element);
+                    }
                 }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

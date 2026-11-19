@@ -77,7 +77,7 @@ impl Findings {
     }
 
     /// Reports the collected findings on `run`, each with the help `help` gives for its aspect.
-    pub fn report<O>(self, run: &mut Run<'_, O>, help: impl Fn(&str) -> &'static str) {
+    pub fn report<O>(self, run: &mut Run<'_, O, crate::Nest>, help: impl Fn(&str) -> &'static str) {
         for finding in self.pending {
             let help = help(finding.aspect);
             let location = location(

@@ -20,6 +20,17 @@ pub trait Source {
     /// Fails when a tracked file cannot be read.
     fn bytes(&self, path: &str) -> Result<Option<Rc<[u8]>>>;
 
+    /// The contents of one tracked file that a view is about to parse ([`crate::TypeScript::parse`]);
+    /// `None` for a path that is not tracked. The parsed file keeps the text
+    /// ([`crate::SourceFile::source`]), so a source that keeps what it reads may drop its copy of a
+    /// UTF-8 file here; the default reads it as [`Self::bytes`] does.
+    ///
+    /// # Errors
+    /// Fails when a tracked file cannot be read.
+    fn bytes_for_parse(&self, path: &str) -> Result<Option<Rc<[u8]>>> {
+        self.bytes(path)
+    }
+
     /// The contents of one tracked UTF-8 text file; `None` for a path that is not tracked.
     ///
     /// # Errors

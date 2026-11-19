@@ -13,6 +13,7 @@
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::binding::ImportBindings;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
@@ -21,11 +22,9 @@ use gate_typescript::oxc_ast::ast::{
 };
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::value::{StaticValue, ValueReader, number_text, string_like};
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use super::code_files::{Universe, js_trim_start};
 use crate::layout::PluginOptions;
-use crate::shared::project;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -73,7 +72,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "entity-descriptions";
@@ -81,68 +80,68 @@ impl gate_sdk::Rule for Rule {
     const ASPECTS: &'static [&'static str] = &["owner-prefix", "static", "uppercase-token"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::Prefix;
-            let o = run.options();
-            crate::shared::paths::check_all("roots", &o.roots, Prefix)?;
-        }
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            {
+                use crate::shared::paths::Form::Prefix;
+                let o = run.options();
+                crate::shared::paths::check_all("roots", &o.roots, Prefix)?;
+            }
 
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        let package = super::package::resolve(
-            "framework-package",
-            options.framework_package.as_deref(),
-            &layout.automator_package,
-        )?;
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let reader = ValueReader::new(&typescript);
-        let universe = Universe {
-            roots: &options.roots,
-            extensions: &options.extensions,
-        };
-        let files = universe.parsed(&typescript)?;
-        let mut findings = Vec::new();
-
-        for (path, file) in &files {
-            let Some(bindings) = ImportBindings::new(file, &package, false) else {
-                continue;
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            let package = super::package::resolve(
+                "framework-package",
+                options.framework_package.as_deref(),
+                &layout.automator_package,
+            )?;
+            let typescript = shared.typescript()?;
+            let reader = ValueReader::new(typescript);
+            let universe = Universe {
+                roots: &options.roots,
+                extensions: &options.extensions,
             };
-            let descriptions = Descriptions {
-                path,
-                file,
-                bindings: &bindings,
-                reader: &reader,
-                options,
-            };
+            let files = universe.parsed(typescript)?;
+            let mut findings = Vec::new();
 
-            for node in file.semantic().nodes().iter() {
-                if let AstKind::Class(class) = node.kind() {
-                    descriptions.class(class, &mut findings)?;
+            for (path, file) in &files {
+                let Some(bindings) = ImportBindings::new(file, &package, false) else {
+                    continue;
+                };
+                let descriptions = Descriptions {
+                    path,
+                    file,
+                    bindings: &bindings,
+                    reader: &reader,
+                    options,
+                };
+
+                for node in file.semantic().nodes().iter() {
+                    if let AstKind::Class(class) = node.kind() {
+                        descriptions.class(class, &mut findings)?;
+                    }
                 }
             }
-        }
 
-        for finding in findings {
-            let reported = run.report().finding(
-                finding.aspect,
-                Location::line(
-                    finding.path,
-                    usize::try_from(finding.line).unwrap_or(usize::MAX),
-                ),
-                finding.message,
-            );
+            for finding in findings {
+                let reported = run.report().finding(
+                    finding.aspect,
+                    Location::line(
+                        finding.path,
+                        usize::try_from(finding.line).unwrap_or(usize::MAX),
+                    ),
+                    finding.message,
+                );
 
-            reported.help(finding.help).key(finding.key);
+                reported.help(finding.help).key(finding.key);
 
-            if let Some(target) = finding.target {
-                reported.target(target);
+                if let Some(target) = finding.target {
+                    reported.target(target);
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

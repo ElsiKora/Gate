@@ -16,6 +16,7 @@ use std::collections::HashSet;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
     Argument, ArrowFunctionBody, ArrowFunctionExpression, BindingPattern, CallExpression,
@@ -27,9 +28,6 @@ use gate_typescript::oxc_semantic::AstNodes;
 use gate_typescript::oxc_span::{GetSpan, Span};
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::oxc_syntax::scope::ScopeFlags;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
-
-use crate::shared::project;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -116,7 +114,7 @@ impl Default for Calls {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "api-readiness";
@@ -125,99 +123,99 @@ impl gate_sdk::Rule for Rule {
     const ASPECTS: &'static [&'static str] = &["readiness-owner", "startup-order"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::File;
-            let o = run.options();
-            crate::shared::paths::check_all("readiness-files", &o.readiness_files, File)?;
-            crate::shared::paths::check("startup-file", &o.startup_file, File)?;
-            gate_typescript::check_source_option("startup-file", &o.startup_file)?;
-        }
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            {
+                use crate::shared::paths::Form::File;
+                let o = run.options();
+                crate::shared::paths::check_all("readiness-files", &o.readiness_files, File)?;
+                crate::shared::paths::check("startup-file", &o.startup_file, File)?;
+                gate_typescript::check_source_option("startup-file", &o.startup_file)?;
+            }
 
-        let role = run.options().role_name.clone();
-        let tree = run.tree();
-        let missing: Vec<String> = run
-            .options()
-            .readiness_files
-            .iter()
-            .filter(|path| !tree.contains(path))
-            .cloned()
-            .collect();
+            let role = run.options().role_name.clone();
+            let tree = run.tree();
+            let missing: Vec<String> = run
+                .options()
+                .readiness_files
+                .iter()
+                .filter(|path| !tree.contains(path))
+                .cloned()
+                .collect();
 
-        for path in missing {
-            run.report()
-                .finding(
-                    "readiness-owner",
-                    Location::file(&path),
-                    format!("{path} is required for the {role} readiness owner"),
-                )
-                .help("add the readiness owner file")
-                .key("missing");
-        }
+            for path in missing {
+                run.report()
+                    .finding(
+                        "readiness-owner",
+                        Location::file(&path),
+                        format!("{path} is required for the {role} readiness owner"),
+                    )
+                    .help("add the readiness owner file")
+                    .key("missing");
+            }
 
-        let start = run.options().startup_file.clone();
-        let entrypoint = run.options().entrypoint.clone();
-        let names = Names::new(run.options());
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+            let start = run.options().startup_file.clone();
+            let entrypoint = run.options().entrypoint.clone();
+            let names = Names::new(run.options());
+            let typescript = shared.typescript()?;
 
-        let Some(file) = typescript.parse(&start)? else {
-            run.report()
-                .finding(
-                    "startup-order",
-                    Location::file(&start),
-                    format!("{start} is required for {role} lifecycle governance"),
-                )
-                .help("add the startup file")
-                .key("missing-file");
-            return Ok(());
-        };
+            let Some(file) = typescript.parse(&start)? else {
+                run.report()
+                    .finding(
+                        "startup-order",
+                        Location::file(&start),
+                        format!("{start} is required for {role} lifecycle governance"),
+                    )
+                    .help("add the startup file")
+                    .key("missing-file");
+                return Ok(());
+            };
 
-        // A startup file without a syntax tree is reported once, by `typescript/parse`.
-        if file.fatal() {
-            return Ok(());
-        }
+            // A startup file without a syntax tree is reported once, by `typescript/parse`.
+            if file.fatal() {
+                return Ok(());
+            }
 
-        let Some((offset, body)) = entry(&file, &entrypoint) else {
-            run.report()
-                .finding(
-                    "startup-order",
-                    Location::file(&start),
-                    format!("{start} must declare {entrypoint} with an executable body"),
-                )
-                .help(format!("declare the function {entrypoint} with a body"))
-                .key("missing-entrypoint");
-            return Ok(());
-        };
+            let Some((offset, body)) = entry(&file, &entrypoint) else {
+                run.report()
+                    .finding(
+                        "startup-order",
+                        Location::file(&start),
+                        format!("{start} must declare {entrypoint} with an executable body"),
+                    )
+                    .help(format!("declare the function {entrypoint} with a body"))
+                    .key("missing-entrypoint");
+                return Ok(());
+            };
 
-        if !names.ordered(&file, body) {
-            let line = usize::try_from(file.line(offset)).unwrap_or(usize::MAX);
-            let Names {
-                application,
-                provider,
-                lifecycle,
-                get,
-                assert_ready,
-                listen,
-                mark_ready,
-            } = &names;
+            if !names.ordered(&file, body) {
+                let line = usize::try_from(file.line(offset)).unwrap_or(usize::MAX);
+                let Names {
+                    application,
+                    provider,
+                    lifecycle,
+                    get,
+                    assert_ready,
+                    listen,
+                    mark_ready,
+                } = &names;
 
-            run.report()
-                .finding(
-                    "startup-order",
-                    Location::line(&start, line),
-                    format!(
-                        "{start} {entrypoint} must await {application}.{get}({provider}).{assert_ready}, then await {application}.{listen}, then call {lifecycle}.{mark_ready} in that order in the entrypoint or one locally bound, once-awaited startup operation"
-                    ),
-                )
-                .help(format!(
-                    "await {assert_ready}, then await {listen}, then call {mark_ready}, once each and unconditionally"
-                ))
-                .key("order");
-        }
+                run.report()
+                    .finding(
+                        "startup-order",
+                        Location::line(&start, line),
+                        format!(
+                            "{start} {entrypoint} must await {application}.{get}({provider}).{assert_ready}, then await {application}.{listen}, then call {lifecycle}.{mark_ready} in that order in the entrypoint or one locally bound, once-awaited startup operation"
+                        ),
+                    )
+                    .help(format!(
+                        "await {assert_ready}, then await {listen}, then call {mark_ready}, once each and unconditionally"
+                    ))
+                    .key("order");
+            }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

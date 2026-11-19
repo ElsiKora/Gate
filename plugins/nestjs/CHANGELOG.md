@@ -20,6 +20,9 @@ a rule id, aspect, option or finding message that changes is a breaking change.
   the run as a configuration error (exit 2, `configuration error`), not as an environment error. A
   tracked source or generated file that does not parse (a `package-exports-file` included) stays an
   environment error: its fix is in the tree.
+- The rules of one call share the reads of the project's files, one parse of each TypeScript file
+  and one resolution of each import, through the plugin's call state: a call reads and parses each
+  file once, not once per rule that needs it. The findings are the same.
 
 # 0.1.0
 

@@ -10,6 +10,8 @@ pub mod layout;
 pub mod rules;
 pub mod shared;
 
+pub use self::shared::project::Nest;
+
 use self::rules::semantics::semantics_rules;
 use self::rules::structure::structure_rules;
 
@@ -20,6 +22,7 @@ macro_rules! declare {
             name: "nestjs",
             version: env!("CARGO_PKG_VERSION"),
             options: crate::layout::PluginOptions,
+            call: crate::Nest,
             rules: [$($rule),*],
             generators: [],
             presets: [],

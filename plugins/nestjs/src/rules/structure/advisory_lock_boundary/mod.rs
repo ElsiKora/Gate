@@ -37,7 +37,6 @@ use self::mint::Mint;
 use self::source::{Extraction, SqlSinks};
 use self::sql::{Text, units};
 use crate::layout::{Layout, PluginOptions};
-use crate::shared::project;
 use crate::shared::report::Findings;
 
 /// The extensions of the JavaScript and TypeScript sources read with a syntax tree.
@@ -225,7 +224,7 @@ impl Options {
     }
 }
 
-impl Rule for AdvisoryLockBoundary {
+impl Rule<crate::Nest> for AdvisoryLockBoundary {
     type Options = Options;
 
     const NAME: &'static str = "advisory-lock-boundary";
@@ -247,110 +246,110 @@ impl Rule for AdvisoryLockBoundary {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let options = run.options();
-        let mut findings = Findings::default();
-        let options_file = run
-            .options_file()
-            .map_or_else(|| "gate.toml".to_owned(), str::to_owned);
-        let manifest = run
-            .tree()
-            .text(&options.manifest_path(&layout))
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok());
-        let manifest_path = options.manifest_path(&layout);
-        let rules = rules(
-            options,
-            &manifest_path,
-            manifest.as_ref(),
-            &options_file,
-            source::ShellPatterns::new()?,
-            &mut findings,
-        );
-        let tree = run.tree();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let files = files(tree, options, &layout, typescript.settings());
-        let boundaries = &rules.boundaries;
-        let mut observed: Vec<String> = Vec::new();
-        let mut rejected: Vec<String> = Vec::new();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            run.options().check_paths()?;
+            let options = run.options();
+            let mut findings = Findings::default();
+            let options_file = run
+                .options_file()
+                .map_or_else(|| "gate.toml".to_owned(), str::to_owned);
+            let manifest = run
+                .tree()
+                .text(&options.manifest_path(&layout))
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+            let manifest_path = options.manifest_path(&layout);
+            let rules = rules(
+                options,
+                &manifest_path,
+                manifest.as_ref(),
+                &options_file,
+                source::ShellPatterns::new()?,
+                &mut findings,
+            );
+            let tree = run.tree();
+            let typescript = shared.typescript()?;
+            let files = files(tree, options, &layout, typescript.settings());
+            let boundaries = &rules.boundaries;
+            let mut observed: Vec<String> = Vec::new();
+            let mut rejected: Vec<String> = Vec::new();
 
-        for path in &files {
-            let Some(kind) = Kind::of(path) else {
-                continue;
-            };
+            for path in &files {
+                let Some(kind) = Kind::of(path) else {
+                    continue;
+                };
 
-            if *path == boundaries.executor {
-                observed.push(path.clone());
-            }
-
-            let Some(bytes) = tree.bytes(path) else {
-                continue;
-            };
-
-            let utf8 = std::str::from_utf8(&bytes).is_ok();
-
-            // A SQL, JSON or shell file that is not UTF-8 text is still read, with replacement
-            // characters; the loss is reported.
-            if kind != Kind::Ast && !utf8 {
-                findings.push(
-                    "unreadable",
-                    path.as_str(),
-                    None,
-                    "The file is not UTF-8 text, so it was read with replacement characters.",
-                );
-                rejected.push(path.clone());
-            }
-
-            match scan(
-                &typescript,
-                path,
-                kind,
-                &String::from_utf8_lossy(&bytes),
-                utf8,
-                &rules,
-            )? {
-                Ok(statements) => {
-                    if !statements.is_empty()
-                        && (boundaries.migrations.contains(path)
-                            || boundaries.negative.as_ref() == Some(path))
-                    {
-                        observed.push(path.clone());
-                    }
+                if *path == boundaries.executor {
+                    observed.push(path.clone());
                 }
-                Err(rejection) => {
-                    findings.push_keyed(
-                        rejection.aspect,
+
+                let Some(bytes) = shared.bytes(path) else {
+                    continue;
+                };
+
+                let utf8 = std::str::from_utf8(&bytes).is_ok();
+
+                // A SQL, JSON or shell file that is not UTF-8 text is still read, with replacement
+                // characters; the loss is reported.
+                if kind != Kind::Ast && !utf8 {
+                    findings.push(
+                        "unreadable",
                         path.as_str(),
                         None,
-                        "rejected",
-                        String::from_utf16_lossy(&rejection.message),
+                        "The file is not UTF-8 text, so it was read with replacement characters.",
                     );
                     rejected.push(path.clone());
                 }
+
+                match scan(
+                    typescript,
+                    path,
+                    kind,
+                    &String::from_utf8_lossy(&bytes),
+                    utf8,
+                    &rules,
+                )? {
+                    Ok(statements) => {
+                        if !statements.is_empty()
+                            && (boundaries.migrations.contains(path)
+                                || boundaries.negative.as_ref() == Some(path))
+                        {
+                            observed.push(path.clone());
+                        }
+                    }
+                    Err(rejection) => {
+                        findings.push_keyed(
+                            rejection.aspect,
+                            path.as_str(),
+                            None,
+                            "rejected",
+                            String::from_utf16_lossy(&rejection.message),
+                        );
+                        rejected.push(path.clone());
+                    }
+                }
             }
-        }
 
-        let required = std::iter::once(&boundaries.executor)
-            .chain(&boundaries.migrations)
-            .chain(boundaries.negative.iter());
+            let required = std::iter::once(&boundaries.executor)
+                .chain(&boundaries.migrations)
+                .chain(boundaries.negative.iter());
 
-        for path in required {
-            if !observed.contains(path) && !rejected.contains(path) {
-                findings.push_keyed(
-                    "boundary",
-                    path.as_str(),
-                    None,
-                    "unobserved",
-                    format!("Required source SQL boundary {path} was not observed."),
-                );
+            for path in required {
+                if !observed.contains(path) && !rejected.contains(path) {
+                    findings.push_keyed(
+                        "boundary",
+                        path.as_str(),
+                        None,
+                        "unobserved",
+                        format!("Required source SQL boundary {path} was not observed."),
+                    );
+                }
             }
-        }
 
-        findings.report(run, help);
-        Ok(())
+            findings.report(run, help);
+            Ok(())
+        })
     }
 }
 

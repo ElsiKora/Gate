@@ -17,11 +17,11 @@ use std::collections::BTreeSet;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::binding::ImportBindings;
 use gate_typescript::oxc_ast::ast::{CallExpression, ChainElement, Class, Expression};
 use gate_typescript::oxc_ast_visit::{Visit, walk};
 use gate_typescript::value::unwrap;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::{project, tree};
@@ -82,7 +82,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "module-registry";
@@ -96,96 +96,96 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &[];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::{File, Folder};
-            let o = run.options();
-            crate::shared::paths::check("registry", &o.registry, File)?;
-            crate::shared::paths::check("chapter-root", &o.chapter_root, Folder)?;
-            crate::shared::paths::check("documentation-root", &o.documentation_root, Folder)?;
-            crate::shared::paths::check("chapter-index", &o.chapter_index, File)?;
-        }
-
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-
-        if options.table_header.len() != 3 {
-            return Err(gate_sdk::Error::config(format!(
-                "the option table-header has {} cells; give exactly three: the module path, chapter and ownership headers",
-                options.table_header.len()
-            )));
-        }
-
-        let package = super::package::resolve(
-            "module-package",
-            options.module_package.as_deref(),
-            &layout.nest_common_package,
-        )?;
-        let decorator = vec![options.module_decorator.clone()];
-        let header = options.table_header.clone();
-        let documentation_root = options.documentation_root.clone();
-        let registry = Registry::new(options, &layout.source_root);
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let mut modules = BTreeSet::new();
-        let paths: Vec<&str> = tree::typescript_files(
-            typescript.source(),
-            &layout.source_root,
-            typescript.settings(),
-        )
-        .filter(|path| !path.ends_with(".d.ts"))
-        .collect();
-
-        for path in paths {
-            if let Some(file) = project::parsed(&typescript, path)?
-                && declares_native_module(&file, &package, &decorator)
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
             {
-                modules.insert(path.to_owned());
+                use crate::shared::paths::Form::{File, Folder};
+                let o = run.options();
+                crate::shared::paths::check("registry", &o.registry, File)?;
+                crate::shared::paths::check("chapter-root", &o.chapter_root, Folder)?;
+                crate::shared::paths::check("documentation-root", &o.documentation_root, Folder)?;
+                crate::shared::paths::check("chapter-index", &o.chapter_index, File)?;
             }
-        }
 
-        let tree = run.tree();
-        let text = tree.text(&registry.path);
-        let findings = registry.findings(text.as_deref(), &modules, |page| tree.text(page));
-        let chapters = Chapters {
-            registry: &registry.path,
-            header: &header,
-            source_root: &layout.source_root,
-            documentation_root: &documentation_root,
-        };
-        let unlinked = text
-            .as_deref()
-            .map(|text| chapters.missing(text))
-            .unwrap_or_default();
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
 
-        for finding in findings {
-            let help = finding.aspect_help();
-            let location = match finding.line {
-                Some(line) => Location::line(&registry.path, line),
-                None => Location::file(&registry.path),
+            if options.table_header.len() != 3 {
+                return Err(gate_sdk::Error::config(format!(
+                    "the option table-header has {} cells; give exactly three: the module path, chapter and ownership headers",
+                    options.table_header.len()
+                )));
+            }
+
+            let package = super::package::resolve(
+                "module-package",
+                options.module_package.as_deref(),
+                &layout.nest_common_package,
+            )?;
+            let decorator = vec![options.module_decorator.clone()];
+            let header = options.table_header.clone();
+            let documentation_root = options.documentation_root.clone();
+            let registry = Registry::new(options, &layout.source_root);
+            let typescript = shared.typescript()?;
+            let mut modules = BTreeSet::new();
+            let paths: Vec<&str> = tree::typescript_files(
+                typescript.source(),
+                &layout.source_root,
+                typescript.settings(),
+            )
+            .filter(|path| !path.ends_with(".d.ts"))
+            .collect();
+
+            for path in paths {
+                if let Some(file) = project::parsed(typescript, path)?
+                    && declares_native_module(&file, &package, &decorator)
+                {
+                    modules.insert(path.to_owned());
+                }
+            }
+
+            let text = shared.text(&registry.path);
+            let findings =
+                registry.findings(text.as_deref(), &modules, |page| shared.text(page));
+            let chapters = Chapters {
+                registry: &registry.path,
+                header: &header,
+                source_root: &layout.source_root,
+                documentation_root: &documentation_root,
             };
+            let unlinked = text
+                .as_deref()
+                .map(|text| chapters.missing(text))
+                .unwrap_or_default();
 
-            run.report()
-                .finding(finding.aspect, location, finding.message)
-                .help(help)
-                .key(finding.key);
-        }
+            for finding in findings {
+                let help = finding.aspect_help();
+                let location = match finding.line {
+                    Some(line) => Location::line(&registry.path, line),
+                    None => Location::file(&registry.path),
+                };
 
-        for (line, key, message) in unlinked {
-            run.report()
-                .finding(
-                    "owner-chapter",
-                    Location::line(&registry.path, line),
-                    message,
-                )
-                .help(format!(
-                    "link the row's chapter cell to exactly one Markdown chapter below {documentation_root}/"
-                ))
-                .key(key);
-        }
+                run.report()
+                    .finding(finding.aspect, location, finding.message)
+                    .help(help)
+                    .key(finding.key);
+            }
 
-        Ok(())
+            for (line, key, message) in unlinked {
+                run.report()
+                    .finding(
+                        "owner-chapter",
+                        Location::line(&registry.path, line),
+                        message,
+                    )
+                    .help(format!(
+                        "link the row's chapter cell to exactly one Markdown chapter below {documentation_root}/"
+                    ))
+                    .key(key);
+            }
+
+            Ok(())
+        })
     }
 }
 

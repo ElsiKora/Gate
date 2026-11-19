@@ -26,7 +26,7 @@ use gate_typescript::oxc_ast::ast::{
     ImportOrExportKind, PropertyKey, Statement, TSType,
 };
 use gate_typescript::oxc_span::GetSpan;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
+use gate_typescript::{SourceFile, TypeScript};
 
 use crate::shared::{project, tree as walk};
 
@@ -83,7 +83,7 @@ struct Migration {
     path: String,
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "migrations";
@@ -99,105 +99,105 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::{File, Folder};
-            let o = run.options();
-            crate::shared::paths::check("generated-folder", &o.generated_folder, Folder)?;
-            crate::shared::paths::check("barrel", &o.barrel, File)?;
-            crate::shared::paths::check("registry", &o.registry, File)?;
-            gate_typescript::check_source_option("registry", &o.registry)?;
-        }
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            {
+                use crate::shared::paths::Form::{File, Folder};
+                let o = run.options();
+                crate::shared::paths::check("generated-folder", &o.generated_folder, Folder)?;
+                crate::shared::paths::check("barrel", &o.barrel, File)?;
+                crate::shared::paths::check("registry", &o.registry, File)?;
+                gate_typescript::check_source_option("registry", &o.registry)?;
+            }
 
-        let options = run.options();
-        let generated = options.generated_folder.trim_end_matches('/').to_owned();
-        let barrel_path = options.barrel.clone();
-        let registry = Registry {
-            path: options.registry.clone(),
-            constant: options.registry_constant.clone(),
-            import: options.registry_import.clone(),
-        };
-        let digits = options.timestamp_digits;
-        let single_baseline = options.single_baseline;
-        let tree = run.tree();
-        let offset = if generated.is_empty() {
-            0
-        } else {
-            generated.len() + 1
-        };
-        let files: Vec<String> = walk::files(&project::source(run), &generated, &walk::UNSKIPPED)
-            .filter(|path| {
-                *path != barrel_path
-                    && path[offset..]
-                        .strip_suffix(".ts")
-                        .is_some_and(|stem| !stem.contains('/') && stem != "index")
-            })
-            .map(str::to_owned)
-            .collect();
-
-        // A tree without TypeORM migrations has nothing to check.
-        if files.is_empty() && !tree.contains(&registry.path) && !tree.contains(&barrel_path) {
-            return Ok(());
-        }
-
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let mut migrations: BTreeMap<u64, Vec<Migration>> = BTreeMap::new();
-
-        for path in &files {
-            let file = &path[offset..];
-            let Some((timestamp, class)) = parse_name(file, digits) else {
-                run.report()
-                    .finding(
-                        "filename",
-                        Location::file(path),
-                        format!(
-                            "Invalid migration filename \"{file}\"; use \"<timestamp>-<SemanticName>.ts\""
-                        ),
-                    )
-                    .help(format!(
-                        "rename the file to <{digits}-digit timestamp>-<SemanticName>.ts"
-                    ));
-                continue;
+            let options = run.options();
+            let generated = options.generated_folder.trim_end_matches('/').to_owned();
+            let barrel_path = options.barrel.clone();
+            let registry = Registry {
+                path: options.registry.clone(),
+                constant: options.registry_constant.clone(),
+                import: options.registry_import.clone(),
             };
+            let digits = options.timestamp_digits;
+            let single_baseline = options.single_baseline;
+            let tree = run.tree();
+            let offset = if generated.is_empty() {
+                0
+            } else {
+                generated.len() + 1
+            };
+            let files: Vec<String> = walk::files(shared.source(), &generated, &walk::UNSKIPPED)
+                .filter(|path| {
+                    *path != barrel_path
+                        && path[offset..]
+                            .strip_suffix(".ts")
+                            .is_some_and(|stem| !stem.contains('/') && stem != "index")
+                })
+                .map(str::to_owned)
+                .collect();
 
-            if migrations.contains_key(&timestamp) {
-                run.report()
-                    .finding(
-                        "timestamp",
-                        Location::file(path),
-                        format!("Duplicate migration timestamp \"{timestamp}\""),
-                    )
-                    .help("give each migration its own timestamp");
+            // A tree without TypeORM migrations has nothing to check.
+            if files.is_empty() && !tree.contains(&registry.path) && !tree.contains(&barrel_path) {
+                return Ok(());
             }
 
-            if let Some(source) = project::parsed(&typescript, path)? {
-                for (line, message, help) in class_findings(&source, file, &class) {
+            let typescript = shared.typescript()?;
+            let mut migrations: BTreeMap<u64, Vec<Migration>> = BTreeMap::new();
+
+            for path in &files {
+                let file = &path[offset..];
+                let Some((timestamp, class)) = parse_name(file, digits) else {
                     run.report()
-                        .finding("class", location(path, line), message)
-                        .help(help);
+                        .finding(
+                            "filename",
+                            Location::file(path),
+                            format!(
+                                "Invalid migration filename \"{file}\"; use \"<timestamp>-<SemanticName>.ts\""
+                            ),
+                        )
+                        .help(format!(
+                            "rename the file to <{digits}-digit timestamp>-<SemanticName>.ts"
+                        ));
+                    continue;
+                };
+
+                if migrations.contains_key(&timestamp) {
+                    run.report()
+                        .finding(
+                            "timestamp",
+                            Location::file(path),
+                            format!("Duplicate migration timestamp \"{timestamp}\""),
+                        )
+                        .help("give each migration its own timestamp");
                 }
+
+                if let Some(source) = project::parsed(typescript, path)? {
+                    for (line, message, help) in class_findings(&source, file, &class) {
+                        run.report()
+                            .finding("class", location(path, line), message)
+                            .help(help);
+                    }
+                }
+
+                migrations.entry(timestamp).or_default().push(Migration {
+                    class,
+                    file: file.to_owned(),
+                    path: path.clone(),
+                });
             }
 
-            migrations.entry(timestamp).or_default().push(Migration {
-                class,
-                file: file.to_owned(),
-                path: path.clone(),
-            });
-        }
+            let ordered: Vec<Migration> = migrations.into_values().flatten().collect();
 
-        let ordered: Vec<Migration> = migrations.into_values().flatten().collect();
+            if single_baseline {
+                baseline(run, &generated, &ordered);
+            }
 
-        if single_baseline {
-            baseline(run, &generated, &ordered);
-        }
+            barrel(run, shared, &barrel_path, &ordered);
 
-        barrel(run, &barrel_path, &ordered);
+            registry.report(run, typescript, &ordered)?;
 
-        registry.report(run, &typescript, &ordered)?;
-
-        Ok(())
+            Ok(())
+        })
     }
 }
 
@@ -311,7 +311,7 @@ fn class_findings(
 
 /// Reports every migration but the first, and a missing baseline: one generated migration holds
 /// the complete schema.
-fn baseline(run: &mut Run<'_, Options>, generated: &str, ordered: &[Migration]) {
+fn baseline(run: &mut Run<'_, Options, crate::Nest>, generated: &str, ordered: &[Migration]) {
     let Some((first, rest)) = ordered.split_first() else {
         run.report()
             .finding(
@@ -340,7 +340,12 @@ fn baseline(run: &mut Run<'_, Options>, generated: &str, ordered: &[Migration]) 
 
 /// Reports a generated barrel that differs from one export line per migration in timestamp
 /// order.
-fn barrel(run: &mut Run<'_, Options>, path: &str, ordered: &[Migration]) {
+fn barrel(
+    run: &mut Run<'_, Options, crate::Nest>,
+    shared: &project::Sources<'_>,
+    path: &str,
+    ordered: &[Migration],
+) {
     let mut expected = String::new();
 
     for migration in ordered {
@@ -355,7 +360,7 @@ fn barrel(run: &mut Run<'_, Options>, path: &str, ordered: &[Migration]) {
 
     let help = "regenerate the barrel: one export line per migration in timestamp order";
 
-    match run.tree().bytes(path) {
+    match shared.bytes(path) {
         Some(actual) => {
             // A barrel that is not UTF-8 text cannot match the expected lines either.
             if actual != expected.as_bytes() {
@@ -391,7 +396,7 @@ impl Registry {
     /// Reports the registry: missing, or its findings when it has a syntax tree.
     fn report(
         &self,
-        run: &mut Run<'_, Options>,
+        run: &mut Run<'_, Options, crate::Nest>,
         typescript: &TypeScript<'_>,
         ordered: &[Migration],
     ) -> gate_sdk::Result<()> {

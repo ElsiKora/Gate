@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Rule, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::owners::{call_expression, export_name, unwrap};
 use gate_typescript::oxc_ast::ast::{
     AccessorProperty, Class, Decorator, Expression, FormalParameter, ImportDeclarationSpecifier,
@@ -15,7 +16,6 @@ use gate_typescript::oxc_ast::ast::{
 use gate_typescript::oxc_ast_visit::{Visit, walk};
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::syntax::constructor;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::paths::{self, Form};
@@ -65,7 +65,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for DtoDecorators {
+impl Rule<crate::Nest> for DtoDecorators {
     type Options = Options;
 
     const NAME: &'static str = "dto-decorators";
@@ -74,64 +74,67 @@ impl Rule for DtoDecorators {
     const ASPECTS: &'static [&'static str] = &["describe-outside-entity", "swagger-decorator"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        paths::check("dto-folder", &options.dto_folder, Form::Name)?;
-        paths::check("entity-folder", &options.entity_folder, Form::Name)?;
-        let (dto, entity) = (
-            format!("/{}/", options.dto_folder),
-            format!("/{}/", options.entity_folder),
-        );
-        let (describe, word) = (
-            options.describe_decorator.clone(),
-            options.swagger_property_word.clone(),
-        );
-        let source = project::source(run);
-        let tree_view = run.tree();
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let settings = typescript.settings();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            paths::check("dto-folder", &options.dto_folder, Form::Name)?;
+            paths::check("entity-folder", &options.entity_folder, Form::Name)?;
+            let (dto, entity) = (
+                format!("/{}/", options.dto_folder),
+                format!("/{}/", options.entity_folder),
+            );
+            let (describe, word) = (
+                options.describe_decorator.clone(),
+                options.swagger_property_word.clone(),
+            );
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let settings = typescript.settings();
 
-        let dto_files: Vec<&str> = tree::typescript_files(&source, &layout.modules_root, settings)
-            .filter(|path| path.contains(dto.as_str()))
-            .collect();
+            let dto_files: Vec<&str> =
+                tree::typescript_files(source, &layout.modules_root, settings)
+                    .filter(|path| path.contains(dto.as_str()))
+                    .collect();
 
-        for path in dto_files {
-            let Some(bytes) = tree_view.bytes(path) else {
-                continue;
-            };
+            for path in dto_files {
+                let Some(bytes) = shared.bytes(path) else {
+                    continue;
+                };
 
-            if imports_swagger_property(
-                &String::from_utf8_lossy(&bytes),
-                &layout.swagger_package,
-                &word,
-            ) {
-                run.report()
-                    .finding(
-                        "swagger-decorator",
-                        Location::file(path),
-                        format!("{path} imports Nest Swagger {word} decorators in a DTO folder"),
-                    )
-                    .help(format!(
-                        "use the {} property decorators in DTOs",
-                        layout.automator_package
-                    ))
-                    .key("swagger-import");
+                if imports_swagger_property(
+                    &String::from_utf8_lossy(&bytes),
+                    &layout.swagger_package,
+                    &word,
+                ) {
+                    run.report()
+                        .finding(
+                            "swagger-decorator",
+                            Location::file(path),
+                            format!(
+                                "{path} imports Nest Swagger {word} decorators in a DTO folder"
+                            ),
+                        )
+                        .help(format!(
+                            "use the {} property decorators in DTOs",
+                            layout.automator_package
+                        ))
+                        .key("swagger-import");
+                }
             }
-        }
 
-        let sources: Vec<&str> = tree::typescript_files(&source, &layout.source_root, settings)
-            .filter(|path| !path.contains(entity.as_str()))
-            .collect();
+            let sources: Vec<&str> = tree::typescript_files(source, &layout.source_root, settings)
+                .filter(|path| !path.contains(entity.as_str()))
+                .collect();
 
-        for path in sources {
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
-            };
+            for path in sources {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
 
-            if let Some(start) = describe_decorator(&file, &layout.automator_package, &describe) {
-                run.report()
+                if let Some(start) = describe_decorator(&file, &layout.automator_package, &describe)
+                {
+                    run.report()
                     .finding(
                         "describe-outside-entity",
                         Location::line(
@@ -144,10 +147,11 @@ impl Rule for DtoDecorators {
                         "describe the property on its entity; DTOs take the description from there",
                     )
                     .key("describe");
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

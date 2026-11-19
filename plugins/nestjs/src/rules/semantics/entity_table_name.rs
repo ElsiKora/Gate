@@ -13,7 +13,7 @@ use gate_sdk::{Location, Run};
 use gate_typescript::javascript::is_space;
 
 use crate::layout::PluginOptions;
-use crate::shared::{project, tree};
+use crate::shared::tree;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -41,51 +41,53 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "entity-table-name";
     const TITLE: &'static str = "Every @Entity names its table with a double-quoted string first";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let decorator = run.options().decorator.clone();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let decorator = run.options().decorator.clone();
 
-        if decorator.is_empty() {
-            return Err(gate_sdk::Error::config(
-                "the option decorator is empty; name the decorator, for example \"@Entity\"",
-            ));
-        }
-
-        let source = project::source(run);
-        let paths: Vec<&str> =
-            tree::typescript_files(&source, &layout.source_root, &tree::UNSKIPPED).collect();
-
-        for path in paths {
-            let Some(bytes) = run.tree().bytes(path) else {
-                continue;
-            };
-            // Node decodes a file that is not UTF-8 with replacement characters and still reads it.
-            let text = String::from_utf8_lossy(&bytes);
-
-            for (line, column) in unnamed(&text, &decorator) {
-                run.report()
-                    .finding(
-                        "",
-                        Location::line(path, line),
-                        format!(
-                            "{path} uses {decorator}() at column {column} without an explicit double-quoted table name; use {decorator}(\"table_name\")"
-                        ),
-                    )
-                    .help(format!(
-                        "name the table first, in double quotes: {decorator}(\"table_name\")"
-                    ))
-                    .key(decorator.as_str());
+            if decorator.is_empty() {
+                return Err(gate_sdk::Error::config(
+                    "the option decorator is empty; name the decorator, for example \"@Entity\"",
+                ));
             }
-        }
 
-        Ok(())
+            let source = shared.source();
+            let paths: Vec<&str> =
+                tree::typescript_files(source, &layout.source_root, &tree::UNSKIPPED).collect();
+
+            for path in paths {
+                let Some(bytes) = shared.bytes(path) else {
+                    continue;
+                };
+                // Node decodes a file that is not UTF-8 with replacement characters and still reads it.
+                let text = String::from_utf8_lossy(&bytes);
+
+                for (line, column) in unnamed(&text, &decorator) {
+                    run.report()
+                        .finding(
+                            "",
+                            Location::line(path, line),
+                            format!(
+                                "{path} uses {decorator}() at column {column} without an explicit double-quoted table name; use {decorator}(\"table_name\")"
+                            ),
+                        )
+                        .help(format!(
+                            "name the table first, in double quotes: {decorator}(\"table_name\")"
+                        ))
+                        .key(decorator.as_str());
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 

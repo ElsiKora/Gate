@@ -23,7 +23,6 @@ use gate_typescript::oxc_ast::ast::{
 };
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::oxc_syntax::node::NodeId;
-use gate_typescript::{Allocator, TypeScript};
 
 use self::logger::Kind;
 use self::options::final_false_logging;
@@ -133,7 +132,7 @@ impl Options {
     }
 }
 
-impl Rule for ErrorLogging {
+impl Rule<crate::Nest> for ErrorLogging {
     type Options = Options;
 
     const NAME: &'static str = "error-logging";
@@ -142,75 +141,75 @@ impl Rule for ErrorLogging {
     const ASPECTS: &'static [&'static str] = &[LOGGER, LOGGING];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let options = run.options();
-        let roots = options.roots.clone().unwrap_or_else(|| {
-            let mut roots = vec![layout.source_root.clone()];
-            roots.extend(
-                layout
-                    .cdk_code_folders
-                    .iter()
-                    .map(|folder| format!("{}{folder}", folder_prefix(&layout.cdk_root))),
-            );
-            roots
-        });
-        let names = Names {
-            nest_package: layout.nest_common_package.clone(),
-            automator_package: layout.automator_package.clone(),
-            orm_package: layout.typeorm_package.clone(),
-            logger_class: options.logger_class.clone(),
-            logger_method: options.logger_method.clone(),
-            evidence_formatter: options.evidence_formatter.clone(),
-            orm_options_types: options.orm_options_types.clone(),
-            orm_constructor: options.orm_constructor.clone(),
-            logging_property: options.logging_property.clone(),
-            wrapper_types: options.wrapper_types.clone(),
-        };
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        // Every `.ts` file but a declaration file, in every folder: the walk skips none.
-        let mut paths: Vec<&str> = roots
-            .iter()
-            .flat_map(|root| tree::files(typescript.source(), root, &tree::UNSKIPPED))
-            .filter(|path| {
-                path.strip_suffix(".ts")
-                    .is_some_and(|stem| stem.strip_suffix(".d").is_none())
-            })
-            .collect();
-        paths.sort_unstable();
-        paths.dedup();
-        let mut findings = Findings::default();
-
-        for path in paths {
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            run.options().check_paths()?;
+            let options = run.options();
+            let roots = options.roots.clone().unwrap_or_else(|| {
+                let mut roots = vec![layout.source_root.clone()];
+                roots.extend(
+                    layout
+                        .cdk_code_folders
+                        .iter()
+                        .map(|folder| format!("{}{folder}", folder_prefix(&layout.cdk_root))),
+                );
+                roots
+            });
+            let names = Names {
+                nest_package: layout.nest_common_package.clone(),
+                automator_package: layout.automator_package.clone(),
+                orm_package: layout.typeorm_package.clone(),
+                logger_class: options.logger_class.clone(),
+                logger_method: options.logger_method.clone(),
+                evidence_formatter: options.evidence_formatter.clone(),
+                orm_options_types: options.orm_options_types.clone(),
+                orm_constructor: options.orm_constructor.clone(),
+                logging_property: options.logging_property.clone(),
+                wrapper_types: options.wrapper_types.clone(),
             };
+            let typescript = shared.typescript()?;
+            // Every `.ts` file but a declaration file, in every folder: the walk skips none.
+            let mut paths: Vec<&str> = roots
+                .iter()
+                .flat_map(|root| tree::files(typescript.source(), root, &tree::UNSKIPPED))
+                .filter(|path| {
+                    path.strip_suffix(".ts")
+                        .is_some_and(|stem| stem.strip_suffix(".d").is_none())
+                })
+                .collect();
+            paths.sort_unstable();
+            paths.dedup();
+            let mut findings = Findings::default();
 
-            FileCheck {
-                source: Source {
-                    file: &file,
-                    names: &names,
-                    holds: std::cell::RefCell::default(),
-                    readings: std::cell::Cell::default(),
-                },
-                findings: &mut findings,
-                objects: Vec::new(),
-                known: HashSet::new(),
+            for path in paths {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
+
+                FileCheck {
+                    source: Source {
+                        file: &file,
+                        names: &names,
+                        holds: std::cell::RefCell::default(),
+                        readings: std::cell::Cell::default(),
+                    },
+                    findings: &mut findings,
+                    objects: Vec::new(),
+                    known: HashSet::new(),
+                }
+                .run();
             }
-            .run();
-        }
 
-        findings.report(run, |aspect| {
+            findings.report(run, |aspect| {
             if aspect == LOGGER {
                 "pass the formatted error evidence and a bounded message, and nothing else"
             } else {
                 "end the options object with a literal logging: false and do not change it later"
             }
         });
-        Ok(())
+            Ok(())
+        })
     }
 }
 

@@ -59,6 +59,8 @@ pub struct TypeScript<'a> {
     /// The resolver of the configured tsconfig; resolution follows only its bundler-mode rules,
     /// so no other tsconfig is offered.
     resolver: OnceCell<Resolver>,
+    /// The answers already given, by importer and specifier.
+    resolved: RefCell<HashMap<(String, String), Option<String>>>,
 }
 
 impl std::fmt::Debug for TypeScript<'_> {
@@ -90,6 +92,7 @@ impl<'a> TypeScript<'a> {
                 .collect(),
             parsed: RefCell::new(HashMap::new()),
             resolver: OnceCell::new(),
+            resolved: RefCell::new(HashMap::new()),
         }
     }
 
@@ -141,7 +144,7 @@ impl<'a> TypeScript<'a> {
             return Ok(cached.clone());
         }
 
-        let parsed = match self.source.bytes(path)? {
+        let parsed = match self.source.bytes_for_parse(path)? {
             None => None,
             Some(bytes) => Some(Rc::new(if let Ok(text) = std::str::from_utf8(&bytes) {
                 self.parse_text(path, text)?
@@ -156,10 +159,21 @@ impl<'a> TypeScript<'a> {
                 file
             })),
         };
+        #[cfg(feature = "parse-log")]
+        if parsed.is_some() {
+            PARSED_ON_THREAD.with(|log| log.borrow_mut().push(path.to_owned()));
+        }
         self.parsed
             .borrow_mut()
             .insert(path.to_owned(), parsed.clone());
         Ok(parsed)
+    }
+
+    /// The file [`Self::parse`] already parsed, without parsing it: `None` for a file not parsed
+    /// yet, or not tracked.
+    #[must_use]
+    pub fn parsed(&self, path: &str) -> Option<Rc<SourceFile<'a>>> {
+        self.parsed.borrow().get(path).cloned().flatten()
     }
 
     fn parse_text(&self, path: &str, text: &str) -> Result<SourceFile<'a>> {
@@ -175,6 +189,10 @@ impl<'a> TypeScript<'a> {
     /// Fails when the tsconfig or a `package.json` on the way cannot be read, or when a
     /// configured non-default tsconfig is not tracked.
     pub fn resolve(&self, importer: &str, specifier: &str) -> Result<Option<String>> {
+        let key = (importer.to_owned(), specifier.to_owned());
+        if let Some(known) = self.resolved.borrow().get(&key) {
+            return Ok(known.clone());
+        }
         if self.resolver.get().is_none() {
             if self.settings.tsconfig != Settings::default().tsconfig
                 && !self.source.contains(&self.settings.tsconfig)
@@ -192,11 +210,28 @@ impl<'a> TypeScript<'a> {
             let _ = self.resolver.set(Resolver::new(self.source, tsconfig)?);
         }
 
-        self.resolver
+        let resolved = self
+            .resolver
             .get()
             .ok_or_else(|| Error::new("the module resolver is unavailable"))?
-            .resolve(importer, specifier)
+            .resolve(importer, specifier)?;
+        self.resolved.borrow_mut().insert(key, resolved.clone());
+        Ok(resolved)
     }
+}
+
+#[cfg(feature = "parse-log")]
+thread_local! {
+    static PARSED_ON_THREAD: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The paths the views of this thread parsed since the last call, in order, one entry per parse
+/// and none for an answer from a view's cache. Only with the `parse-log` feature, which tests
+/// enable to count the parses of a call; a release build has no log.
+#[cfg(feature = "parse-log")]
+#[must_use]
+pub fn take_parsed_on_this_thread() -> Vec<String> {
+    PARSED_ON_THREAD.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
 /// Parses `text` as one TypeScript expression into `allocator`, as a policy target that names a

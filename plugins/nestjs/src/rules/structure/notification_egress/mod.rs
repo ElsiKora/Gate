@@ -20,13 +20,12 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
 use gate_typescript::owners::{Owner, Sources};
-use gate_typescript::{Allocator, TypeScript};
 
 use self::scan::Scan;
 use crate::layout::{PluginOptions, folder_prefix};
+use crate::shared::decisions;
 use crate::shared::json_lines::element_lines;
 use crate::shared::report::Findings;
-use crate::shared::{decisions, project};
 
 /// The options of `nestjs/notification-egress`. `owner-classes`, `egress` and `owners` are
 /// required.
@@ -200,7 +199,7 @@ impl Options {
     }
 }
 
-impl Rule for NotificationEgress {
+impl Rule<crate::Nest> for NotificationEgress {
     type Options = Options;
 
     const NAME: &'static str = "notification-egress";
@@ -214,53 +213,53 @@ impl Rule for NotificationEgress {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let options = run.options();
-        let options_file = run.options_file().map(str::to_owned);
-        let label = options_file
-            .clone()
-            .unwrap_or_else(|| "the options in gate.toml".to_owned());
-        let decisions = match &options.decisions {
-            Some(path) => Some(decisions::accepted(&run.tree().text(path).ok_or_else(
-                || {
-                    gate_sdk::Error::config(format!(
-                        "{label}: the decision index {path} is not tracked; correct `decisions` \
-                         or add the index"
-                    ))
-                },
-            )?)),
-            None => None,
-        };
-        validate(options, &layout.source_root, decisions.as_ref(), &label)?;
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+                let layout = PluginOptions::read(run)?.layout;
+                run.options().check_paths()?;
+                let options = run.options();
+                let options_file = run.options_file().map(str::to_owned);
+                let label = options_file
+                    .clone()
+                    .unwrap_or_else(|| "the options in gate.toml".to_owned());
+                let decisions = match &options.decisions {
+                Some(path) => Some(decisions::accepted(&shared.text(path).ok_or_else(
+                    || {
+                        gate_sdk::Error::config(format!(
+                            "{label}: the decision index {path} is not tracked; correct `decisions` \
+                             or add the index"
+                        ))
+                    },
+                )?)),
+                None => None,
+            };
+                validate(options, &layout.source_root, decisions.as_ref(), &label)?;
 
-        let (located, text) = match &options_file {
-            Some(file) => (file.clone(), run.tree().text(file).unwrap_or_default()),
-            None => ("gate.toml".to_owned(), String::new()),
-        };
-        let owner_lines = element_lines(&text, "owners");
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)?;
-        let mut findings = Findings::default();
-        let scan = Scan {
-            sources: &sources,
-            options,
-            consumer: options.consumer.as_ref().map(|consumer| Owner {
-                name: consumer.name.clone(),
-                path: Some(consumer.path.clone()),
-            }),
-        };
-        let uses = scan.uses();
-        let platform_loaded = scan.unclassified_packages(&mut findings);
-        scan.unclassified_egress(&uses, &mut findings);
-        let loaded = scan.direct_notifications(&mut findings);
-        scan.stale_owners(&uses, &loaded, (&located, &owner_lines), &mut findings);
-        scan.stale_egress(&uses, &platform_loaded, (&located, &text), &mut findings);
-        findings.report(run, help);
-        Ok(())
+                let (located, text) = match &options_file {
+                    Some(file) => (file.clone(), shared.text(file).unwrap_or_default()),
+                    None => ("gate.toml".to_owned(), String::new()),
+                };
+                let owner_lines = element_lines(&text, "owners");
+                let typescript = shared.typescript()?;
+                let sources = Sources::new(typescript, &layout.source_root)?;
+                let mut findings = Findings::default();
+                let scan = Scan {
+                    sources: &sources,
+                    options,
+                    consumer: options.consumer.as_ref().map(|consumer| Owner {
+                        name: consumer.name.clone(),
+                        path: Some(consumer.path.clone()),
+                    }),
+                };
+                let uses = scan.uses();
+                let platform_loaded = scan.unclassified_packages(&mut findings);
+                scan.unclassified_egress(&uses, &mut findings);
+                let loaded = scan.direct_notifications(&mut findings);
+                scan.stale_owners(&uses, &loaded, (&located, &owner_lines), &mut findings);
+                scan.stale_egress(&uses, &platform_loaded, (&located, &text), &mut findings);
+                findings.report(run, help);
+                Ok(())
+        })
     }
 }
 

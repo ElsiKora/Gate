@@ -90,7 +90,7 @@ impl Default for Options {
 /// One finding before it is reported: aspect, path, key, message and help.
 type Pending = (&'static str, String, Option<&'static str>, String, String);
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "kind-layout";
@@ -108,71 +108,73 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::{Folder, Name};
-            let o = run.options();
-            crate::shared::paths::check("utility-folder", &o.utility_folder, Name)?;
-            crate::shared::paths::check("utility-root", &o.utility_root, Folder)?;
-            crate::shared::paths::check("controller-folder", &o.controller_folder, Name)?;
-            crate::shared::paths::check("subscriber-folder", &o.subscriber_folder, Name)?;
-            crate::shared::paths::check("unit-root", &o.unit_root, Folder)?;
-        }
-
-        let layout = PluginOptions::read(run)?.layout;
-        let source = project::source(run);
-        let settings = project::settings(run)?;
-        let judge = Judge {
-            layout: &layout,
-            options: run.options(),
-        };
-        let mut pending = Vec::new();
-
-        for folder in tree::folders(&source, &layout.source_root, &settings) {
-            judge.folder(&folder, &mut pending);
-        }
-
-        for path in tree::typescript_files(&source, &layout.modules_root, &settings) {
-            judge.controller(path, &mut pending);
-        }
-
-        for path in tree::typescript_files(&source, &layout.source_root, &settings) {
-            judge.owner_file(path, &mut pending);
-            judge.subscriber(path, &mut pending);
-        }
-
-        let areas: Vec<String> = tree::entries(&source, &layout.modules_root, &tree::UNSKIPPED)
-            .into_iter()
-            .filter_map(|(name, folder)| folder.then_some(name))
-            .collect();
-
-        for path in tree::typescript_files(&source, &judge.options.unit_root, &settings) {
-            let area = path
-                .split('/')
-                .nth(segments(&judge.options.unit_root).len());
-
-            if let Some(area) = area
-                && areas.iter().any(|known| known == area)
-                && tree::files(&source, &join(&layout.source_root, area), &tree::UNSKIPPED)
-                    .next()
-                    .is_none()
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
             {
-                judge.unit(path, area, &mut pending);
+                use crate::shared::paths::Form::{Folder, Name};
+                let o = run.options();
+                crate::shared::paths::check("utility-folder", &o.utility_folder, Name)?;
+                crate::shared::paths::check("utility-root", &o.utility_root, Folder)?;
+                crate::shared::paths::check("controller-folder", &o.controller_folder, Name)?;
+                crate::shared::paths::check("subscriber-folder", &o.subscriber_folder, Name)?;
+                crate::shared::paths::check("unit-root", &o.unit_root, Folder)?;
             }
-        }
 
-        for (aspect, path, key, message, help) in pending {
-            let reported = run
-                .report()
-                .finding(aspect, Location::file(path), message)
-                .help(help);
+            let layout = PluginOptions::read(run)?.layout;
+            let source = shared.source();
+            let settings = project::settings(run)?;
+            let judge = Judge {
+                layout: &layout,
+                options: run.options(),
+            };
+            let mut pending = Vec::new();
 
-            if let Some(key) = key {
-                reported.key(key);
+            for folder in tree::folders(source, &layout.source_root, &settings) {
+                judge.folder(&folder, &mut pending);
             }
-        }
 
-        Ok(())
+            for path in tree::typescript_files(source, &layout.modules_root, &settings) {
+                judge.controller(path, &mut pending);
+            }
+
+            for path in tree::typescript_files(source, &layout.source_root, &settings) {
+                judge.owner_file(path, &mut pending);
+                judge.subscriber(path, &mut pending);
+            }
+
+            let areas: Vec<String> = tree::entries(source, &layout.modules_root, &tree::UNSKIPPED)
+                .into_iter()
+                .filter_map(|(name, folder)| folder.then_some(name))
+                .collect();
+
+            for path in tree::typescript_files(source, &judge.options.unit_root, &settings) {
+                let area = path
+                    .split('/')
+                    .nth(segments(&judge.options.unit_root).len());
+
+                if let Some(area) = area
+                    && areas.iter().any(|known| known == area)
+                    && tree::files(source, &join(&layout.source_root, area), &tree::UNSKIPPED)
+                        .next()
+                        .is_none()
+                {
+                    judge.unit(path, area, &mut pending);
+                }
+            }
+
+            for (aspect, path, key, message, help) in pending {
+                let reported = run
+                    .report()
+                    .finding(aspect, Location::file(path), message)
+                    .help(help);
+
+                if let Some(key) = key {
+                    reported.key(key);
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 
