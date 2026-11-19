@@ -6,6 +6,7 @@
 //! repository paths only.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -536,22 +537,12 @@ impl Loaded {
             changed: changed_paths.clone(),
             snapshot: Arc::clone(&snapshot),
         });
-        let git_history = Arc::new(GitHistory {
-            git: snapshot.git().clone(),
-            head: snapshot.commit().map(str::to_owned),
+        let git_history = Arc::new(GitHistory::new(
+            &snapshot,
             range,
-            overrides: Arc::clone(&self.overrides),
-            run_workspace: workspace.clone(),
-            run: OnceLock::new(),
-            commit_plugins: Mutex::new(BTreeMap::new()),
-            states: Mutex::new(BTreeMap::new()),
-            counted: SyncStateCount::default(),
-            objects: Mutex::new(None),
-            merges: Mutex::new(Batch::Unstarted),
-            writes: CacheWrites::default(),
-            answers: OnceLock::new(),
-            facts: OnceLock::new(),
-        });
+            Arc::clone(&self.overrides),
+            workspace.clone(),
+        ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
         let mut planned = Vec::new();
@@ -1248,6 +1239,8 @@ struct GitHistory {
     range: Option<CommitRange>,
     /// The run's `--plugin` builds, used again for the generators at another commit.
     overrides: Arc<Overrides>,
+    /// Each `--plugin` build's name and sha256, as every `sync-state` key holds them; hashed once.
+    builds: OnceLock<String>,
     /// The run's workspace: its configuration answers `sync-state` at a commit whose own
     /// configuration this core does not read.
     run_workspace: Workspace,
@@ -1568,6 +1561,32 @@ struct Facts {
 }
 
 impl GitHistory {
+    /// The history of `snapshot`'s repository for one run.
+    fn new(
+        snapshot: &Snapshot,
+        range: Option<CommitRange>,
+        overrides: Arc<Overrides>,
+        run_workspace: Workspace,
+    ) -> Self {
+        Self {
+            git: snapshot.git().clone(),
+            head: snapshot.commit().map(str::to_owned),
+            range,
+            overrides,
+            builds: OnceLock::new(),
+            run_workspace,
+            run: OnceLock::new(),
+            commit_plugins: Mutex::new(BTreeMap::new()),
+            states: Mutex::new(BTreeMap::new()),
+            counted: SyncStateCount::default(),
+            objects: Mutex::new(None),
+            merges: Mutex::new(Batch::Unstarted),
+            writes: CacheWrites::default(),
+            answers: OnceLock::new(),
+            facts: OnceLock::new(),
+        }
+    }
+
     fn facts(&self) -> std::result::Result<&Facts, HostError> {
         self.facts
             .get_or_init(|| {
@@ -2049,12 +2068,15 @@ impl GitHistory {
             "{SYNC_STATE}\0{SYNC_STATE_VERSION}\0{}\0{commit}\0",
             env!("CARGO_PKG_VERSION")
         ));
-        for (name, (_, bytes)) in &*self.overrides {
-            hasher.update(format!(
-                "{name}\0{}\0",
-                Sha256Sum::from_digest(&Sha256::digest(bytes)).as_str()
-            ));
-        }
+        hasher.update(self.builds.get_or_init(|| {
+            self.overrides
+                .iter()
+                .fold(String::new(), |mut builds, (name, (_, bytes))| {
+                    let sha256 = Sha256Sum::from_digest(&Sha256::digest(bytes));
+                    let _ = write!(builds, "{name}\0{}\0", sha256.as_str());
+                    builds
+                })
+        }));
         if let Some(configuration) = configuration {
             hasher.update(format!("configuration\0{}\0", configuration.as_str()));
         }
