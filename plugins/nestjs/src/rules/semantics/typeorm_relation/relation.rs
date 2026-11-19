@@ -655,22 +655,15 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             );
         }
 
-        if grammar::repeats(&local) {
-            self.add(
-                owner,
-                "join-column",
-                "repeated-local",
-                "JoinColumn repeats a local column component",
-            );
-        }
-
-        if grammar::repeats(&referenced) {
-            self.add(
-                owner,
-                "join-column",
-                "repeated-referenced",
-                "JoinColumn repeats a referenced column component",
-            );
+        for (components, side) in [(&local, "local"), (&referenced, "referenced")] {
+            if grammar::repeats(components) {
+                self.add(
+                    owner,
+                    "join-column",
+                    &format!("repeated-{side}"),
+                    &format!("JoinColumn repeats a {side} column component"),
+                );
+            }
         }
 
         let target = head.entity.map(|index| &self.catalog.entities[index]);

@@ -2,8 +2,8 @@
 
 use gate_host::config::{RuleId, RuleRef};
 use gate_host::{
-    Baseline, Decision, Finding, Findings, Format, Level, Location, Reason, Report, RulesRan,
-    ScopedException, Selection, Span,
+    Baseline, BaselineEntry, Decision, Finding, Findings, Format, Level, Location, Reason, Report,
+    RulesRan, ScopedException, Selection, Span,
 };
 
 fn finding(
@@ -381,7 +381,7 @@ fn pruning_drops_exactly_the_entries_check_reports_stale() {
     let new = finding("layers/relation", "", Level::Error, "apps/n.ts", 1, "new");
 
     let pruned = baseline.pruned(&[old.clone(), new.clone()], &ran_all());
-    assert!(pruned.rekeyed.is_empty());
+    assert_eq!(pruned.rekeyed, [] as [BaselineEntry; 0]);
     let removed: Vec<&str> = pruned
         .removed
         .iter()
@@ -446,7 +446,7 @@ fn pruning_re_keys_an_entry_written_before_its_finding_had_a_key() {
     // Prune re-keys it, adds nothing for the new finding, and the entry then accepts the finding
     // wherever its line moves.
     let pruned = baseline.pruned(&[keyed.clone(), new.clone()], &ran_all());
-    assert!(pruned.removed.is_empty());
+    assert_eq!(pruned.removed, [] as [BaselineEntry; 0]);
     assert_eq!(pruned.rekeyed.len(), 1);
     assert_eq!(pruned.rekeyed[0].key.as_deref(), Some("User.parent"));
     assert_eq!(pruned.baseline.len(), 1);
@@ -515,7 +515,7 @@ fn a_key_replaces_the_message_in_the_fingerprint() {
     let baseline = Baseline::from_findings(&[first]);
     let mut sink = Findings::new();
     sink.push(second);
-    assert!(sink.finish(&[], &baseline, &ran_all()).is_empty());
+    assert_eq!(sink.finish(&[], &baseline, &ran_all()), [] as [Finding; 0]);
 }
 
 #[test]

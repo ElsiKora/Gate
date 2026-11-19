@@ -166,24 +166,7 @@ impl Rule for ControllerOwners {
 
             discovered.insert(&source.path);
             let Some(contract) = by_path.get(source.path.as_str()).copied() else {
-                for (statement, class) in &controllers {
-                    let line = source.file.line(class_start(statement, class));
-                    let name = class
-                        .id
-                        .as_ref()
-                        .map_or("<anonymous>", |id| id.name.as_str());
-                    findings.push_keyed(
-                        "registration",
-                        source.path.as_str(),
-                        Some(line),
-                        name,
-                        format!(
-                            "{}:{line} {name} is an unregistered controller semantic owner",
-                            source.path
-                        ),
-                    );
-                }
-
+                unregistered(&mut findings, source, &controllers);
                 continue;
             };
             let matching: Vec<_> = controllers
@@ -228,6 +211,31 @@ impl Rule for ControllerOwners {
 
 /// Reports each row whose path names no discovered controller; a registered file that does not
 /// parse is reported by `typescript/parse`, not as stale.
+/// One `registration` finding per controller class of `source`, a file no registry row names.
+fn unregistered(
+    findings: &mut Findings,
+    source: &SourceContext<'_>,
+    controllers: &[(&Statement<'_>, &Class<'_>)],
+) {
+    for (statement, class) in controllers {
+        let line = source.file.line(class_start(statement, class));
+        let name = class
+            .id
+            .as_ref()
+            .map_or("<anonymous>", |id| id.name.as_str());
+        findings.push_keyed(
+            "registration",
+            source.path.as_str(),
+            Some(line),
+            name,
+            format!(
+                "{}:{line} {name} is an unregistered controller semantic owner",
+                source.path
+            ),
+        );
+    }
+}
+
 fn stale(
     contracts: &[ControllerRow],
     discovered: &BTreeSet<&str>,
@@ -662,11 +670,9 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         distinct: bool,
     ) {
         let contract = self.contract;
-        let name = contract.controller_name().text();
         let service_name = contract.primary_service_name();
         let service_entity_name = contract.service_entity_name();
         let service_entity_path = contract.service_entity_path();
-        let path = source.path.clone();
         let identity = constructors.first().and_then(|constructor| {
             constructor.value.params.items.iter().find_map(|parameter| {
                 let owner = self
@@ -688,9 +694,9 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         let Some((service, class)) = class else {
             self.findings.push_keyed(
                 "service-owner",
-                path.as_str(),
+                source.path.as_str(),
                 Some(line),
-                format!("{name}#service-class"),
+                format!("{}#service-class", contract.controller_name().text()),
                 format!(
                     "{label} primary service {} must resolve to one source class",
                     service_name.text()
@@ -703,9 +709,9 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         if entities.is_empty() {
             self.findings.push_keyed(
                 "service-owner",
-                path.as_str(),
+                source.path.as_str(),
                 Some(line),
-                format!("{name}#service-entities"),
+                format!("{}#service-entities", contract.controller_name().text()),
                 format!(
                     "{label} primary service {} must bind {} through ApiServiceBase or ApiService",
                     service_name.text(),
@@ -751,9 +757,9 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
             {
                 self.findings.push_keyed(
                     "service-owner",
-                    path.as_str(),
+                    source.path.as_str(),
                     Some(line),
-                    format!("{name}#service-entity-owner"),
+                    format!("{}#service-entity-owner", contract.controller_name().text()),
                     format!(
                         "{label} and primary service {} resolve {} from different source owners",
                         service_name.text(),
