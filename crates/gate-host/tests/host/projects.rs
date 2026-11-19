@@ -119,8 +119,8 @@ fn tracked_gate_toml_files_make_projects_and_ignored_ones_do_not() {
     .write("tools/gen/gate.toml", "")
     .write("tools/gen/package.json", "{\"name\": \"generator\"}")
     .write("apps/server/gate.toml", "[project]\nname = \"server\"\n")
-    .write("samples/demo/gate.toml", "[gate]\nversion = \"0.1.0\"\n")
-    .write("samples/gate.toml", "[gate]\nversion = \"0.1.0\"\n")
+    .write("samples/demo/gate.toml", ROOT)
+    .write("samples/gate.toml", ROOT)
     .add();
     repo.write("untracked/gate.toml", "[project]\nname = \"ghost\"\n");
 

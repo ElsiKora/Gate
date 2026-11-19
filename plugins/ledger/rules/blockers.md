@@ -25,7 +25,7 @@ None of its own; it reads `implementation`, `verification`, `follow-ups`, `parit
 
 ```toml
 [plugins.ledger]
-source = "ElsiKora/Gate:ledger@0.1.0"
+source = "ElsiKora/Gate:ledger@0.2.0"
 options = { planned-prefixes = ["planned", "queued"] }
 ```
 

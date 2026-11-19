@@ -8,19 +8,21 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
-## Unreleased
+# [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.1.0...plugin-ledger-v0.2.0) (2026-11-19)
 
-### Changed
+Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.
 
-- The ledger rules (records, record status, decisions, manifest, reuses, closing notes, blockers,
+### Features
+
+- **plugin-ledger:** the ledger rules (records, record status, decisions, manifest, reuses, closing notes, blockers,
   exceptions and the review-progress generator) give each finding whose message names a line, a
   path or an option value a stable key (what it is about, never a line or column), so an edit
   above a finding or a reworded message keeps its fingerprint. These findings' fingerprints change
   once, with this release; `gate baseline prune` re-keys their baseline entries when the
-  repository upgrades.
-- A wrong option, or an exceptions file the options name that is not valid TOML, ends the run as a
+  repository upgrades. ([c688b5d](https://github.com/ElsiKora/Gate/commit/c688b5df1c1e379e4189f0b65accef02a1d3e883))
+- **plugin-ledger:** a wrong option, or an exceptions file the options name that is not valid TOML, ends the run as a
   configuration error (exit 2, `configuration error`), not as an environment error. A file the rule
-  cannot read stays an environment error.
+  cannot read stays an environment error. ([23a2719](https://github.com/ElsiKora/Gate/commit/23a2719a93bbdfdf9c4e61354c20a702d7501339))
 
 # 0.1.0
 

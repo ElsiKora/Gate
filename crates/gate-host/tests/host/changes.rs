@@ -178,7 +178,7 @@ fn a_change_to_the_root_gate_toml_selects_every_project() {
     let repo = monorepo();
     repo.write(
         "gate.toml",
-        "[gate]\nversion = \"0.1.0\"\n\n[workspace]\nprojects = \"pnpm\"\nignore = []\n",
+        &format!("{ROOT}\n[workspace]\nprojects = \"pnpm\"\nignore = []\n"),
     );
     let git = Git::discover(repo.path()).expect("git");
     let changes = ChangeSet::since(&git, "HEAD", &Source::WorkTree).expect("since");
@@ -255,7 +255,9 @@ fn a_change_to_a_profiles_options_file_or_a_plugins_reads_selects_its_projects()
     let repo = monorepo();
     repo.write(
         "gate.toml",
-        "[gate]\nversion = \"0.1.0\"\n\n[workspace]\nprojects = \"pnpm\"\n\n[plugins]\ngit = { source = \"ElsiKora/Gate:git@0.1.0\" }\n\n[[profiles]]\nprojects = [\"apps/web\"]\n\n[profiles.rules]\n\"git/commit-subject\" = { options-file = \"gate/web.json\" }\n",
+        &format!(
+            "{ROOT}\n[workspace]\nprojects = \"pnpm\"\n\n[plugins]\ngit = {{ source = \"ElsiKora/Gate:git@0.1.0\" }}\n\n[[profiles]]\nprojects = [\"apps/web\"]\n\n[profiles.rules]\n\"git/commit-subject\" = {{ options-file = \"gate/web.json\" }}\n"
+        ),
     )
     .write("gate/web.json", "{}\n")
     .write(

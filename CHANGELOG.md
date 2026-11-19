@@ -8,7 +8,7 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-# Unreleased
+# [0.2.0](https://github.com/ElsiKora/Gate/compare/v0.1.0...v0.2.0) (2026-11-19)
 
 The plugin interface is `gate:plugin@0.2.0`, and every plugin of this repository is released at
 0.2.0 with the core: pin `ElsiKora/Gate:<plugin>@0.2.0` with a 0.2.0 core. A 0.2.0 core loads only
@@ -19,45 +19,42 @@ and the release to pin.
 
 - **plugin interface:** the git interface answers the commit message being written (`message`, from
   `gate check --commit-message`) and whether a git hook runs the check (`hook`, from `--hook`, which
-  the generated hooks pass).
+  the generated hooks pass). ([ccad7cd](https://github.com/ElsiKora/Gate/commit/ccad7cd14c8a3bf624c600c889ae0f4ab6b4c086))
 - **host:** a plugin option an enabled rule declares it reads (`Rule::NEEDS` in the SDK) and that is
-  missing from `[plugins.<name>] options` is a configuration error at load, exit 2, naming the rule.
+  missing from `[plugins.<name>] options` is a configuration error at load, exit 2, naming the rule. ([58800b7](https://github.com/ElsiKora/Gate/commit/58800b73ed09b06aebb3fc147aaa0d81e9d0befb))
 - **host:** a preset may set the levels of single aspects (`levels`); the project's `[rules]` level
-  of the rule, or of the aspect, wins over them.
+  of the rule, or of the aspect, wins over them. ([a2905b4](https://github.com/ElsiKora/Gate/commit/a2905b456554a86f5c19bc33fb9b525efbc6d36f))
 - **host:** a check with `--commit-message` says so in its summary: `gate check (tree, commit
-  message)`.
+  message)`. ([b01fbf7](https://github.com/ElsiKora/Gate/commit/b01fbf794489f5cad05ca696c8739838f2f8dcea))
 - **plugin interface:** a finding may carry a `key`, the plugin's short, stable identity of what it
   is about (`.key(..)` in the SDK). With a key, the fingerprint that baselines and SARIF match is the
   rule, aspect, path and key, so a reworded message keeps its baseline entry; without one it is the
-  rule, aspect, path and message, as before.
+  rule, aspect, path and message, as before. ([b68d372](https://github.com/ElsiKora/Gate/commit/b68d3721cf7c17c8ae83a80d60ed11bfdfe3aa43))
 - **gate:** `gate baseline prune` re-keys the baseline entries written before their plugin keyed
   the finding, and removes the entries that match no finding although their rule ran, an aspect
   set to `off` included; it prints each one and never adds an entry, so a new finding stays
-  reported. `gate baseline write` is for the first baseline.
+  reported. `gate baseline write` is for the first baseline. ([37e7dc4](https://github.com/ElsiKora/Gate/commit/37e7dc448b8de2683b8d2c00fc5632bb040b881d))
 - **plugin interface:** `check` and `generate` fail with a `plugin-error`, `configuration` or
   `environment`, in place of a string. A `configuration` error ends the run as a configuration
   error (exit 2, `configuration error`), as a wrong `gate.toml` key does; an `environment` error
-  stays an environment error.
+  stays an environment error. ([883012d](https://github.com/ElsiKora/Gate/commit/883012d3811891eb9f818213dfe52814bd9d8ee6))
 - **sdk:** `Error::config` is a configuration error beside `Error::new`, an environment failure.
   Options that do not match a rule's or generator's options type, and `[plugins]` options or
-  `[languages]` settings that do not match, are configuration errors.
-
-### Changed
-
+  `[languages]` settings that do not match, are configuration errors. ([883012d](https://github.com/ElsiKora/Gate/commit/883012d3811891eb9f818213dfe52814bd9d8ee6))
 - **sdk:** a plugin may share work among the rules of one `check` call through a state of its own,
   `CallState`, declared with `call:` in `plugin!` and reached by a rule through `Run::with_call`;
   the call builds it before its first rule and drops it after its last. `Rule`, `Run`,
   `RuleEntry` and `PluginSpec` take the state as a type parameter that defaults to `()`, so a
-  plugin without one compiles unchanged. `Call` is what one call is, alike for every rule of it.
+  plugin without one compiles unchanged. `Call` is what one call is, alike for every rule of it. ([fc44cf1](https://github.com/ElsiKora/Gate/commit/fc44cf148a31ef107e231e515553fea6cb2e59cd))
 - **typescript:** `Source::bytes_for_parse` reads a file the view is about to parse, so a source
   that keeps what it reads may drop its copy of a UTF-8 file, whose parse keeps the text; it
   defaults to `Source::bytes`. `TypeScript::parsed` answers a file the view already parsed without
-  parsing it, and `TypeScript::resolve` answers each import once per view.
+  parsing it, and `TypeScript::resolve` answers each import once per view. ([18ec73c](https://github.com/ElsiKora/Gate/commit/18ec73ce696ad9bed097c6da0235591340acb887))
 
 ### Bug Fixes
 
 - **gate:** `gate init` suggests only rules that exist, with the options they need, so uncommenting
-  every suggestion checks clean; it suggested `git/commit-subject`, which does not exist.
+  every suggestion checks clean; it suggested `git/commit-subject`, which does not exist. ([b6a2c93](https://github.com/ElsiKora/Gate/commit/b6a2c93266114f919f58620fcdd23307fd151133))
 - **runtime (security):** wasmtime and wasmtime-wasi 50.0.2, for RUSTSEC-2026-0566 (unbounded
   host memory growth through empty writes to `AsyncWriteStream`), RUSTSEC-2026-0567 and
   RUSTSEC-2026-0570 (aborts in builds without the `threads` or `gc` feature), RUSTSEC-2026-0568 (a
@@ -65,7 +62,7 @@ and the release to pin.
   `Caller::get_module_export`), RUSTSEC-2026-0571 (unbounded heap use through empty HTTP/2 body
   writes in wasmtime-wasi-http), RUSTSEC-2026-0572 (a panic when a component cancels a stream or
   future copy on the wrong end) and RUSTSEC-2026-0573 (an abort when a GC heap's reservation is not
-  a multiple of the page size).
+  a multiple of the page size). ([5912bb1](https://github.com/ElsiKora/Gate/commit/5912bb1368151170453b9e2b89a6e41a8fc4ed90))
 
 # 0.1.0
 

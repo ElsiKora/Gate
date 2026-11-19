@@ -16,7 +16,7 @@ same pinned version through `bin/gate`. Download the release once to run `gate i
 your repository; the last line removes the downloaded files:
 
 ```bash
-version=0.1.0
+version=0.2.0
 target=aarch64-apple-darwin          # or x86_64-unknown-linux-musl
 curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/gate-${target}.tar.gz"
 curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/SHA256SUMS"
@@ -44,13 +44,13 @@ on:
 
 ```toml
 [gate]
-version = "0.1.0"
+version = "0.2.0"
 
 [plugins]
-markdown = { source = "ElsiKora/Gate:markdown@0.1.0" }
+markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.1.0"
+source = "ElsiKora/Gate:git@0.2.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]

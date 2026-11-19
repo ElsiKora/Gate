@@ -33,8 +33,11 @@ fn assert_all(message: &str, parts: &[&str]) {
 const GIT_PLUGIN: &str = "\n[plugins]\ngit = { source = \"ElsiKora/Gate:git@0.1.0\" }\n";
 
 /// A root that discovers the projects under `apps/`, so the root itself is not a project.
-const WORKSPACE_ROOT: &str =
-    "[gate]\nversion = \"0.1.0\"\n\n[workspace]\nprojects = [\"apps/*\"]\n";
+const WORKSPACE_ROOT: &str = concat!(
+    "[gate]\nversion = \"",
+    env!("CARGO_PKG_VERSION"),
+    "\"\n\n[workspace]\nprojects = [\"apps/*\"]\n"
+);
 
 #[test]
 fn unknown_key_names_file_line_key_and_the_expected_keys() {

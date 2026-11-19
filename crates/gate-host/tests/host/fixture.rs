@@ -74,14 +74,14 @@ impl Repo {
     }
 }
 
-pub const ROOT: &str = "[gate]\nversion = \"0.1.0\"\n";
+pub const ROOT: &str = concat!("[gate]\nversion = \"", env!("CARGO_PKG_VERSION"), "\"\n");
 
 /// A pnpm monorepo: `server` (gate.toml) and `web` depend on `shared`; `docs` holds root files.
 pub fn monorepo() -> Repo {
     let repo = Repo::new();
     repo.write(
         "gate.toml",
-        "[gate]\nversion = \"0.1.0\"\n\n[workspace]\nprojects = \"pnpm\"\n",
+        &format!("{ROOT}\n[workspace]\nprojects = \"pnpm\"\n"),
     )
     .write(
         "pnpm-workspace.yaml",

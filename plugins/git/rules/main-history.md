@@ -126,7 +126,7 @@ The default policy:
 
 ```toml
 [plugins.git]
-source = "ElsiKora/Gate:git@0.1.0"
+source = "ElsiKora/Gate:git@0.2.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
