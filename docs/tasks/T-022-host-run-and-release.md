@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.1.0 |
 | Writer | the writer of T-016 |
 | Reviewer | a separate review session |
@@ -81,6 +81,11 @@ releases, and a release's notes are its changelog section.
    with such a tag. Architecture sections 8 and 10.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-18: branch `task/T-022-host-run-and-release`, rebased on main (0.1.0-rc.1).
 First version reviewed: merge after fixes. Fix round written; next: the gates on the new

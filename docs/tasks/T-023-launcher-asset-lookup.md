@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.1.0 |
 | Writer | the writer of T-022 |
 | Reviewer | a separate review session |
@@ -50,6 +50,11 @@ for the pretty form. `awk` was not the cause.
   on the pushed commit.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-18: branch `task/T-023-launcher-asset-lookup` from main. Fix and test written;
 next: the gates on the pushed commit, then the report.

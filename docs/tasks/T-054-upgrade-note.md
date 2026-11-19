@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | the lead sets it |
 | Writer | "Gate 005" |
 | Reviewer | the lead |
@@ -28,6 +28,11 @@ removed.
 - The lead has read it. Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `4c55ca6` (branch tip `2be17f4`), after the
+`v0.2.0` tag; it changes documents only. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-054-upgrade-note` from main `105ca02`; guide paragraph, changelog entry and
 this file written. Next: the lead's read.

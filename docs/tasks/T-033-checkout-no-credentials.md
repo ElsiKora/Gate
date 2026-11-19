@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
@@ -42,6 +42,11 @@ plugin releases through `GATE_GITHUB_TOKEN`, not through git.
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `cc8ee5f` (branch tip `fbdfbc0`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-033-checkout-no-credentials` on main `59fb163`, the first public release.
 Change, docs and tests written. `SYNC_STATE_VERSION` is 5: a stored `sync-state` answer covers the

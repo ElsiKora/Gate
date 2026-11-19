@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.1.0 |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
@@ -61,6 +61,11 @@
 - Do not edit docs/plan.md.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-18: planned; from main on `task/T-021-ledger-generators-root-citations`.
 2026-11-18: both generators in `plugins/ledger/src/generators`, ported from the reference's roadmap

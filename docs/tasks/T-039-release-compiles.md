@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
@@ -30,6 +30,11 @@ reused for a different message or a different hook state.
 - Do not edit docs/plan.md.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `ef099bc` (branch tip `9bdf667`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-039-release-compiles` from `release/v0.2.0` at `8157571`; this file first.
 2026-11-19: written. `git.message` and `git.hook` are host-call kinds; `GitQuery::Message` and

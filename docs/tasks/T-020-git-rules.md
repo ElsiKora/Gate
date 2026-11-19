@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | the next git plugin release |
 | Writer | "Gate 006" |
 | Reviewer | a session that did not write it, named by the lead |
@@ -43,6 +43,11 @@ the branch it works on.
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-18: review round answered (push target, anchoring on the pages, a
 merge subject without its branch capture, `pattern` required in the schema, the changelog, the

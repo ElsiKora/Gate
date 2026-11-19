@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
@@ -169,6 +169,11 @@ Test: `crates/gate/tests/plugins.rs`, `a_ledger_option_its_rule_refuses_is_a_con
 - Do not edit docs/plan.md.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `8aca931` (branch tip `6c26f39`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-038-option-errors` from T-036's tip `c8afefb`; this file first. No round
 until T-036's ticket 187 is green.

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged; the `nestjs` rules' own cost is T-037 |
 | Release | v0.2.0 |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
@@ -37,6 +37,11 @@ The plugin's share must fit in it, with T-025 making the warm run cheap.
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `1b7fb64` (branch tip `3d2ae55`) and released in
+`v0.2.0`. The per-rule costs under Numbers went to T-037.
+
+Earlier:
 
 2026-11-19: branch `task/T-030-nestjs-speed`, two commits on `release/v0.2.0` b13c5bd
 (the call state and these numbers), then the independent review's fixes: the counting test

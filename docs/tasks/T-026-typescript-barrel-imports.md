@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
@@ -41,6 +41,11 @@ The second consumer's structure requirement (plan, "From the second consumer's r
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `60651a1` (branch tip `9afe076`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: rule, schema, page and synthetic tests on `task/T-026-typescript-barrel-imports`,
 review round 1 applied (`export *` cycles resolve as a closure, tsconfig aliases and

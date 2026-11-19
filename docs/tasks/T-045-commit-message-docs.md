@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead reads the documents |
@@ -57,5 +57,10 @@ at 17:39Z is the one above. An earlier run on `22750cb` refused the guide's seco
 `chore(gate): add the CI job` (`header-case`, `subject-case`); `7be53b9` makes it lower case.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `2ae4d79` (branch tip `de14256`), after the
+`v0.2.0` tag; it changes documents only. Nothing is left.
+
+Earlier:
 
 2026-11-19: written, pushed and proved on the released v0.2.0. Next: the lead's read.

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead reads the page |
@@ -49,6 +49,11 @@ finding keys), so the released `nestjs@0.1.0` checks the page's claims. In a scr
 The check exited 1 for the second and third rows, with exactly those findings.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `b6322aa` (branch tip `e4d5dcb`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: the page is written and checked against the released plugin; waiting for the lead's
 read.

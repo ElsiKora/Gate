@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
@@ -84,6 +84,11 @@ reports a finding at its option file with what reading it answers:
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `b72b561` (branch tip `dc57900`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-031-option-file-finding-path` on main `59fb163`, the first public release.
 Reviewed at `74352cc`; the review's fix round (scope item 4) written; next: one lane round on the

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | the lead |
@@ -43,6 +43,11 @@ each names `>=50.0.2` as the fix for the 50 line:
 - Do not edit docs/plan.md.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `b3b2fe3` (branch tip `5912bb1`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-040-wasmtime-50.0.2` from `release/v0.2.0` at `1583d85`; task file
 written; next: the pins, the lock update and one round in the lane, then the report.
