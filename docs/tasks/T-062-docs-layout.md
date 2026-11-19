@@ -515,3 +515,10 @@ the lead's decision on the revision before any code.
 the frontend sections as drafted, and T-063 as the follow-up. Code on `task/T-062-docs-plugin` from
 `main` at `ec66737`. Next: the interface (seed, `plugin-options`), the host's seeds, `plugins/docs`,
 `agents/no-claude-md` at repository scope, then one lane round.
+
+2026-11-19: code at `1563722` on `task/T-062-docs-plugin`: the interface at `gate:plugin@0.3.0`
+(`seed`, `plugin-options`), seeds in `gate sync` and `--check`, `plugins/docs` (the five kinds, the
+rule, the generator, their pages, the alikeness tests), `agents/no-claude-md` at repository scope,
+the architecture, guide and changelog entries, and one end-to-end test per kind through the built
+component. The library's architecture index opens with "System shape", as every kind's does. Next:
+lane round ticket 266 on the pushed tip; its exit codes go in a Proof section.
