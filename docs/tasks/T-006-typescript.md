@@ -45,7 +45,7 @@ parse.
 2026-11-17T16:37:26+00:00: merged to main; the lead's gates on the merged tree all exit 0.
 
 Library and plugin written on `task/T-006-typescript`, review fix round applied, replayed onto main
-`38ca5de` (T-003 merged) with `gate-sdk` as the workspace crate; checks and acceptance passed on main's
+(T-003 merged) with `gate-sdk` as the workspace crate; checks and acceptance passed on main's
 host. Left: the merge.
 
 - `languages/typescript` (crate `gate-typescript`): `Source` (`paths`, `bytes`, and provided `text` and
@@ -75,13 +75,13 @@ host. Left: the merge.
   `syn@2.0.119` and `hashbrown@0.16.1` skips. `Cargo.lock` keeps every entry of main's lock and the oxc
   dependency versions of the baseline binary; the four `icu_locale_fallback*`/`icu_segmenter*` crates
   are at 2.4.0, the version main's `icu_collections` 2.3 admits.
-- Checked 2026-11-17 on `62dbe58` (the full round, queued): `cargo fmt --all --check` exit 0; `cargo
+- Checked 2026-11-17 (the full round, queued): `cargo fmt --all --check` exit 0; `cargo
   clippy --locked --all-targets -- -D warnings` exit 0; `cargo clippy --locked -p gate-plugin-typescript
   --target wasm32-wasip2 -- -D warnings` exit 0; `cargo test --locked` exit 0 (278 passed); `cargo deny
   --locked check` exit 0; `cargo build --release --locked` exit 0; `cargo build --release --locked -p
   gate-plugin-typescript --target wasm32-wasip2` exit 0 (1014672 bytes); leak scan prints nothing.
 - Acceptance ran outside the repository on 2026-11-17 with that round's host and component, harness
-  release `cfa1ef1` without shaping flags (record kept with the other acceptance data):
+  release without shaping flags (record kept with the other acceptance data):
   - A: 0 findings on each of the three trees, as the reference.
   - B: no exceptions apply; the plugin-only run equals A on the three trees.
   - C: the mutation case's one finding is identical.

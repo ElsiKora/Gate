@@ -136,8 +136,8 @@ Not in scope: the plugin runtime (T-003), fetching (T-004), hooks/CI/steps (T-00
 
 ## Resume point
 
-2026-11-16T20:45:31+00:00: in review, after the one fix round on the review of `c83c300` (B1, M1-M3,
-m1-m6, n1-n5 all addressed); rebased on `main` `fa73a52`. Gate commands, run in the worktree:
+2026-11-16T20:45:31+00:00: in review, after the one fix round on the review (B1, M1-M3,
+m1-m6, n1-n5 all addressed); rebased on `main`. Gate commands, run in the worktree:
 `cargo fmt --all --check` 0, `cargo clippy --locked --all-targets -- -D warnings` 0,
 `cargo test --locked` 0 (cli 12 passed after removing three wiring-only tests, host 100 passed),
 `cargo deny --locked check` 0. `cargo build --release --locked` was not rerun in this round.

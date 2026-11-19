@@ -58,5 +58,5 @@ cases run but their difference is explained by the dropped exception instead of 
 compared once a component of that plugin built from main exists (after T-007a and T-007b), given beside
 the ledger build, comparing only the ledger rules.
 
-Merged to main after `f64ac7c` with every gate exit 0 and 373 tests (the merge message records
+Merged to main with every gate exit 0 and 373 tests (the merge message records
 them). Open: the six exception-owners cases, compared again with a nestjs component built on main.

@@ -62,7 +62,7 @@
 
 ## Resume point
 
-2026-11-18: planned; from main 86b7b04 on `task/T-021-ledger-generators-root-citations`.
+2026-11-18: planned; from main on `task/T-021-ledger-generators-root-citations`.
 2026-11-18: both generators in `plugins/ledger/src/generators`, ported from the reference's roadmap
 and decision-index counting; the kinds, headings and review vocabulary are options. They own no
 glob (each writes only the file it names). `decisions` and `implementation` are generator options

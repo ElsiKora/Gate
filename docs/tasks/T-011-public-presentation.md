@@ -49,7 +49,8 @@ Not in scope: code; anything that names a private project; product plugins.
 
 ## Resume point
 
-2026-11-16T03:53:57+00:00: first pass merged (`6ef58a5`). Follow-up on branch `agent/t-011-follow-up`, in review:
+2026-11-16T03:53:57+00:00: first pass merged. Follow-up on branch `agent/t-011-follow-up`, in
+review:
 README and guides aligned with architecture section 7 and section 16 (one plugin source form,
 `extends` under `[project]`, repository-scope root `[rules]`, `[[profiles]]`, root steps and suites,
 `--plugin` override, `--budget`/`--budget-fails`, baselines, `gate cache prune`, private assets, hooks

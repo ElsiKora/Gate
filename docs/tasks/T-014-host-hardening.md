@@ -45,10 +45,10 @@ Nothing here changes a rule's findings.
     configuration cannot meet a configuration error there; with a test.
 13. A trailing space in the T-015 task file (the lead fixes it in T-015's merge).
 
-Review of `865169a..8d314fe` (one fix round):
+Review (one fix round):
 
 - A. The deadline counts the plugin's own time only (architecture, "Time limits count the plugin's
-  own work"). Correction: the commit message of `a5db806` says the deadline bounds "a host call
+  own work"). Correction: the commit message says the deadline bounds "a host call
   that blocks"; it does not, and must not: time in a host call does not count against it.
 - B. `SYNC_STATE_VERSION` 3: items 1, 2 and the lower fuel default change what is stored.
 - C. A `Load` from a later call (generate, owns) on a component that has loaded is passing.
@@ -76,20 +76,20 @@ Review of `865169a..8d314fe` (one fix round):
 2026-11-17: every item is written and pushed on `task/T-014`; nothing is compiled yet, so the first
 run of the gates on the pushed commit is the first build of items 1–5 and 8.
 
-- Items 6, 7, 9 (`865169a`). Item 9: T-013 item 9 already skips the overridden plugins in `check`
+- Items 6, 7, 9. Item 9: T-013 item 9 already skips the overridden plugins in `check`
   and `sync`; `gate run` loads no plugin and takes no `--plugin`, so it never checks a plugin pin.
   The test proves all three commands.
-- Items 1–4 (`979e48a`). Item 1 is covered by the unit test of the two failure classifications
+- Items 1–4. Item 1 is covered by the unit test of the two failure classifications
   (`plugins.rs`, `only_a_load_or_interface_failure_marks_a_component_unloadable_for_good`) and by
   the end-to-end test that a `Load` failure's answer is stored; an environment failure while
   loading cannot be provoked end to end.
-- Item 8 (`4541155`): `gate sync` and `gate sync --check` report generator findings as
+- Item 8: `gate sync` and `gate sync --check` report generator findings as
   `gate/sync#<plugin>/<generator>` at level error and exit 1; the probe's `write` generator has a
   `report` option for the test.
-- Item 5 (`a5db806`): engine epoch every 10 ms, a 60 s deadline per call (600 s since the deadline
+- Item 5: engine epoch every 10 ms, a 60 s deadline per call (600 s since the deadline
   decision at the end of this file; `ErrorKind::Deadline`,
-  naming the plugin and the call), fuel default 10^11 (was 10^12). Measured at
-  `dc39722` (2026-11-17T18:01:00+00:00) with
+  naming the plugin and the call), fuel default 10^11 (was 10^12). Measured
+  2026-11-17T18:01:00+00:00 with
   `cargo test --release --locked -j 4 -p gate-runtime --test measure -- --ignored --nocapture`:
   fuel to within 1% (bisection on the fuel limit), time the fastest of three under the default
   limits, on a machine shared with other builds.
@@ -107,10 +107,10 @@ run of the gates on the pushed commit is the first build of items 1–5 and 8.
   time (the last column is against the 60 s deadline of that round).
 - The plan's "Open after rc.1" list no longer holds the items of this task.
 
-The first gates at `dc39722`: fmt, test, deny, release build, leak scan and the measurement exit
+The first gates: fmt, test, deny, release build, leak scan and the measurement exit
 0; clippy 101 on five `unused_qualifications` in `plugins.rs` and one in the tools test (fixed in
-`780f0ee`; clippy stopped at gate-host, so the gate crate and gate-host's tests are not yet
-clippy-checked). A second round at `b115534` (2026-11-17T18:11:59+00:00) did not compile: T-015's
+the next commit; clippy stopped at gate-host, so the gate crate and gate-host's tests are not yet
+clippy-checked). A second round (2026-11-17T18:11:59+00:00) did not compile: T-015's
 round had built gate-runtime from main into the shared target directory after this checkout's files
 were written, so cargo took its artifacts as current. The round scripts now touch every `.rs` file
 after checkout.
@@ -121,18 +121,18 @@ expects `drift gen/a.md`. Item 12: `Workspace::from_snapshot` ends with
 `sync::check_core_outputs`, which runs `core_outputs` with no generator and no history rule (which
 jobs read history changes a job's checkout only); test
 `a_configuration_whose_hooks_or_workflow_sync_refuses_does_not_load` in `cli.rs` (`check`, `list`
-and `sync --check` exit 2 naming the section). Item 13: the lead's. Round at `2bf11a0` (2026-11-17T18:30:23+00:00): fmt, wasm clippy, deny,
+and `sync --check` exit 2 naming the section). Item 13: the lead's. Round (2026-11-17T18:30:23+00:00): fmt, wasm clippy, deny,
 release build, leak scan exit 0; test 304 passed, 1 failed, 3 ignored; clippy 101 on
 `Duration::from_secs(2 * 3600)` in the tools test. The failure: with T-015 merged the fallback
 answers no drift, so the item 2 test could no longer tell the fallback from the commit's own
 configuration by drift; the run's configuration now writes `gen/b.md`, and the fallback answers
 `produced gen/a.md,gen/b.md` where the commit's own would answer `gen/a.md` alone.
 
-Green round at `8d314fe` (2026-11-17T18:34:36+00:00, `job-all.sh`): fmt, clippy
+Green round (2026-11-17T18:34:36+00:00, `job-all.sh`): fmt, clippy
 (workspace, all targets, and wasm32-wasip2), test (305 passed, 0 failed, 3 ignored), deny, release
 build and leak scan all exit 0.
 
-Fix round for the review (2026-11-17), with main `466cb8a` merged:
+Fix round for the review (2026-11-17), with main merged:
 
 - A: `State` sums the time of every host call (`git.*`, `tree.read`) and the epoch-deadline
   callback traps only when the wall time less that sum reaches the deadline, else moves the
@@ -149,12 +149,12 @@ Fix round for the review (2026-11-17), with main `466cb8a` merged:
   `a_component_whose_describe_fails_in_a_way_that_may_pass_fails_the_call` (exit 2, environment
   error, nothing stored).
 
-Round at `545857f` (2026-11-17T18:58:40+00:00): fmt, wasm clippy, test (385 passed, 0 failed,
+Round (2026-11-17T18:58:40+00:00): fmt, wasm clippy, test (385 passed, 0 failed,
 3 ignored), deny, release build and leak scan exit 0; clippy 101 on four `unused_qualifications`
 (`Duration` in `state.rs`, newly imported) and one unchecked `Duration` subtraction in the deadline
 callback, fixed by `saturating_sub`.
 
-Green round at `7590ea1` (2026-11-17T19:03:28+00:00, `job-all.sh`): fmt, clippy
+Green round (2026-11-17T19:03:28+00:00, `job-all.sh`): fmt, clippy
 (workspace, all targets, and wasm32-wasip2), test (385 passed, 0 failed, 3 ignored; the four new or
 changed tests of A, D and F pass), deny, release build and leak scan all exit 0.
 
@@ -173,8 +173,8 @@ Tests:
 
 Deadline decision (lead, 2026-11-17, architecture "Time limits"): fuel decides and the deadline is
 only a backstop, so the default deadline is 600 s (was 60 s). The arithmetic, from the measurement
-above (`cargo test --release --locked -j 4 -p gate-runtime --test measure -- --ignored --nocapture`,
-`dc39722`): the slowest call ran 4.29·10^9 fuel in 1.523 s, about 2.8·10^9 fuel per
+above (`cargo test --release --locked -j 4 -p gate-runtime --test measure -- --ignored
+--nocapture`): the slowest call ran 4.29·10^9 fuel in 1.523 s, about 2.8·10^9 fuel per
 second, so the default 10^11 fuel is about 35.5 s of guest time. On a machine ten times slower that
 is about 355 s, under 600 s by a factor of 1.7, so fuel runs out first and the failure is the lasting
 `OutOfFuel`, not the `Deadline` that may pass. The core has no setting that lowers the fuel for one
@@ -182,11 +182,11 @@ run, so there is no end-to-end `gate check` whose `describe` runs out of the def
 tests above cover the chain. The deadline test keeps its 2 s deadline set through the runtime's
 `Config`.
 
-Green round at `ccc8dec` (2026-11-17T19:18:23+00:00, `job-all.sh`): fmt, clippy
+Green round (2026-11-17T19:18:23+00:00, `job-all.sh`): fmt, clippy
 (workspace, all targets, and wasm32-wasip2), test (386 passed, 0 failed, 3 ignored), deny, release
 build and leak scan all exit 0. Next: merge after the rc.1 tag (the lead's).
 
-Green round at `4d48c04` (main `6dc7a33` merged, default deadline 600 s; 2026-11-17T19:28:45+00:00,
+Green round (main merged, default deadline 600 s; 2026-11-17T19:28:45+00:00,
 `job-all.sh`): fmt, clippy (workspace, all targets, and wasm32-wasip2), test (470
 passed, 0 failed, 3 ignored; the count includes main's new tests), deny, release build and leak scan
 all exit 0. Next: merge after the rc.1 tag (the lead's).

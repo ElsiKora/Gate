@@ -78,7 +78,7 @@ other commit answers. Both stay on the plan's list for v0.1.0.
 
 ## Notes
 
-- Source: the independent review of the T-003 fix round (`201f9ce..f52f3c7`) found no blocker for the
+- Source: the independent review of the T-003 fix round found no blocker for the
   merge. These items are kept for this task so the merge did not wait. They must land before rc.1 because
   the first consumer dry run uses the history rules on a long history.
 - The rule is architecture.md, the bullet "`sync-state` at a commit".
@@ -90,14 +90,14 @@ not `sync-state`, because an interface's types and functions share one namespace
 refuses the duplicate. The function is `sync-state` and the SDK type is `SyncState { produced, drift }`.
 `produced` is every output plus every path sync would remove; `drift` is a subset of it.
 
-Item 4 timings, from `timing.sh` (outside the repository) with a release build of 1bfd3b6 and a fresh
+Item 4 timings, from `timing.sh` (outside the repository) with a release build and a fresh
 cache. The history has 1,000 commits: 200 whose `gate.toml` is not this core's (the run's configuration
 answers), then 800 with Gate's configuration and a hand edit every 100th commit. `probe/git` asks sync-state for each commit and
 reports "1000 commits, 208 drift" on both runs. The machine's load was 53 to 75 (`uptime`).
 - First run: 119.26 s, 1,200 answers stored (200 commits x 2 entries, 800 x 1).
 - Second run: 1.36 s, every answer from the cache.
 
-Review fix round (the review of 2c31c3f):
+Review fix round (the review):
 - A commit whose gate.lock does not match its gate.toml falls back to the run's configuration.
 - An off rule is the level the run resolves (the rule's, else its family's) with no aspect on.
 - A run-dependent answer is keyed by the run configuration's hash and the paths the run's
@@ -110,9 +110,9 @@ Review fix round (the review of 2c31c3f):
   not load under this core is left out: its generators answer their paths, the CI workflow
   answers as drifting, and the commit's rules are not validated against it.
 
-Round on ad3ca32: every gate exit 0, 251 tests; timings on its release build: 86.77 s first run,
+Round: every gate exit 0, 251 tests; timings on its release build: 86.77 s first run,
 1.24 s second (same history and script).
 
-Merged to main by the merge after `fd7807a`, with every gate exit 0 and 295 tests (the merge
+Merged to main by the merge, with every gate exit 0 and 295 tests (the merge
 message records them). The verification review found no blocker; its remaining findings are on
 the plan's "Open after rc.1" list.

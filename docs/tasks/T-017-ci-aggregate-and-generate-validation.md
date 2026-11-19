@@ -6,7 +6,7 @@
 | Release | v0.1.0-rc.1 |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
-| Depends on | none (from main `3aa6b74`) |
+| Depends on | none (from main) |
 | Touches | `crates/gate-host/src/config/**`, `crates/gate-host/src/sync/github.rs`, the plugin load path in `crates/gate-host/src/plugins.rs`, their tests, docs/architecture.md §7 and §10 |
 
 ## Goal
@@ -22,7 +22,7 @@
 
 ## Why
 
-The gate/sync acceptance cases on main `f73e09c` (notes `gate003-gate-sync-investigation.md`):
+The gate/sync acceptance cases on main (notes `gate003-gate-sync-investigation.md`):
 
 - The first consumer's CI had an aggregate job as its single required check. Main's `[ci.github]`
   generator has no such property, so the generated workflow has none, and branch protection that
@@ -59,8 +59,8 @@ The gate/sync acceptance cases on main `f73e09c` (notes `gate003-gate-sync-inves
 
 ## Resume point
 
-2026-11-18: planned; from main `3aa6b74` on `task/T-017-ci-aggregate`.
-2026-11-18: written from main `5ed242b`. `[ci.github] aggregate` (config check against `changes` and the
+2026-11-18: planned; from main on `task/T-017-ci-aggregate`.
+2026-11-18: written from main. `[ci.github] aggregate` (config check against `changes` and the
 job ids; the job in `sync/github.rs`, `jq` over `toJSON(needs)`); `[generate]` keys checked against the
 loaded plugins' generators in `Loaded::validate`, so `gate check`, `gate sync` and `gate sync --check`
 fail with a configuration error before anything runs. `gate list` stays configuration-only (lead,
@@ -74,5 +74,5 @@ cancelled fail naming the job; outputs holding `$(...)`, quotes or a newline cha
 with a message where bash or jq is missing); the `runs-on` doc and architecture §10 say the aggregate
 runs there and needs bash and jq.
 
-Merged to main after `a8a7322` (the merge tree equals it): fmt, clippy (workspace), test (830 passed),
+Merged to main (the merge tree equals it): fmt, clippy (workspace), test (830 passed),
 deny and release build all exit 0.

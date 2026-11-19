@@ -102,7 +102,7 @@ Not in scope: running plugins (T-003), generated hooks and CI (T-005), publishin
 
 ## Resume point
 
-2026-11-16T21:45:18+00:00: second fix round (the review of 864f716) done on top of 4fea8f3; in review. MAJOR 1 and
+2026-11-16T21:45:18+00:00: second fix round (the review) done on top; in review. MAJOR 1 and
 MINOR 2 to 7, nits 10, 11 and 13, and optional 9 and 12 are in; MINOR 8's report-shows-the-override
 case waits for the plugin runtime (a check with a plugin cannot reach the report on this branch; the
 summary line is tested in `findings.rs`). Optional 14 (`init --force`, one target) is not done.

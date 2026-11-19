@@ -6,7 +6,7 @@
 | Release | v0.1.0-rc.1 |
 | Writer | "Gate 006: nestjs semantic rules (T-007b)" |
 | Reviewer | a separate review session |
-| Depends on | T-007a's skeleton, `b992034` on `task/T-007a-nestjs-structure`: branch from it |
+| Depends on | T-007a's skeleton, on `task/T-007a-nestjs-structure`: branch from it |
 | Touches | `plugins/nestjs/src/rules/semantics/**`, `plugins/nestjs/src/canonical.rs`, their rule pages and tests |
 
 ## Goal
@@ -36,7 +36,7 @@ sections 4 to 6).
 
 ## Resume point
 
-2026-11-17. Branch `task/T-007b-nestjs-semantics` is on T-007a `02813bf` (main `6383f4a` plus
+2026-11-17. Branch `task/T-007b-nestjs-semantics` is on T-007a (main plus
 T-007a) and holds three commits: "feat(plugin-nestjs): the semantic rules" (all 18 rules, their
 pages and tests), a follow-up that makes `enum-folder` a single name and pins the unskipped walks
 of prefix-nesting and migrations, and this task file. Merge order: T-007a first, then T-007b.
@@ -56,17 +56,17 @@ The rules: `nestjs/api-readiness`, `nestjs/custom-routes`, `nestjs/entity-descri
 and `nestjs/wrappers`. Which walks skip the language list and which read every folder follows the
 reference; each page says which, and each walk has a test that fails if it used the other.
 
-Counted acceptance, on the code of `6766e04` (component sha256 `eb77fc61...2f44`), main's gate
-`6383f4a`, harness pin `345ad2c`, `--plugins-only`; `report.mjs` exit 0 on both result sets:
+Counted acceptance, on the code (component sha256 `eb77fc61...2f44`), main's gate,
+`--plugins-only`; `report.mjs` exit 0 on both result sets:
 A 3/3; C 74/74; D 897/898 identical plus 1 expected (eslint-directives under a nested build output
 folder: the style rules' own skip prefix is gone, no consumer tracks that folder); B 9/9, 130
 identical plus 1 expected (T-007a's field-inventory in a nested `coverage/` folder the reference
 skipped) and 290/290 on the three trees. Expected differences are the lead's
 decisions, in the harness's list.
 
-After the rebase onto `02813bf` the component changes only by field-inventory's messages (its Gate
+After the rebase the component changes only by field-inventory's messages (its Gate
 id for the reference id); the follow-up changes behaviour only for an `enum-folder` that is not a
-single name. C is rerun on `345ad2c` for that.
+single name. C is rerun for that.
 
 The lead read the follow-up and accepted it. Merged into main 2026-11-18 after T-007a: the merge gates on
 the merged tree (fmt, clippy native and `wasm32-wasip2`, test, deny, release builds) exit 0 with 825

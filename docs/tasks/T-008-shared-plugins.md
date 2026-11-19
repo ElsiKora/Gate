@@ -45,7 +45,7 @@ Not in scope: `ledger` (T-009), `nestjs` (T-007), product plugins, the acceptanc
 
 ## Resume point
 
-2026-11-17T18:45:53+00:00: the verification review's last fix round, on main 109c410 (T-013 and
+2026-11-17T18:45:53+00:00: the verification review's last fix round, on main (T-013 and
 T-015). `git/main-history` has no `generated` option: for each file a direct commit changes,
 `sync-state` at that commit decides first (drift is reported, a produced file in sync is allowed), a
 removed path that `gate sync` produced at the parent is allowed, then `documentation`, and anything
@@ -58,8 +58,8 @@ two rule files that map to one adapter; the block refuses an `entry` that is not
 relative to it and escapes `|`; `rule-references` reads non-UTF-8 markdown lossily. Through the real
 host, `agents/rule-enforcement` sees a norm mapped on a `git/*` rule, and `git/main-history` reports
 hand-edited and stale generated files and allows those that `gate sync` removes or renames. The full
-round at e432994 exits 0 at every step (458 tests passed), and the acceptance
-outside the repository on main's gate 109c410 has no unexpected difference. In review.
+round exits 0 at every step (458 tests passed), and the acceptance
+outside the repository on main's gate has no unexpected difference. In review.
 
-Merged to main after `466cb8a` with every gate exit 0 and 458 tests (the merge message records
+Merged to main with every gate exit 0 and 458 tests (the merge message records
 them). Open: `rule-enforcement` compared in full once every declared plugin loads.

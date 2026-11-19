@@ -18,7 +18,7 @@ another cargo home, and get the pinned sha256.
 ## Why
 
 Two builds of `gate-plugin-nestjs` from one commit gave two sha256 values, so no pin could be checked
-by rebuilding. Measured at `f73e09c` with cargo 1.99.1, every build run alone:
+by rebuilding. Measured with cargo 1.99.1, every build run alone:
 
 - **Feature unification.** One cargo invocation that builds several plugins unifies the features of
   the dependencies they share: with the seven plugins together, `nestjs.wasm` gets the `regex` crate's
@@ -59,7 +59,7 @@ checkouts with two cargo homes; with `-Wl,-S` added, the core gave `3f8d098e...`
    components are built twice, in two checkout paths with two cargo homes, the core is packed twice,
    and any sha256 difference fails the job. Each release runner builds the core of its target; the
    plugins of `plugins/*` with a `cdylib` target are built on `ubuntu-24.04` only, the host they are
-   released from (lead, 2026-11-18, after run 44307223391: every plugin module differs between the
+   released from (lead, 2026-11-18, after the CI run where every plugin module differs between the
    Linux and the macOS host while each host reproduces itself). The release jobs publish the first
    build's files only after the comparison passes, and compile nothing.
 5. Architecture section 12 states the rule. The development commands of `AGENTS.md` stay.
@@ -79,17 +79,17 @@ checkouts with two cargo homes; with `-Wl,-S` added, the core gave `3f8d098e...`
 
 ## Resume point
 
-2026-11-18: branch `task/T-016-reproducible-components` from main `3aa6b74`. First version `8e389a7`
-reviewed: merge after eight fixes (pack-core fails closed; the release workflows build through
+2026-11-18: branch `task/T-016-reproducible-components` from main. First version reviewed: merge
+after eight fixes (pack-core fails closed; the release workflows build through
 `reproducible.yml`; every plugin checked; physical paths; `CARGO_ENCODED_RUSTFLAGS`; resolved target
-directory; no `CARGO_PROFILE_*`; runner image in section 12), written in `a86c6b3`. Its CI run
-44307223391: each runner reproduced all its components, every plugin differed across the runners;
-the lead chose plugins on `ubuntu-24.04` only. Rebased on main `aa6d78c` as `f373186`: CI run
-44315806863 passed (core on both runners, every plugin on `ubuntu-24.04`); the local proof gave equal
-`gate`, archive and `nestjs.wasm` in two worktrees with two cargo homes; the gates on `f373186`
+directory; no `CARGO_PROFILE_*`; runner image in section 12), written. Its CI run:
+each runner reproduced all its components, every plugin differed across the runners;
+the lead chose plugins on `ubuntu-24.04` only. Rebased on main: the CI run
+passed (core on both runners, every plugin on `ubuntu-24.04`); the local proof gave equal
+`gate`, archive and `nestjs.wasm` in two worktrees with two cargo homes; the gates
 exited 0 for fmt, clippy, test (830 passed), deny, shellcheck, actionlint and the leak scan. Waiting
 for the lead.
 
-Merged to main after `4a2143e` (tree f373186 plus the task file): fmt, clippy, test (830 passed), deny,
-shellcheck, actionlint and leak scan exit 0; two-path proof exit 0; CI run
-44315806863 success. Follow-up: docs/guide/writing-a-plugin.md names scripts/build-component.sh (v0.1.0).
+Merged to main (the reviewed tree plus the task file): fmt, clippy, test (830 passed), deny,
+shellcheck, actionlint and leak scan exit 0; two-path proof exit 0; the CI
+run succeeded. Follow-up: docs/guide/writing-a-plugin.md names scripts/build-component.sh (v0.1.0).

@@ -6,7 +6,7 @@
 | Release | v0.1.0 |
 | Writer | the writer of T-022 |
 | Reviewer | a separate review session |
-| Depends on | main `86b7b04` (0.1.0-rc.1) |
+| Depends on | main (0.1.0-rc.1) |
 | Touches | `crates/gate/src/launcher.sh` (the asset lookup only), `crates/gate/tests/distribution.rs` |
 
 ## Goal
@@ -51,5 +51,5 @@ for the pretty form. `awk` was not the cause.
 
 ## Resume point
 
-2026-11-18: branch `task/T-023-launcher-asset-lookup` from main `86b7b04`. Fix and test written;
+2026-11-18: branch `task/T-023-launcher-asset-lookup` from main. Fix and test written;
 next: the gates on the pushed commit, then the report.

@@ -16,7 +16,7 @@
    lock (the lead's conversion report), so the result cache is not hit.
 2. A full cold `gate check` with every plugin is no slower than the reference tool on the same tree. The
    second consumer's converted tree takes more than 18 minutes today, against 6.99 s for the reference
-   tool (lane ticket 123 has the per-rule split; the lead forwards it).
+   tool (the lead forwards the per-rule split).
 3. `--timings` names, per rule and per host call kind (`git`, `sync-state`, reads), where the time went,
    so the next regression is found from one run.
 
@@ -41,7 +41,7 @@
   tree, cold no slower than the reference tool. Each number with its command.
 - `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`,
   `cargo test --locked --workspace`, `cargo deny --locked check` and `cargo build --release --locked`
-  all exit 0 in the Gate lane on the pushed commit.
+  all exit 0 in the gates on the pushed commit.
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point

@@ -13,8 +13,9 @@
 
 A newcomer who pastes the README's and the getting-started guide's commands into a fresh repository
 gets each command's documented result. The README describes the released v0.1.0. No document names
-the lane, a lane ticket, or a commit of the history before the public root. A core release opens
-with its install steps and becomes the repository's latest release; a plugin release never does.
+the local job queue, its ticket numbers, or a commit of the history before the public root. A core
+release opens with its install steps and becomes the repository's latest release; a plugin release
+never does.
 
 ## Scope
 
@@ -26,8 +27,9 @@ with its install steps and becomes the repository's latest release; a plugin rel
    and `gate` after `gate init`.
 4. The README's opening note and Roadmap describe the released v0.1.0; the plugins row names `ci`.
 5. The README FAQ's unwrapped line is wrapped at 100 columns.
-6. No lane or ticket wording in T-025, T-026, T-027 and `docs/plan.md`; no commit id of the history
-   before the public root (`2b248bd`, `550aa0f` and the like) in any document.
+6. No wording of the local job queue or its ticket numbers in T-025, T-026, T-027 and
+   `docs/plan.md`; no commit id of the history before the public root in any document, nor a CI
+   run of the deleted repository.
 7. The house-style guide says how this repository's changelog is written; the README's Project
    Structure lists `examples/`, `scripts/` and `spike/`.
 8. `release.yml`: the core release body starts with an Install section with its version filled in,
@@ -40,8 +42,8 @@ Not in scope: `gate init`'s suggested rule and the commit-msg check (T-029).
 
 - The stranger run on the pushed branch: every README and getting-started command pasted as written
   into a scratch repository, each exit code named in this file.
-- `git grep -n -w 'lane\|ticket' -- docs` names no lane or queue ticket, and no document names a
-  commit of the earlier history.
+- A grep of `docs` for the queue's words and ticket numbers finds none (T-029's branch `:ticket`
+  placeholder aside), and no document names a commit of the earlier history.
 - The workflow change: `actionlint` and the leak scan exit 0 in the gates on the pushed commit, and
   a review.
 

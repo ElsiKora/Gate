@@ -36,7 +36,7 @@ The second consumer's structure requirement (plan, "From the second consumer's r
 - The tests above, each failing before the change.
 - `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`,
   `cargo test --locked --workspace`, `cargo deny --locked check` and `cargo build --release --locked`
-  all exit 0 in the Gate lane on the pushed commit.
+  all exit 0 in the gates on the pushed commit.
 - The lead runs it on the second consumer's tree and sends that consumer the paths it reports.
 - Do not edit docs/plan.md; the lead keeps it.
 
