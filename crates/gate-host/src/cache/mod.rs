@@ -273,6 +273,33 @@ impl Cache {
         self.root.join("results")
     }
 
+    /// The directory of what plugins declare, one directory per plugin sha256.
+    #[must_use]
+    pub fn declarations(&self) -> PathBuf {
+        self.root.join("declarations")
+    }
+
+    /// The file of what the plugin with this sha256 declares, as the core whose entry name is
+    /// `key` stores it, in [`Cache::declarations`].
+    #[must_use]
+    pub fn declaration(&self, plugin: &Sha256Sum, key: &str) -> PathBuf {
+        self.declarations().join(plugin.as_str()).join(key)
+    }
+
+    /// Moves a written temporary file into place as the declaration of [`Cache::declaration`].
+    /// When another process filled it first, this one replaces it with the same declaration.
+    ///
+    /// # Errors
+    /// Fails when the file cannot be synced or renamed.
+    pub fn insert_declaration(
+        &self,
+        temporary: Temporary,
+        plugin: &Sha256Sum,
+        key: &str,
+    ) -> Result<PathBuf> {
+        Self::place(temporary, self.declaration(plugin, key))
+    }
+
     /// The directory of answers about commits.
     #[must_use]
     pub fn git(&self) -> PathBuf {
@@ -396,7 +423,8 @@ impl Cache {
         Ok(target)
     }
 
-    /// The entries no checksum in `referenced` names, `modules/` as a whole when no plugin is
+    /// The entries no checksum in `referenced` names (downloads, cores, tools and plugin
+    /// declarations), `modules/` as a whole when no plugin is
     /// pinned (`plugins_pinned` false: wasmtime's file names do not say which plugin a module
     /// came from), files in `tmp/` older than a day, and tool temporaries (`tools/.<name>.*`)
     /// older than an hour. No symbolic link is followed.
@@ -424,8 +452,12 @@ impl Cache {
             entries.push(Entry::at(modules, Reason::Unpinned)?);
         }
         let blobs = self.root.join("blobs");
-        for directory in [blobs.join("sha256"), self.root.join("core")] {
-            if !self.directory(&blobs)? || !self.directory(&directory)? {
+        for (parent, directory) in [
+            (&blobs, blobs.join("sha256")),
+            (&blobs, self.root.join("core")),
+            (&self.root, self.declarations()),
+        ] {
+            if !self.directory(parent)? || !self.directory(&directory)? {
                 continue;
             }
             for (path, name) in children(&directory)? {
@@ -940,6 +972,29 @@ mod tests {
         };
         assert_eq!(default.ok(), Some(Cache::at(expected)));
         assert!(Cache::from_variables(None, None, None).is_err());
+    }
+
+    #[test]
+    fn prune_keeps_the_declarations_of_pinned_plugins_only() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let cache = Cache::at(directory.path());
+        std::fs::write(directory.path().join(CACHE_TAG), CACHE_TAG_CONTENTS).expect("tag");
+        let pinned = Sha256Sum::parse(&"b".repeat(64)).expect("checksum");
+        let unpinned = Sha256Sum::parse(&"d".repeat(64)).expect("checksum");
+        for plugin in [&pinned, &unpinned] {
+            let path = cache.declaration(plugin, "entry");
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("directories");
+            std::fs::write(path, "{}").expect("entry");
+        }
+
+        let entries = cache
+            .unreferenced(&BTreeSet::from([pinned]), true)
+            .expect("listed");
+        let paths: Vec<&Path> = entries.iter().map(|entry| entry.path.as_path()).collect();
+        assert_eq!(
+            paths,
+            [cache.declarations().join(unpinned.as_str()).as_path()]
+        );
     }
 
     #[test]

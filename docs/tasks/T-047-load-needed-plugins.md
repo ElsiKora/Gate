@@ -148,7 +148,8 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
 - Plugin `b` declared with two sources fails `check --rule 'a/*'`.
 - An exception whose plugin is not declared where its file applies fails `check --rule 'a/*'`.
 - A `--rule b/<typo>` key fails a `check --staged` that does not run `b`, and a key that names a
-  rule `b` declares passes it.
+  rule `b` declares passes it. This one passes on `a6870b6` too, whose `needed` loaded the plugin
+  a key names; it guards the removal of that branch.
 - A declared plugin `b` whose component does not load, and so has no declaration, fails
   `check --rule 'a/*'`: the run loads it to get the declaration.
 - The trade test, flipped: an option `b`'s schema refuses fails `gate sync`, a full `gate check`
@@ -158,6 +159,9 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
   change that loads every plugin to validate; they pass on `a6870b6`.
 - Kept from the first design: the `sync-state` fallback loads the generator plugin a `--rule`
   filter left out, and after `gate sync`, no check compiles a plugin again.
+- Unit tests: a stored declaration reads back as written and only under its plugin's sha256, an
+  entry that does not parse reads as missing, and `gate cache prune` keeps the declarations of
+  pinned plugins only.
 
 ## Done when
 
@@ -189,7 +193,7 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
 
 ## Resume point
 
-2026-11-19T20:15:14+00:00:
+2026-11-19T20:21:46+00:00:
 - First design: `ba462ff` (tests), `a491f40` (the change), `93749ae` (guards and section 9),
   `9bb5b36` (the trade test's fixture), `a6870b6` (clippy).
 - Lane ticket 224 ran the tests on `ba462ff`: the two load tests failed as expected (exit 101); the
@@ -198,4 +202,13 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
   lead changed the design.
 - The review of `a6870b6` said fix first; the lead's redesign is above.
 - Ticket 233, item 7's measurement build, still stands: the compile settings do not depend on it.
-- Next: the tests of the redesign, then the change, then one round.
+- `7e904e4` holds the redesign's tests, written before its change.
+- The change, `plugins/declarations.rs`, stores each plugin's declaration in the cache under
+  `declarations/<plugin sha256>/<entry>`, whose name is the digest of the entry format, the plugin
+  interface and the core version. Every entry is written when its plugin loads and read only by
+  that core. A missing or unreadable entry loads the plugin. `Loaded` keeps a declaration for every
+  declared plugin and compiles only the plugins the run runs. The checks that need no plugin (one
+  source per plugin, a pin per plugin, an exception's plugin declared where its file applies) run
+  for every declared plugin. `gate cache prune` removes the declarations of plugins no lock pins.
+- Next: one round on the lane. It runs the new tests on `7e904e4`, each expected to fail but the
+  two guards, then the gates on the tip.
