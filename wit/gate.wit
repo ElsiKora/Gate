@@ -4,7 +4,7 @@
 /// tracked tree of its scope read-only through `tree`, git data through `git` (only for rules that
 /// declare `reads-history`), and nothing else: no files, network, clock or environment. Levels,
 /// norms and exceptions belong to the core's configuration, never to the plugin.
-package gate:plugin@0.2.0;
+package gate:plugin@0.3.0;
 
 interface types {
   /// How much a finding weighs; set by configuration, never by the plugin.
@@ -104,8 +104,10 @@ interface types {
     norms: list<string>,
   }
 
-  /// A file a generator writes, at a path relative to the project root; the host maps it.
-  record generated-file { path: string, contents: list<u8> }
+  /// A file a generator writes, at a path relative to the project root; the host maps it. A seed
+  /// is written only when nothing exists at its path, is never compared, and belongs to the project
+  /// once written.
+  record generated-file { path: string, contents: list<u8>, seed: bool }
 
   /// What `generate` answers; its findings surface as `gate/sync#<generator>`.
   record generate-result { files: list<generated-file>, findings: list<finding> }
@@ -195,5 +197,7 @@ world plugin {
   export describe: func() -> plugin-info;
   /// `err` fails the run, as a configuration or an environment error (see `plugin-error`).
   export check: func(request: check-request) -> result<list<finding>, plugin-error>;
-  export generate: func(name: string, project: string, options: string) -> result<generate-result, plugin-error>;
+  /// `options`: JSON, the generator's own options; `plugin-options`: JSON, the `[plugins.<name>]`
+  /// options, as a `check` call receives them.
+  export generate: func(name: string, project: string, options: string, plugin-options: string) -> result<generate-result, plugin-error>;
 }

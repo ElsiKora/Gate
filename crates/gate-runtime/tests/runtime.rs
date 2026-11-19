@@ -525,7 +525,7 @@ fn a_component_built_for_another_interface_fails_to_load_naming_the_interface() 
     let version = env!("CARGO_PKG_VERSION");
     assert!(
         error.to_string().contains(&format!(
-            "hello was built for another plugin interface; this gate {version} loads plugins built for gate:plugin@0.2.0 only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {version}, released with this core), or rebuild it with gate-sdk {version}"
+            "hello was built for another plugin interface; this gate {version} loads plugins built for gate:plugin@0.3.0 only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {version}, released with this core), or rebuild it with gate-sdk {version}"
         )),
         "{error}"
     );
@@ -693,11 +693,28 @@ fn generated_paths_and_owned_globs_are_mapped_to_the_repository() {
             tree(),
             &grant,
             "write",
-            r#"{"files": {"gen/a.md": "a", "./GENERATED.md": "b"}}"#,
+            r#"{"files": {"gen/a.md": "a", "./GENERATED.md": "b"}, "seeds": {"docs/README.md": "c"}, "echo_plugin_options": true}"#,
+            r#"{"kind": "service"}"#,
         )
         .expect("the generator runs");
-    let paths: Vec<&str> = output.files.iter().map(|file| file.path.as_str()).collect();
-    assert_eq!(paths, ["apps/api/GENERATED.md", "apps/api/gen/a.md"]);
+    let files: Vec<(&str, &[u8], bool)> = output
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), file.contents.as_slice(), file.seed))
+        .collect();
+    assert_eq!(
+        files,
+        [
+            ("apps/api/GENERATED.md", &b"b"[..], false),
+            ("apps/api/gen/a.md", &b"a"[..], false),
+            ("apps/api/docs/README.md", &b"c"[..], true),
+            (
+                "apps/api/plugin-options.json",
+                &br#"{"kind":"service"}"#[..],
+                false
+            ),
+        ]
+    );
 
     for outside in ["../web/x.md", "/etc/x", "..", "gen\\a.md"] {
         let error = runtime
@@ -707,6 +724,7 @@ fn generated_paths_and_owned_globs_are_mapped_to_the_repository() {
                 &grant,
                 "write",
                 &format!(r#"{{"files": {{{outside:?}: "x"}}}}"#),
+                "",
             )
             .expect_err("a file outside the project fails");
         assert_eq!(error.kind(), ErrorKind::Plugin, "{error}");
@@ -730,6 +748,7 @@ fn generators_never_write_or_own_the_cores_files() {
             grant,
             "write",
             &format!(r#"{{"files": {{{path:?}: "x"}}}}"#),
+            "",
         )
     };
     let project = Grant::new("apps/api", &[]);

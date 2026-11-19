@@ -1035,10 +1035,14 @@ impl<'w> PluginGenerators<'w> {
         let root = project
             .and_then(|project| self.workspace.projects().get(project))
             .map(|project| project.root.as_str());
-        let settings = project
+        grant(root, self.settings(project), name, &[])
+    }
+
+    /// The settings of the project named `project` (`None`: the repository).
+    fn settings(&self, project: Option<&str>) -> &Settings {
+        project
             .and_then(|project| self.workspace.settings(project))
-            .unwrap_or_else(|| self.workspace.repository());
-        grant(root, settings, name, &[])
+            .unwrap_or_else(|| self.workspace.repository())
     }
 }
 
@@ -1057,6 +1061,11 @@ impl Generators for PluginGenerators<'_> {
             None,
         ));
         let options = options.map_or_else(|| "{}".to_owned(), Value::to_string);
+        let plugin_options = self
+            .settings(project)
+            .plugin_options(name)
+            .map(Value::to_string)
+            .unwrap_or_default();
         let grant = self.grant(project, name);
         let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
         let inputs = results::Inputs {
@@ -1065,7 +1074,13 @@ impl Generators for PluginGenerators<'_> {
             changed: None,
         };
         let cache = Cache::from_env().ok();
-        let key = results::generate_key(plugin.sha256(), generator.name(), &options, &grant);
+        let key = results::generate_key(
+            plugin.sha256(),
+            generator.name(),
+            &options,
+            &plugin_options,
+            &grant,
+        );
         let stored = cache
             .as_ref()
             .and_then(|cache| results::load(cache, plugin.sha256(), &key))
@@ -1082,6 +1097,7 @@ impl Generators for PluginGenerators<'_> {
                     &grant,
                     generator.name(),
                     &options,
+                    &plugin_options,
                 )
                 .map_err(|error| self.failed(project, &error))?;
             self.generations.ran.fetch_add(1, Ordering::Relaxed);
@@ -1120,6 +1136,7 @@ impl Generators for PluginGenerators<'_> {
             .map(|file| SyncFile {
                 path: file.path,
                 contents: file.contents,
+                seed: file.seed,
             })
             .collect())
     }
@@ -2378,10 +2395,12 @@ impl GitHistory {
             let mut by_entry: BTreeMap<EntryKey, BTreeSet<String>> = BTreeMap::new();
             for entry in sync::generator_entries(workspace) {
                 if let Ok(outputs) = sync::generator_outputs(&entry, &generators) {
-                    by_entry
-                        .entry(entry_key(&entry))
-                        .or_default()
-                        .extend(outputs.into_iter().map(|output| output.path));
+                    by_entry.entry(entry_key(&entry)).or_default().extend(
+                        outputs
+                            .into_iter()
+                            .filter(|output| !output.seed)
+                            .map(|output| output.path),
+                    );
                 }
             }
             RunOutputs {
@@ -2418,7 +2437,7 @@ impl GitHistory {
     }
 
     /// What `gate sync` produces in `workspace` and which of it `gate sync --check` reports, both
-    /// sorted. `produced` holds every output (generators', hooks', CI's) and every path `gate sync`
+    /// sorted. `produced` holds every output (generators', hooks', CI's) but seeds, and every path `gate sync`
     /// would remove (a tracked file under an owned glob that no generator writes, a hook or
     /// workflow gate wrote that the configuration no longer names); `drift` holds the outputs that
     /// are missing, differ or are not executable, and the paths it would remove. A `[generate]`
@@ -2506,9 +2525,11 @@ impl GitHistory {
                     .map(|output| output.path.clone()),
             );
         }
-        // What check reports beyond the outputs is what sync removes, which it owns too.
+        // What check reports beyond the outputs is what sync removes, which it owns too. A seed is
+        // the project's file once written, so it is not produced.
         let produced: BTreeSet<String> = outputs
             .into_iter()
+            .filter(|output| !output.seed)
             .map(|output| output.path)
             .chain(drift.iter().cloned())
             .collect();

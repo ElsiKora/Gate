@@ -1,0 +1,23 @@
+[package]
+name = "gate-plugin-docs"
+description = "The docs plugin of Gate: one documentation layout per kind of project, laid down by gate sync and checked by one rule"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.3.0"
+
+[lib]
+# The component is `docs.wasm`; the rlib lets the native tests call the plugin.
+name = "docs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+pulldown-cmark.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -71,7 +71,7 @@ impl Fixture {
         project: &str,
         options: &str,
     ) -> gate_sdk::Result<GenerateOutput> {
-        gate_sdk::generate(&agents::PLUGIN, self, name, project, options)
+        gate_sdk::generate(&agents::PLUGIN, self, name, project, options, "")
     }
 }
 

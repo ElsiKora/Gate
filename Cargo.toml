@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/gate", "crates/gate-host", "crates/gate-runtime", "crates/gate-runtime/tests/probe", "crates/gate-sdk", "crates/gate-test", "examples/plugin-hello", "languages/typescript", "plugins/agents", "plugins/agents/format", "plugins/ci", "plugins/git", "plugins/ledger", "plugins/markdown", "plugins/nestjs", "plugins/typescript"]
+members = ["crates/gate", "crates/gate-host", "crates/gate-runtime", "crates/gate-runtime/tests/probe", "crates/gate-sdk", "crates/gate-test", "examples/plugin-hello", "languages/typescript", "plugins/agents", "plugins/agents/format", "plugins/ci", "plugins/docs", "plugins/git", "plugins/ledger", "plugins/markdown", "plugins/nestjs", "plugins/typescript"]
 resolver = "3"
 
 [workspace.package]

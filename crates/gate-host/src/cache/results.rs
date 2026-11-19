@@ -163,17 +163,18 @@ fn selection(changed: Option<&[String]>) -> String {
     super::hex(&hasher.finalize())
 }
 
-/// The key of a generator's output: like [`key`], with the generator and its options (JSON) for
-/// the request.
+/// The key of a generator's output: like [`key`], with the generator, its options and the
+/// plugin's options (JSON) for the request.
 pub(crate) fn generate_key(
     plugin_sha256: &str,
     generator: &str,
     options: &str,
+    plugin_options: &str,
     grant: &Grant,
 ) -> Sha256Sum {
     let mut hasher = Sha256::new();
     hasher.update(format!(
-        "gate-generate\0{FORMAT}\0{}\0{plugin_sha256}\0{generator}\0{options}\0{grant:?}\0",
+        "gate-generate\0{FORMAT}\0{}\0{plugin_sha256}\0{generator}\0{options}\0{plugin_options}\0{grant:?}\0",
         env!("CARGO_PKG_VERSION")
     ));
     Sha256Sum::from_digest(&hasher.finalize())
@@ -227,8 +228,8 @@ fn encode(stored: &Stored) -> Value {
         .files
         .iter()
         .map(|file| match std::str::from_utf8(&file.contents) {
-            Ok(text) => json!({ "path": file.path, "text": text }),
-            Err(_) => json!({ "path": file.path, "bytes": file.contents }),
+            Ok(text) => json!({ "path": file.path, "text": text, "seed": file.seed }),
+            Err(_) => json!({ "path": file.path, "bytes": file.contents, "seed": file.seed }),
         })
         .collect();
     json!({
@@ -306,7 +307,12 @@ fn decode_file(value: &Value) -> Option<GeneratedFile> {
             .collect::<Option<_>>()?,
         _ => return None,
     };
-    Some(GeneratedFile { path, contents })
+    let seed = value.get("seed")?.as_bool()?;
+    Some(GeneratedFile {
+        path,
+        contents,
+        seed,
+    })
 }
 
 fn encode_finding(finding: &Finding) -> Value {
@@ -454,10 +460,17 @@ mod tests {
                 GeneratedFile {
                     path: "apps/a/gen.md".to_owned(),
                     contents: b"text\n".to_vec(),
+                    seed: false,
                 },
                 GeneratedFile {
                     path: "apps/a/gen.bin".to_owned(),
                     contents: vec![0, 0xff, 0xfe],
+                    seed: false,
+                },
+                GeneratedFile {
+                    path: "apps/a/docs/README.md".to_owned(),
+                    contents: b"# Seed\n".to_vec(),
+                    seed: true,
                 },
             ],
             stored.findings.clone(),

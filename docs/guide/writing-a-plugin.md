@@ -111,7 +111,9 @@ refuses a configuration that enables the rule without the key, naming the rule.
 The rule itself, in `src/no_bare_todo.rs`, is the subject of [writing-a-rule.md](writing-a-rule.md). A
 generator is a `#[derive(Debug, Default)]` type that implements `gate_sdk::Generator` (`NAME`, `TITLE`,
 the globs it `OWNS` and `generate`, which writes each file with `run.write(path, contents)`) and goes in
-`generators: [...]`.
+`generators: [...]`. `run.seed(path, contents)` writes a page the project then owns: `gate sync`
+writes it only where nothing exists and `gate sync --check` never reports it. `run.plugin_options()`
+reads the `[plugins.<name>] options`, as the plugin's rules do.
 
 ## 3. Build
 

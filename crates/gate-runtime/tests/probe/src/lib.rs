@@ -409,9 +409,10 @@ impl Rule for Ambient {
     }
 }
 
-/// Writes each `files` entry of its options (path to text) and each path the tracked file
-/// `list` names (one per line, text "listed"), reports `report` as a finding at `gate.toml`, or
-/// fails with `fail`, and owns `gen/**` and `GENERATED.md`.
+/// Writes each `files` entry of its options (path to text), seeds each `seeds` entry, writes the
+/// plugin options it receives at `plugin-options.json` with `echo_plugin_options`, and each path the
+/// tracked file `list` names (one per line, text "listed"), reports `report` as a finding at
+/// `gate.toml`, or fails with `fail`, and owns `gen/**` and `GENERATED.md`.
 #[derive(Debug, Default)]
 pub struct Write;
 
@@ -419,6 +420,10 @@ pub struct Write;
 pub struct WriteOptions {
     #[serde(default)]
     files: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    seeds: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    echo_plugin_options: bool,
     #[serde(default)]
     fail: bool,
     #[serde(default)]
@@ -443,6 +448,14 @@ impl Generator for Write {
         let files = run.options().files.clone();
         for (path, text) in files {
             run.write(path, text);
+        }
+        let seeds = run.options().seeds.clone();
+        for (path, text) in seeds {
+            run.seed(path, text);
+        }
+        if run.options().echo_plugin_options {
+            let options: gate_sdk::serde_json::Value = run.plugin_options()?;
+            run.write("plugin-options.json", options.to_string());
         }
         if let Some(list) = run.options().list.clone() {
             let listed = run.tree().text(&list).unwrap_or_default();

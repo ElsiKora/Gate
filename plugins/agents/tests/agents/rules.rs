@@ -472,6 +472,17 @@ fn owners_are_accepted_decisions_of_the_index() {
 }
 
 #[test]
+fn no_claude_md_runs_once_for_the_whole_repository() {
+    let info = gate_sdk::describe(&agents::PLUGIN);
+    let rule = info
+        .rules
+        .iter()
+        .find(|rule| rule.name == "no-claude-md")
+        .expect("declared");
+    assert_eq!(rule.scope, gate_sdk::Scope::Repository);
+}
+
+#[test]
 fn a_tracked_claude_md_is_reported_at_any_depth_and_case() {
     let fixture = Fixture::new(&[
         ("CLAUDE.md", "x\n"),

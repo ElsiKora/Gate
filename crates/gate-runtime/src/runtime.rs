@@ -36,7 +36,7 @@ const TICK: Duration = Duration::from_millis(10);
 
 /// The plugin interface this core loads, the package of `wit/gate.wit`. A component built against
 /// another version fails to load.
-pub const INTERFACE: &str = "gate:plugin@0.2.0";
+pub const INTERFACE: &str = "gate:plugin@0.3.0";
 
 /// How the runtime runs plugins. The limits are the core's, the same for every plugin: a plugin
 /// cannot set its own. A call that hits one fails with [`ErrorKind::OutOfFuel`],
@@ -659,8 +659,8 @@ impl Runtime {
     }
 
     /// Runs the generator `name` of `plugin` for the project at `grant`'s root with `options`
-    /// (JSON). The files come back at repository paths: the generator names them relative to the
-    /// project root.
+    /// (JSON) and the plugin's `[plugins.<name>]` options `plugin_options` (JSON). The files come
+    /// back at repository paths: the generator names them relative to the project root.
     ///
     /// # Errors
     /// A trap, fuel used up, the plugin's `err`, or a file outside the project root.
@@ -671,6 +671,7 @@ impl Runtime {
         grant: &Grant,
         name: &str,
         options: &str,
+        plugin_options: &str,
     ) -> Result<(GenerateOutput, ReadSet, Vec<String>)> {
         let project = grant.root().to_owned();
         let access = Access {
@@ -681,7 +682,7 @@ impl Runtime {
         let label = format!("generate {name}");
         let (answer, read_set, log, _, _) =
             self.invoke(plugin, &label, access, |bindings, store| {
-                bindings.call_generate(store, name, &project, options)
+                bindings.call_generate(store, name, &project, options, plugin_options)
             })?;
         let output = answer.map_err(|error| answered(&plugin.name, error))?;
         let output = GenerateOutput {
@@ -712,6 +713,7 @@ impl Runtime {
                     Ok(GeneratedFile {
                         path,
                         contents: file.contents,
+                        seed: file.seed,
                     })
                 })
                 .collect::<Result<_>>()?,

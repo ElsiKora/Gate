@@ -644,6 +644,10 @@ fn sync(arguments: &SyncArgs) -> Result<u8, Error> {
     } else {
         format!(", {} reported by generators", reported.len())
     };
+    // A seed is the project's file once written: `--check` never reports it, and the counts are
+    // of the generated files.
+    let seeds = outputs.iter().filter(|output| output.seed).count();
+    let generated = outputs.len() - seeds;
 
     if arguments.check {
         let mut findings = sync::check(&workspace, &outputs, &owned)?;
@@ -654,9 +658,8 @@ fn sync(arguments: &SyncArgs) -> Result<u8, Error> {
         let mut text = findings.iter().map(render_finding).collect::<String>();
         let _ = writeln!(
             text,
-            "gate sync --check: {} generated {}, {out_of_date} out of date{reported_line}{}",
-            outputs.len(),
-            if outputs.len() == 1 { "file" } else { "files" },
+            "gate sync --check: {generated} generated {}, {out_of_date} out of date{reported_line}{}",
+            if generated == 1 { "file" } else { "files" },
             override_lines(&generators)
         );
         write_out(&text)?;
@@ -690,10 +693,14 @@ fn sync(arguments: &SyncArgs) -> Result<u8, Error> {
             synced.untracked.join(" ")
         );
     }
+    let seeds_line = if seeds == 0 {
+        String::new()
+    } else {
+        format!(", {seeds} {}", if seeds == 1 { "seed" } else { "seeds" })
+    };
     let _ = writeln!(
         text,
-        "gate sync: {} generated, {} written, {} removed{reported_line}{}",
-        outputs.len(),
+        "gate sync: {generated} generated{seeds_line}, {} written, {} removed{reported_line}{}",
         synced.written.len(),
         synced.removed.len(),
         override_lines(&generators)

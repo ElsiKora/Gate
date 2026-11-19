@@ -8,6 +8,27 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+# 0.3.0 (unreleased)
+
+### Breaking Changes
+
+- **sdk:** the plugin interface is `gate:plugin@0.3.0`: a generated file carries `seed`, and
+  `generate` receives the plugin's `[plugins.<name>] options` as `plugin-options`. A plugin built
+  for 0.2.0 does not load; pin the plugins released with this core, or rebuild with `gate-sdk`
+  0.3.0.
+- **plugin-agents:** `agents/no-claude-md` is a repository-scope rule, set in the root `gate.toml`'s
+  `[rules]` only; it reports every `CLAUDE.md` in the repository.
+
+### Features
+
+- **host:** seeds. `gate sync` writes a generated file marked `seed` only when nothing exists at its
+  path, never overwrites it, and `gate sync --check` never reports it; a seed under a glob its own
+  generator owns is refused. A generator reads the plugin's options (`Generate::plugin_options`) and
+  writes a seed with `Generate::seed`.
+- **plugin-docs:** a new plugin, `docs`: one documentation layout per kind of project (`service`,
+  `frontend`, `infrastructure`, `library`, `monorepo-root`), the rule `docs/layout` that checks it,
+  and the generator `docs/layout` that seeds a project's required index pages.
+
 ## Unreleased
 
 ### Features

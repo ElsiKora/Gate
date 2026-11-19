@@ -60,7 +60,7 @@ impl<S: CallState> std::fmt::Debug for RuleEntry<S> {
 pub struct GeneratorEntry {
     name: &'static str,
     info: fn() -> GeneratorInfo,
-    run: fn(&dyn Host, &str, &str) -> Result<GenerateOutput>,
+    run: fn(&dyn Host, &str, &str, &Value) -> Result<GenerateOutput>,
 }
 
 impl GeneratorEntry {
@@ -274,7 +274,8 @@ pub fn check<S: CallState>(
     Ok(findings)
 }
 
-/// Runs generator `name` with `options` (JSON; empty means `{}`) for `project`.
+/// Runs generator `name` with `options` (JSON; empty means `{}`) for `project`; `plugin_options`
+/// (JSON; empty means `{}`) are the `[plugins.<name>]` options, as a check call receives them.
 ///
 /// # Errors
 /// A generator the plugin does not declare, options that do not match, or the generator's error.
@@ -284,13 +285,15 @@ pub fn generate<S: CallState>(
     name: &str,
     project: &str,
     options: &str,
+    plugin_options: &str,
 ) -> Result<GenerateOutput> {
     let entry = spec
         .generators
         .iter()
         .find(|entry| entry.name == name)
         .ok_or_else(|| Error::new(format!("plugin {} has no generator {name:?}", spec.name)))?;
-    (entry.run)(host, project, options)
+    let plugin_options = json(plugin_options, "the [plugins] options")?;
+    (entry.run)(host, project, options, &plugin_options)
 }
 
 fn json(text: &str, what: &str) -> Result<Value> {
@@ -348,11 +351,13 @@ fn run_generator<G: Generator>(
     host: &dyn Host,
     project: &str,
     text: &str,
+    plugin_options: &Value,
 ) -> Result<GenerateOutput> {
     let mut run = Generate {
         host,
         report: Report::new(G::NAME),
         options: options::<G::Options>(text, &format!("generator {}", G::NAME))?,
+        plugin_options: plugin_options.clone(),
         project: project.to_owned(),
         files: Vec::new(),
     };

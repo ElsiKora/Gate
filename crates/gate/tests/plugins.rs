@@ -4150,3 +4150,103 @@ fn a_used_result_survives_older_than_and_a_pruned_one_is_computed_again() {
     assert_eq!(ran, ["one"]);
     assert_eq!(after, messages);
 }
+
+/// The built `docs` plugin, from an empty repository to a filled book, in each kind: `gate check`
+/// reports every required entry missing, `gate sync` seeds them, `gate check` reports each seed
+/// unfilled, and with the marker lines deleted both checks pass; a second `gate sync` writes
+/// nothing over the filled pages.
+#[test]
+fn the_docs_plugin_lays_down_and_checks_the_standard_of_each_kind() {
+    const MARKER: &str = "<!-- gate:seed: replace this page's text, then delete this line -->\n";
+    let (path, _) = component("gate-plugin-docs", "docs");
+    let plugin = format!("docs={}", path.display());
+    for (kind, count) in [
+        ("service", 9),
+        ("frontend", 9),
+        ("infrastructure", 9),
+        ("library", 9),
+        ("monorepo-root", 8),
+    ] {
+        let repo = Repo::empty();
+        repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\noptions = {{ kind = \"{kind}\" }}\n\n[rules]\n\"docs/layout\" = \"error\"\n\n[generate]\n\"docs/layout\" = {{}}\n"
+            ),
+        );
+        repo.commit("configure");
+
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{kind}: {}",
+            text(&output.stderr)
+        );
+        let report = text(&output.stdout);
+        assert_eq!(
+            report.matches("docs/layout#missing").count(),
+            count,
+            "{kind}: {report}"
+        );
+
+        let output = repo.gate(&["sync", "--plugin", &plugin]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{kind}: {}",
+            text(&output.stderr)
+        );
+        let written: Vec<String> = text(&output.stdout)
+            .lines()
+            .filter_map(|line| line.strip_prefix("wrote "))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(written.len(), count, "{kind}: {written:?}");
+        let output = repo.gate(&["sync", "--check", "--plugin", &plugin]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{kind}: a seed is never drift: {}",
+            text(&output.stdout)
+        );
+        repo.commit("docs: seed the book");
+
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        assert_eq!(output.status.code(), Some(1), "{kind}");
+        let report = text(&output.stdout);
+        assert_eq!(
+            report.matches("docs/layout#unfilled").count(),
+            count,
+            "{kind}: {report}"
+        );
+        assert_eq!(
+            report.matches("docs/layout#").count(),
+            count,
+            "{kind}: {report}"
+        );
+
+        for page in &written {
+            let full = repo.path().join(page);
+            let filled = std::fs::read_to_string(&full)
+                .expect("read")
+                .replace(MARKER, "");
+            std::fs::write(&full, filled).expect("write");
+        }
+        repo.commit("docs: fill the book");
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{kind}: {}",
+            text(&output.stdout)
+        );
+        let output = repo.gate(&["sync", "--plugin", &plugin]);
+        assert_eq!(output.status.code(), Some(0), "{kind}");
+        assert!(
+            !text(&output.stdout).contains("wrote "),
+            "{kind}: a filled page is never overwritten: {}",
+            text(&output.stdout)
+        );
+    }
+}

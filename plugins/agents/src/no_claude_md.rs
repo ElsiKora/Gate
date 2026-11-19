@@ -1,8 +1,9 @@
-//! `agents/no-claude-md`: no `CLAUDE.md` is tracked at any level.
+//! `agents/no-claude-md`: no `CLAUDE.md` is tracked anywhere in the repository. A repository-scope
+//! rule, so a root file is seen whichever projects the workspace lists.
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Location, Result, Rule, Run};
+use gate_sdk::{Location, Result, Rule, Run, Scope};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -34,7 +35,8 @@ impl Rule for NoClaudeMd {
     type Options = Options;
 
     const NAME: &'static str = "no-claude-md";
-    const TITLE: &'static str = "No CLAUDE.md is tracked at any level";
+    const TITLE: &'static str = "No CLAUDE.md is tracked anywhere in the repository";
+    const SCOPE: Scope = Scope::Repository;
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let name = run.options().file_name.clone();
