@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | v0.2.0 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead reads the page |
@@ -34,6 +34,21 @@ findings against the reference implementation and is a decision of its own.
 - The leak scan named in the local rules prints nothing.
 - The lead has read the page.
 
+## Proof
+
+The rule's logic is unchanged since `v0.1.0` (`git diff v0.1.0 HEAD` of its folder changes only
+finding keys), so the released `nestjs@0.1.0` checks the page's claims. In a scratch repository with
+`"nestjs/error-logging" = "error"`, `bin/gate check`:
+
+| File | Content | Result |
+| --- | --- | --- |
+| `job-runner.ts` | the page's example, as written | no finding |
+| `untyped-runner.ts` | the example with `(reason) =>` untyped | one finding, at the first call (line 9) |
+| `const-runner.ts` | a template reading a `const` of a plain value; one reading a `const` of the caught error | one finding, at the second (line 12) |
+
+The check exited 1 for the second and third rows, with exactly those findings.
+
 ## Resume point
 
-2026-11-19: task file written. Next: the page.
+2026-11-19: the page is written and checked against the released plugin; waiting for the lead's
+read.

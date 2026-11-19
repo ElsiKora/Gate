@@ -17,10 +17,10 @@ imports matched by their literal module specifier, without resolution.
 
 - `#logger-error-evidence`: a call of `logger-method` on `logger-class` of `layout.nest-common-package`,
   or on an instance of it (`.bind`, `.call` and `.apply` followed), that does not pass exactly two
-  arguments: the formatted evidence, `evidence-formatter` of `layout.automator-package` called with one
-  argument that is actual error evidence (first for a call on the class, second for one on an instance),
-  and a bounded message (literals, a conditional of them, a `string` parameter or a `const` alias of one,
-  with no raw evidence in it). Reported at the call.
+  arguments in this order: `(evidence, message)` for a call on the class, `(message, evidence)` for
+  a call on an instance. The evidence is `evidence-formatter` of `layout.automator-package` called
+  with one argument that is error evidence, or a `const` alias of that call; the message is
+  bounded. Reported at the call.
 - `#typeorm-logging-disabled`: native options, a value typed with one of `orm-options-types` (through a
   local alias or one of `wrapper-types`), the first argument of `orm-constructor` of
   `layout.typeorm-package`, or the return of a function declared to return them, that:
@@ -30,6 +30,18 @@ imports matched by their literal module specifier, without resolution.
   - or has that property written later, directly or through a local alias, including by `Object.assign`,
     `Object.defineProperty`, `Reflect.set`, `Reflect.deleteProperty` and `Reflect.defineProperty`
     (reported at the write).
+
+Error evidence is the name a `catch` clause binds, at any depth; a parameter typed `unknown` or the
+global `Error`, a callback's parameter included; or a `const` alias of one of these. An untyped
+parameter is not error evidence, so a rejection callback's parameter counts only when it is typed.
+
+A bounded message is a string literal, any template literal, a conditional of two bounded messages,
+a parameter typed `string`, or a `const` alias of one of these, as long as it reads no raw evidence.
+Raw evidence is error evidence, a name a `catch` clause binds by destructuring, and any variable,
+destructured binding or member of one of the file's classes whose initializer reads raw evidence;
+reading is followed through those initializers. So `` `Job ${jobId}: drain failed` `` is bounded
+when `jobId` is a `string` parameter or a `const` whose value reads no raw evidence, and is not when
+`jobId` is read from the caught error.
 
 Messages start with the file and line. Two identical findings are reported once.
 
@@ -69,5 +81,35 @@ error nestjs/error-logging#logger-error-evidence src/modules/user/user.service.t
 
 ## How to fix it
 
-Log `FormatErrorEvidenceForLog(error)` with a fixed message and nothing else. Write the ORM options as an
-object literal that ends with `logging: false`, and do not change them afterwards.
+Log `FormatErrorEvidenceForLog(error)` with a bounded message and nothing else, in the order the
+call takes. A rejection callback types its parameter `unknown`:
+
+```ts
+import { Logger } from "@nestjs/common";
+import { FormatErrorEvidenceForLog } from "@elsikora/nestjs-crud-automator";
+
+export class JobRunner {
+  private readonly logger = new Logger(JobRunner.name);
+
+  drain(jobId: string, work: Promise<void>): void {
+    work.then(undefined, (reason: unknown) => {
+      this.logger.error(`Job ${jobId}: drain failed`, FormatErrorEvidenceForLog(reason));
+    });
+  }
+
+  stop(jobId: string): void {
+    try {
+      this.halt();
+    } catch (error) {
+      Logger.error(FormatErrorEvidenceForLog(error), `Job ${jobId}: stop failed`);
+    }
+  }
+
+  private halt(): void {}
+}
+```
+
+With an untyped `(reason) =>`, the first call is reported.
+
+Write the ORM options as an object literal that ends with `logging: false`, and do not change them
+afterwards.
