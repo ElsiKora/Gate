@@ -7,6 +7,7 @@ use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use regex::Regex;
 
 use crate::forms::{Compiled, Form, compile_all, default_forms};
+use crate::javascript::translate;
 
 /// The `[plugins.git] options`. `main` is required; each other key is required by the rule, or the
 /// form of `git/main-history`, that reads it.
@@ -223,12 +224,22 @@ pub(crate) fn required<'s, T>(value: Option<&'s T>, key: &str, reader: &str) -> 
     })
 }
 
-/// A regular expression of the settings or options.
+/// A regular expression of the settings or of a rule's options, read as JavaScript reads one
+/// without flags (see [`translate`]): `\w`, `\d` and `\b` are ASCII, so `[\w-]+` does not take
+/// `é`. Every pattern option of the plugin is read here or, for `git/commit-message`, with the same
+/// translation.
 ///
 /// # Errors
-/// When it does not compile, naming the key.
+/// When it holds a construct the translation does not read, or does not compile, naming the key
+/// and the text as written.
 pub(crate) fn pattern(key: &str, text: &str) -> Result<Regex> {
-    Regex::new(text).map_err(|error| {
+    let translated = translate(text).map_err(|construct| {
+        Error::config(format!(
+            "{key} {text:?} has {construct}, which the git plugin does not read; write a \
+             JavaScript regular expression without lookaround or backreferences"
+        ))
+    })?;
+    Regex::new(&translated).map_err(|error| {
         Error::config(format!(
             "{key} {text:?} is not a valid regular expression: {error}"
         ))

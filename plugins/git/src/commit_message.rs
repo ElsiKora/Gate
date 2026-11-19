@@ -15,7 +15,6 @@ use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
 use regex::Regex;
 
 use crate::javascript::{ANY, translate};
-use crate::settings::pattern;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -190,7 +189,7 @@ impl Patterns {
         let any = ANY;
         let header = match &options.header_pattern {
             Some(text) => header_pattern(text)?,
-            None => pattern(
+            None => builtin(
                 "the header pattern",
                 &format!(
                     r"^(?<type>[0-9A-Za-z_]*)(?:\((?<scope>{any}*)\))?!?: (?<subject>{any}*)$"
@@ -205,7 +204,7 @@ impl Patterns {
         let breaking = if options.header_pattern.is_some() {
             None
         } else {
-            Some(pattern(
+            Some(builtin(
                 "the header pattern",
                 &format!(r"^(?<type>[0-9A-Za-z_]*)(?:\((?<scope>{any}*)\))?!: (?<subject>{any}*)$"),
             )?)
@@ -214,16 +213,16 @@ impl Patterns {
             breaking,
             header,
             ignores,
-            quoted: pattern(
+            quoted: builtin(
                 "the quoted-span pattern",
                 &format!("`{any}*?`|\"{any}*?\"|'{any}*?'"),
             )?,
-            cased: pattern("the cased-letter pattern", r"(?i)^[\p{Ll}\p{Lu}\p{Lt}]")?,
-            skip_brackets: pattern(
+            cased: builtin("the cased-letter pattern", r"(?i)^[\p{Ll}\p{Lu}\p{Lt}]")?,
+            skip_brackets: builtin(
                 "the skip pattern",
                 r"\[(?:[sS][kK][iI][pP]|[cC][iI])(?:-|[\s&&[^\u{85}]]|\u{FEFF})(?:[cC][iI]|[sS][kK][iI][pP])\]",
             )?,
-            skip_parentheses: pattern(
+            skip_parentheses: builtin(
                 "the skip pattern",
                 r"\((?:[sS][kK][iI][pP]|[cC][iI])(?:-|[\s&&[^\u{85}]]|\u{FEFF})(?:[cC][iI]|[sS][kK][iI][pP])\)",
             )?,
@@ -256,6 +255,18 @@ fn javascript(option: &str, text: &str, write: &str) -> Result<Regex> {
         Error::config(format!(
             "git/commit-message {option} {text:?} is not a valid regular expression; {write}: \
              {error}"
+        ))
+    })
+}
+
+/// A pattern of the rule itself, in the `regex` crate's syntax.
+///
+/// # Errors
+/// When it does not compile, which is a bug of the rule.
+fn builtin(name: &str, text: &str) -> Result<Regex> {
+    Regex::new(text).map_err(|error| {
+        Error::new(format!(
+            "{name} of git/commit-message does not compile ({error}); report this as a bug"
         ))
     })
 }

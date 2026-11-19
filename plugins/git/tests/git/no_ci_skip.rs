@@ -92,6 +92,22 @@ fn the_patterns_are_options() {
         "{error}"
     );
     assert!(error.is_config(), "a configuration error: {error}");
+
+    // Read as JavaScript reads it: `(?i)` is no flag there, and it is refused by name.
+    let error = repo
+        .check(
+            "no-ci-skip",
+            &settings(&activation),
+            r#"{"directive-pattern": "(?i)\\[skip ci\\]"}"#,
+        )
+        .expect_err("an inline flag");
+    assert!(
+        error
+            .message()
+            .contains("(? other than (?: and (?<name>, which the git plugin does not read"),
+        "{error}"
+    );
+    assert!(error.is_config(), "a configuration error: {error}");
 }
 
 #[test]

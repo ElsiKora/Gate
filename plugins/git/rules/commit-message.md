@@ -110,7 +110,11 @@ UTF-16 code units: a character outside the Basic Multilingual Plane, such as an 
 ### Regular expressions
 
 `header-pattern` and `ignores` are read as JavaScript reads a regular expression without flags,
-which is how the reference reads them. The rule reads this subset of that syntax:
+which is how the reference reads them. Every pattern option of the git plugin is read the same way:
+`template`, `pattern` and `subject` of [`git/branch-name`](branch-name.md), `directive-pattern` and
+`trailer-pattern` of [`git/no-ci-skip`](no-ci-skip.md), and `release-subject`, `branch-pattern` and
+a form's `subject` in `[plugins.git] options` (see [`git/main-history`](main-history.md)). The
+plugin reads this subset of that syntax:
 
 - Characters, `.`, `^`, `$`, `|`, the quantifiers `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}`, each
   with a lazy `?`, the groups `(...)`, `(?:...)` and `(?<name>...)`, and classes `[...]` and

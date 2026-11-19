@@ -283,6 +283,20 @@ fn the_settings_are_required_and_checked() {
         assert!(error.message().contains("has no capture group"), "{error}");
         assert!(error.is_config(), "a configuration error: {error}");
 
+        // Read as JavaScript reads it: an inline flag is not JavaScript.
+        let flag = settings(&root).replace(r"(\\d+\\.\\d+\\.\\d+)", r"(?i)(\\d+\\.\\d+\\.\\d+)");
+        assert_ne!(flag, settings(&root));
+        let error = repo
+            .check(rule, &flag, "{}")
+            .expect_err("an inline flag");
+        assert!(
+            error
+                .message()
+                .contains("has a group (? other than (?: and (?<name>"),
+            "{error}"
+        );
+        assert!(error.is_config(), "a configuration error: {error}");
+
         let inverted = settings(&root).replace("[8, 30]", "[30, 8]");
         let error = repo
             .check(rule, &inverted, "{}")

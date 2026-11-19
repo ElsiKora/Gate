@@ -34,8 +34,18 @@ Scope: repository. Reads history: yes. Aspects: none.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `directive-pattern` | string (regex) | `"(?i)\\[(?:skip ci\|ci skip\|no ci\|skip actions\|actions skip)\\]"` | The skip directives. |
-| `trailer-pattern` | string (regex) | `"(?im)^skip-checks:\\s*true\\s*$"` | The skip trailer. |
+| `directive-pattern` | string (regex) | the five directives in any case | The skip directives. |
+| `trailer-pattern` | string (regex) | `skip-checks: true` in any case, on a line of its own | The skip trailer. |
+
+Both are read as JavaScript reads a regular expression without flags, as every pattern option of
+the git plugin is (see [Regular expressions](commit-message.md#regular-expressions)). Without flags
+there is no `i` or `m`, so the defaults spell each letter in both cases and anchor the trailer at a
+line break:
+
+```toml
+directive-pattern = '\[(?:[sS][kK][iI][pP] [cC][iI]|[cC][iI] [sS][kK][iI][pP]|[nN][oO] [cC][iI]|[sS][kK][iI][pP] [aA][cC][tT][iI][oO][nN][sS]|[aA][cC][tT][iI][oO][nN][sS] [sS][kK][iI][pP])\]'
+trailer-pattern = '(?:^|\n)[sS][kK][iI][pP]-[cC][hH][eE][cC][kK][sS]:\s*[tT][rR][uU][eE]\s*(?:\n|$)'
+```
 
 ```toml
 [rules]

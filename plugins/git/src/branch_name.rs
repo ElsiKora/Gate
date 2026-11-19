@@ -9,8 +9,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
 use regex::Regex;
 
-use crate::javascript::translate;
-use crate::settings::Settings;
+use crate::settings::{Settings, pattern};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -171,11 +170,11 @@ impl<'o> Policy<'o> {
         }
         match &options.subject {
             Subject::All(all) => {
-                reference("subject", all)?;
+                pattern("subject", all)?;
             }
             Subject::Each(each) => {
                 for (name, own) in each {
-                    reference(&format!("subject.{name}"), own)?;
+                    pattern(&format!("subject.{name}"), own)?;
                 }
             }
         }
@@ -183,7 +182,7 @@ impl<'o> Policy<'o> {
             (Some(template), None) => {
                 Matcher::Template(expressions(template, &options.types, &options.subject)?)
             }
-            (None, Some(text)) => Matcher::Pattern(reference("pattern", text)?),
+            (None, Some(text)) => Matcher::Pattern(pattern("pattern", text)?),
             _ => {
                 return Err(Error::config(
                     "git/branch-name takes exactly one of template and pattern; write a template \
@@ -300,7 +299,7 @@ fn expressions(template: &str, types: &[String], subject: &Subject) -> Result<Ve
                     source = source.replace(&token, &format!("({part})"));
                 }
             }
-            reference("template", &format!("^{source}$"))
+            pattern("template", &format!("^{source}$"))
         })
         .collect()
 }
@@ -414,24 +413,4 @@ mod tests {
         assert_eq!(delimiters("--a//b__c..d-"), "a/b_c.d");
         assert_eq!(delimiters("-/-"), "");
     }
-}
-
-/// A regular expression of git-branch-lint's policy, read as JavaScript reads one without flags
-/// (see [`translate`]): `\w`, `\d` and `\b` are ASCII, so `[\w-]+` does not take `é`.
-///
-/// # Errors
-/// When it holds a construct the translation does not read, or does not compile, naming the key
-/// and the text as written.
-fn reference(key: &str, text: &str) -> Result<Regex> {
-    let translated = translate(text).map_err(|construct| {
-        Error::config(format!(
-            "{key} {text:?} has {construct}, which git/branch-name does not read; write a \
-             JavaScript regular expression without lookaround or backreferences"
-        ))
-    })?;
-    Regex::new(&translated).map_err(|error| {
-        Error::config(format!(
-            "{key} {text:?} is not a valid regular expression: {error}"
-        ))
-    })
 }

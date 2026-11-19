@@ -24,20 +24,45 @@ pub struct NoCiSkip;
 )]
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct Options {
-    /// A regular expression of the skip directives GitHub Actions honours in a message.
+    /// A regular expression of the skip directives GitHub Actions honours in a message, read as
+    /// JavaScript reads one without flags.
     pub directive_pattern: String,
-    /// A regular expression of the skip trailer.
+    /// A regular expression of the skip trailer, read as JavaScript reads one without flags.
     pub trailer_pattern: String,
 }
 
 impl Default for Options {
+    /// The directives and the trailer in any case, the trailer on a line of its own.
     fn default() -> Self {
         Self {
-            directive_pattern: r"(?i)\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]"
-                .to_owned(),
-            trailer_pattern: r"(?im)^skip-checks:\s*true\s*$".to_owned(),
+            directive_pattern: format!(
+                r"\[(?:{})\]",
+                caseless("skip ci|ci skip|no ci|skip actions|actions skip")
+            ),
+            trailer_pattern: format!(
+                r"(?:^|\n){}:\s*{}\s*(?:\n|$)",
+                caseless("skip-checks"),
+                caseless("true")
+            ),
         }
     }
+}
+
+/// `text` with each ASCII letter as the class of its two cases, so that a pattern read without
+/// flags matches it in either case.
+fn caseless(text: &str) -> String {
+    let mut pattern = String::new();
+    for character in text.chars() {
+        if character.is_ascii_alphabetic() {
+            pattern.push('[');
+            pattern.push(character.to_ascii_lowercase());
+            pattern.push(character.to_ascii_uppercase());
+            pattern.push(']');
+        } else {
+            pattern.push(character);
+        }
+    }
+    pattern
 }
 
 impl Rule for NoCiSkip {

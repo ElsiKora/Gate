@@ -122,3 +122,10 @@ a round.
 library's error carries the kind, with one `From` into the SDK's error and an end-to-end test of an
 untracked configured tsconfig (exit 2, `configuration error`); every pattern option of the git
 plugin is read as JavaScript reads it.
+2026-11-19: the language library's kind and `From` pushed as `81a30e3`; the nestjs writer is told.
+Every pattern option of the git plugin now goes through `settings::pattern`, which reads it with
+`javascript.rs` (`release-subject`, `branch-pattern`, a form's `subject`, `directive-pattern`,
+`trailer-pattern`, and `git/branch-name`'s, whose own reader is gone); `git/commit-message` keeps its
+reader for its hints, on the same translation, and its built-in patterns compile through
+`builtin`, a bug if they fail. `git/no-ci-skip`'s defaults are written without `(?i)` and `(?m)`.
+Tests: an inline flag in `release-subject` and in `directive-pattern` is a configuration error.
