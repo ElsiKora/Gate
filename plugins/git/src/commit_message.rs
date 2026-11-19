@@ -58,6 +58,10 @@ pub struct Options {
     /// reapplies, `amend!`, `fixup!` and `squash!` commits, and a release whose header is a
     /// version.
     pub default_ignores: bool,
+    /// Regular expressions of the trailers a message may not carry, each searched in every trailer
+    /// of the message's trailer block, written `Token: value`. Every message is checked, an
+    /// ignored one included.
+    pub prohibited_trailers: Vec<String>,
 }
 
 impl Default for Options {
@@ -79,6 +83,7 @@ impl Default for Options {
             header_pattern: None,
             ignores: Vec::new(),
             default_ignores: true,
+            prohibited_trailers: Vec::new(),
         }
     }
 }
@@ -106,6 +111,7 @@ const ASPECTS: &[&str] = &[
     "body-full-stop",
     "footer-leading-blank",
     "footer-max-line-length",
+    "prohibited-trailers",
 ];
 
 impl Rule for CommitMessage {
@@ -123,15 +129,38 @@ impl Rule for CommitMessage {
         let Some(message) = run.git()?.message() else {
             return Ok(());
         };
-        let Some((header, found)) = verdicts(&message, run.options(), &patterns) else {
-            return Ok(());
-        };
-        for (aspect, text, help) in found {
-            let finding = run.report().finding(aspect, None::<Location>, text);
-            if let Some(header) = &header {
-                finding.target(header.clone()).key(header.as_str());
+        if let Some((header, found)) = verdicts(&message, run.options(), &patterns) {
+            for (aspect, text, help) in found {
+                let finding = run.report().finding(aspect, None::<Location>, text);
+                if let Some(header) = &header {
+                    finding.target(header.clone()).key(header.as_str());
+                }
+                finding.help(help);
             }
-            finding.help(help);
+        }
+        // A trailer stays in history whatever the header says, so an ignored message is checked
+        // too.
+        for trailer in trailers(&message) {
+            let Some(pattern) = patterns
+                .prohibited
+                .iter()
+                .find(|(_, prohibited)| prohibited.is_match(&trailer))
+                .map(|(text, _)| text)
+            else {
+                continue;
+            };
+            run.report()
+                .finding(
+                    "prohibited-trailers",
+                    None::<Location>,
+                    format!(
+                        "the trailer {trailer:?} is prohibited: it matches prohibited-trailers \
+                         {pattern:?}"
+                    ),
+                )
+                .target(trailer.clone())
+                .key(trailer.as_str())
+                .help("remove the trailer from the message");
         }
         Ok(())
     }
@@ -175,6 +204,8 @@ struct Patterns {
     header: Regex,
     /// The messages `ignores` skips.
     ignores: Vec<Regex>,
+    /// `prohibited-trailers`, each with the text it was written as.
+    prohibited: Vec<(String, Regex)>,
     /// A quoted span, which a case check skips.
     quoted: Regex,
     /// A first character that has a case.
@@ -201,6 +232,14 @@ impl Patterns {
             .iter()
             .map(|text| javascript("ignores", text, WRITE_IGNORE))
             .collect::<Result<Vec<_>>>()?;
+        let prohibited = options
+            .prohibited_trailers
+            .iter()
+            .map(|text| {
+                javascript("prohibited-trailers", text, WRITE_TRAILER)
+                    .map(|pattern| (text.clone(), pattern))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let breaking = if options.header_pattern.is_some() {
             None
         } else {
@@ -213,6 +252,7 @@ impl Patterns {
             breaking,
             header,
             ignores,
+            prohibited,
             quoted: builtin(
                 "the quoted-span pattern",
                 &format!("`{any}*?`|\"{any}*?\"|'{any}*?'"),
@@ -238,6 +278,11 @@ const WRITE_HEADER: &str = "write a JavaScript regular expression without lookar
 /// What to write in `ignores`.
 const WRITE_IGNORE: &str = "write a JavaScript regular expression without lookaround or \
                             backreferences that the messages to skip match, such as \"^Merge \"";
+
+/// What to write in `prohibited-trailers`.
+const WRITE_TRAILER: &str = "write a JavaScript regular expression without lookaround or \
+                             backreferences that the trailers to refuse match, written Token: \
+                             value, such as \"^Co-authored-by: \"";
 
 /// `text`, the value of `option`, read as JavaScript reads it and compiled.
 ///
@@ -441,6 +486,122 @@ pub(crate) const SCISSORS: &str = "# ------------------------ >8 ---------------
 pub(crate) fn above_scissors(raw: &str) -> String {
     let kept: Vec<&str> = raw.lines().take_while(|line| *line != SCISSORS).collect();
     kept.join("\n").trim().to_owned()
+}
+
+/// The lines git writes itself, one of which lets a paragraph of a quarter trailers be a trailer
+/// block.
+const GIT_GENERATED: &[&str] = &["Signed-off-by: ", "(cherry picked from commit "];
+
+/// White space as git's `isspace` knows it.
+fn is_git_space(character: char) -> bool {
+    matches!(character, ' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r')
+}
+
+fn trim_git(text: &str) -> &str {
+    text.trim_matches(is_git_space)
+}
+
+/// The offset of the `:` that ends a trailer's token, as git's `find_separator` finds it: a token
+/// of ASCII letters, digits and `-`, then optional spaces or tabs.
+fn separator(line: &str) -> Option<usize> {
+    let mut spaced = false;
+    for (at, character) in line.char_indices() {
+        if character == ':' {
+            return (at >= 1).then_some(at);
+        }
+        if !spaced && (character.is_ascii_alphanumeric() || character == '-') {
+            continue;
+        }
+        if at > 0 && matches!(character, ' ' | '\t') {
+            spaced = true;
+            continue;
+        }
+        return None;
+    }
+    None
+}
+
+/// The trailers of `message` as `git interpret-trailers` finds them, each unfolded and written
+/// `Token: value`. They are the lines of its last paragraph, never the first (the title), when
+/// every line of it is a trailer or continues one (starts with white space), or when it holds a
+/// line of [`GIT_GENERATED`] and at least a quarter of its lines are trailers. Comment lines and
+/// what follows the scissors line are not part of the message.
+fn trailers(message: &str) -> Vec<String> {
+    let kept: Vec<&str> = lines(message)
+        .into_iter()
+        .take_while(|line| *line != SCISSORS)
+        .filter(|line| !line.starts_with('#'))
+        .collect();
+    let blank = |line: &&str| trim_git(line).is_empty();
+    let end = kept
+        .iter()
+        .rposition(|line| !blank(line))
+        .map_or(0, |last| last + 1);
+    let kept = &kept[..end];
+    // The first paragraph is the title; without a blank line after it there is no other.
+    let Some(start) = kept.iter().rposition(blank).map(|at| at + 1) else {
+        return Vec::new();
+    };
+    let block = &kept[start..];
+
+    let mut trailer_lines = 0_usize;
+    let mut other_lines = 0_usize;
+    let mut recognized = false;
+    let mut after_trailer = false;
+    for line in block {
+        if line.starts_with(is_git_space) {
+            if !after_trailer {
+                other_lines += 1;
+            }
+        } else if GIT_GENERATED.iter().any(|prefix| line.starts_with(prefix)) {
+            recognized = true;
+            trailer_lines += 1;
+            after_trailer = true;
+        } else if separator(line).is_some() {
+            trailer_lines += 1;
+            after_trailer = true;
+        } else {
+            other_lines += 1;
+            after_trailer = false;
+        }
+    }
+    let is_block =
+        trailer_lines > 0 && (other_lines == 0 || (recognized && trailer_lines * 3 >= other_lines));
+    if !is_block {
+        return Vec::new();
+    }
+
+    let mut found: Vec<(&str, String)> = Vec::new();
+    let mut after_trailer = false;
+    for line in block {
+        if line.starts_with(is_git_space) {
+            if after_trailer && let Some((_, value)) = found.last_mut() {
+                let more = trim_git(line);
+                if !value.is_empty() && !more.is_empty() {
+                    value.push(' ');
+                }
+                value.push_str(more);
+            }
+            continue;
+        }
+        after_trailer = match separator(line) {
+            Some(at) => {
+                found.push((trim_git(&line[..at]), trim_git(&line[at + 1..]).to_owned()));
+                true
+            }
+            None => false,
+        };
+    }
+    found
+        .into_iter()
+        .map(|(token, value)| {
+            if value.is_empty() {
+                format!("{token}:")
+            } else {
+                format!("{token}: {value}")
+            }
+        })
+        .collect()
 }
 
 /// The keywords that make a line with an issue reference a footer line.
@@ -1063,6 +1224,44 @@ mod tests {
         assert!(!has_references("see https://example.test/#12"));
         assert!(!has_references("see #12 fixes the bug"));
         assert!(has_references("prefix #3"));
+    }
+
+    #[test]
+    fn the_trailer_block_is_found_as_git_finds_it() {
+        let none = Vec::<String>::new();
+        // A trailer block: the last paragraph, unfolded, a token with spaces before its colon.
+        assert_eq!(
+            trailers(
+                "feat: x\n\nThe body.\n\nReviewed-by: A\nCo-authored-by: B\n  and C\nAcked-by : D\n"
+            ),
+            ["Reviewed-by: A", "Co-authored-by: B and C", "Acked-by: D"]
+        );
+        // The title is never one, and a paragraph with prose in it is not one.
+        assert_eq!(trailers("Co-authored-by: B"), none);
+        assert_eq!(trailers("feat: x\nCo-authored-by: B"), none);
+        assert_eq!(trailers("feat: x\n\nThe body.\nCo-authored-by: B"), none);
+        // A paragraph above the last is not one.
+        assert_eq!(trailers("feat: x\n\nCo-authored-by: B\n\nThe body."), none);
+        // A line git writes itself lets a quarter of trailers be enough.
+        assert_eq!(
+            trailers("feat: x\n\nSigned-off-by: A\nnot a trailer\nnor this\nnor that\n"),
+            ["Signed-off-by: A"]
+        );
+        assert_eq!(
+            trailers("feat: x\n\nSigned-off-by: A\none\ntwo\nthree\nfour\n"),
+            none
+        );
+        // Comment lines, trailing blank lines and the scissors section are not part of it.
+        assert_eq!(
+            trailers(&format!(
+                "feat: x\n\nCo-authored-by: B\n# a comment\n\n\n{SCISSORS}\n\nOther: E\n"
+            )),
+            ["Co-authored-by: B"]
+        );
+        assert_eq!(
+            trailers("feat: x\r\n\r\nCo-authored-by: B\r\n"),
+            ["Co-authored-by: B"]
+        );
     }
 
     #[test]

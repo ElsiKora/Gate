@@ -51,3 +51,14 @@ shell step. commitlint has `trailer-exists`, which requires a trailer, and nothi
 
 2026-11-19: branch `task/T-042-prohibited-trailers` from `origin/main` at `89c42c7`; this file
 first.
+2026-11-19: written. `prohibited-trailers` in `plugins/git/src/commit_message.rs`: the patterns
+compile with the rule's other options (a bad one is a configuration error naming the option), and
+`trailers()` finds the block as git's `find_trailer_block_start` does (last paragraph after the
+title, all trailers or continuation lines, or a git-written line and a quarter trailers; comment
+lines and the scissors section out) and unfolds each trailer to `Token: value`. One finding per
+refused trailer, aspect `prohibited-trailers` (the 22nd), target and key the trailer. Decision to
+confirm with the lead: an ignored message (merge, `fixup!`, the `ignores`) is still checked for
+trailers, since a trailer stays in history whatever the header says. Tests: a unit test of the
+block, and the lead's four (refused co-author, the same text outside the block, a trailer no
+pattern matches, a pattern that cannot work). Rule page (aspect, option, section, difference) and
+the plugin changelog under `Unreleased`. rustfmt --edition 2024 --check on both files: exit 0.
