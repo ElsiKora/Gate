@@ -83,11 +83,13 @@ name = "server"
 
 A project file, or the root file when the root is the only project; a profile takes `extends` for a set
 of projects. A preset is a named set of rules with levels, levels of single aspects and options that
-a plugin may ship, such as `git/recommended`. A rule's level for one aspect comes, first found, from
-`[rules]` for that aspect, from the presets for that aspect, from `[rules]` for the whole rule, from
-the rule's family, and from the presets for the whole rule; else it is `error`. So
-`"git/commit-message" = "error"` keeps the preset's warning aspects warnings, and `"off"` on a rule
-or its family turns every aspect off, the preset's too.
+a plugin may ship, such as `git/recommended`. The project's own configuration wins over a preset. A
+rule's level for one aspect comes, first found, from `[rules]` for that aspect, from `[rules]` for
+the whole rule, from the rule's family, from the presets for that aspect, and from the presets for
+the whole rule; else it is `error`. So a level `[rules]` gives the whole rule applies to all its
+aspects, the ones a preset sets too: with `extends = ["git/recommended"]`,
+`"git/commit-message" = "note"` reports `header-min-length` as a note, and `"off"` turns every aspect
+off. A preset's aspect levels apply only where `[rules]` sets no level for that rule or aspect.
 
 ## `[plugins]`
 

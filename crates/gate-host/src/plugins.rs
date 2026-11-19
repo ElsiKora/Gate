@@ -920,9 +920,10 @@ struct PresetLevels {
 }
 
 /// The level of `aspect` of rule `id`, first found: the `[rules]` entry's level of the aspect, the
-/// presets' level of the aspect, the entry's level, the family's, the presets' level of the rule.
-/// A rule or family turned `off` in `[rules]` turns off the aspects its presets set too, so a rule
-/// a preset enables can always be turned off. `None` leaves the default, `error`.
+/// entry's level of the whole rule, the family's, then the presets' level of the aspect and of the
+/// rule. The project's own configuration wins over a preset: a level `[rules]` gives the whole rule
+/// (`off` included) applies to every aspect, and a preset's aspect level applies only where
+/// `[rules]` sets none. `None` leaves the default, `error`.
 fn level(
     settings: &Settings,
     id: &RuleId,
@@ -935,16 +936,8 @@ fn level(
         .and_then(|entry| entry.levels.get(aspect))
         .map(|level| level.value);
     // The entry's level, else the family's: what `[rules]` says of the whole rule.
-    let whole = settings.setting(id, "");
-    own.or_else(|| {
-        if whole == Some(Setting::Off) {
-            return whole;
-        }
-        preset
-            .and_then(|preset| preset.levels.get(aspect).copied())
-            .or(whole)
-            .or_else(|| preset.and_then(|preset| preset.level))
-    })
+    own.or_else(|| settings.setting(id, ""))
+        .or_else(|| preset.and_then(|preset| preset.levels.get(aspect).copied().or(preset.level)))
 }
 
 /// The rules of `plugin` that run in this scope, with what their call carries: those whose scope

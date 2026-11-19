@@ -1419,7 +1419,7 @@ fn a_rule_turned_off_through_its_family_needs_no_options() {
 }
 
 #[test]
-fn a_preset_sets_aspect_levels_that_only_a_level_of_the_aspect_or_off_overrides() {
+fn a_preset_sets_aspect_levels_that_the_projects_own_levels_override() {
     // The project extends probe/quiet, which makes the aspect quiet of probe/aspects a warning.
     let run = |rules: &str| {
         let repo = probe_repo(rules);
@@ -1462,14 +1462,15 @@ fn a_preset_sets_aspect_levels_that_only_a_level_of_the_aspect_or_off_overrides(
         ]
     );
 
-    // A rule-wide level does not override the preset's level of an aspect.
+    // The project's own configuration wins: a rule-wide level applies to every aspect, the
+    // preset's too.
     let (_, levels) = run(r#""probe/aspects" = "note""#);
     assert_eq!(
         levels,
-        [pair("aspect loud", "note"), pair("aspect quiet", "warning")]
+        [pair("aspect loud", "note"), pair("aspect quiet", "note")]
     );
 
-    // A level of the aspect itself does.
+    // A level of the aspect itself wins over the rule-wide one.
     let (_, levels) = run(r#""probe/aspects" = { level = "note", levels = { quiet = "error" } }"#);
     assert_eq!(
         levels,
@@ -1481,7 +1482,8 @@ fn a_preset_sets_aspect_levels_that_only_a_level_of_the_aspect_or_off_overrides(
     assert_eq!(code, Some(0), "{levels:?}");
     assert_eq!(levels, Vec::<(String, String)>::new());
 
-    // With the other aspect off, the preset's warning alone does not fail the run.
+    // Where [rules] gives the rule no level, the preset's aspect level holds: with the other
+    // aspect off, its warning alone does not fail the run.
     let (code, levels) = run(r#""probe/aspects" = { levels = { loud = "off" } }"#);
     assert_eq!(code, Some(0), "{levels:?}");
     assert_eq!(levels, [pair("aspect quiet", "warning")]);
@@ -2228,14 +2230,19 @@ fn the_commit_msg_hook_checks_the_message_being_written() {
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
 
     // `git commit` runs the generated hook, which runs bin/gate with the message file.
-    let commit = |message: &str| {
-        repo.write("work.txt", message);
+    // Each paragraph is one -m, as git takes them.
+    let commit = |paragraphs: &[&str]| {
+        repo.write("work.txt", &paragraphs.join("\n"));
         repo.git(&["add", "-A"]);
+        let mut arguments = vec!["commit", "-q"];
+        for paragraph in paragraphs {
+            arguments.extend(["-m", paragraph]);
+        }
         let output = isolated(
             Command::new("git")
                 .arg("-C")
                 .arg(repo.path())
-                .args(["commit", "-q", "-m", message]),
+                .args(&arguments),
         )
         .env("GATE_CACHE_DIR", repo.cache.path())
         .output()
@@ -2246,16 +2253,78 @@ fn the_commit_msg_hook_checks_the_message_being_written() {
         )
     };
 
-    let (committed, said) = commit("feat(core): add the thing [skip ci]");
+    let (committed, said) = commit(&["feat(core): add the thing [skip ci]"]);
     assert!(!committed, "a CI-skip directive fails the hook: {said}");
     assert!(
         said.contains("the commit message carries the forbidden CI-skip directive [skip ci]")
             && said.contains("gate check (tree, commit message): "),
         "{said}"
     );
-    let (committed, said) = commit("Added the thing");
+    // git keeps a `#` line given with -m, so the directive in it would be stored.
+    let (committed, said) = commit(&["feat(core): add x", "#12 done [skip ci]"]);
+    assert!(!committed, "a directive in a # line fails the hook: {said}");
+    assert!(
+        said.contains("the commit message carries the forbidden CI-skip directive [skip ci]"),
+        "{said}"
+    );
+    let (committed, said) = commit(&["Added the thing"]);
     assert!(!committed, "a message out of form fails the hook: {said}");
     assert!(said.contains("git/commit-message#type-empty"), "{said}");
-    let (committed, said) = commit("feat(core): add the thing");
+    let (committed, said) = commit(&["feat(core): add the thing"]);
     assert!(committed, "a good message passes the hook: {said}");
+}
+
+#[test]
+fn a_projects_rule_level_wins_over_the_aspect_levels_of_git_recommended() {
+    let git = GitOptions::new();
+    let repo = &git.repo;
+    let message = repo.path().join("message.txt");
+    std::fs::write(&message, "ci(a): x\n").expect("message");
+    let message = message.display().to_string();
+    let check = |rules: &str| {
+        repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [\"git/recommended\"]\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n{rules}\n"
+            ),
+        );
+        repo.git(&["add", "gate.toml"]);
+        repo.git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
+        let output = repo.gate(&[
+            "check",
+            "--plugin",
+            &git.plugin,
+            "--commit-message",
+            &message,
+        ]);
+        (output.status.code(), text(&output.stdout))
+    };
+    let at = |level: &str, aspect: &str| format!("{level}[git/commit-message#{aspect}]");
+
+    // The preset makes header-min-length a warning; subject-min-length keeps the default error.
+    let (code, said) = check("");
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains(&at("warning", "header-min-length"))
+            && said.contains(&at("error", "subject-min-length")),
+        "{said}"
+    );
+    // A level the project gives the whole rule applies to every aspect, the preset's too.
+    let (code, said) = check("\"git/commit-message\" = \"note\"");
+    assert_eq!(code, Some(0), "{said}");
+    assert!(
+        said.contains(&at("note", "header-min-length"))
+            && said.contains(&at("note", "subject-min-length")),
+        "{said}"
+    );
+    // A level the project gives the aspect wins over both.
+    let (code, said) = check(
+        "\"git/commit-message\" = { level = \"note\", levels = { header-min-length = \"error\" } }",
+    );
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains(&at("error", "header-min-length"))
+            && said.contains(&at("note", "subject-min-length")),
+        "{said}"
+    );
 }

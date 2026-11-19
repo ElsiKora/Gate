@@ -114,3 +114,9 @@ there), then the comparison through the built `gate check`.
 Unreleased, above its 0.1.0). The first lane round on the old base failed clippy only
 (`too_many_lines` in the missing-option test, now two tests); it was withdrawn for the move. Next: the
 lane round on the rebased tip, then the comparison through the built `gate check`.
+2026-11-19: round 158 on `b01fbf7`: fmt 0, clippy 0, test 101 (the init test locked before staging
+gate.toml; fixed), deny 0, build 0, the git component 0, and the comparison through the built
+`gate check`: 147 of 147 verdicts the same. Review round (lead's decisions): no-ci-skip searches `#`
+lines of the message being written; `\w`, `\d`, `\b` are ASCII in branch-name patterns, as in the
+reference; the changelog says what now fails under 0.2.0 defaults; the interface is
+`gate:plugin@0.2.0`; the project's own `[rules]` levels win over a preset's aspect levels.
