@@ -56,22 +56,11 @@ pub(crate) struct Answers {
 }
 
 impl Answers {
-    /// Every answer stored in `cache`.
+    /// Every answer stored in `cache`. Each file read counts as used now.
     pub(crate) fn load(cache: &Cache) -> Self {
         let mut answers = Self::default();
-        // The files sit two levels down, as every answer of the cache does: `<2 hex>/<digest>`.
-        let files = std::fs::read_dir(directory(cache))
-            .into_iter()
-            .flatten()
-            .filter_map(std::result::Result::ok)
-            .filter_map(|shard| std::fs::read_dir(shard.path()).ok())
-            .flatten()
-            .filter_map(std::result::Result::ok);
-        for file in files {
-            let path = file.path();
-            let Some(parsed) = std::fs::read(&path).ok().and_then(|bytes| parse(&bytes)) else {
-                continue;
-            };
+        for (path, parsed) in stored_files(cache) {
+            super::touch(&path);
             answers.stored.extend(parsed);
             answers.read.push(path);
         }
@@ -147,6 +136,37 @@ fn kind() -> String {
 
 fn directory(cache: &Cache) -> PathBuf {
     cache.git().join(kind())
+}
+
+/// Every answer file of `cache` that parses, with its answers; a file that does not is skipped.
+fn stored_files(cache: &Cache) -> Vec<(PathBuf, Vec<(Question, Answer)>)> {
+    // The files sit two levels down, as every answer of the cache does: `<2 hex>/<digest>`.
+    std::fs::read_dir(directory(cache))
+        .into_iter()
+        .flatten()
+        .filter_map(std::result::Result::ok)
+        .filter_map(|shard| std::fs::read_dir(shard.path()).ok())
+        .flatten()
+        .filter_map(std::result::Result::ok)
+        .filter_map(|file| {
+            let path = file.path();
+            let parsed = std::fs::read(&path).ok().and_then(|bytes| parse(&bytes))?;
+            Some((path, parsed))
+        })
+        .collect()
+}
+
+/// The files of the stored contents that a stored `read-at` answer names, for `gate cache
+/// prune`; nothing is touched.
+pub(crate) fn stored_blob_files(cache: &Cache) -> HashSet<PathBuf> {
+    stored_files(cache)
+        .into_iter()
+        .flat_map(|(_, parsed)| parsed)
+        .filter_map(|(_, answer)| match answer {
+            Answer::Blob(Some(id)) => Some(blob_file(cache, &id)),
+            _ => None,
+        })
+        .collect()
 }
 
 fn line(question: &Question, answer: &Answer) -> String {
@@ -242,8 +262,12 @@ fn blob_file(cache: &Cache, id: &str) -> PathBuf {
 }
 
 /// The content of the blob `id` an earlier run stored; `None` when none is, or it cannot be read.
+/// A content read counts as used now.
 pub(crate) fn blob(cache: &Cache, id: &str) -> Option<Vec<u8>> {
-    std::fs::read(blob_file(cache, id)).ok()
+    let file = blob_file(cache, id);
+    let content = std::fs::read(&file).ok()?;
+    super::touch(&file);
+    Some(content)
 }
 
 /// Stores the content of the blob `id`, unless a run stored it already.

@@ -735,9 +735,10 @@ impl Loaded {
         let mut outcomes: Vec<Option<Looked>> = keys
             .iter()
             .zip(&mut stale)
-            .map(|(key, stale)| {
+            .enumerate()
+            .map(|(index, (key, stale))| {
                 let started = Instant::now();
-                let stored = results::load(cache.as_ref()?, key)?;
+                let stored = results::load(cache.as_ref()?, calls[index].0.sha256(), key)?;
                 if let Some(changed) = stored.changed_input(inputs, Some(history.as_ref())) {
                     *stale = Some(changed);
                     return None;
@@ -784,7 +785,8 @@ impl Loaded {
                     outcome.read_set.clone(),
                     inputs,
                 );
-                writes.note(results::store(cache, &keys[*index], &stored));
+                let plugin = calls[*index].0.sha256();
+                writes.note(results::store(cache, plugin, &keys[*index], &stored));
             }
             outcomes[*index] = Some(Looked {
                 outcome,
@@ -1066,7 +1068,7 @@ impl Generators for PluginGenerators<'_> {
         let key = results::generate_key(plugin.sha256(), generator.name(), &options, &grant);
         let stored = cache
             .as_ref()
-            .and_then(|cache| results::load(cache, &key))
+            .and_then(|cache| results::load(cache, plugin.sha256(), &key))
             .filter(|stored| stored.changed_input(&inputs, None).is_none());
         let (files, findings) = if let Some(stored) = stored {
             self.generations.stored.fetch_add(1, Ordering::Relaxed);
@@ -1088,7 +1090,7 @@ impl Generators for PluginGenerators<'_> {
                     results::Stored::generated(output.files, output.findings, read_set, &inputs);
                 self.generations
                     .writes
-                    .note(results::store(cache, &key, &stored));
+                    .note(results::store(cache, plugin.sha256(), &key, &stored));
                 (stored.files, stored.findings)
             } else {
                 (output.files, output.findings)
@@ -1873,8 +1875,9 @@ impl History for GitHistory {
                 .insert(blob, content.clone());
             return Ok(Some(content));
         }
-        // A stored answer: the content an earlier run stored, else git's by its id. A found file
-        // whose content neither has is no answer, never "no file".
+        // A stored answer: the content an earlier run stored, else git's by its id. When neither
+        // has it (`gate cache prune` removed the stored content, and a partial clone lacks the
+        // file), the question is asked of git again, as if no answer were stored.
         if let Some(content) = Cache::from_env()
             .ok()
             .and_then(|cache| crate::cache::answers::blob(&cache, &blob))
@@ -1883,17 +1886,13 @@ impl History for GitHistory {
         }
         let content = match self.objects(|objects| objects.blob(&blob)) {
             Ok(Some(content)) => content,
-            failed => {
-                let why = failed.err().map_or_else(
-                    || "git has no such object".to_owned(),
-                    |error| error.to_string(),
-                );
-                return Err(HostError::new(format!(
-                    "the cache says {path:?} at commit {commit} is the file {blob}, but neither \
-                     the cache nor git has its content ({why}): run git fetch, or gate cache \
-                     prune to drop the stored answers"
-                )));
-            }
+            _ => match self
+                .objects(|objects| objects.read_at(commit, path))
+                .map_err(|error| self.unread(commit, path, error))?
+            {
+                Some((_, content)) => content,
+                None => return Err(unfetched(commit, path, "git reads it as missing")),
+            },
         };
         self.blobs
             .lock()
@@ -2616,6 +2615,7 @@ fn stored(cache: &Cache, key: &Sha256Sum) -> Result<Option<(u8, SyncState)>> {
                     state.produced.push(path.to_owned());
                 }
             }
+            crate::cache::touch(&file);
             Ok(Some((tag, state)))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),

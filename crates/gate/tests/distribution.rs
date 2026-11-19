@@ -1060,20 +1060,65 @@ fn cache_prune_lists_then_removes_only_what_no_lock_pins() {
         "{listing}"
     );
     assert!(
-        listing.contains(&format!("  {}  8 B\n", unpinned.display())),
+        listing.contains(&format!("  {}  8 B  no lock pins it\n", unpinned.display())),
         "{listing}"
     );
     assert_eq!(files(cache).len(), 3, "a dry run removes nothing");
 
     let output = repo.gate(&["cache", "prune", "--yes"], None, &[]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert_eq!(
-        files(cache),
-        vec![
-            PathBuf::from("CACHEDIR.TAG"),
-            PathBuf::from("blobs/sha256").join("b".repeat(64))
-        ]
+    let left = vec![
+        PathBuf::from("CACHEDIR.TAG"),
+        PathBuf::from("blobs/sha256").join("b".repeat(64)),
+    ];
+    assert_eq!(files(cache), left);
+
+    // A bound written wrong is refused before anything is listed.
+    for (flag, value) in [
+        ("--max-size", "2X"),
+        ("--max-size", "G"),
+        ("--max-size", "1.5G"),
+        ("--older-than", "ten"),
+    ] {
+        let output = repo.gate(&["cache", "prune", flag, value], None, &[]);
+        assert_eq!(output.status.code(), Some(2), "{flag} {value}");
+        if flag == "--max-size" {
+            assert!(
+                text(&output.stderr).contains("write a whole number and M or G"),
+                "{}",
+                text(&output.stderr)
+            );
+        }
+    }
+
+    // A pinned download larger than --max-size stays, and prune says why the cache stays over.
+    std::fs::write(
+        cache.join("blobs/sha256").join("b".repeat(64)),
+        vec![b'p'; 2 << 20],
+    )
+    .expect("a large pinned download");
+    let output = repo.gate(
+        &[
+            "cache",
+            "prune",
+            "--max-size",
+            "1M",
+            "--older-than",
+            "0",
+            "--yes",
+        ],
+        None,
+        &[],
     );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stdout).contains(
+            "over --max-size 1.0 MiB: what is left is pinned downloads, modules/ and files in use, which no bound removes"
+        ),
+        "{}",
+        text(&output.stdout)
+    );
+    assert_eq!(files(cache), left);
 }
 
 /// The git plugin built from this tree for wasm32-wasip2, as its release would carry it.

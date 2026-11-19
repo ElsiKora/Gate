@@ -6,6 +6,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, SystemTime};
 
 use sha2::{Digest as _, Sha256};
 
@@ -3549,15 +3550,16 @@ fn a_stored_file_whose_content_neither_the_cache_nor_git_has_is_an_error_not_abs
     assert_eq!(messages, ["read-at HEAD~1:a.txt: first"]);
 
     // The second clone shares the cache without the stored content, and cannot fetch the file:
-    // the stored answer cannot produce it, which is an error that says what to do.
+    // the question is asked of git again, as if no answer were stored, and fails as it would
+    // without the cache, saying what to do.
     let cache = first.cache.path();
     std::fs::remove_dir_all(cache.join("git").join("blobs")).expect("stored blobs");
     std::fs::remove_dir_all(cache.join("results")).expect("stored results");
     reach(&second, None);
     let output = probe_output_in(second.path(), cache, &[]);
-    failed_storing_no_absent(&output, "gate cache prune", cache);
+    failed_storing_no_absent(&output, "run git fetch", cache);
     let output = probe_output_in(second.path(), cache, &[("GIT_NO_LAZY_FETCH", "1")]);
-    failed_storing_no_absent(&output, "gate cache prune", cache);
+    failed_storing_no_absent(&output, "run git fetch", cache);
 
     // With the remote back, git fetches the file by the stored id.
     reach(&second, Some(&origin));
@@ -4050,4 +4052,97 @@ fn a_finding_that_names_its_line_keeps_its_fingerprint_when_an_edit_above_moves_
         serde_json::json!("x.ts:4 class Thing")
     );
     assert_eq!(only_fingerprint(&repo), before);
+}
+
+/// Every file below `directory`.
+fn files_below(directory: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![directory.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Sets the modification time of `path` to `days` days ago.
+fn used_days_ago(path: &Path, days: u64) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("open")
+        .set_modified(SystemTime::now() - Duration::from_hours(24 * days))
+        .expect("set the time");
+}
+
+#[test]
+fn a_used_result_survives_older_than_and_a_pruned_one_is_computed_again() {
+    let repo = probe_repo(
+        r#""probe/git" = { level = "error", options = { read_at = [["HEAD~1", "a.txt"]] } }"#,
+    );
+    repo.write("apps/one/a.txt", "first\n");
+    repo.commit("first");
+    repo.write("apps/one/a.txt", "second\n");
+    repo.commit("second");
+    // The lock pins the probe this run loads, so its results are a pinned plugin's.
+    let plugin = sha256(&probe().1);
+    repo.write(
+        "gate.lock",
+        &lock(
+            "acme/rules:probe@0.1.0",
+            "https://example.invalid/probe.wasm",
+            &plugin,
+        ),
+    );
+    repo.commit("pin the probe");
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, ["read-at HEAD~1:a.txt: first"]);
+    let cache = repo.cache.path();
+    let results = files_below(&cache.join("results"));
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert!(
+        results[0].starts_with(cache.join("results").join(&plugin)),
+        "results sit under their plugin: {results:?}"
+    );
+    let derived: Vec<PathBuf> = results
+        .iter()
+        .cloned()
+        .chain(files_below(&cache.join("git")))
+        .collect();
+    for path in &derived {
+        used_days_ago(path, 40);
+    }
+
+    // A warm run uses the stored result, and its time is now again: --older-than keeps it.
+    let (again, ran, _) = probe_timings(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+    assert_eq!(again, messages);
+    let output = repo.gate(&["cache", "prune", "--older-than", "30"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let listing = text(&output.stdout);
+    assert!(!listing.contains("results/"), "{listing}");
+    assert!(
+        listing.contains("last used more than 30 days ago"),
+        "the stored content the warm run did not read is old: {listing}"
+    );
+
+    // Every derived file pruned: the next run computes the result again, with the same findings.
+    let output = repo.gate(&["cache", "prune", "--older-than", "0", "--yes"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(files_below(&cache.join("results")).is_empty());
+    assert!(files_below(&cache.join("git")).is_empty());
+    let (after, ran, _) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(after, messages);
 }

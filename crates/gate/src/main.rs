@@ -85,6 +85,33 @@ struct PruneArgs {
     /// Remove the entries instead of listing them.
     #[arg(long)]
     yes: bool,
+    /// Also remove the results and git answers last used more than this many days ago.
+    #[arg(long, value_name = "DAYS")]
+    older_than: Option<u64>,
+    /// Also remove results and git answers, least recently used first, until the whole cache is
+    /// at most this size: a number of mebibytes (512M) or gibibytes (2G). Pinned downloads stay.
+    #[arg(long, value_name = "SIZE", value_parser = parse_size)]
+    max_size: Option<u64>,
+}
+
+/// A `--max-size` value: a whole number followed by `M` (MiB) or `G` (GiB).
+fn parse_size(value: &str) -> Result<u64, String> {
+    let wrong =
+        || format!("{value:?} is not a size; write a whole number and M or G, such as 512M or 2G");
+    let (digits, unit) = value.split_at(value.len().saturating_sub(1));
+    let factor: u64 = match unit {
+        "M" => 1 << 20,
+        "G" => 1 << 30,
+        _ => return Err(wrong()),
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(wrong());
+    }
+    digits
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(factor))
+        .ok_or_else(wrong)
 }
 
 #[derive(Debug, Args)]
@@ -292,7 +319,11 @@ fn main() -> ExitCode {
         })
         .and_then(|text| print(&text)),
         Command::Cache(CacheCommand::Prune(arguments)) => {
-            distribution::prune(&arguments.repositories, arguments.yes)
+            let bounds = gate_host::cache::Bounds {
+                older_than: arguments.older_than,
+                max_size: arguments.max_size,
+            };
+            distribution::prune(&arguments.repositories, &bounds, arguments.yes)
                 .and_then(|text| print(&text))
         }
     };
