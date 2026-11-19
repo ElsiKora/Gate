@@ -1994,6 +1994,16 @@ fn a_missing_git_plugin_option_is_a_configuration_error_at_load() {
 /// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the
 /// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
 fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {
+    let (code, messages, ran, states, _) = probe_stale(repo);
+    (code, messages, ran, states)
+}
+
+/// For each call that ran although a result of it was stored: its scope and the changed input.
+type Stale = Vec<(String, String)>;
+
+/// [`probe_timed`], and for each call that ran although a result of it was stored, its scope and
+/// the input `--timings` names as changed, sorted.
+fn probe_stale(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>, Stale) {
     let plugin = format!("probe={}", probe().0.display());
     let output = repo.gate(&[
         "check",
@@ -2014,6 +2024,7 @@ fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<St
     messages.sort();
     let stderr = text(&output.stderr);
     let mut ran = Vec::new();
+    let mut stale = Vec::new();
     let mut calls = 0;
     for line in stderr.lines() {
         let Some(call) = line.strip_prefix("timings: call probe ") else {
@@ -2023,17 +2034,22 @@ fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<St
         let (scope, outcome) = call.split_once(": ").expect("scope and outcome");
         if outcome.starts_with("ran ") {
             ran.push(scope.to_owned());
+            if let Some((_, changed)) = outcome.split_once("; its stored result no longer holds: ")
+            {
+                stale.push((scope.to_owned(), changed.to_owned()));
+            }
         } else {
-            assert_eq!(outcome, "cached", "{line}");
+            assert!(outcome.starts_with("cached, checked in "), "{line}");
         }
     }
     assert!(calls > 0, "--timings names each call: {stderr}");
     ran.sort();
+    stale.sort();
     let states = stderr
         .lines()
         .find_map(|line| line.strip_prefix("timings: sync-state: "))
         .map(str::to_owned);
-    (output.status.code(), messages, ran, states)
+    (output.status.code(), messages, ran, states, stale)
 }
 
 /// A probe repository whose two projects, `one` and `two`, each run `probe/read` on their own
@@ -2070,8 +2086,13 @@ fn changing_one_read_file_reruns_exactly_the_calls_that_read_it() {
 
     repo.write("apps/one/a.txt", "one, changed\n");
     repo.commit("change a file one reads");
-    let (_, messages, ran, _) = probe_timed(&repo);
+    let (_, messages, ran, _, stale) = probe_stale(&repo);
     assert_eq!(ran, ["one"], "only the call that read the file runs");
+    assert_eq!(
+        stale,
+        [("one".to_owned(), "the file \"apps/one/a.txt\"".to_owned())],
+        "--timings names the input that changed"
+    );
     assert!(
         messages.contains(&"a.txt: one, changed\n".to_owned()),
         "{messages:?}"
@@ -2083,8 +2104,13 @@ fn changing_one_read_file_reruns_exactly_the_calls_that_read_it() {
 
     repo.write("apps/two/b.txt", "new\n");
     repo.commit("add a file below what two lists");
-    let (_, messages, ran, _) = probe_timed(&repo);
+    let (_, messages, ran, _, stale) = probe_stale(&repo);
     assert_eq!(ran, ["two"], "only the call whose listing changed runs");
+    assert_eq!(
+        stale,
+        [("two".to_owned(), "the listing of \"apps/two/\"".to_owned())],
+        "--timings names the listing that changed"
+    );
     assert!(
         messages.contains(&"list : a.txt,b.txt,gate.toml".to_owned()),
         "{messages:?}"

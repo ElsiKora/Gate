@@ -445,7 +445,11 @@ fn print_timings(checked: &gate_host::Checked) {
 fn call_timing(call: &gate_host::PluginReads) -> String {
     let scope = call.project.as_deref().unwrap_or("repository");
     if call.from_cache {
-        return format!("call {} {scope}: cached", call.plugin);
+        return format!(
+            "call {} {scope}: cached, checked in {} ms",
+            call.plugin,
+            call.time.elapsed.as_millis()
+        );
     }
     let mut host: Vec<_> = call.time.host.iter().collect();
     host.sort_by(|left, right| right.1.time.cmp(&left.1.time).then(left.0.cmp(right.0)));
@@ -462,6 +466,10 @@ fn call_timing(call: &gate_host::PluginReads) -> String {
     if !host.is_empty() {
         line.push_str("; host ");
         line.push_str(&host.join(", "));
+    }
+    if let Some(stale) = &call.stale {
+        line.push_str("; its stored result no longer holds: ");
+        line.push_str(stale);
     }
     line
 }

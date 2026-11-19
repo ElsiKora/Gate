@@ -75,27 +75,38 @@ impl Stored {
         }
     }
 
-    /// Whether every recorded input answers now as it did when the call ran. A git question that
-    /// fails now counts as changed: the call runs again and reports the failure itself.
-    pub(crate) fn holds(&self, inputs: &Inputs<'_>, history: Option<&dyn History>) -> bool {
-        let listed = self.read_set.listed.len() == self.listed.len()
-            && self.listed.iter().all(|(prefix, digest)| {
-                self.read_set.listed.contains(prefix) && listing(inputs.paths, prefix) == *digest
-            });
-        let read = self
-            .read_set
-            .read
-            .iter()
-            .all(|(path, blob)| (inputs.blob)(path) == *blob);
-        let changed = self.changed == self.read_set.changed.then(|| selection(inputs.changed));
-        listed
-            && read
-            && changed
-            && self.read_set.git.iter().all(|(query, recorded)| {
-                history.is_some_and(|history| {
-                    query.depends_on(history).is_ok_and(|now| now == *recorded)
-                })
-            })
+    /// The first recorded input that does not answer now as it did when the call ran, in words;
+    /// `None` when every one does, so the stored result holds. A git question that fails now
+    /// counts as changed: the call runs again and reports the failure itself.
+    pub(crate) fn changed_input(
+        &self,
+        inputs: &Inputs<'_>,
+        history: Option<&dyn History>,
+    ) -> Option<String> {
+        if self.read_set.listed.len() != self.listed.len() {
+            return Some("its listings".to_owned());
+        }
+        for (prefix, digest) in &self.listed {
+            if !self.read_set.listed.contains(prefix) || listing(inputs.paths, prefix) != *digest {
+                return Some(format!("the listing of {prefix:?}"));
+            }
+        }
+        for (path, blob) in &self.read_set.read {
+            if (inputs.blob)(path) != *blob {
+                return Some(format!("the file {path:?}"));
+            }
+        }
+        if self.changed != self.read_set.changed.then(|| selection(inputs.changed)) {
+            return Some("the change selection".to_owned());
+        }
+        for (query, recorded) in &self.read_set.git {
+            let holds = history
+                .is_some_and(|history| query.depends_on(history).is_ok_and(|now| now == *recorded));
+            if !holds {
+                return Some(format!("git {}", query.to_words().join(" ")));
+            }
+        }
+        None
     }
 }
 

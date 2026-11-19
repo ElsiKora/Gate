@@ -10,6 +10,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Instant;
 
 use gate_runtime::{
     Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
@@ -68,13 +69,24 @@ pub struct PluginReads {
     pub read_set: ReadSet,
     /// Whether the result came from the result cache, the call not run.
     pub from_cache: bool,
-    /// Where the call's time went; zero for a result from the cache.
+    /// For a call that ran although a result of it was stored: the first input it recorded that
+    /// answers differently now.
+    pub stale: Option<String>,
+    /// Where the call's time went; for a result from the cache, the time spent loading it and
+    /// checking that every input it recorded answers as it did.
     pub time: CallTime,
     /// The fuel the call used; zero for a result from the cache.
     pub fuel_used: u64,
     /// The call's invocations, each with its rules, time and fuel; none for a result from the
     /// cache.
     pub invocations: Vec<Invocation>,
+}
+
+/// A call's outcome, and whether it came from the result cache or why it ran again.
+struct Looked {
+    outcome: gate_runtime::Result<CallOutcome>,
+    from_cache: bool,
+    stale: Option<String>,
 }
 
 /// What the plugins of a run reported.
@@ -556,10 +568,10 @@ impl Loaded {
         let outcomes = self.calls(&calls, &tree, &history, &inputs)?;
 
         let mut ran = Ran::default();
-        for ((project, settings, name, rules, _, _, _), (outcome, from_cache)) in
-            planned.iter().zip(outcomes)
-        {
-            let outcome = outcome.map_err(|error| Error::environment(error.to_string()))?;
+        for ((project, settings, name, rules, _, _, _), looked) in planned.iter().zip(outcomes) {
+            let outcome = looked
+                .outcome
+                .map_err(|error| Error::environment(error.to_string()))?;
             for finding in outcome.findings {
                 if let Some(finding) = reported(name, settings, rules, *project, finding)? {
                     findings.push(finding);
@@ -573,7 +585,8 @@ impl Loaded {
                 project: project.map(str::to_owned),
                 plugin: name.to_string(),
                 read_set: outcome.read_set,
-                from_cache,
+                from_cache: looked.from_cache,
+                stale: looked.stale,
                 time: outcome.time,
                 fuel_used: outcome.fuel_used,
                 invocations: outcome.invocations,
@@ -596,26 +609,40 @@ impl Loaded {
         tree: &Arc<dyn Tree>,
         history: &Arc<dyn History>,
         inputs: &results::Inputs<'_>,
-    ) -> Result<Vec<(gate_runtime::Result<CallOutcome>, bool)>> {
+    ) -> Result<Vec<Looked>> {
         let cache = Cache::from_env().ok();
         let keys: Vec<Sha256Sum> = calls
             .iter()
             .map(|(plugin, request, grant)| results::key(plugin.sha256(), request, grant))
             .collect();
-        let mut outcomes: Vec<Option<(gate_runtime::Result<CallOutcome>, bool)>> = keys
+        // Why each call that had a stored result runs again.
+        let mut stale: Vec<Option<String>> = vec![None; calls.len()];
+        let mut outcomes: Vec<Option<Looked>> = keys
             .iter()
-            .map(|key| {
+            .zip(&mut stale)
+            .map(|(key, stale)| {
+                let started = Instant::now();
                 let stored = results::load(cache.as_ref()?, key)?;
-                stored.holds(inputs, Some(history.as_ref())).then(|| {
-                    let outcome = CallOutcome {
-                        findings: stored.findings,
-                        read_set: stored.read_set,
-                        log: Vec::new(),
-                        time: CallTime::default(),
-                        fuel_used: 0,
-                        invocations: Vec::new(),
-                    };
-                    (Ok(outcome), true)
+                if let Some(changed) = stored.changed_input(inputs, Some(history.as_ref())) {
+                    *stale = Some(changed);
+                    return None;
+                }
+                let checked = started.elapsed();
+                let outcome = CallOutcome {
+                    findings: stored.findings,
+                    read_set: stored.read_set,
+                    log: Vec::new(),
+                    time: CallTime {
+                        elapsed: checked,
+                        ..CallTime::default()
+                    },
+                    fuel_used: 0,
+                    invocations: Vec::new(),
+                };
+                Some(Looked {
+                    outcome: Ok(outcome),
+                    from_cache: true,
+                    stale: None,
                 })
             })
             .collect();
@@ -644,7 +671,11 @@ impl Loaded {
                 );
                 results::store(cache, &keys[*index], &stored)?;
             }
-            outcomes[*index] = Some((outcome, false));
+            outcomes[*index] = Some(Looked {
+                outcome,
+                from_cache: false,
+                stale: stale[*index].take(),
+            });
         }
         Ok(outcomes.into_iter().flatten().collect())
     }
