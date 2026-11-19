@@ -404,8 +404,11 @@ all = ["lint", "unit"]
   prefix lists the same tracked paths, each read path has the same blob id, the change selection is
   the same, and each git question that goes through a ref answers the same commit ids. A `sync-state`
   answer is recorded by its digest and asked again, since an answer at a commit whose own
-  configuration this core does not read follows the run's configuration. Exact, because a plugin
-  cannot read anything else.
+  configuration this core does not read follows the run's configuration. A generator's output (its
+  files and findings) is stored the same way, under (core version, plugin sha256, generator,
+  options, grant), and checked against the tree it would run on: `gate sync`, and `sync-state` at a
+  commit, run only the generators whose read files changed. Exact, because a plugin cannot read
+  anything else.
 - **`sync-state` at a commit** answers two path lists: `produced`, every path `gate sync` writes or owns
   there (generator outputs, tracked files under an owned glob, the core's hook and CI files), and
   `drift`, the produced paths that differ from it. A history rule tells a generated file from a
@@ -448,8 +451,8 @@ all = ["lint", "unit"]
   host's share of a call by kind of host call (`git.sync-state`, `tree.read`), and, for a call of
   more than one rule, the time and fuel of each invocation with its rules (a call's snapshot rules
   share one instance, so `--rule <plugin>/<rule>` gives one rule's own); then how many `sync-state`
-  answers the run computed and read from the cache, and how many git questions about commit ids it
-  asked git and answered from stored answers;
+  answers the run computed and read from the cache, how many git questions about commit ids it
+  asked git and answered from stored answers, and how many generators ran and came from the cache;
   `--budget <seconds>` warns when a run exceeds it and `--budget-fails` makes that an error (the
   generated CI jobs pass it, hooks do not); `--fail-fast` stops at the first error.
 - `--rule <id>` (repeatable, `<plugin>/*` allowed) narrows a run to those rules; exceptions and
