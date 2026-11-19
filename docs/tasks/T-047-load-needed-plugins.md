@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead; tests and the change pushed, gates queued |
+| Status | redesigned by the lead after review: validation is never narrowed, only execution |
 | Release | 0.2.1, from the `v0.2.0` tag |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
 | Depends on | none (host code; T-037 is plugin code and merges apart) |
-| Touches | `crates/gate-host/src/plugins.rs`, `crates/gate-host/src/lib.rs`, `crates/gate-runtime/src/runtime.rs` (item 7); their tests in `crates/gate/tests/plugins.rs`; section 9 of `docs/architecture.md` |
+| Touches | `crates/gate-host/src/plugins.rs`, `crates/gate-host/src/lib.rs`, `crates/gate-host/src/workspace.rs`, `crates/gate-host/src/cache/mod.rs` (the stored declarations), `crates/gate-runtime/src/runtime.rs` (item 7); their tests in `crates/gate/tests/plugins.rs`; sections 4 and 9 of `docs/architecture.md` |
 
 ## Goal
 
@@ -26,33 +26,61 @@ On that cold run, `load` was 80 % of the gate's own time: it compiled all seven 
 to run the rules of one. The goal: a plugin that has no rule this run selects and no generator this
 command needs is never fetched, compiled or described.
 
+## Redesign after review (the lead, 2026-11-19)
+
+The review of `a6870b6` showed that the first design narrowed validation along with execution. A
+plugin that a run did not load lost every check that reads what it declares, not only its option
+schema: its `[generate]` names (the T-017 error, which must fire for every command), its `[rules]`
+ids, aspects and scope placement, rule options and exceptions, and `check_needs`. Two checks that
+need no plugin were skipped too: one plugin declared with two sources, and an exception whose
+plugin is not declared where its file applies. Every later check of that kind (T-048's decision
+check) would also pass silently in `--rule` and `--staged` runs.
+
+The lead changed the design: **validation is never narrowed; only execution is.**
+
+- **Checks that need no plugin** run for every declared plugin, before any plugin is skipped.
+- **A stored declaration per plugin.** What a plugin declares when it describes itself is written
+  to the cache whenever it loads: its rules (id, scope, aspects, options schema, history), its
+  presets, its option schema and its generators. `NEEDS` travels inside each rule's options
+  schema. The entry is keyed by the plugin's sha256, the plugin interface and the core version,
+  so a core that reads a declaration differently never reads another core's entry. Every run
+  validates the whole configuration: against the loaded plugins, and against the stored
+  declarations of the plugins it does not run. When a skipped plugin's declaration is missing or
+  unreadable, the run loads that plugin to get it. `gate sync` loads every plugin, so after a sync
+  no check compiles a plugin it does not run.
+- **No skip of checks.** `Loaded::skipped` is gone. The checks read declarations, which are always
+  complete. The one remaining skip is a plugin that a commit's configuration pins and that does
+  not load under this core for good (`commit_plugins`), whose generators cannot produce. Even
+  there, the checks that need no plugin still run.
+- **The trade test flips.** An option that plugin `b`'s schema refuses fails `--rule 'a/*'` too.
+- **Known cost.** A `sync-state` answer at a commit whose own configuration validates still loads
+  every plugin that commit pins (`Needed::Every` in `commit_plugins`), as before T-047.
+
 ## Scope
 
-1. **What a check needs.** Before anything loads, `gate check` (and so `--hook`, the baseline
-   commands and `gate run`'s check steps) computes the set of plugins from what it already knows
-   without a plugin:
+1. **What a check runs.** Before anything loads, `gate check` (and so `--hook`, the baseline
+   commands and `gate run`'s check steps) computes the set of plugins it runs, from what it already
+   knows without a plugin:
    - the scopes the selection runs (the repository scope when `selection.repository` is set, and
      each selected project);
    - the plugins each of those scopes declares (`settings.plugins`);
    - the plugins `--rule` allows (`RuleFilter::allows_plugin`).
 
    Only those plugins are fetched, verified against their pins, compiled and described, in
-   parallel as today. `--list-changed-projects` still loads none.
+   parallel as today. Every other declared plugin gives its stored declaration instead, or is
+   loaded when it has none. `--list-changed-projects` still loads none.
 2. **Generators on demand.** A rule that asks `git.sync-state` can fall back to the run's
    configuration (`GitHistory::compute`), and that fallback needs the generators of the run's
-   plugins. `Loaded` keeps one slot per declared plugin and loads a generator's plugin the first
-   time a fallback needs it, once per run. A run with no such fallback loads none of them.
-3. **Validation follows the load.** The configuration of a plugin that did not load is checked by
-   the core alone: its section, its source and its pin, its rule ids against `[rules]`. It is not
-   checked against the plugin's own option schemas. That is `validate_except` with the plugins
-   not loaded as `skipped`, as the commit-plugin path already does. A `--rule` key that names a
-   plugin not declared anywhere still fails, as now. The command that checks the whole
-   configuration against every plugin is `gate sync` (see the recommendation), and so is a full
-   `gate check` in CI, which needs every plugin.
+   plugins. `Loaded` loads a generator's plugin the first time a fallback needs it, once per run.
+   A run with no such fallback loads none of them.
+3. **Validation is whole.** Every run checks the whole configuration, as `gate sync` does: the
+   checks that need no plugin for every declared plugin, and every check that reads a declaration
+   against the loaded plugins and the stored declarations together. A `--rule` key is checked
+   against every declaration, so `needed` has no branch for the plugin a key names.
 4. **One way.** There is no option to load every plugin again. `plugins::load` takes the set it
-   should load; there is no second loader.
-5. **Section 9 of the architecture** says what a run loads, and which command fills the
-   compiled-module cache.
+   runs; there is no second loader, and validation has one path.
+5. **Sections 4 and 9 of the architecture** say what a run loads, that every run validates the
+   whole configuration, which command fills the compiled-module cache, and the known cost above.
 6. **The `commit-msg` hook stays as it is here.** The hook the guide shows is
    `commit-msg = ["check --commit-message"]`. With no `--staged` and no `--rule`, that check is
    `ChangeRequest::All` on the work tree (`check` in `crates/gate/src/main.rs`): it checks the
@@ -111,21 +139,25 @@ the one command exempt from item 1. No flag, no "first" state.**
 
 ## Tests
 
-Each test fails before its change and passes after it. They go in `crates/gate/tests/plugins.rs`,
-with synthetic plugins and trees:
+Each test fails on `a6870b6`, the first design, unless it says otherwise. They go in
+`crates/gate/tests/plugins.rs`, with synthetic plugins and trees:
 
-- With `--rule 'a/*'` and two declared plugins, where `b` is overridden with bytes that are not a
-  component, the check runs `a` and exits as `a`'s findings say. Before the change, it fails
-  loading `b`.
-- In `check --staged`, a change only in project `p1`, which declares only `a`, does not load `b`,
-  which is declared only in `p2` and is broken as above. A change in `p2` loads `b` and fails as
-  now.
-- A `git.sync-state` fallback to the run's configuration still answers as before, with the
-  generator's plugin loaded on demand.
-- After `gate sync` on an empty `GATE_CACHE_DIR`, a `gate check` adds no file to the module cache.
-  This test fails if sync stops loading every pinned plugin.
-- The trade of item 3, pinned: a plugin `b` with an option its schema refuses fails `gate sync`
-  and a full `gate check`, and does not fail `gate check --rule 'a/*'`.
+- A `[generate]` key that names no generator of its plugin fails `check --rule 'a/*'` and a
+  `check --staged` that does not select the project declaring that plugin.
+- A `[rules]` id that names no rule of plugin `b` fails `check --rule 'a/*'`.
+- Plugin `b` declared with two sources fails `check --rule 'a/*'`.
+- An exception whose plugin is not declared where its file applies fails `check --rule 'a/*'`.
+- A `--rule b/<typo>` key fails a `check --staged` that does not run `b`, and a key that names a
+  rule `b` declares passes it.
+- A declared plugin `b` whose component does not load, and so has no declaration, fails
+  `check --rule 'a/*'`: the run loads it to get the declaration.
+- The trade test, flipped: an option `b`'s schema refuses fails `gate sync`, a full `gate check`
+  and `gate check --rule 'a/*'`.
+- After `gate sync` and an emptied module cache, `check --rule 'a/*'` compiles only `a`, and a
+  `check --staged` compiles only the plugins of the scopes it selects. These guard against a
+  change that loads every plugin to validate; they pass on `a6870b6`.
+- Kept from the first design: the `sync-state` fallback loads the generator plugin a `--rule`
+  filter left out, and after `gate sync`, no check compiles a plugin again.
 
 ## Done when
 
@@ -138,7 +170,7 @@ with synthetic plugins and trees:
   `--timings` on a message file, before and after (item 6).
 - The table of item 7: what is on today, each variant's `load` and `nestjs` call times cold, and
   what this task changed, with the command and the lane ticket.
-- The tests above, each failing before its change.
+- The tests above, each failing before its change where the list says so.
 - `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`,
   `cargo test --locked --workspace`, `cargo deny --locked check` and `cargo build --release --locked`
   all exit 0 in the gates on the pushed commit.
@@ -157,19 +189,13 @@ with synthetic plugins and trees:
 
 ## Resume point
 
-2026-11-19T19:20:37+00:00:
-- The lead approved the design. The branch was cut from main `67bbd66`.
-- `ba462ff` holds the three tests of items 1 and 3, written before the change.
-- `a491f40` holds the change, items 1 to 4. A `sync-state` answer at a commit whose own
-  configuration validates still loads every plugin of that commit (`Needed::Every` in
-  `commit_plugins`), as before.
-- `93749ae` holds the two guards: the `sync-state` fallback with a generator plugin that `--rule`
-  left out, and "after `gate sync`, no check compiles again". It also holds item 5.
-- Item 6 went to T-057.
-- Lane tickets:
-  - 224 runs the three tests on `ba462ff` in their own worktree; each is expected to fail.
-  - 226 runs the gates on the branch tip.
-  - 233 builds item 7's measurement binary. It is the tip plus a `GATE_T047_COMPILE` switch in
-    `Runtime::new` that is never committed.
-- Next: item 7's variants and the before/after measure, both on the consumer copy, by its
-  holder. Then the numbers here, and the setting if one helps.
+2026-11-19T20:15:14+00:00:
+- First design: `ba462ff` (tests), `a491f40` (the change), `93749ae` (guards and section 9),
+  `9bb5b36` (the trade test's fixture), `a6870b6` (clippy).
+- Lane ticket 224 ran the tests on `ba462ff`: the two load tests failed as expected (exit 101); the
+  trade test failed on its own fixture, fixed in `9bb5b36`. Ticket 226 stopped at clippy
+  (`similar_names`), fixed in `a6870b6`. Ticket 240 was withdrawn before it started, when the
+  lead changed the design.
+- The review of `a6870b6` said fix first; the lead's redesign is above.
+- Ticket 233, item 7's measurement build, still stands: the compile settings do not depend on it.
+- Next: the tests of the redesign, then the change, then one round.
