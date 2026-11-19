@@ -2211,6 +2211,111 @@ fn after_main_moves_a_history_call_asks_git_only_about_the_new_commits() {
 }
 
 #[test]
+fn a_commit_the_clone_lacks_is_no_ancestor_until_a_fetch_brings_it() {
+    // Two commits of another repository, which this one fetches later.
+    let other = Repo::empty();
+    other.write("x.txt", "base\n");
+    let base = other.commit("base");
+    other.write("x.txt", "tip\n");
+    let tip = other.commit("tip");
+    let repo = probe_repo_for(
+        "apps/one",
+        &format!(
+            r#""probe/git" = {{ level = "error", options = {{ is_ancestor = [["{base}", "{tip}"]] }} }}"#
+        ),
+    );
+    repo.write("apps/one/a.txt", "one\n");
+    repo.commit("first");
+    let answer = |answer: &str| format!("is-ancestor {base} {tip}: {answer}");
+
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"]);
+    assert!(messages.contains(&answer("false")), "{messages:?}");
+
+    // The fetch brings both commits: the call runs again, and the no is not reused from the
+    // stored git answers.
+    let source = other.path().to_str().expect("a UTF-8 path");
+    repo.git(&["fetch", "-q", source, "main"]);
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"]);
+    assert!(messages.contains(&answer("true")), "{messages:?}");
+
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn merge_tree_answers_are_kept_per_git_version_and_never_from_a_shallow_clone() {
+    let repo = probe_repo_for(
+        "apps/one",
+        r#""probe/git" = { level = "error", options = { merge_tree = [["main", "side"]] } }"#,
+    );
+    repo.write("apps/one/a.txt", "base\n");
+    let base = repo.commit("base");
+    repo.git(&["checkout", "-q", "-b", "side"]);
+    repo.write("apps/one/b.txt", "side\n");
+    repo.commit("side");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("apps/one/a.txt", "main\n");
+    repo.commit("main");
+    // Each run below runs the call: only the stored git answers carry over.
+    let fresh = || {
+        let _gone = std::fs::remove_dir_all(repo.cache.path().join("results"));
+        probe_git_answers(&repo).1
+    };
+
+    assert_eq!(fresh().as_deref(), Some("1 asked, 0 from the cache"));
+    assert_eq!(fresh().as_deref(), Some("0 asked, 1 from the cache"));
+
+    // Another git version may merge differently: the question is asked again.
+    let wrapper = tempfile::tempdir().expect("a directory");
+    let git = wrapper.path().join("git");
+    let real = String::from_utf8(
+        Command::new("sh")
+            .args(["-c", "command -v git"])
+            .output()
+            .expect("sh")
+            .stdout,
+    )
+    .expect("utf-8");
+    std::fs::write(
+        &git,
+        format!(
+            "#!/bin/sh\nfor last; do :; done\nif [ \"$last\" = --version ]; then echo 'git version 0.0.0.test'; exit 0; fi\nexec {} \"$@\"\n",
+            real.trim()
+        ),
+    )
+    .expect("write the wrapper");
+    std::fs::set_permissions(&git, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("make the wrapper executable");
+    let path = format!(
+        "{}:{}",
+        wrapper.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let _gone = std::fs::remove_dir_all(repo.cache.path().join("results"));
+    let plugin = format!("probe={}", probe().0.display());
+    let output = isolated(
+        Command::new(env!("CARGO_BIN_EXE_gate"))
+            .args(["check", "--plugin", &plugin, "--timings"])
+            .current_dir(repo.path())
+            .env("GATE_CACHE_DIR", repo.cache.path())
+            .env("PATH", path),
+    )
+    .output()
+    .expect("gate");
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains("timings: git answers: 1 asked, 0 from the cache"),
+        "{stderr}"
+    );
+
+    // A shallow clone may lack the merge base: nothing is read from or kept in the store.
+    std::fs::write(repo.path().join(".git/shallow"), format!("{base}\n")).expect("shallow");
+    assert_eq!(fresh(), None);
+}
+
+#[test]
 fn a_cold_history_run_computes_one_sync_state_per_commit_for_every_call_and_rule() {
     let repo = probe_repo_for(
         "apps/*",

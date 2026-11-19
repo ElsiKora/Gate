@@ -114,11 +114,13 @@ fn trees_files_and_ancestry_answer_as_git_does() {
                 .status()
                 .expect("run git")
                 .success();
+            // A name of no commit is no answer at all: a fetch may bring the commit.
+            let missing = ancestor == "nothing" || descendant == "nothing";
             assert_eq!(
                 objects
                     .is_ancestor(ancestor, descendant)
                     .expect("is-ancestor"),
-                expected,
+                (!missing).then_some(expected),
                 "{ancestor} of {descendant}"
             );
         }

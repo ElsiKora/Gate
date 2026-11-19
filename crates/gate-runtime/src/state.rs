@@ -602,7 +602,7 @@ impl wit_git::Host for State {
                 ancestor,
                 descendant,
             },
-            Vec::new(),
+            crate::read_set::ancestry_record(answer),
         )?;
         Ok(answer)
     }

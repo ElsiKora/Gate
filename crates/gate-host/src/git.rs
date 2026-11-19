@@ -774,26 +774,41 @@ impl Objects {
     }
 
     /// Whether `ancestor` is `descendant` or one of its ancestors, as `git merge-base
-    /// --is-ancestor` answers: `false` when either names no commit.
+    /// --is-ancestor` answers; `None` when either names no commit in this clone, an answer a
+    /// fetch may change.
     ///
     /// # Errors
-    /// Fails when the reader protocol breaks or git cannot start.
-    pub fn is_ancestor(&mut self, ancestor: &str, descendant: &str) -> Result<bool> {
+    /// Fails when the reader protocol breaks, git cannot start, or git fails other than by
+    /// answering.
+    pub fn is_ancestor(&mut self, ancestor: &str, descendant: &str) -> Result<Option<bool>> {
+        let (Some(ancestor), Some(descendant)) = (self.commit(ancestor)?, self.commit(descendant)?)
+        else {
+            return Ok(None);
+        };
         if !self.ancestry_by_git
-            && let Some(answer) = self.ancestry(ancestor, descendant)?
+            && let Some(answer) = self.ancestry(&ancestor, &descendant)?
         {
-            return Ok(answer);
+            return Ok(Some(answer));
         }
-        Ok(self
+        let output = self
             .git
-            .try_text(&[
+            .command()
+            .args([
                 "merge-base",
                 "--is-ancestor",
                 "--end-of-options",
-                ancestor,
-                descendant,
-            ])?
-            .is_some())
+                &ancestor,
+                &descendant,
+            ])
+            .output()?;
+        match output.status.code() {
+            Some(0) => Ok(Some(true)),
+            Some(1) => Ok(Some(false)),
+            _ => Err(Error::environment(format!(
+                "git merge-base --is-ancestor {ancestor} {descendant} failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))),
+        }
     }
 
     /// [`Objects::is_ancestor`] from the commits read; `None` when git is to answer.

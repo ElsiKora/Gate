@@ -89,6 +89,11 @@ struct Looked {
     stale: Option<String>,
 }
 
+/// An answer [`GitHistory::remembered`] may keep.
+fn kept(answer: Answer) -> (Answer, bool) {
+    (answer, true)
+}
+
 /// What the plugins of a run reported.
 #[derive(Debug, Default)]
 pub(crate) struct Ran {
@@ -1350,12 +1355,12 @@ impl History for GitHistory {
 
     fn tree(&self, commit: &str) -> std::result::Result<String, HostError> {
         let answer = self.remembered("tree", &[commit], true, || {
-            Ok(Answer::Tree(Some(
+            Ok(kept(Answer::Tree(Some(
                 self.objects(|objects| objects.tree(commit))?
                     .ok_or_else(|| {
                         HostError::new(format!("{commit:?} names no commit, so it has no tree"))
                     })?,
-            )))
+            ))))
         })?;
         match answer {
             Answer::Tree(Some(tree)) => Ok(tree),
@@ -1370,10 +1375,13 @@ impl History for GitHistory {
         first: &str,
         second: &str,
     ) -> std::result::Result<Option<String>, HostError> {
-        // git's merge may differ between versions: the version is part of the question.
-        let version = self.facts()?.version.clone();
-        let answer = self.remembered("merge-tree", &[first, second, &version], true, || {
-            Ok(Answer::Tree(self.merge(first, second)?))
+        // git's merge may differ between versions: the version is part of the question. A
+        // shallow clone may lack the merge base: its answers are not kept for another clone.
+        let facts = self.facts()?;
+        let version = facts.version.clone();
+        let lasting = !facts.shallow;
+        let answer = self.remembered("merge-tree", &[first, second, &version], lasting, || {
+            Ok(kept(Answer::Tree(self.merge(first, second)?)))
         })?;
         match answer {
             Answer::Tree(tree) => Ok(tree),
@@ -1435,9 +1443,9 @@ impl History for GitHistory {
         commit: &str,
     ) -> std::result::Result<Vec<String>, HostError> {
         let answer = self.remembered("changed-paths", &[parent, commit], true, || {
-            Ok(Answer::Paths(self.objects(|objects| {
+            Ok(kept(Answer::Paths(self.objects(|objects| {
                 objects.changed_paths(parent, commit)
-            })?))
+            })?)))
         })?;
         match answer {
             Answer::Paths(paths) => Ok(paths),
@@ -1459,9 +1467,13 @@ impl History for GitHistory {
         // A shallow clone hides ancestors: its answers are not kept for another clone.
         let lasting = !self.facts()?.shallow;
         let answer = self.remembered("is-ancestor", &[ancestor, descendant], lasting, || {
-            Ok(Answer::Holds(self.objects(|objects| {
-                objects.is_ancestor(ancestor, descendant)
-            })?))
+            // A commit this clone lacks answers no, until a fetch brings it: not kept.
+            Ok(
+                match self.objects(|objects| objects.is_ancestor(ancestor, descendant))? {
+                    Some(holds) => kept(Answer::Holds(holds)),
+                    None => (Answer::Holds(false), false),
+                },
+            )
         })?;
         match answer {
             Answer::Holds(holds) => Ok(holds),
@@ -1544,18 +1556,18 @@ impl GitHistory {
     }
 
     /// The answer to a question about the full commit ids `of`: stored by an earlier run, or
-    /// asked now and kept. A question about anything else (a ref, an abbreviated id), or one that
-    /// is not `lasting`, is asked and not kept.
+    /// asked now and kept. A question about anything else (a ref, an abbreviated id), one that
+    /// is not `lasting`, or one whose answer `ask` says not to keep, is asked and not kept.
     fn remembered(
         &self,
         kind: &'static str,
         of: &[&str],
         lasting: bool,
-        ask: impl FnOnce() -> std::result::Result<Answer, HostError>,
+        ask: impl FnOnce() -> std::result::Result<(Answer, bool), HostError>,
     ) -> std::result::Result<Answer, HostError> {
         let commits = if kind == "merge-tree" { &of[..2] } else { of };
         if !lasting || !commits.iter().all(|id| crate::git::is_object_id(id)) {
-            return ask();
+            return ask().map(|(answer, _)| answer);
         }
         let question: Question = (kind, of.iter().map(|id| (*id).to_owned()).collect());
         let Some(answers) = self.answers.get_or_init(|| {
@@ -1563,7 +1575,7 @@ impl GitHistory {
                 .ok()
                 .map(|cache| Mutex::new(Answers::load(&cache)))
         }) else {
-            return ask();
+            return ask().map(|(answer, _)| answer);
         };
         // Held while git answers: each question is asked once per run, whichever call asks first.
         let mut answers = answers.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1574,8 +1586,10 @@ impl GitHistory {
             return Ok(answer);
         }
         self.counted.asked.fetch_add(1, Ordering::Relaxed);
-        let answer = ask()?;
-        answers.learn(question, answer.clone());
+        let (answer, keep) = ask()?;
+        if keep {
+            answers.learn(question, answer.clone());
+        }
         Ok(answer)
     }
 

@@ -147,12 +147,23 @@ pub(crate) fn sync_state_digest(state: &SyncState) -> String {
         })
 }
 
+/// What a call records for an `is-ancestor` answer (see [`GitQuery::depends_on`]).
+#[must_use]
+pub fn ancestry_record(holds: bool) -> Vec<String> {
+    if holds {
+        Vec::new()
+    } else {
+        vec!["no".to_owned()]
+    }
+}
+
 impl GitQuery {
     /// Asks `history` this question again and answers what a call records for it: for a question
     /// that goes through a ref, the commit ids (or branch name) the ref names now; for a
-    /// `sync-state`, the digest of its answer; for a question about commit ids, nothing, since its
-    /// answer never changes. A stored result is reused only when every question answers as it was
-    /// recorded.
+    /// `sync-state`, the digest of its answer; for `is-ancestor`, nothing when it holds and `no`
+    /// when it does not, since a commit the clone lacks answers no until a fetch brings it; for
+    /// another question about commit ids, nothing, since its answer never changes. A stored result
+    /// is reused only when every question answers as it was recorded.
     ///
     /// # Errors
     /// Fails when the core cannot answer.
@@ -164,11 +175,14 @@ impl GitQuery {
             Self::Resolve { rev } => history.resolve(rev)?.into_iter().collect(),
             Self::Log { range } => history.revisions(range)?,
             Self::SyncState { commit } => vec![sync_state_digest(&history.sync_state(commit)?)],
+            Self::IsAncestor {
+                ancestor,
+                descendant,
+            } => ancestry_record(history.is_ancestor(ancestor, descendant)?),
             Self::Tree { .. }
             | Self::MergeTree { .. }
             | Self::ChangedPaths { .. }
-            | Self::ReadAt { .. }
-            | Self::IsAncestor { .. } => Vec::new(),
+            | Self::ReadAt { .. } => Vec::new(),
         })
     }
 
