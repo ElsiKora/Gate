@@ -8,7 +8,7 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-# Unreleased
+# [0.2.0](https://github.com/ElsiKora/Gate/compare/v0.1.0...v0.2.0) (2026-11-19)
 
 The plugin interface is `gate:plugin@0.2.0`, and every plugin of this repository is released at
 0.2.0 with the core: pin `ElsiKora/Gate:<plugin>@0.2.0` with a 0.2.0 core. A 0.2.0 core loads only

@@ -7,7 +7,7 @@ edition = "2024"
 license = "MIT"
 publish = false
 rust-version = "1.99.1"
-version = "0.1.0"
+version = "0.2.0"
 
 [workspace.dependencies]
 bytes = { version = "=1.12.1", default-features = false }

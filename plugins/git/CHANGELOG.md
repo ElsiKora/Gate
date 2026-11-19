@@ -2,7 +2,7 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 
-## Unreleased
+# [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.1.0...plugin-git-v0.2.0) (2026-11-19)
 
 ### Added
 
