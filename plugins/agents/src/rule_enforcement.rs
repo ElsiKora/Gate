@@ -7,7 +7,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Result, Rule, Run, Tree};
 use globset::GlobBuilder;
 
-use crate::load::{Agents, at, default_root, strict_text};
+use crate::load::{Agents, INPUT, at, default_root, strict_text};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -44,11 +44,15 @@ impl Rule for RuleEnforcement {
 
     const NAME: &'static str = "rule-enforcement";
     const TITLE: &'static str = "Every rule declares a valid enforcement for its class";
+    const ASPECTS: &'static [&'static str] = &[INPUT];
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let tree = run.tree();
+        let agents = Agents::load(&tree, &run.options().root)?;
+        if !agents.has_rules(run.report(), "agents/rule-enforcement", INPUT) {
+            return Ok(());
+        }
         let options = run.options();
-        let agents = Agents::load(&tree, &options.root)?;
         let norms = run.norms().to_vec();
         let mut findings = Vec::new();
 

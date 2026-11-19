@@ -7,7 +7,10 @@ ADRs have their sections and linked decisions, and the decision index agrees wit
 The decision index (`[plugins.ledger] options` `decisions`) lists every decision with its status and
 canonical file; the ADR coverage table (`coverage`) lists the same decisions with the ADRs that cover
 them. When the two drift apart, a reader cannot tell which ADR explains a decision, or whether a
-decision still holds. The rule reports nothing while `coverage` is not tracked.
+decision still holds.
+
+- `input`: the decision index or the coverage table is not tracked, reported at its path; the rule
+  checks nothing else until both are. Create it, point the option at it, or turn the input off with `levels = { input = "off" }` and a `decision`.
 
 - Rows of both tables start with `` | `D-``; each has four cells: the backticked identifier, the
   backticked status, the title (index) or a comma-separated list of backticked ADR file names
@@ -22,7 +25,8 @@ decision still holds. The rule reports nothing while `coverage` is not tracked.
   `linked-ids-prefix` names no backticked `D-` identifier.
 
 Scope: project. Reads history: no. Aspects: `adr-linked-ids`, `adr-sections`,
-`decision-canonical-file`, `decision-coverage`, `decision-status`, `record-shape`, `record-unique`.
+`decision-canonical-file`, `decision-coverage`, `decision-status`, `input`, `record-shape`,
+`record-unique`.
 
 ## Options
 

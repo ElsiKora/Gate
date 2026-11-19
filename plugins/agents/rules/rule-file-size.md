@@ -9,7 +9,12 @@ An agent loads a whole rule file into its context; a long file crowds out the wo
 `#warn-lines`. A file reports at most one of the two. Give the aspects their own levels, for
 example `#warn-lines` as a warning.
 
-Scope: project. Reads history: no. Aspects: `max-lines`, `warn-lines`.
+`#input`: `<root>/rules` holds no rule file (`*.md` directly in it), reported once at the directory
+and keyed by it; the rule checks nothing else until it does. A project without its agent docs fails
+the rule: create a rule file, point `root` at the agent docs, or turn the input off with
+`levels = { input = "off" }` and a `decision`.
+
+Scope: project. Reads history: no. Aspects: `input`, `max-lines`, `warn-lines`.
 
 ## Options
 

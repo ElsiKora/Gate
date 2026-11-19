@@ -4,7 +4,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run};
 
-use crate::load::{Agents, default_root};
+use crate::load::{Agents, INPUT, default_root};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -45,7 +45,7 @@ impl Rule for RuleFileSize {
 
     const NAME: &'static str = "rule-file-size";
     const TITLE: &'static str = "A rule file has at most max-lines lines";
-    const ASPECTS: &'static [&'static str] = &["max-lines", "warn-lines"];
+    const ASPECTS: &'static [&'static str] = &[INPUT, "max-lines", "warn-lines"];
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let (max, warn) = (run.options().max_lines, run.options().warn_lines);
@@ -55,6 +55,9 @@ impl Rule for RuleFileSize {
             )));
         }
         let agents = Agents::load(&run.tree(), &run.options().root)?;
+        if !agents.has_rules(run.report(), "agents/rule-file-size", INPUT) {
+            return Ok(());
+        }
         for file in &agents.rules {
             let lines = file.line_count;
             let (aspect, message) = if lines > max {

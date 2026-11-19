@@ -10,6 +10,7 @@ use regex::Regex;
 
 use crate::catalog::{At, Catalog, Findings};
 use crate::index::DecisionIndex;
+use crate::input::{self, INPUT, Input};
 use crate::records::{Ledger, Record, compile};
 use crate::settings::{Settings, check_path};
 use crate::text::{blank_fenced, pattern};
@@ -18,35 +19,36 @@ use crate::text::{blank_fenced, pattern};
 #[derive(Debug, Default)]
 pub struct Reuses;
 
-/// The options of `ledger/reuses`.
+/// The options of `ledger/reuses`. `catalog` is required: the catalog is the project's own, and
+/// without it the rule would check nothing.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(
     crate = "gate_sdk::serde",
-    default,
     deny_unknown_fields,
     rename_all = "kebab-case"
 )]
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct Options {
-    /// The catalog of shared mechanisms; empty turns the rule off.
+    /// The catalog of shared mechanisms.
+    #[schemars(length(min = 1))]
     pub catalog: String,
     /// Directories whose implementation records the rule skips, with or without a trailing `/`.
+    #[serde(default)]
     pub exclude: Vec<String>,
     /// The least number of words a `none` reason has.
+    #[serde(default = "reason_words")]
     pub reason_words: usize,
     /// A `none` reason this pattern matches is too generic.
+    #[serde(default = "generic_reasons")]
     pub generic_reasons: String,
 }
 
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            catalog: String::new(),
-            exclude: Vec::new(),
-            reason_words: 4,
-            generic_reasons: r"(?i)^(?:not applicable|n/?a|none|nothing|no reuse|nothing to reuse|no shared mechanism|no catalog entry applies)$".to_owned(),
-        }
-    }
+fn reason_words() -> usize {
+    4
+}
+
+fn generic_reasons() -> String {
+    r"(?i)^(?:not applicable|n/?a|none|nothing|no reuse|nothing to reuse|no shared mechanism|no catalog entry applies)$".to_owned()
 }
 
 impl Rule for Reuses {
@@ -57,6 +59,7 @@ impl Rule for Reuses {
         "Every open implementation record names the shared mechanisms it reuses";
     const ASPECTS: &'static [&'static str] = &[
         "catalog-entry",
+        INPUT,
         "reuses-missing",
         "reuses-planner",
         "reuses-unknown",
@@ -71,9 +74,12 @@ impl Rule for Reuses {
                 "ledger/reuses option generic-reasons is not a valid pattern: {error}; fix it"
             ))
         })?;
-        if !options.catalog.is_empty() {
-            check_path("ledger/reuses option catalog", &options.catalog)?;
+        if options.catalog.trim().is_empty() {
+            return Err(Error::config(
+                "ledger/reuses option catalog is empty; name the catalog of shared mechanisms",
+            ));
         }
+        check_path("ledger/reuses option catalog", &options.catalog)?;
         for excluded in &options.exclude {
             check_path(
                 "ledger/reuses option exclude",
@@ -81,10 +87,14 @@ impl Rule for Reuses {
             )?;
         }
 
-        if options.catalog.is_empty() || !tree.contains(&settings.implementation) {
+        let mut inputs = input::records(&settings);
+        inputs.push(Input::own("catalog", &options.catalog));
+        inputs.push(Input::shared("decisions", &settings.decisions));
+        if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
             return Ok(());
         }
 
+        let options = run.options();
         let ledger = Ledger::read(&Catalog::new(tree), &settings)?;
         let patterns = Patterns::new(generic)?;
         let mut findings = Findings::default();

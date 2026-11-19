@@ -8,8 +8,11 @@ forbidden ledger path.
 The manifest is a JSON file that describes the ledger: `canonicalRoot`, the `canonicalFiles` below it,
 the `idFamilies` (each a `pattern` and a `file` below the root or a `directory` of
 Markdown files, optionally `unique`), and `forbiddenReferences` (each a `label` and path `parts`).
-Without it checked, a renamed ledger file or a stale path to an old ledger goes unnoticed. The rule
-reports nothing while `manifest` is not tracked.
+Without it checked, a renamed ledger file or a stale path to an old ledger goes unnoticed. The
+manifest is the one list of what a complete ledger holds.
+
+- `input`: the manifest is not tracked, reported at its path; the rule checks nothing else until it
+  is. A project without its ledger fails the rule: create it, point the option at it, or turn the input off with `levels = { input = "off" }` and a `decision`.
 
 - `manifest-shape`: the manifest is not JSON, lacks a required field, has a duplicate canonical file,
   a forbidden reference with empty `parts` or a `label` that is not a string, a family without
@@ -25,7 +28,7 @@ reports nothing while `manifest` is not tracked.
   path, at its first occurrence. Text files are those with an extension of `text-extensions`, without
   an extension, or named by `text-file-prefixes`, outside `skip-folders`.
 
-Scope: project. Reads history: no. Aspects: `forbidden-reference`, `id-family`, `manifest-file`,
+Scope: project. Reads history: no. Aspects: `forbidden-reference`, `id-family`, `input`, `manifest-file`,
 `manifest-shape`, `record-unique`.
 
 ## Options

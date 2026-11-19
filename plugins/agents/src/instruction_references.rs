@@ -13,7 +13,7 @@ use globset::{GlobBuilder, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::Regex;
 
-use crate::load::{default_root, has_extension, strict_text};
+use crate::load::{INPUT, default_root, has_entry, has_extension, strict_text};
 
 static LOCATION_SUFFIX: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r":\d+(?::\d+)?$").ok());
@@ -35,7 +35,8 @@ pub struct Options {
     /// The directory of the agent instructions, relative to the project; every `*.md` below it is
     /// read.
     pub root: String,
-    /// The entry file of the agent instructions, read when it is tracked.
+    /// The entry file of the agent instructions; while it is not tracked, the rule reports it as
+    /// `#input` and still reads the files below the root.
     pub entry: String,
     /// A backticked name without a slash is a path only when it ends with one of these.
     pub extensions: Vec<String>,
@@ -69,12 +70,12 @@ impl Rule for InstructionReferences {
 
     const NAME: &'static str = "instruction-references";
     const TITLE: &'static str = "Backticked paths and commands in agent instructions exist";
-    const ASPECTS: &'static [&'static str] = &["command", "path"];
+    const ASPECTS: &'static [&'static str] = &["command", INPUT, "path"];
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let tree = run.tree();
-        let options = run.options();
-        let command = options
+        let command = run
+            .options()
             .command_pattern
             .as_deref()
             .map(|pattern| {
@@ -90,6 +91,18 @@ impl Rule for InstructionReferences {
             })
             .transpose()?;
 
+        // The entry is one of the files the rule reads: a missing one is reported, and the files
+        // below the root are still checked.
+        let entry = run.options().entry.clone();
+        has_entry(
+            run.report(),
+            &tree,
+            &entry,
+            "agents/instruction-references",
+            INPUT,
+            "create it",
+        );
+        let options = run.options();
         let paths = tree.paths();
         let root = options.root.trim_end_matches('/');
         let files: Vec<String> = std::iter::once(options.entry.clone())

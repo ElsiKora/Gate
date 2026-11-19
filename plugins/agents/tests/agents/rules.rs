@@ -467,8 +467,34 @@ fn owners_are_accepted_decisions_of_the_index() {
         ),
         Vec::<String>::new()
     );
-    let empty = Fixture::new(&[("README.md", "# Project\n")]);
-    assert_eq!(empty.check("rule-owner", "{}").expect("runs"), []);
+}
+
+#[test]
+fn every_rule_that_reads_the_rule_files_reports_a_rule_directory_without_one() {
+    // `AGENTS.md` is tracked and a file that is not a rule file sits in the directory: the rule
+    // files are still missing, and each rule reports it once, keyed by the directory.
+    let empty = Fixture::new(&[
+        ("AGENTS.md", "# Agents\n"),
+        (&at("nested/x.md", ""), "# Not a rule file\n"),
+    ]);
+    for rule in [
+        "rule-enforcement",
+        "rule-file-size",
+        "rule-ids",
+        "rule-owner",
+        "rule-references",
+        "rule-registry",
+    ] {
+        let found = empty.check(rule, "{}").expect("runs");
+        assert_eq!(
+            lines(&found),
+            [format!(
+                "#input {RULES} {RULES} has no rule file, and agents/{rule} reads the rule files there (its option root); create a rule file {RULES}/<area>.md, point root at the agent docs, or turn the input off with a decision: \"agents/{rule}\" = {{ levels = {{ input = \"off\" }}, decision = \"<record>\" }}"
+            )],
+            "{rule}"
+        );
+        assert_eq!(found[0].key.as_deref(), Some(RULES), "{rule}");
+    }
 }
 
 #[test]

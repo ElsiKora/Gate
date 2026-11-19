@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use gate_agents_format::rule_id;
 use gate_sdk::{Location, Result, Rule, Run};
 
-use crate::load::{Agents, RootOptions};
+use crate::load::{Agents, INPUT, RootOptions};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -16,10 +16,14 @@ impl Rule for RuleIds {
 
     const NAME: &'static str = "rule-ids";
     const TITLE: &'static str = "Rule identifiers are well-formed, unique and never reused";
+    const ASPECTS: &'static [&'static str] = &[INPUT];
 
     fn check(&self, run: &mut Run<'_, RootOptions>) -> Result<()> {
         let agents = Agents::load(&run.tree(), &run.options().root)?;
         let report = run.report();
+        if !agents.has_rules(report, "agents/rule-ids", INPUT) {
+            return Ok(());
+        }
         let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
         let mut numbers: BTreeMap<&str, (BTreeSet<u32>, &str)> = BTreeMap::new();
 

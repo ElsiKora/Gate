@@ -167,12 +167,27 @@ fn the_agents_block_needs_one_pair_of_markers_and_a_tracked_entry() {
         ]
     );
 
+    // The generator writes only between the markers: it cannot create the entry, and a block
+    // with no rule file lists nothing. Both are findings of `gate sync`, never a silent pass.
     let untracked = tree(None).generate("agents-block", "", "{}").expect("runs");
-    assert_eq!((untracked.files, untracked.findings), (vec![], vec![]));
+    assert_eq!(untracked.files, []);
+    assert_eq!(
+        lines(&untracked.findings),
+        [
+            "AGENTS.md AGENTS.md is not tracked, and agents/agents-block reads it (its option entry); create it with a `<!-- gate:begin agents -->` line and, below it, a `<!-- gate:end agents -->` line, point entry at the file, or remove the generator from [generate]"
+        ]
+    );
 
+    let no_rules_message = "docs/agents/rules docs/agents/rules has no rule file, and agents/agents-block reads the rule files there (its option root); create a rule file docs/agents/rules/<area>.md, point root at the agent docs, or remove the generator from [generate]";
     let no_rules = Fixture::new(&[("AGENTS.md", "# Agents\n")]);
     let output = no_rules.generate("agents-block", "", "{}").expect("runs");
-    assert_eq!((output.files, output.findings), (vec![], vec![]));
+    assert_eq!(output.files, []);
+    assert_eq!(lines(&output.findings), [no_rules_message]);
+
+    let absent = Fixture::new(&[("README.md", "# Project\n")]);
+    let output = absent.generate("agents-block", "", "{}").expect("runs");
+    assert_eq!(output.files, []);
+    assert_eq!(output.findings.len(), 2, "{:?}", lines(&output.findings));
 
     let emptied = Fixture::new(&[(
         "AGENTS.md",
@@ -186,6 +201,7 @@ fn the_agents_block_needs_one_pair_of_markers_and_a_tracked_entry() {
             "<!-- gate:begin agents -->\n\n<!-- gate:end agents -->\n".to_owned()
         )]
     );
+    assert_eq!(lines(&output.findings), [no_rules_message]);
 }
 
 #[test]

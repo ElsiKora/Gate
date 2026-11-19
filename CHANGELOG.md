@@ -104,6 +104,19 @@ Each shared plugin keeps its own changelog next to its code.
   file in its project's call, the root file in the root project's call). It is part of the
   `gate:plugin@0.3.0` interface, against which every plugin is rebuilt; a rule reads it with
   `run.rule_decisions()`.
+- **plugin-ledger:** an enabled ledger rule fails when a file it reads is not tracked, instead of
+  reporting nothing: each such file is a finding of the new aspect `input` of every rule that reads
+  it, at the file's path and keyed by it, naming the option that points there. The manifest itself
+  is `ledger/manifest#input`. A project without its ledger now fails; add the files, point the
+  options at them, or set `levels = { input = "off" }` with a decision.
+- **plugin-ledger:** options without which an enabled rule did nothing are required, and leaving one
+  out stops the run with exit 2: `field` of `ledger/closing-notes` and `catalog` of `ledger/reuses`
+  have no default, and `ledger/record-status` needs the shared `parity`.
+- **plugin-agents:** an enabled agents rule fails when its input is missing: the rules that read the
+  rule files (`rule-registry`, `rule-ids`, `rule-file-size`, `rule-enforcement`, `rule-owner`,
+  `rule-references`) report an empty `<root>/rules` as `#input`, and `instruction-references`
+  reports a missing `entry`. The `agents-block` generator reports both as `gate/sync#agents-block`
+  in `gate sync` and `gate sync --check`.
 
 ### Features
 

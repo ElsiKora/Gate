@@ -28,14 +28,18 @@ A span is prose, not a path, when it is empty, contains whitespace, `://`, `...`
 top-level name of the project or of a granted path outside it nor starts with `.`, or (without a slash) it does not end with one of
 `extensions`, starts with `*`, or is only an extension such as `.md`.
 
-Scope: project. Reads history: no. Aspects: `command`, `path`.
+`#input`: `entry` is not tracked, reported at its path and keyed by it. The files below `root` are
+still checked. A project without its entry file fails the rule: create it, point `entry` at the
+file, or turn the input off with `levels = { input = "off" }` and a `decision`.
+
+Scope: project. Reads history: no. Aspects: `command`, `input`, `path`.
 
 ## Options
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `root` | string | `"docs/agents"` | The directory whose `*.md` files are read, relative to the project. |
-| `entry` | string | `"AGENTS.md"` | The entry file, read when it is tracked. |
+| `entry` | string | `"AGENTS.md"` | The entry file; reported as `#input` while it is not tracked. |
 | `extensions` | array of string | `[".md", ".mdc", ".mjs", ".cjs", ".js", ".ts", ".json", ".toml", ".yml", ".yaml", ".sh", ".txt"]` | The endings of a bare file name that make it a path. |
 | `package-json` | string | `"package.json"` | The file whose `scripts` a command must name; read only with `command-pattern`. |
 | `command-pattern` | string (regular expression) | none | A command, with the script name in its first group; without it, commands are not checked. A pattern that does not compile or has no group is a configuration error. |

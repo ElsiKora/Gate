@@ -9,6 +9,7 @@ use gate_sdk::serde_json::{self, Value};
 use gate_sdk::{Rule, Run};
 
 use crate::catalog::{At, Catalog, Findings};
+use crate::input::{self, INPUT, Input};
 use crate::settings::check_path;
 use crate::text::{extension, join, multiline_pattern};
 
@@ -26,7 +27,7 @@ pub struct Manifest;
 )]
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct Options {
-    /// The manifest; the rule reports nothing while it is not tracked.
+    /// The manifest; while it is not tracked, the rule reports it as `#input`.
     pub manifest: String,
     /// Directory names the forbidden-reference scan skips at any depth.
     pub skip_folders: Vec<String>,
@@ -73,20 +74,23 @@ impl Rule for Manifest {
     const ASPECTS: &'static [&'static str] = &[
         "forbidden-reference",
         "id-family",
+        INPUT,
         "manifest-file",
         "manifest-shape",
         "record-unique",
     ];
 
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let options = run.options();
         let tree = run.tree();
-        let path = options.manifest.as_str();
-        check_path("ledger/manifest option manifest", path)?;
+        check_path("ledger/manifest option manifest", &run.options().manifest)?;
+        let inputs = [Input::own("manifest", &run.options().manifest)];
 
-        if !tree.contains(path) {
+        if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
             return Ok(());
         }
+
+        let options = run.options();
+        let path = options.manifest.as_str();
 
         let catalog = Catalog::new(tree);
         let mut findings = Findings::default();

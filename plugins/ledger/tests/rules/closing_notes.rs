@@ -1,6 +1,6 @@
 //! `ledger/closing-notes`.
 
-use crate::{Files, IMPLEMENTATION, OID_A, PARITY, error, findings, ledger, seen};
+use crate::{Files, IMPLEMENTATION, OID_A, PARITY, PLAN, error, findings, input, ledger, seen};
 
 const REUSES: &str = "  - Reuses: none; this work builds the first parser itself.\n";
 
@@ -64,10 +64,23 @@ fn product_names_come_from_parity() {
 }
 
 #[test]
-fn the_rule_is_off_until_the_field_is_set() {
+fn the_field_is_required_and_a_missing_input_is_reported() {
     let files = with_delta("  - `TEMPORARY_DELTA` records: (1) closer `I-ALPHA-ONE-001`.");
     assert_eq!(closing(&files).len(), 1);
-    assert_eq!(findings("closing-notes", "", PARITY, &files), []);
+    let message = error("closing-notes", "", PARITY, &files);
+    assert!(message.contains("missing field `field`"), "{message}");
+    assert_eq!(
+        error("closing-notes", r#"{"field":" "}"#, PARITY, &files),
+        "rule closing-notes: ledger/closing-notes option field is empty; name the record field that lists the temporary differences"
+    );
+    assert_eq!(
+        closing(&files.without(PLAN)),
+        [input(
+            "closing-notes",
+            PLAN,
+            "[plugins.ledger] options parity.plan"
+        )]
+    );
 }
 
 #[test]
@@ -163,7 +176,7 @@ fn the_field_is_an_option() {
 fn an_entry_label_letter_must_be_one_uppercase_letter() {
     let message = error(
         "closing-notes",
-        r#"{"entry-label-letters":["ab"]}"#,
+        r#"{"field":"`DELTA` notes","entry-label-letters":["ab"]}"#,
         PARITY,
         &ledger(),
     );

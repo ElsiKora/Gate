@@ -5,14 +5,18 @@ Every open implementation record names the shared mechanisms it reuses.
 ## What it checks and why
 
 A catalog of shared mechanisms lists what already exists, so new work reuses it instead of building it
-again. Each open implementation record says which catalog entries it reuses, or why none applies. The
-rule is off until `catalog` is set, and reports nothing while `implementation` is not tracked.
+again. Each open implementation record says which catalog entries it reuses, or why none applies.
+`catalog` is required: enabled without it, the run stops with a configuration error (exit 2).
+
+- `input`: a file the rule reads that is not tracked (`[plugins.ledger] options` `implementation` and, with `parity`, the plan `parity.plan`, the
+  `catalog`, and the decision index `decisions`), reported at its path; the rule checks nothing else
+  until all are. Create it, point the option at it, or turn the input off with `levels = { input = "off" }` and a `decision`.
 
 - The catalog lists one mechanism per item ``- `<kebab-key>`: description`` with the fields, each once,
   `Decisions` (backticked accepted decisions) and either `Path` (backticked tracked paths; a directory
   ends with `/`) or `Planned by` (backticked open implementation records that will build it). Fenced code
-  is ignored. Without a decision index, every decision passes.
-- `catalog-entry`: a missing catalog, and one finding per malformed entry listing its problems.
+  is ignored.
+- `catalog-entry`: one finding per malformed entry, listing its problems.
 - The records are the implementation records whose status is open (planned or started), outside the
   `exclude` directories. Each has exactly one field ``Reuses: `<key>`[, `<key>` …]`` or
   `Reuses: none; <reason>` with a reason of at least `reason-words` words that `generic-reasons` does
@@ -21,14 +25,14 @@ rule is off until `catalog` is set, and reports nothing while `implementation` i
   `reuses-unknown`: a key the catalog does not list. `reuses-planner`: a record that alone plans a
   mechanism names its key, or one of several planners does not.
 
-Scope: project. Reads history: no. Aspects: `catalog-entry`, `reuses-missing`,
+Scope: project. Reads history: no. Aspects: `catalog-entry`, `input`, `reuses-missing`,
 `reuses-planner`, `reuses-unknown`.
 
 ## Options
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `catalog` | string | `""` | The catalog of shared mechanisms; empty turns the rule off. |
+| `catalog` | string | required | The catalog of shared mechanisms. |
 | `exclude` | array of string | `[]` | Directories whose records the rule skips, with or without a trailing `/`. |
 | `reason-words` | integer | `4` | The least number of words of a `none` reason. |
 | `generic-reasons` | string | `(?i)^(?:not applicable\|n/?a\|none\|nothing\|no reuse\|nothing to reuse\|no shared mechanism\|no catalog entry applies)$` | A `none` reason this pattern matches is too generic. |

@@ -5,9 +5,12 @@ Ledger records keep their fields, counterparts, commits, dependencies and closur
 ## What it checks and why
 
 A record that lost a field, a closed record without evidence, or a dependency on a record that does
-not exist makes the ledger say something false about the state of the work. The rule reports nothing
-while `[plugins.ledger] options` `implementation` is not tracked. Records are read as the
+not exist makes the ledger say something false about the state of the work. Records are read as the
 [plugin page](README.md#records) describes.
+
+- `input`: a file the rule reads that is not tracked (`[plugins.ledger] options` `implementation` and, with `parity`, the plan `parity.plan`), reported at
+  its path; the rule checks nothing else until it is. A project without its ledger fails the rule:
+  create it, point the option at it, or turn the input off with `levels = { input = "off" }` and a `decision`.
 
 - `record-shape`: a collection without a record of its kind, a line that looks like a record but does
   not parse, a record without a title. `record-unique`: an identifier defined twice in a collection.
@@ -36,7 +39,7 @@ removed, white space collapsed and in lowercase, it is one of `pending-values` o
 `unfinished-commit-pending`, which compares them as written. The status agreement of paired records
 is `ledger/record-status`.
 
-Scope: project. Reads history: no. Aspects: `dependency-cycle`,
+Scope: project. Reads history: no. Aspects: `dependency-cycle`, `input`,
 `parity-fields`, `record-closure`, `record-commit`, `record-counterpart`, `record-dependency`,
 `record-field`, `record-shape`, `record-unique`.
 

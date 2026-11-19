@@ -12,10 +12,13 @@ statuses differ, the ledger reports the same work as done in one place and open 
 - With `allowed`: each status of the plan heading and its two records is one of `allowed`, as written;
   one finding per file.
 
-Without `parity`, or while `implementation` is not tracked, the rule reports nothing. Fields and
-counterparts are `ledger/records`.
+- `input`: a file the rule reads that is not tracked (`[plugins.ledger] options` `implementation` and, with `parity`, the plan `parity.plan`), reported at
+  its path; the rule checks nothing else until it is. Create it, point the option at it, or turn the input off with `levels = { input = "off" }` and a `decision`.
 
-Scope: project. Reads history: no. Aspects: none.
+The rule needs `parity`: enabled without it, the run stops with a configuration error (exit 2) that
+names the key. Fields and counterparts are `ledger/records`.
+
+Scope: project. Reads history: no. Aspects: `input`; the status findings have no aspect.
 
 ## Options
 

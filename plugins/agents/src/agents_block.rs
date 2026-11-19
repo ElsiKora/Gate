@@ -6,7 +6,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Generate, Generator, Location, Result};
 
 use crate::block;
-use crate::load::{Agents, at, default_root, strict_text};
+use crate::load::{Agents, at, default_root, has_entry, strict_text};
 
 /// The name of the managed block.
 const BLOCK: &str = "agents";
@@ -28,7 +28,8 @@ pub struct Options {
     /// The directory of the agent instructions, relative to the project.
     pub root: String,
     /// The file that holds the block, relative to the project, written plainly (no leading `/`,
-    /// no `.`, `..` or empty segment); nothing is generated while it is not tracked.
+    /// no `.`, `..` or empty segment). The generator writes only between the markers: while the
+    /// file is not tracked, it reports it and writes nothing.
     pub entry: String,
     /// The command the block names as the one that writes it.
     pub command_text: String,
@@ -54,14 +55,31 @@ impl Generator for AgentsBlock {
         let tree = run.tree();
         let options = run.options();
         let entry = plain(&options.entry)?;
+        let command = options.command_text.clone();
         let agents = Agents::load(&tree, &options.root)?;
+        // Both inputs are findings of `gate sync`: a block with no rule file lists nothing, and an
+        // entry that is not tracked cannot hold the block.
+        let has_rules = agents.has_rules(run.report(), "agents/agents-block", "");
+        if !has_entry(
+            run.report(),
+            &tree,
+            &entry,
+            "agents/agents-block",
+            "",
+            &format!(
+                "create it with a `<!-- gate:begin {BLOCK} -->` line and, below it, a \
+                 `<!-- gate:end {BLOCK} -->` line"
+            ),
+        ) {
+            return Ok(());
+        }
         let Some(text) = strict_text(&tree, &entry)? else {
             return Ok(());
         };
-        if agents.rules.is_empty() && !block::has_marker(&text, BLOCK) {
+        if !has_rules && !block::has_marker(&text, BLOCK) {
             return Ok(());
         }
-        let inner = inner(&agents, &entry, &options.command_text);
+        let inner = inner(&agents, &entry, &command);
 
         match block::replace(&text, BLOCK, &inner) {
             Ok(contents) => run.write(entry.clone(), contents),

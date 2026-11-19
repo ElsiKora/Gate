@@ -10,9 +10,14 @@ of the decision index whose status is `accepted-status`. The index is a Markdown
 that starts with ``| `D-`` and has at least four cells is a row, its first cell the id and its second
 the status (a backticked token or the trimmed cell); the first row of an id wins.
 
-Without rule files the rule reports nothing. Without the index, every owner is reported.
+Without the index, every owner is reported.
 
-Scope: project. Reads history: no. Aspects: none.
+`#input`: `<root>/rules` holds no rule file (`*.md` directly in it), reported once at the directory
+and keyed by it; the rule checks nothing else until it does. A project without its agent docs fails
+the rule: create a rule file, point `root` at the agent docs, or turn the input off with
+`levels = { input = "off" }` and a `decision`.
+
+Scope: project. Reads history: no. Aspects: `input`; the other findings have no aspect.
 
 ## Options
 

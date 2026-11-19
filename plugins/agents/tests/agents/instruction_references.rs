@@ -104,11 +104,17 @@ fn the_command_pattern_and_extensions_are_options() {
 }
 
 #[test]
-fn nothing_is_read_without_the_entry_or_the_root() {
-    let fixture = Fixture::new(&[("docs/guide.md", "`npm run ghost` and `docs/none.md`\n")]);
+fn a_missing_entry_is_an_input_finding_and_the_root_is_still_read() {
+    let fixture = Fixture::new(&[
+        ("docs/guide.md", "`npm run ghost` and `docs/none.md`\n"),
+        ("docs/agents/notes.md", "`docs/none.md`\n"),
+    ]);
     assert_eq!(
-        fixture.check("instruction-references", "{}").expect("runs"),
-        []
+        lines(&fixture.check("instruction-references", "{}").expect("runs")),
+        [
+            "#input AGENTS.md AGENTS.md is not tracked, and agents/instruction-references reads it (its option entry); create it, point entry at the file, or turn the input off with a decision: \"agents/instruction-references\" = { levels = { input = \"off\" }, decision = \"<record>\" }",
+            "#path docs/agents/notes.md:1 `docs/none.md` is neither tracked nor an ignored location",
+        ]
     );
 }
 

@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead's decision; no code |
+| Status | approved as designed (81053fd) with the lead's rulings; code on T-059's tip, in review after a green round |
 | Release | v0.3.0 (both plugins release with it) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | T-059 (both touch `plugins/ledger`): the code goes on T-059's tip |
+| Depends on | T-059 (both touch `plugins/ledger`): the code is built on T-059's tip `3d242d5` now, as T-052 was on T-048, and is rebased when T-059 merges |
 | Touches | `plugins/ledger` (every rule that reads a file, three option types, the rule pages), `plugins/agents` (the rules that read the rule files or the entry, the `agents-block` generator, their pages), tests, `docs/guide/plugins.md`, `CHANGELOG.md` |
 
 ## Goal
@@ -67,10 +67,15 @@ So:
 
   | Rule | Inputs reported when not tracked |
   | --- | --- |
-  | `ledger/manifest` | `manifest` |
-  | `ledger/decisions` | `coverage`, and the shared `decisions` |
-  | `ledger/records`, `ledger/record-status`, `ledger/blockers`, `ledger/closing-notes`, `ledger/reuses` | the shared `implementation` |
+  | `ledger/manifest` | `manifest` (ruling 1: a missing manifest is `ledger/manifest#input`) |
+  | `ledger/decisions` | the shared `decisions`, and `coverage` |
+  | `ledger/records`, `ledger/record-status`, `ledger/blockers`, `ledger/closing-notes`, `ledger/reuses` | the shared `implementation`, and with `parity` its `plan` |
   | `ledger/reuses` | also `catalog`, and the shared `decisions` |
+
+  Each message names the missing file and the option, and says what to do (ruling 3):
+  "docs/ledger/implementation-slices.md is not tracked, and ledger/records reads it
+  ([plugins.ledger] options implementation); create it, point the option at the file, or turn the
+  input off with a decision: "ledger/records" = { levels = { input = "off" }, decision = "<record>" }".
 
   One missing file can produce one finding per rule that reads it. That is honest, because each of
   those rules could not run, and adding the file clears them all. Making one rule own the report
@@ -106,12 +111,23 @@ Recommendation: **yes, by the same principle.** An enabled agents rule that cann
   Today it reads the entry only "when it is tracked". The `agents/agents-block` generator, which
   returns silently today, reports it as its finding (`gate/sync#agents-block`): "AGENTS.md is not
   tracked; create it with the `gate:begin agents` and `gate:end agents` lines". The generator
-  writes only between the markers; it cannot create the file.
+  writes only between the markers; it cannot create the file. It also reports an empty
+  `<root>/rules`. Both are `gate sync` findings, in `gate sync` and in `gate sync --check`, and the
+  message says to remove the generator from `[generate]` when the project does not want the block.
 - Unchanged:
   - `agents/skills`, since a project without skills is complete;
   - `agents/no-claude-md`, which reads no input;
   - the `agents/adapters` generator, which with no rule file writes no adapter, and whose missing
     input `agents/rule-registry` reports.
+
+## Presets (ruling 2)
+
+No preset turns on `ledger/closing-notes`, `ledger/reuses` or `ledger/record-status`: neither the
+ledger plugin nor the agents plugin declares a preset (`presets: []` in both). A future preset
+leaves these three rules out, because their `field`, `catalog` and `parity` are the project's own
+and have no sane default. A preset that enables the other ledger or agents rules on a fresh project
+then gives `#input` findings that name the files to create, never exit 2 for an option the user did
+not know about. `docs/guide/plugins.md` says so under Presets.
 
 ## 4. The reference read
 
@@ -162,4 +178,9 @@ SDK tests per rule, plus one end-to-end run per plugin through the built compone
 
 ## Resume point
 
-2026-11-19: design written from `main` at `ec66737`; waiting for the lead's decision before any code.
+2026-11-19: design written from `main` at `ec66737` and approved. Code written on T-059's tip:
+`plugins/ledger/src/input.rs` and the `input` aspect on every ledger rule that reads a file; the
+required `field`, `catalog` and `parity`; the agents rules and the `agents-block` generator; native
+tests (`plugins/ledger/tests/rules/presence.rs` for an absent, partial and complete ledger) and
+end-to-end tests in `crates/gate/tests/plugins.rs`; the rule pages, the guide and the CHANGELOG.
+Next: the lane round on the pushed tip, then review.

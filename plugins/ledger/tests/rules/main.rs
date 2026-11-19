@@ -7,6 +7,7 @@ mod decisions;
 mod exceptions;
 mod generators;
 mod manifest;
+mod presence;
 mod record_status;
 mod records;
 mod reuses;
@@ -203,6 +204,19 @@ pub(crate) fn seen(aspect: &str, path: &str, line: Option<u32>, message: &str) -
     (aspect.to_owned(), path.to_owned(), line, message.to_owned())
 }
 
+/// The `#input` finding of `ledger/<rule>` for the untracked `path` that `option` names, as
+/// `[plugins.ledger] options <key>` or `its option <key>`.
+pub(crate) fn input(rule: &str, path: &str, option: &str) -> Seen {
+    seen(
+        "input",
+        path,
+        None,
+        &format!(
+            "{path} is not tracked, and ledger/{rule} reads it ({option}); create it, point the option at the file, or turn the input off with a decision: \"ledger/{rule}\" = {{ levels = {{ input = \"off\" }}, decision = \"<record>\" }}"
+        ),
+    )
+}
+
 /// The parity options of the synthetic ledger.
 pub(crate) const PARITY: &str = r#"{"parity":{"plan":"docs/ledger/plans/alpha.md","prefix":"ALPHA","label":"Alpha","reference":"Upstream reference","products":["Base","Alpha"],"fields":["Parity evidence"],"active-status":"in progress"}}"#;
 
@@ -335,8 +349,8 @@ fn an_option_path_must_be_in_normal_form() {
             &ledger()
         )
         .len(),
-        1,
-        "a trailing / on an excluded directory is accepted; the missing catalog is reported"
+        2,
+        "a trailing / on an excluded directory is accepted; the missing catalog and index are reported"
     );
 }
 
@@ -356,13 +370,25 @@ fn a_closed_status_must_be_lowercase() {
 #[test]
 fn rule_options_are_checked_even_when_the_ledger_is_not_tracked() {
     let empty = Files::default();
-    for (rule, options) in [
-        ("records", r#"{"pending-patterns":["("]}"#),
-        ("record-status", r#"{"allowed":[]}"#),
-        ("reuses", r#"{"generic-reasons":"("}"#),
-        ("closing-notes", r#"{"entry-label-letters":["ab"]}"#),
+    for (rule, options, key) in [
+        (
+            "records",
+            r#"{"pending-patterns":["("]}"#,
+            "pending-patterns",
+        ),
+        ("record-status", r#"{"allowed":[]}"#, "allowed"),
+        (
+            "reuses",
+            r#"{"catalog":"docs/reference/mechanisms.md","generic-reasons":"("}"#,
+            "generic-reasons",
+        ),
+        (
+            "closing-notes",
+            r#"{"field":"`DELTA` notes","entry-label-letters":["ab"]}"#,
+            "entry-label-letters",
+        ),
     ] {
         let message = error(rule, options, "", &empty);
-        assert!(!message.is_empty(), "{rule}");
+        assert!(message.contains(key), "{rule}: {message}");
     }
 }

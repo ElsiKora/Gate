@@ -1,6 +1,6 @@
 //! `ledger/decisions`.
 
-use crate::{Files, findings, seen};
+use crate::{Files, findings, input, seen};
 
 const INDEX: &str = "docs/ledger/decision-index.md";
 const COVERAGE: &str = "docs/adr/decision-coverage.md";
@@ -48,9 +48,19 @@ fn an_agreeing_index_coverage_and_adr_pass() {
 }
 
 #[test]
-fn the_rule_is_off_while_the_coverage_is_untracked() {
+fn a_missing_coverage_or_index_is_an_input_finding() {
     let files = tree().without(COVERAGE).without(ADR);
-    assert_eq!(decisions(&files), []);
+    assert_eq!(
+        decisions(&files),
+        [input("decisions", COVERAGE, "its option coverage")]
+    );
+    assert_eq!(
+        decisions(&files.without(INDEX)),
+        [
+            input("decisions", INDEX, "[plugins.ledger] options decisions"),
+            input("decisions", COVERAGE, "its option coverage"),
+        ]
+    );
 }
 
 #[test]
@@ -209,11 +219,10 @@ fn the_paths_sections_and_statuses_are_options() {
     );
     assert_eq!(
         findings("decisions", options, "", &files),
-        [seen(
-            "decision-coverage",
-            "docs/ledger/decision-index.md",
-            None,
-            "docs/ledger/decision-index.md is missing decision D-A-001"
+        [input(
+            "decisions",
+            INDEX,
+            "[plugins.ledger] options decisions"
         )]
     );
 }

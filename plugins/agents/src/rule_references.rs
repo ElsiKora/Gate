@@ -5,7 +5,7 @@ use gate_agents_format::markdown::code_spans;
 use gate_agents_format::rule_id;
 use gate_sdk::{Location, Result, Rule, Run};
 
-use crate::load::{Agents, RootOptions, at, has_extension};
+use crate::load::{Agents, INPUT, RootOptions, at, has_extension};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -16,10 +16,14 @@ impl Rule for RuleReferences {
 
     const NAME: &'static str = "rule-references";
     const TITLE: &'static str = "Explicit rule references resolve";
+    const ASPECTS: &'static [&'static str] = &[INPUT];
 
     fn check(&self, run: &mut Run<'_, RootOptions>) -> Result<()> {
         let tree = run.tree();
         let agents = Agents::load(&tree, &run.options().root)?;
+        if !agents.has_rules(run.report(), "agents/rule-references", INPUT) {
+            return Ok(());
+        }
         let registry = agents.registry();
         let mut findings = Vec::new();
 

@@ -44,6 +44,12 @@ fn ledger() -> &'static (PathBuf, Vec<u8>) {
     component("gate-plugin-ledger", "ledger")
 }
 
+/// The agents plugin's component.
+fn agents() -> &'static (PathBuf, Vec<u8>) {
+    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    WASM.get_or_init(|| component("gate-plugin-agents", "agents"))
+}
+
 /// The runtime's probe component.
 fn probe() -> &'static (PathBuf, Vec<u8>) {
     component("gate-runtime-probe", "gate_runtime_probe")
@@ -2423,6 +2429,181 @@ fn ledger_rule_decisions_refuses_a_proposed_decision_and_passes_an_accepted_one(
     repo.write(index, "| `D-API-002` | `accepted` | Api | `api.md` |\n");
     repo.commit("the decision is accepted");
     let (code, said) = check();
+    assert_eq!(code, Some(0), "{said}");
+}
+
+/// A single-project repository with the `plugin` plugin pinned (the tests run a local build of it)
+/// and `rules`, then `[generate]` entries `generate` when not empty, over a README only.
+fn doc_repo(plugin: &str, rules: &str, generate: &str) -> Repo {
+    let repo = Repo::empty();
+    let source = format!("acme/rules:{plugin}@0.1.0");
+    let generate = if generate.is_empty() {
+        String::new()
+    } else {
+        format!("\n[generate]\n{generate}")
+    };
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\n{plugin} = {{ source = \"{source}\" }}\n\n[rules]\n{rules}{generate}"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            &source,
+            &format!("https://example.invalid/{plugin}.wasm"),
+            &"c".repeat(64),
+        ),
+    );
+    repo.write("README.md", "# Project\n");
+    repo.commit("a project without its docs");
+    repo
+}
+
+/// Exit code and output of `gate <arguments>` with the local build `wasm` of `plugin`.
+fn doc_run(repo: &Repo, plugin: &str, wasm: &Path, arguments: &[&str]) -> (Option<i32>, String) {
+    let local = format!("{plugin}={}", wasm.display());
+    let mut arguments = arguments.to_vec();
+    arguments.extend(["--plugin", &local]);
+    let output = repo.gate(&arguments);
+    (
+        output.status.code(),
+        format!("{}{}", text(&output.stdout), text(&output.stderr)),
+    )
+}
+
+#[test]
+fn ledger_rules_on_a_project_without_a_ledger_fail_naming_every_file_they_read() {
+    let repo = doc_repo(
+        "ledger",
+        concat!(
+            "\"ledger/manifest\" = \"error\"\n",
+            "\"ledger/decisions\" = \"error\"\n",
+            "\"ledger/records\" = \"error\"\n",
+            "\"ledger/blockers\" = \"error\"\n",
+            "\"ledger/closing-notes\" = { level = \"error\", options = { field = \"`TEMPORARY_DELTA` records\" } }\n",
+            "\"ledger/reuses\" = { level = \"error\", options = { catalog = \"docs/reference/mechanisms.md\" } }\n",
+            "\"ledger/exception-owners\" = \"error\"\n",
+            "\"ledger/exception-decisions\" = \"error\"\n",
+            "\"ledger/rule-decisions\" = \"error\"\n",
+        ),
+        "",
+    );
+    let (code, said) = doc_run(&repo, "ledger", &ledger().0, &["check"]);
+    assert_eq!(code, Some(1), "{said}");
+    for (path, rule) in [
+        ("docs/ledger/manifest.json", "manifest"),
+        ("docs/ledger/decision-index.md", "decisions"),
+        ("docs/adr/decision-coverage.md", "decisions"),
+        ("docs/ledger/implementation-slices.md", "records"),
+        ("docs/ledger/implementation-slices.md", "blockers"),
+        ("docs/ledger/implementation-slices.md", "closing-notes"),
+        ("docs/ledger/implementation-slices.md", "reuses"),
+        ("docs/reference/mechanisms.md", "reuses"),
+        ("docs/ledger/decision-index.md", "reuses"),
+    ] {
+        assert!(
+            said.contains(&format!(
+                "{path} is not tracked, and ledger/{rule} reads it"
+            )),
+            "{path} for ledger/{rule}: {said}"
+        );
+    }
+    assert_eq!(said.matches("#input]").count(), 9, "{said}");
+    assert!(!said.contains("ledger/exception-"), "{said}");
+    assert!(!said.contains("ledger/rule-decisions"), "{said}");
+}
+
+#[test]
+fn an_input_level_of_off_turns_off_the_input_findings_of_that_rule_only() {
+    let repo = doc_repo(
+        "ledger",
+        concat!(
+            "\"ledger/records\" = { level = \"error\", levels = { input = \"off\" } }\n",
+            "\"ledger/blockers\" = \"error\"\n",
+        ),
+        "",
+    );
+    let (code, said) = doc_run(&repo, "ledger", &ledger().0, &["check"]);
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("ledger/blockers#input"), "{said}");
+    assert!(!said.contains("ledger/records"), "{said}");
+
+    let repo = doc_repo(
+        "ledger",
+        "\"ledger/records\" = { level = \"error\", levels = { input = \"off\" } }\n",
+        "",
+    );
+    let (code, said) = doc_run(&repo, "ledger", &ledger().0, &["check"]);
+    assert_eq!(code, Some(0), "{said}");
+}
+
+#[test]
+fn a_ledger_rule_without_the_option_it_cannot_run_without_is_a_configuration_error() {
+    for (rule, named) in [
+        ("closing-notes", "field"),
+        ("reuses", "catalog"),
+        ("record-status", "options has no parity"),
+    ] {
+        let repo = doc_repo("ledger", &format!("\"ledger/{rule}\" = \"error\"\n"), "");
+        let (code, said) = doc_run(&repo, "ledger", &ledger().0, &["check"]);
+        assert_eq!(code, Some(2), "{rule}: {said}");
+        assert!(said.contains(rule), "{rule}: {said}");
+        assert!(said.contains(named), "{rule}: {said}");
+    }
+}
+
+#[test]
+fn agents_rules_and_the_agents_block_fail_without_agent_docs_and_pass_with_them() {
+    let rules = concat!(
+        "\"agents/rule-registry\" = \"error\"\n",
+        "\"agents/instruction-references\" = \"error\"\n",
+    );
+    let generate = "\"agents/agents-block\" = { options = { command-text = \"gate sync\" } }\n";
+    let repo = doc_repo("agents", rules, generate);
+    let wasm = &agents().0;
+
+    let (code, said) = doc_run(&repo, "agents", wasm, &["check"]);
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains("docs/agents/rules has no rule file, and agents/rule-registry reads"),
+        "{said}"
+    );
+    assert!(
+        said.contains("AGENTS.md is not tracked, and agents/instruction-references reads it"),
+        "{said}"
+    );
+    let (code, said) = doc_run(&repo, "agents", wasm, &["sync", "--check"]);
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("gate/sync#agents-block"), "{said}");
+    assert!(
+        said.contains("AGENTS.md is not tracked, and agents/agents-block reads it"),
+        "{said}"
+    );
+
+    // An entry with the markers and no rule file: only the rule files are missing.
+    repo.write(
+        "AGENTS.md",
+        "# Agents\n\n<!-- gate:begin agents -->\n<!-- gate:end agents -->\n",
+    );
+    repo.commit("the entry");
+    let (code, said) = doc_run(&repo, "agents", wasm, &["check"]);
+    assert_eq!(code, Some(1), "{said}");
+    assert_eq!(said.matches("#input]").count(), 1, "{said}");
+    assert!(said.contains("agents/rule-registry#input"), "{said}");
+
+    // One valid rule file and the block written from it: nothing is reported.
+    repo.write(
+        "docs/agents/rules/api.md",
+        "---\narea: API\napplies: always\nowner: D-ONE-001\n---\n# Rules\n\n## RULE-API-001 Rule 1\n\nEnforcement: gate · Status: stable\n\n",
+    );
+    let (code, said) = doc_run(&repo, "agents", wasm, &["sync"]);
+    assert_eq!(code, Some(0), "{said}");
+    repo.commit("a rule file and its block");
+    let (code, said) = doc_run(&repo, "agents", wasm, &["check"]);
+    assert_eq!(code, Some(0), "{said}");
+    let (code, said) = doc_run(&repo, "agents", wasm, &["sync", "--check"]);
     assert_eq!(code, Some(0), "{said}");
 }
 

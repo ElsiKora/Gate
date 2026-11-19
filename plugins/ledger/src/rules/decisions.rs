@@ -10,6 +10,7 @@ use regex::Regex;
 
 use crate::catalog::{At, Catalog, Findings};
 use crate::index::{Line, Table};
+use crate::input::{self, INPUT, Input};
 use crate::records::compile;
 use crate::settings::{Settings, check_path};
 use crate::text::{blank_fenced, join};
@@ -32,7 +33,7 @@ pub struct Options {
     pub ledger_root: String,
     /// The directory of the ADRs, `NNNN-title.md`.
     pub adr_directory: String,
-    /// The ADR coverage table; the rule reports nothing while it is not tracked.
+    /// The ADR coverage table; while it is not tracked, the rule reports it as `#input`.
     pub coverage: String,
     /// The headings every ADR has, each exactly once, outside fenced code and comments.
     pub adr_sections: Vec<String>,
@@ -79,6 +80,7 @@ impl Rule for Decisions {
         "decision-canonical-file",
         "decision-coverage",
         "decision-status",
+        INPUT,
         "record-shape",
         "record-unique",
     ];
@@ -95,10 +97,15 @@ impl Rule for Decisions {
             check_path(&format!("ledger/decisions option {name}"), path)?;
         }
 
-        if !tree.contains(&options.coverage) {
+        let inputs = [
+            Input::shared("decisions", &settings.decisions),
+            Input::own("coverage", &options.coverage),
+        ];
+        if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
             return Ok(());
         }
 
+        let options = run.options();
         let catalog = Catalog::new(tree);
         let patterns = Patterns::new()?;
         let mut findings = Findings::default();

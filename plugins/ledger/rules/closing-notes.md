@@ -8,8 +8,11 @@ is open carries none.
 A record may list temporary differences in a field (`field`, such as `` `TEMPORARY_DELTA` records ``),
 each naming the record that will close it. Once that record closes, the difference must say which
 merge closed it; before, it must not claim to be closed. The records are the implementation records
-and, with `parity`, the plan headings. The rule is off until `field` is set, and reports nothing while
-`implementation` is not tracked.
+and, with `parity`, the plan headings. `field` is required: enabled without it, the run stops with a
+configuration error (exit 2).
+
+- `input`: a file the rule reads that is not tracked (`[plugins.ledger] options` `implementation` and, with `parity`, the plan `parity.plan`), reported at
+  its path; the rule checks nothing else until it is. Create it, point the option at it, or turn the input off with `levels = { input = "off" }` and a `decision`.
 
 - The field is its line from the field name on, with the deeper lines below it up to a blank line or a
   line no deeper than the field line. A list item one level deeper starts a new piece; any other deeper
@@ -26,13 +29,13 @@ and, with `parity`, the plan headings. The rule is off until `field` is set, and
 - A closer whose status is closed (its status or first word is one of `closed-statuses`) needs exactly
   one note; an open closer needs none.
 
-Scope: project. Reads history: no. Aspects: none.
+Scope: project. Reads history: no. Aspects: `input`; the closing-note findings have no aspect.
 
 ## Options
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `field` | string | `""` (off) | The field that lists the differences; messages name its first backticked word. |
+| `field` | string | required | The field that lists the differences; messages name its first backticked word. |
 | `entry-label-letters` | array of string | `[]` | Single uppercase letters an entry label may carry before its number. |
 
 ```toml
