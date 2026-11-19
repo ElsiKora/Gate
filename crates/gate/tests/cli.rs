@@ -470,20 +470,82 @@ fn a_configuration_error_exits_two_and_names_file_and_line() {
 }
 
 #[test]
-fn a_run_over_budget_warns_and_with_budget_fails_errors() {
+fn a_run_over_warn_after_warns_and_over_fail_after_errors_once() {
     let repo = monorepo();
-    let output = repo.gate(&["check", "--budget", "0.000001"]);
+    let output = repo.gate(&["check", "--warn-after", "0.000001"]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let text = stdout(&output);
     assert!(
         text.starts_with("warning[gate/budget]: the run took "),
         "{text}"
     );
+    assert!(text.contains(" ms, over --warn-after 0 ms"), "{text}");
     assert!(text.contains("0 errors, 1 warning;"), "{text}");
 
-    let output = repo.gate(&["check", "--budget", "0.000001", "--budget-fails"]);
+    // Over the failure threshold alone, and over both: one error, which names both thresholds.
+    let output = repo.gate(&["check", "--fail-after", "0.000001"]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
-    assert!(stdout(&output).starts_with("error[gate/budget]: the run took "));
+    let text = stdout(&output);
+    assert!(
+        text.starts_with("error[gate/budget]: the run took "),
+        "{text}"
+    );
+    assert!(text.contains(" ms, over --fail-after 0 ms\n"), "{text}");
+    let output = repo.gate(&[
+        "check",
+        "--warn-after",
+        "0.000001",
+        "--fail-after",
+        "0.000002",
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains(" ms, over --fail-after 0 ms (and --warn-after 0 ms)"),
+        "{text}"
+    );
+    assert!(text.contains("1 error, 0 warnings;"), "{text}");
+
+    // Under both thresholds: nothing.
+    let output = repo.gate(&["check", "--warn-after", "3600", "--fail-after", "7200"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(
+        !stdout(&output).contains("gate/budget"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn fail_after_not_above_warn_after_and_the_removed_budget_options_are_usage_errors() {
+    let repo = monorepo();
+    for (fail, warn) in [("3", "3"), ("2", "3")] {
+        let output = repo.gate(&["check", "--warn-after", warn, "--fail-after", fail]);
+        assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+        assert!(
+            stderr(&output).contains(&format!(
+                "--fail-after ({fail} s) is not above --warn-after ({warn} s)"
+            )),
+            "{}",
+            stderr(&output)
+        );
+    }
+    for arguments in [
+        &["check", "--budget", "3"][..],
+        &["check", "--warn-after", "3", "--budget-fails"],
+        &["check", "--warn-after", "0"],
+    ] {
+        let output = repo.gate(arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{arguments:?}: {}",
+            stderr(&output)
+        );
+    }
+    assert!(
+        stderr(&repo.gate(&["check", "--budget", "3"])).contains("unexpected argument '--budget'")
+    );
 }
 
 #[test]
@@ -548,7 +610,7 @@ fn executable(repo: &Repo, name: &str) {
 
 const HOOKS: &str = r#"
 [hooks]
-budget = 30
+budget = { warn-after = 3, fail-after = 30 }
 pre-commit = ["check --staged"]
 commit-msg = ["check --commit-message"]
 pre-push = ["check --push"]
@@ -577,12 +639,14 @@ fn sync_writes_the_hooks_byte_stable_and_sets_the_hooks_path() {
 
     assert_eq!(
         repo.read(".githooks/pre-commit"),
-        format!("#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --staged --budget 30 --hook\n")
+        format!(
+            "#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --staged --warn-after 3 --fail-after 30 --hook\n"
+        )
     );
     assert_eq!(
         repo.read(".githooks/commit-msg"),
         format!(
-            "#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --commit-message \"$1\" --budget 30 --hook\n"
+            "#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --commit-message \"$1\" --warn-after 3 --fail-after 30 --hook\n"
         )
     );
     assert_eq!(
@@ -592,7 +656,7 @@ fn sync_writes_the_hooks_byte_stable_and_sets_the_hooks_path() {
              while read -r local_ref local_sha remote_ref remote_sha; do\n\
              \x20 [ -n \"$local_sha\" ] || continue\n\
              \x20 [ \"$local_sha\" != 0000000000000000000000000000000000000000 ] || continue\n\
-             \x20 bin/gate check --push \"$remote_sha..$local_sha\" --target-ref \"$remote_ref\" --budget 30 --hook </dev/null\n\
+             \x20 bin/gate check --push \"$remote_sha..$local_sha\" --target-ref \"$remote_ref\" --warn-after 3 --fail-after 30 --hook </dev/null\n\
              done <<EOF\n$refs\nEOF\n"
         )
     );
@@ -1223,7 +1287,8 @@ run = ["check --rev HEAD"]
 name = "Shallow"
 timeout-minutes = 10
 fetch-depth = 5
-run = ["check --budget 3"]
+budget = {{ warn-after = 60, fail-after = 300 }}
+run = ["check", "check --warn-after 3"]
 
 [steps]
 static = {{ run = "echo static" }}
@@ -1265,9 +1330,14 @@ history = ["policy"]
         "{shallow}"
     );
     assert!(
-        shallow
-            .contains("\n        run: bin/gate check --budget 3 --no-overrides --budget-fails\n"),
-        "an entry's own --budget fails the job too: {shallow}"
+        shallow.contains(
+            "\n        run: bin/gate check --no-overrides --warn-after 60 --fail-after 300\n"
+        ),
+        "the job's budget passes exactly its thresholds: {shallow}"
+    );
+    assert!(
+        shallow.contains("\n        run: bin/gate check --warn-after 3 --no-overrides\n"),
+        "an entry with its own threshold keeps exactly that, and nothing makes it fail: {shallow}"
     );
 }
 

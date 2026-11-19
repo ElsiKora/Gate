@@ -61,12 +61,9 @@ pub fn scripts(hooks: &HooksSection) -> Result<Vec<(String, String)>> {
             let mut words: Vec<String> = command.split_whitespace().map(str::to_owned).collect();
             let is_check = words.first().is_some_and(|word| word == "check");
 
-            if is_check
-                && let Some(budget) = hooks.budget
-                && !words.iter().any(|word| word == "--budget")
-            {
-                words.push("--budget".to_owned());
-                words.push(budget.to_string());
+            if is_check {
+                let flags = super::budget_flags(hooks.budget.as_ref(), &words);
+                words.extend(flags);
             }
 
             // A check a hook starts says so: rules that apply only while a developer works read it.

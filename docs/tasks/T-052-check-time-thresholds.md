@@ -6,7 +6,7 @@
 | Release | v0.3.0 (it replaces two options of `gate check`; with T-048) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | the T-048 tip `7c2b723`; both rebase when main moves and merge after the v0.2.1 tag |
+| Depends on | the T-048 tip `dc49b55`; both rebase when main moves and merge after the v0.2.1 tag |
 | Touches | `crates/gate-host/src/lib.rs` (the run options, `gate/budget`), `crates/gate` (the CLI), `crates/gate-host/src/config` (`[hooks]`, CI jobs), `crates/gate-host/src/sync` (hook and workflow generation, sync-state version), tests, docs, `CHANGELOG.md` |
 
 ## Goal
@@ -45,12 +45,15 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
 
 ## Tests
 
-- Over the warning only: a warning, exit 0. Over the failure: one error, exit 1. Under both:
-  nothing.
-- `--fail-after` not above `--warn-after`: exit 2. `--budget`: exit 2 as an unknown option.
-- `[hooks] budget` and a job's `budget`: each key alone, both, 0, the order error, the integer form.
-- Generated hooks and workflow pass exactly the configured thresholds; a sync of a 0.2.0 workflow is
-  drift.
+- `gate check`: over `--warn-after` only, a warning and exit 0; over `--fail-after`, one error and
+  exit 1, which names both thresholds when the run is over both; under both, nothing.
+- `--fail-after` equal to or below `--warn-after`, a threshold of 0, `--budget` and `--budget-fails`:
+  exit 2.
+- `[hooks] budget` and a job's `budget`: the integer form, an empty table, a 0, the order error and
+  an unknown key are configuration errors; each key alone and both load.
+- The generated hooks pass both thresholds to every check; a job passes exactly its thresholds, and
+  an entry that writes its own threshold keeps exactly that, with nothing that makes it fail.
+- The round runs actionlint on a workflow generated with a `budget` table.
 
 ## Done when
 
@@ -61,5 +64,6 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
 
 ## Resume point
 
-2026-11-19: design approved by the lead; branch `task/T-052-check-time-thresholds` from the T-048
-tip `7c2b723`; next: the code.
+2026-11-19: code, tests and docs written on `task/T-052-check-time-thresholds` over the T-048 tip
+`dc49b55`; next: one lane round, then the review. On the rebase onto a main that has T-043,
+`SYNC_STATE_VERSION` becomes 7 (T-043 takes 6) and its doc line moves this change to 7.

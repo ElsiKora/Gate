@@ -6569,7 +6569,7 @@ setup = [
 [ci.github.jobs.lint]
 name = "Lint"
 timeout-minutes = 20
-budget = 300
+budget = {{ warn-after = 120, fail-after = 300 }}
 fetch-depth = 0
 run = ["check --push"]
 

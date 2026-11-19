@@ -223,12 +223,13 @@ struct RunArgs {
     /// Print the time of each phase and plugin call to standard error.
     #[arg(long)]
     timings: bool,
-    /// Warn when the run takes longer than this many seconds.
-    #[arg(long, value_name = "SECONDS", value_parser = parse_budget)]
-    budget: Option<Duration>,
-    /// Make a run over --budget an error instead of a warning.
-    #[arg(long, requires = "budget")]
-    budget_fails: bool,
+    /// Report a run that takes longer than this many seconds as a gate/budget warning.
+    #[arg(long, value_name = "SECONDS", value_parser = parse_seconds)]
+    warn_after: Option<Duration>,
+    /// Report a run that takes longer than this many seconds as a gate/budget error; above
+    /// --warn-after when both are given.
+    #[arg(long, value_name = "SECONDS", value_parser = parse_seconds)]
+    fail_after: Option<Duration>,
     /// Stop at the first error finding.
     #[arg(long)]
     fail_fast: bool,
@@ -323,16 +324,28 @@ fn message_checks_no_tree(arguments: &CheckArgs) -> Result<(), Error> {
     }
 }
 
-fn parse_budget(value: &str) -> Result<Duration, String> {
+/// Refuses a `--fail-after` that is not above `--warn-after`: the run would fail before it warns.
+fn fail_after_above_warn_after(run: &RunArgs) -> Result<(), Error> {
+    if let (Some(warn), Some(fail)) = (run.warn_after, run.fail_after)
+        && fail <= warn
+    {
+        return Err(Error::config(format!(
+            "--fail-after ({} s) is not above --warn-after ({} s); a run warns first and fails later, so raise --fail-after or lower --warn-after",
+            fail.as_secs_f64(),
+            warn.as_secs_f64()
+        )));
+    }
+    Ok(())
+}
+
+fn parse_seconds(value: &str) -> Result<Duration, String> {
     let seconds: f64 = value
         .parse()
         .map_err(|_| format!("{value:?} is not a number of seconds"))?;
     if seconds.is_finite() && seconds > 0.0 {
         Ok(Duration::from_secs_f64(seconds))
     } else {
-        Err(format!(
-            "{value:?}: the budget must be a number of seconds above 0"
-        ))
+        Err(format!("{value:?}: give a number of seconds above 0"))
     }
 }
 
@@ -394,6 +407,7 @@ fn print(text: &str) -> Result<u8, Error> {
 fn check(arguments: &CheckArgs) -> Result<u8, Error> {
     target_ref_needs_push(arguments.target_ref.as_deref(), arguments.push.as_deref())?;
     message_checks_no_tree(arguments)?;
+    fail_after_above_warn_after(&arguments.run)?;
     let commit_message = match &arguments.commit_message {
         None => None,
         Some(path) => Some(std::fs::read_to_string(path).map_err(|error| {
@@ -425,8 +439,8 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
         changes,
         options: RunOptions {
             timings: arguments.run.timings,
-            budget: arguments.run.budget,
-            budget_fails: arguments.run.budget_fails,
+            warn_after: arguments.run.warn_after,
+            fail_after: arguments.run.fail_after,
             fail_fast: arguments.run.fail_fast,
         },
         overrides: arguments.plugins.clone(),

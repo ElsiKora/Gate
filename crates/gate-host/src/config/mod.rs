@@ -12,9 +12,10 @@ mod settings;
 use std::collections::BTreeMap;
 
 pub use file::{
-    CiGithub, CiJob, CiSection, CiStep, ConfigFile, DecisionPolicy, Exception, ExceptionsFile,
-    GateSection, GenerateEntry, HooksSection, PluginSpec, Profile, ProjectSection, ProjectSources,
-    RuleEntry, RunSection, Setting, Step, StepFiles, Suite, Tool, ToolTarget, WorkspaceSection,
+    Budget, CiGithub, CiJob, CiSection, CiStep, ConfigFile, DecisionPolicy, Exception,
+    ExceptionsFile, GateSection, GenerateEntry, HooksSection, PluginSpec, Profile, ProjectSection,
+    ProjectSources, RuleEntry, RunSection, Setting, Step, StepFiles, Suite, Tool, ToolTarget,
+    WorkspaceSection,
 };
 pub use names::{
     CORE_PLUGIN, CORE_RULES, HOOKS, HookName, JobId, Name, PluginItem, PluginName, PluginSource,
@@ -818,10 +819,10 @@ impl Config {
         let file = &self.file;
 
         if let Some(hooks) = &file.hooks {
-            if hooks.budget == Some(0) {
+            if let Some(problem) = hooks.budget.as_ref().and_then(check_budget) {
                 return Err(self.error(
                     self.section_at("hooks"),
-                    "[hooks] budget is 0; give seconds above 0 or remove it",
+                    format!("[hooks] budget: {problem}"),
                 ));
             }
             for (hook, commands) in &hooks.hooks {
@@ -1180,6 +1181,22 @@ pub fn join(directory: &str, path: &str) -> String {
     }
 }
 
+/// What is wrong with a `budget` table, if anything: it sets no threshold, one is 0, or
+/// `fail-after` is not above `warn-after`.
+fn check_budget(budget: &Budget) -> Option<String> {
+    match (budget.warn_after, budget.fail_after) {
+        (None, None) => {
+            Some("set warn-after, fail-after or both, in seconds, or remove budget".to_owned())
+        }
+        (Some(0), _) => Some("warn-after is 0; give seconds above 0 or remove it".to_owned()),
+        (_, Some(0)) => Some("fail-after is 0; give seconds above 0 or remove it".to_owned()),
+        (Some(warn), Some(fail)) if fail <= warn => Some(format!(
+            "fail-after ({fail}) is not above warn-after ({warn}); a check warns first and fails later, so raise fail-after or lower warn-after"
+        )),
+        _ => None,
+    }
+}
+
 /// Checks a gate command as `[hooks]` and CI jobs write it: `check ...`, `sync --check` or
 /// `run <step or suite> [--staged | --push]`, gate arguments only (no shell syntax).
 ///
@@ -1345,8 +1362,8 @@ fn check_ci_job(job: &CiJob) -> std::result::Result<(), String> {
             ));
         }
     }
-    if job.budget == Some(0) {
-        return Err("budget is 0; give seconds above 0 or remove it".to_owned());
+    if let Some(problem) = job.budget.as_ref().and_then(check_budget) {
+        return Err(format!("budget: {problem}"));
     }
     match job.timeout_minutes {
         None => {
