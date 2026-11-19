@@ -914,6 +914,21 @@ fn a_release_may_move_its_plugin_s_pin_and_nothing_else_in_each_pin_file() {
         pinned(RELEASE, &[("gate.lock", Some("[core"))], RELEASE_PLUGIN),
         ["release commit:TIP release commit TIP has an unreadable gate.lock"]
     );
+    // A pin file added or deleted changes more than a pin.
+    assert_eq!(
+        pinned(
+            RELEASE,
+            &[
+                ("apps/api/gate.toml", Some(&config)),
+                ("apps/web/gate.toml", None)
+            ],
+            RELEASE_PLUGIN
+        ),
+        [
+            "release commit:TIP release commit TIP changes apps/api/gate.toml beyond the pin of acme/rules:product",
+            "release commit:TIP release commit TIP changes apps/web/gate.toml beyond the pin of acme/rules:product"
+        ]
+    );
     // Without release-plugin the pin files are not release files.
     assert_eq!(
         pinned(

@@ -179,22 +179,27 @@ A repository that releases a Gate plugin of its own and pins it in its own `gate
 `gate.lock` moves the pin in the release commit. `release-plugin` names the plugin by its source
 without the version, and the release commit may then change:
 
-- each `gate.toml` (the root's or a project's) only in the `source` of an entry that names the
-  plugin, moved to the version capture 1 of `release-subject` names;
+- each `gate.toml` (the root's or a project's) only in the `source` of a `[plugins.<name>]` entry
+  that names the plugin, moved to the version capture 1 of `release-subject` names;
 - the root `gate.lock` only in the plugin's entries: `[plugins."<source>@<old>"]` gives way to
-  `[plugins."<source>@<version>"]` with its `url` and `sha256`.
+  `[plugins."<source>@<version>"]` with its `url` and `sha256`. Each old key gives way to exactly
+  one new key; it is not kept beside it, and no key is added. An entry whose key is unchanged
+  compares in full, so its `url` and `sha256` change only with its version.
 
-Any other change to either file, such as the core's pin or another plugin's, is reported as
+Any other change to either file, such as the core's pin or another plugin's, a `source` key
+elsewhere (in `options`), or the file added or deleted by the commit, is reported as
 `<file>#beyond-pin`; a pin moved to another version than the release's as `<file>#version`; a file
-that does not read as TOML at the parent or at the commit as `<file>#unreadable`. The files are
+that is not UTF-8 TOML at the parent or at the commit as `<file>#unreadable`. The files are
 compared as parsed TOML, as `package.json` is compared as JSON, so a change of layout or comments
 alone is not seen. They are read at the parent and at the commit through the host's git interface.
 
 A plugin interface change moves every pin at once: the core's and every plugin's must move
 together, or main fails to load them. `release-all-pins = true` lets that release commit also move
-the core (`[gate] version` and `gate.lock`'s `[core]`) and each other plugin's pin, the version in
-its `source` and its lock entry's `url` and `sha256`. Nothing else is admitted with it: options,
-rules, and a plugin added or removed stay `#beyond-pin`. It needs `release-plugin`.
+the core (`[gate] version`, and `gate.lock`'s `[core] version` with its targets' `url` and
+`sha256`) and each other plugin's pin, the version in its `source` and its lock key, with the
+entry's `url` and `sha256`, on the same terms: a `url` or `sha256` changes only with its version.
+Nothing else is admitted with it: options, rules, and a plugin or a second version of one added or
+removed stay `#beyond-pin`. It needs `release-plugin`.
 
 `release-plugin` admits `gate.toml` and `gate.lock` limited to the pins, so naming either in
 `release-files` as well is an error, as is `release-all-pins` without `release-plugin` or a

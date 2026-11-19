@@ -2,10 +2,14 @@
 //! of one plugin in each `gate.toml`, and its entries in the root `gate.lock`; with
 //! `release-all-pins`, also the core's pin and every other plugin's.
 //!
-//! The files are compared as parsed TOML: everything but the pins the release may move must be
-//! equal at the parent and at the commit.
+//! The files are compared as parsed TOML, so a change of layout or comments alone is not seen.
+//! Everything but a moved pin must be equal at the parent and at the commit. A pin moves when its
+//! version does: a `[plugins.<name>] source` from `<plugin>@<old>` to `<plugin>@<new>`, a lock
+//! entry's key from `<plugin>@<old>` to `<plugin>@<new>` (each old key giving way to one new key,
+//! never kept beside it), the lock's `[core] version`. Only a moved pin may change its `url` and
+//! `sha256`; an entry whose key is unchanged compares in full.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use gate_sdk::{Error, Result};
 use toml::{Table, Value};
@@ -27,13 +31,16 @@ pub(crate) struct Pins {
 /// What is wrong with one pin file of a release commit.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Problem {
-    /// It changes more than the pins the release may move.
+    /// It changes more than the pins the release may move, or the commit adds or deletes it.
     Beyond,
     /// It moves the plugin to this version, which is not the release's.
     Version(String),
-    /// It does not read as TOML at the parent or at the commit.
+    /// It is not UTF-8 TOML at the parent or at the commit.
     Unreadable,
 }
+
+/// A lock's entries of the plugins whose pins may move: by plugin, then by version.
+type Entries = BTreeMap<String, BTreeMap<String, Value>>;
 
 impl Pins {
     /// The pins of `release-plugin` and `release-all-pins`, checked against `release-files`.
@@ -92,105 +99,189 @@ impl Pins {
         after: Option<&[u8]>,
         version: &str,
     ) -> Vec<Problem> {
-        let (Some(mut before), Some(mut after)) = (before.and_then(table), after.and_then(table))
-        else {
+        // Added or deleted: more than a pin moved.
+        let (Some(before), Some(after)) = (before, after) else {
+            return vec![Problem::Beyond];
+        };
+        let (Some(mut before), Some(mut after)) = (table(before), table(after)) else {
             return vec![Problem::Unreadable];
         };
-        let (old, new) = if path == LOCK {
-            (self.lock(&mut before), self.lock(&mut after))
+        let mut moved = BTreeSet::new();
+        let mut beyond = if path == LOCK {
+            self.lock(&mut before, &mut after, &mut moved)
         } else {
-            (self.config(&mut before), self.config(&mut after))
+            self.config(&mut before, &mut after, &mut moved);
+            false
         };
-        let mut problems: Vec<Problem> = new
+        beyond |= before != after;
+        let mut problems: Vec<Problem> = moved
             .into_iter()
-            .filter(|(place, moved)| old.get(place) != Some(moved) && moved != version)
-            .map(|(_, moved)| Problem::Version(moved))
+            .filter(|moved| moved != version)
+            .map(Problem::Version)
             .collect();
-        problems.dedup();
-        if before != after {
+        if beyond {
             problems.insert(0, Problem::Beyond);
         }
         problems
     }
 
-    /// `config` without the pins the release may move; the versions of the plugin's sources, by
-    /// where each is.
-    fn config(&self, config: &mut Table) -> BTreeMap<String, String> {
-        let mut versions = BTreeMap::new();
-        self.sources(config, "", &mut versions);
-        if self.all
-            && let Some(gate) = config.get_mut("gate").and_then(Value::as_table_mut)
-        {
-            gate.remove("version");
-        }
-        versions
+    /// Whether the pin of `plugin` may move.
+    fn movable(&self, plugin: &str) -> bool {
+        self.all || plugin == self.plugin
     }
 
-    /// Every `source` under `table` that names a plugin at a version loses its version when it is
-    /// the plugin's, or any plugin's with `all`; the plugin's versions go to `versions`.
-    fn sources(&self, table: &mut Table, at: &str, versions: &mut BTreeMap<String, String>) {
-        for (key, value) in table.iter_mut() {
-            let place = format!("{at}.{key}");
-            match value {
-                Value::String(text) if key == "source" => {
-                    if let Some((plugin, version)) = split(text) {
-                        if plugin == self.plugin {
-                            versions.insert(place, version.to_owned());
-                        }
-                        if plugin == self.plugin || self.all {
-                            *text = plugin.to_owned();
-                        }
-                    }
-                }
-                Value::Table(inner) => self.sources(inner, &place, versions),
-                Value::Array(items) => {
-                    for (index, item) in items.iter_mut().enumerate() {
-                        if let Value::Table(inner) = item {
-                            self.sources(inner, &format!("{place}[{index}]"), versions);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    /// `lock` without the pins the release may move: the plugin's entries, and with `all` every
-    /// plugin's and the core's, are keyed by the plugin without its version and lose `url` and
-    /// `sha256`. The plugin's versions, each keyed by itself.
-    fn lock(&self, lock: &mut Table) -> BTreeMap<String, String> {
-        let mut versions = BTreeMap::new();
+    /// Takes the moved pins that may move out of both sides of a configuration: each
+    /// `[plugins.<name>] source` whose version moved loses it on both sides, and with `all` the
+    /// `[gate] version`. The versions the plugin moved to go to `moved`.
+    fn config(&self, before: &mut Table, after: &mut Table, moved: &mut BTreeSet<String>) {
         if self.all {
-            lock.remove("core");
+            for side in [&mut *before, &mut *after] {
+                if let Some(gate) = side.get_mut("gate").and_then(Value::as_table_mut) {
+                    gate.remove("version");
+                }
+            }
         }
-        if let Some(plugins) = lock.get_mut("plugins").and_then(Value::as_table_mut) {
-            let mut kept = Table::new();
-            for (source, mut entry) in std::mem::take(plugins) {
-                match split(&source) {
-                    Some((plugin, version)) if plugin == self.plugin || self.all => {
-                        if plugin == self.plugin {
-                            versions.insert(version.to_owned(), version.to_owned());
+        let (Some(old), Some(new)) = (plugins(before), plugins(after)) else {
+            return;
+        };
+        for (name, entry) in new.iter_mut() {
+            let (Some(was), Some(now)) = (source(old.get_mut(name)), source(Some(entry))) else {
+                continue;
+            };
+            let (Some((plugin, from)), Some((same, to))) = (owned(was), owned(now)) else {
+                continue;
+            };
+            if plugin != same || from == to || !self.movable(&plugin) {
+                continue;
+            }
+            if plugin == self.plugin {
+                moved.insert(to);
+            }
+            was.clone_from(&plugin);
+            *now = plugin;
+        }
+    }
+
+    /// Takes the moved pins that may move out of both sides of the lock: with `all`, the core's
+    /// pin when its version moved, and the entries of each plugin whose pin may move. Whether
+    /// those entries change beyond their moves: a kept key whose entry changes, an old key not
+    /// given way to exactly one new key, or a new entry that differs from the old one in more
+    /// than `url` and `sha256`. The versions the plugin moved to go to `moved`.
+    fn lock(&self, before: &mut Table, after: &mut Table, moved: &mut BTreeSet<String>) -> bool {
+        if self.all {
+            let core = |side: &Table| {
+                side.get("core")
+                    .and_then(Value::as_table)
+                    .and_then(|core| core.get("version"))
+                    .cloned()
+            };
+            if core(&*before) != core(&*after) {
+                for side in [&mut *before, &mut *after] {
+                    if let Some(core) = side.get_mut("core") {
+                        if let Some(fields) = core.as_table_mut() {
+                            fields.remove("version");
                         }
-                        if let Some(fields) = entry.as_table_mut() {
-                            fields.remove("url");
-                            fields.remove("sha256");
-                        }
-                        kept.insert(plugin.to_owned(), entry);
-                    }
-                    _ => {
-                        kept.insert(source, entry);
+                        unpin(core);
                     }
                 }
             }
-            *plugins = kept;
         }
-        versions
+        let (Some(old), Some(new)) = (plugins(before), plugins(after)) else {
+            return false;
+        };
+        let (mut old, mut new) = (self.entries(old), self.entries(new));
+        let names: BTreeSet<String> = old.keys().chain(new.keys()).cloned().collect();
+        let mut beyond = false;
+        for name in names {
+            let was = old.remove(&name).unwrap_or_default();
+            let now = new.remove(&name).unwrap_or_default();
+            beyond |= was
+                .iter()
+                .any(|(version, entry)| now.get(version).is_some_and(|kept| kept != entry));
+            let gone: Vec<&Value> = was
+                .iter()
+                .filter(|(version, _)| !now.contains_key(*version))
+                .map(|(_, entry)| entry)
+                .collect();
+            let came: Vec<(&String, &Value)> = now
+                .iter()
+                .filter(|(version, _)| !was.contains_key(*version))
+                .collect();
+            beyond |= gone.len() != came.len()
+                || gone
+                    .iter()
+                    .zip(&came)
+                    .any(|(gone, (_, came))| stripped(gone) != stripped(came));
+            if name == self.plugin {
+                moved.extend(came.into_iter().map(|(version, _)| version.clone()));
+            }
+        }
+        beyond
+    }
+
+    /// The entries of `plugins` whose pins may move, taken out of it; the others stay, to be
+    /// compared in full.
+    fn entries(&self, plugins: &mut Table) -> Entries {
+        let keys: Vec<String> = plugins
+            .keys()
+            .filter(|key| split(key).is_some_and(|(plugin, _)| self.movable(plugin)))
+            .cloned()
+            .collect();
+        let mut entries = Entries::new();
+        for key in keys {
+            if let (Some((plugin, version)), Some(entry)) = (split(&key), plugins.remove(&key)) {
+                entries
+                    .entry(plugin.to_owned())
+                    .or_default()
+                    .insert(version.to_owned(), entry);
+            }
+        }
+        entries
     }
 }
 
 /// `bytes` read as a TOML table.
 fn table(bytes: &[u8]) -> Option<Table> {
     std::str::from_utf8(bytes).ok()?.parse().ok()
+}
+
+/// The `[plugins]` table of a configuration or lock.
+fn plugins(table: &mut Table) -> Option<&mut Table> {
+    table.get_mut("plugins").and_then(Value::as_table_mut)
+}
+
+/// The `source` string of a configuration's plugin entry.
+fn source(entry: Option<&mut Value>) -> Option<&mut String> {
+    match entry?.as_table_mut()?.get_mut("source")? {
+        Value::String(text) => Some(text),
+        _ => None,
+    }
+}
+
+/// A plugin source split at its version, owned.
+fn owned(source: &str) -> Option<(String, String)> {
+    split(source).map(|(plugin, version)| (plugin.to_owned(), version.to_owned()))
+}
+
+/// A lock entry without its `url` and `sha256`.
+fn stripped(entry: &Value) -> Value {
+    let mut entry = entry.clone();
+    if let Some(fields) = entry.as_table_mut() {
+        fields.remove("url");
+        fields.remove("sha256");
+    }
+    entry
+}
+
+/// `value` without any `url` or `sha256`, at every depth.
+fn unpin(value: &mut Value) {
+    if let Some(fields) = value.as_table_mut() {
+        fields.remove("url");
+        fields.remove("sha256");
+        for inner in fields.values_mut() {
+            unpin(inner);
+        }
+    }
 }
 
 /// A plugin source, `<owner>/<repo>:<plugin>@<version>`, split at its version.
@@ -292,6 +383,7 @@ sha256 = "cc"
             .replace("\"bb\"", "\"dd\"");
         assert_eq!(judge(false, "gate.lock", LOCK_TEXT, &lock), []);
         let core = lock
+            .replace("[core]\nversion = \"0.2.0\"", "[core]\nversion = \"0.3.0\"")
             .replace("gate-0.2.0", "gate-0.3.0")
             .replace("\"aa\"", "\"ee\"");
         assert_eq!(
@@ -309,6 +401,121 @@ sha256 = "cc"
         );
         assert_eq!(
             judge(false, "gate.lock", LOCK_TEXT, "not toml ["),
+            [Problem::Unreadable]
+        );
+    }
+
+    /// A section appended to `text`.
+    fn with(text: &str, section: &str) -> String {
+        format!("{text}\n{section}\n")
+    }
+
+    #[test]
+    fn a_pin_changes_its_url_or_sha256_only_when_its_version_moves() {
+        let swapped = LOCK_TEXT.replace("\"bb\"", "\"ff\"");
+        assert_eq!(
+            judge(false, "gate.lock", LOCK_TEXT, &swapped),
+            [Problem::Beyond]
+        );
+        assert_eq!(
+            judge(true, "gate.lock", LOCK_TEXT, &swapped),
+            [Problem::Beyond]
+        );
+        let url = LOCK_TEXT.replace("git-0.2.0.wasm", "git-0.2.0-b.wasm");
+        assert_eq!(judge(true, "gate.lock", LOCK_TEXT, &url), [Problem::Beyond]);
+        // The core's checksum, its version unchanged.
+        let core = LOCK_TEXT.replace("\"aa\"", "\"ee\"");
+        assert_eq!(
+            judge(true, "gate.lock", LOCK_TEXT, &core),
+            [Problem::Beyond]
+        );
+    }
+
+    #[test]
+    fn an_old_lock_key_gives_way_to_one_new_key() {
+        let beside = with(
+            LOCK_TEXT,
+            "[plugins.\"acme/rules:product@1.2.0\"]\nurl = \"https://example.test/product-1.2.0.wasm\"\nsha256 = \"dd\"",
+        );
+        assert_eq!(
+            judge(false, "gate.lock", LOCK_TEXT, &beside),
+            [Problem::Beyond]
+        );
+        let second = with(
+            LOCK_TEXT,
+            "[plugins.\"ElsiKora/Gate:git@0.1.0\"]\nurl = \"https://example.test/git-0.1.0.wasm\"\nsha256 = \"11\"",
+        );
+        assert_eq!(
+            judge(true, "gate.lock", LOCK_TEXT, &second),
+            [Problem::Beyond]
+        );
+        // A plugin added, even with release-all-pins.
+        let added = with(
+            LOCK_TEXT,
+            "[plugins.\"acme/other:extra@1.0.0\"]\nurl = \"https://example.test/extra-1.0.0.wasm\"\nsha256 = \"22\"",
+        );
+        assert_eq!(
+            judge(true, "gate.lock", LOCK_TEXT, &added),
+            [Problem::Beyond]
+        );
+        let added = with(
+            CONFIG_TEXT,
+            "[plugins.extra]\nsource = \"acme/other:extra@1.0.0\"",
+        );
+        assert_eq!(
+            judge(true, "gate.toml", CONFIG_TEXT, &added),
+            [Problem::Beyond]
+        );
+    }
+
+    #[test]
+    fn only_a_plugin_s_source_is_a_pin_and_layout_is_not_a_change() {
+        let option = CONFIG_TEXT.replace(
+            "options = { strict = true }",
+            "options = { strict = true, source = \"acme/rules:product@1.1.0\" }",
+        );
+        let moved = option.replace(
+            "source = \"acme/rules:product@1.1.0\" }",
+            "source = \"acme/rules:product@1.2.0\" }",
+        );
+        assert_eq!(
+            judge(false, "gate.toml", &option, &moved),
+            [Problem::Beyond]
+        );
+        assert_eq!(judge(true, "gate.toml", &option, &moved), [Problem::Beyond]);
+        // The core's version alone, without release-all-pins.
+        let core = CONFIG_TEXT.replace("version = \"0.2.0\"", "version = \"0.3.0\"");
+        assert_eq!(
+            judge(false, "gate.toml", CONFIG_TEXT, &core),
+            [Problem::Beyond]
+        );
+        assert_eq!(judge(true, "gate.toml", CONFIG_TEXT, &core), []);
+        // White space and comments.
+        let layout = format!(
+            "# The pins.\n{}",
+            CONFIG_TEXT.replace("source = ", "source   =   ")
+        );
+        assert_eq!(judge(false, "gate.toml", CONFIG_TEXT, &layout), []);
+        let layout = LOCK_TEXT.replace("\n\n", "\n\n# An entry.\n\n");
+        assert_eq!(judge(false, "gate.lock", LOCK_TEXT, &layout), []);
+    }
+
+    #[test]
+    fn an_added_or_deleted_pin_file_is_beyond_and_a_broken_one_unreadable() {
+        let pins = Pins::new(Some("acme/rules:product"), false, &[])
+            .expect("valid")
+            .expect("set");
+        let text = Some(CONFIG_TEXT.as_bytes());
+        assert_eq!(
+            pins.judge("gate.toml", None, text, "1.2.0"),
+            [Problem::Beyond]
+        );
+        assert_eq!(
+            pins.judge("gate.toml", text, None, "1.2.0"),
+            [Problem::Beyond]
+        );
+        assert_eq!(
+            pins.judge("gate.toml", text, Some([0xff_u8, 0xfe].as_slice()), "1.2.0"),
             [Problem::Unreadable]
         );
     }

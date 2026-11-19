@@ -6,7 +6,7 @@
 | Release | v0.2.1 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
-| Depends on | `main` at `105ca02` |
+| Depends on | `main` at `8b9208f` (T-042 merged) |
 | Touches | `plugins/git/src/main_history.rs`, `plugins/git/Cargo.toml`, `Cargo.lock`, its tests, `plugins/git/rules/main-history.md`, `plugins/git/CHANGELOG.md` |
 
 ## Goal
@@ -86,3 +86,18 @@ release's version. `git/main-history` admits `gate.toml` (any) and the root `gat
 comparison and four end-to-end tests (each pin file passing and failing, the wrong version, an
 unreadable lock, a second plugin and the core with and without `release-all-pins`, a plugin
 removed, the same change in a direct commit, three configuration errors). Rule page and changelog.
+2026-11-19: lane ticket 222 on `099a92d`: fmt 0 and clippy 0, then stopped during the tests at
+the lead's word (exit 143), since the review's fix round replaces the code it tested.
+2026-11-19: the review's fix round, rebased onto `main` at `8b9208f` (the changelog's
+`Unreleased`, `Added` keeps T-042's entry and this one). A lock entry whose key is unchanged
+compares in full, so a release can no longer swap a pin's `url` or `sha256` without moving its
+version; with `release-all-pins` the core's targets lose `url` and `sha256` only when `[core]
+version` moved. A movable plugin's lock entries are compared per plugin: each old key gives way to
+exactly one new key, equal to it but for `url` and `sha256`, so a version kept beside the new one or
+added beside the old one is `#beyond-pin`. Only `[plugins.<name>] source` is a pin; a `source` key
+in `options` compares in full. A pin file the commit adds or deletes is `#beyond-pin`, one that is
+not UTF-8 TOML `#unreadable`. Tests: three new unit tests (a checksum or url swapped under an
+unchanged key, the core's included; a second key beside the old, a second version and a plugin
+added under `release-all-pins`; a `source` in options, `[gate] version` alone, white space and
+comments) and the added or deleted file, in the unit test and end to end. Rule page and changelog.
+rustfmt --edition 2024 --check on the changed `.rs` files: exit 0.

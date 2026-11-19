@@ -17,8 +17,10 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   without its version: a release commit may then move that plugin's pin, the version in its
   `source` in each `gate.toml` and its entry in `gate.lock`, to the release's version, and nothing
   else in those files. `release-all-pins = true` also lets it move the core's pin and every other
-  plugin's, as a plugin interface change needs. Anything else is a `release` finding
-  (`#beyond-pin`, `#version`, `#unreadable`); the files are compared as parsed TOML.
+  plugin's, as a plugin interface change needs. A lock entry's `url` and `sha256` change only with
+  its version, and each old lock key gives way to exactly one new key. Anything else, the pin file
+  added or deleted included, is a `release` finding (`#beyond-pin`, `#version`, `#unreadable`); the
+  files are compared as parsed TOML.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.1.0...plugin-git-v0.2.0) (2026-11-19)
 
