@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.1.0 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead |
@@ -48,6 +48,11 @@ Not in scope: code; anything that names a private project; product plugins.
 - Russian is never used in files.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-16T03:53:57+00:00: first pass merged. Follow-up on branch `agent/t-011-follow-up`, in
 review:

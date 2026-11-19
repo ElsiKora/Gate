@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
@@ -42,6 +42,11 @@ skip can write it as options of `git/commit-message`, at parity with commitlint'
 - Do not edit docs/plan.md.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `62b59fa` (branch tip `06d0734`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-036-commit-message-options` from `release/v0.2.0` at `264264f`; this file
 first.

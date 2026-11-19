@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
@@ -151,6 +151,11 @@ them; a key would change nothing today, but one makes later rewording safe:
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `1583d85` (branch tip `11760db`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-19: branch `task/T-034-stable-fingerprints` from T-029's `b1173fb`; the lead rebases it onto
 the release branch. Interface, SDK, host, prune, keys in all seven plugins, tests and docs written;

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.2.0 |
 | Writer | "Gate 002: plugin form spike" |
 | Reviewer | a separate review session |
@@ -90,6 +90,11 @@ with no Node step:
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged into `main` at `e66abc8` (branch tip `b15ce39`) and released in
+`v0.2.0`. Nothing is left.
+
+Earlier:
 
 2026-11-18: planned; branch `task/T-029-git-branch-and-commit-format`.
 2026-11-18: branch from `release/v0.1.0` `d30ecb8` (rebase on its tip after the v0.1.0 short round).

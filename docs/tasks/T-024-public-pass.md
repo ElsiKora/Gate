@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | merged |
 | Release | v0.1.0 |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | the lead reads the diff (documents only) |
@@ -33,6 +33,11 @@ current core and plugins.
 - The lead's read of the diff.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-18T21:01:06+00:00: parts 1, 2 and 4; part 3 in the next commit.
 README.md and the guides were checked by

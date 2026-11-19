@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.1.0 |
 | Writer | "Gate 002" |
 | Reviewer | a separate review session |
@@ -61,6 +61,11 @@ interface is not public yet (v0.1.0), so it changes now, with no compatibility p
 - Do not edit docs/plan.md; the lead keeps it.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-18: written and pushed; nothing that compiles wasmtime has run yet.
 Native clippy (`-D warnings`) and tests of `gate-sdk`, `gate-test` and the plugins pass (464

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | merged |
 | Release | v0.1.0 |
 | Writer | "Gate 002: plugin form spike" |
 | Reviewer | a separate review session |
@@ -72,6 +72,11 @@ Review (one fix round):
 - The plan's "Open after rc.1" list loses each item when it lands here.
 
 ## Resume point
+
+2026-11-19T17:53:44+00:00: merged before the public root; its work is in the root commit `59fb163`
+and released in `v0.1.0`. Nothing is left.
+
+Earlier:
 
 2026-11-17: every item is written and pushed on `task/T-014`; nothing is compiled yet, so the first
 run of the gates on the pushed commit is the first build of items 1–5 and 8.
