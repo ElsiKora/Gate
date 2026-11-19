@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved but for the new branch; code after T-042 merges |
+| Status | design approved; code after T-042 merges |
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
@@ -30,9 +30,9 @@ message being written and history.
   trailer after it for `prohibited-trailers`; its message starts with the short id
   (`a1b2c3d4e5f6: type feature is not a commit type; ...`). A finding of the message being
   written is as today.
-- A new branch (no base): the commits of `<head>` that no reference of `[plugins.git] options
-  main` has; when the plugin's options name no `main`, the head commit alone. The rule does not
-  require `[plugins.git] options` for any other run.
+- A new branch (no base): the head commit alone. The rule reads no `[plugins.git] options`. A pull
+  request's CI range always has a base, so the gap is only the first `pre-push` of a new branch,
+  and the CI job closes it.
 - A `--rev` run (a range without a target ref) checks nothing more than today.
 
 ## Breaking, for consumers
@@ -53,14 +53,21 @@ applies them, findings on the commit with its id as target and key; v0.3.0, unde
 `git/no-ci-skip` does with a zero base, through one shared function. `git/no-ci-skip` has no such
 case: it never reads the range's base, and reads the policy history instead (`activation..main`,
 main the pushed head when the push targets a main ref, plus `main..HEAD`), which needs
-`activation` and `main`. Asked the lead: the head commit alone for a new branch, with an open item
-for both rules (the commits head adds over every remote ref), or the policy history shared.
+`activation` and `main`. The lead chose: the head commit alone for a new branch, not tied to
+`main`, since a pull request's CI range always has a base and closes the gap of a new branch's
+first `pre-push`.
+
+## Open item, for both rules
+
+The commits a new branch's head adds over every remote ref, for `git/commit-message` and
+`git/no-ci-skip` alike. It needs a git query the plugin interface may not have yet; the lead decides
+it separately, outside this task.
 
 ## Done when
 
 - Tests: a push range whose commits all pass; one commit failing a form aspect and one failing
   `prohibited-trailers`, each on its commit with its target and key; a merge and a `fixup!` in the
-  range skipped by the default ignores; a new branch (as the lead decides); a `--rev` run and a
+  range skipped by the default ignores; a new branch (the head commit alone); a `--rev` run and a
   run with neither range nor message checking nothing; the message being written and a push range
   in one run.
 - The rule page (what is read, when) and the changelog under `Unreleased`, `Breaking`.
