@@ -440,7 +440,10 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     let loaded = if request.list_changed_projects {
         None
     } else {
-        plugins::load(&workspace, lock.as_ref(), &files)?.map(std::sync::Arc::new)
+        // Only the plugins a selected scope declares and --rule allows: a plugin this run does not
+        // need is never fetched or compiled.
+        let needed = plugins::needed(&workspace, &selection, &request.rules);
+        plugins::load(&workspace, lock.as_ref(), &files, &needed)?.map(std::sync::Arc::new)
     };
     phase("load", at);
     let at = Instant::now();
