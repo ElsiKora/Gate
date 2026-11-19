@@ -54,16 +54,16 @@ pub fn normalized(value: &str, form: Form) -> Result<String, String> {
 pub fn check(option: &str, value: &str, form: Form) -> gate_sdk::Result<()> {
     match normalized(value, form) {
         Ok(normal) if normal == value => Ok(()),
-        Ok(normal) if form == Form::Name => Err(gate_sdk::Error::new(format!(
+        Ok(normal) if form == Form::Name => Err(gate_sdk::Error::config(format!(
             "option `{option}` is {value:?}, which is not a plain name; write {normal:?}"
         ))),
-        Ok(normal) => Err(gate_sdk::Error::new(format!(
+        Ok(normal) => Err(gate_sdk::Error::config(format!(
             "option `{option}` is {value:?}, which is not a normalized path relative to the project root; write {normal:?}"
         ))),
-        Err(reason) if form == Form::Name => Err(gate_sdk::Error::new(format!(
+        Err(reason) if form == Form::Name => Err(gate_sdk::Error::config(format!(
             "option `{option}` is {value:?}, which {reason}; write a single name without `/`"
         ))),
-        Err(reason) => Err(gate_sdk::Error::new(format!(
+        Err(reason) => Err(gate_sdk::Error::config(format!(
             "option `{option}` is {value:?}, which {reason}; write a path relative to the project root"
         ))),
     }

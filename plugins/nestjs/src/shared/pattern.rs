@@ -8,7 +8,7 @@ use regex_automata::meta::Regex;
 /// When the pattern is no regular expression.
 pub fn compile(option: &str, pattern: &str) -> gate_sdk::Result<Regex> {
     Regex::new(pattern).map_err(|failure| {
-        gate_sdk::Error::new(format!(
+        gate_sdk::Error::config(format!(
             "the {option} {pattern:?} is no regular expression ({failure}); fix the option"
         ))
     })
