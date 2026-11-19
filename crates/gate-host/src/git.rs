@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Arc;
 
 use crate::error::{Error, Result};
 
@@ -486,6 +487,12 @@ pub struct Objects {
     git: Git,
     reader: CatFile,
     commits: HashMap<String, Node>,
+    /// Whether the ancestry of the first commit asked about was loaded with one `git rev-list`.
+    ancestry_loaded: bool,
+    /// The entries of the trees read, by id: consecutive commits share most of their trees.
+    trees: HashMap<String, Arc<Vec<Entry>>>,
+    /// The tree id of each commit asked about by its full id.
+    tree_of: HashMap<String, String>,
     /// Set when an ancestry could not be read in full (a shallow clone, a missing object, more
     /// than [`ANCESTRY_LIMIT`] commits): git answers `is-ancestor` from then on.
     ancestry_by_git: bool,
@@ -512,6 +519,9 @@ impl Objects {
             reader: git.cat_file()?,
             commits: HashMap::new(),
             ancestry_by_git: false,
+            ancestry_loaded: false,
+            trees: HashMap::new(),
+            tree_of: HashMap::new(),
         })
     }
 
@@ -543,13 +553,49 @@ impl Objects {
     /// # Errors
     /// Fails when the reader protocol breaks.
     pub fn tree(&mut self, commit: &str) -> Result<Option<String>> {
-        if commit.contains('\n') {
-            return Ok(None);
+        Ok(self.trees_of(&[commit])?.pop().flatten())
+    }
+
+    /// The tree ids of `commits`, the unknown ones read in one round trip; `None` for a name that
+    /// names no commit or tree. The root trees' entries are kept, as the answer carries them.
+    fn trees_of(&mut self, commits: &[&str]) -> Result<Vec<Option<String>>> {
+        let wanted: Vec<String> = commits
+            .iter()
+            .filter(|commit| !self.tree_of.contains_key(**commit) && !commit.contains('\n'))
+            .map(|commit| format!("{commit}^{{tree}}"))
+            .collect();
+        let mut answers = if wanted.is_empty() {
+            Vec::new()
+        } else {
+            self.reader.objects(&wanted)?
         }
-        Ok(self
-            .reader
-            .object(&format!("{commit}^{{tree}}"))?
-            .map(|object| object.id))
+        .into_iter();
+        let mut ids = Vec::with_capacity(commits.len());
+        for commit in commits {
+            if let Some(id) = self.tree_of.get(*commit) {
+                ids.push(Some(id.clone()));
+                continue;
+            }
+            if commit.contains('\n') {
+                ids.push(None);
+                continue;
+            }
+            let Some(object) = answers
+                .next()
+                .flatten()
+                .filter(|object| object.kind == "tree")
+            else {
+                ids.push(None);
+                continue;
+            };
+            let entries = parse_tree(&object)?;
+            self.trees.insert(object.id.clone(), Arc::new(entries));
+            if is_object_id(commit) {
+                self.tree_of.insert((*commit).to_owned(), object.id.clone());
+            }
+            ids.push(Some(object.id));
+        }
+        Ok(ids)
     }
 
     /// The paths that differ between the trees of `old` and `new`, as `git diff --name-only
@@ -558,19 +604,11 @@ impl Objects {
     /// # Errors
     /// Fails when either names no commit or tree, a tree does not read, or a path is not UTF-8.
     pub fn changed_paths(&mut self, old: &str, new: &str) -> Result<Vec<String>> {
-        let names = [format!("{old}^{{tree}}"), format!("{new}^{{tree}}")];
-        if names.iter().any(|name| name.contains('\n')) {
-            return Err(Error::environment("a commit name holds a line break"));
-        }
-        let trees = self.reader.objects(&names)?;
+        let trees = self.trees_of(&[old, new])?;
         let tree = |index: usize, name: &str| {
-            trees
-                .get(index)
-                .and_then(Option::as_ref)
-                .map(|object| object.id.clone())
-                .ok_or_else(|| {
-                    Error::environment(format!("{name:?} names no commit or tree; fetch it"))
-                })
+            trees.get(index).cloned().flatten().ok_or_else(|| {
+                Error::environment(format!("{name:?} names no commit or tree; fetch it"))
+            })
         };
         let (old, new) = (tree(0, old)?, tree(1, new)?);
 
@@ -594,7 +632,7 @@ impl Objects {
                 let side = |id: &Option<String>| {
                     id.as_ref()
                         .and_then(|id| entries.get(id))
-                        .map_or(&[][..], Vec::as_slice)
+                        .map_or(&[][..], |entries| entries.as_slice())
                 };
                 diff_level(side(&old), side(&new), &prefix, &mut paths, &mut next);
             }
@@ -615,17 +653,27 @@ impl Objects {
             .collect()
     }
 
-    /// The entries of each of the trees `ids`, by id, read in one round trip.
-    fn entries(&mut self, ids: &[String]) -> Result<HashMap<String, Vec<Entry>>> {
-        let objects = self.reader.objects(ids)?;
-        let mut trees = HashMap::new();
-        for (id, object) in ids.iter().zip(objects) {
-            let object = object
-                .filter(|object| object.kind == "tree")
-                .ok_or_else(|| Error::environment(format!("git has no tree {id}; fetch it")))?;
-            trees.insert(id.clone(), parse_tree(&object)?);
+    /// The entries of each of the trees `ids`, by id; the ones not read before in one round trip.
+    fn entries(&mut self, ids: &[String]) -> Result<HashMap<String, Arc<Vec<Entry>>>> {
+        let missing: Vec<String> = ids
+            .iter()
+            .filter(|id| !self.trees.contains_key(*id))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            let objects = self.reader.objects(&missing)?;
+            for (id, object) in missing.iter().zip(objects) {
+                let object = object
+                    .filter(|object| object.kind == "tree")
+                    .ok_or_else(|| Error::environment(format!("git has no tree {id}; fetch it")))?;
+                self.trees
+                    .insert(id.clone(), Arc::new(parse_tree(&object)?));
+            }
         }
-        Ok(trees)
+        Ok(ids
+            .iter()
+            .filter_map(|id| Some((id.clone(), Arc::clone(self.trees.get(id)?))))
+            .collect())
     }
 
     /// Whether `ancestor` is `descendant` or one of its ancestors, as `git merge-base
@@ -660,6 +708,10 @@ impl Objects {
         if ancestor == descendant {
             return Ok(Some(true));
         }
+        if !self.ancestry_loaded {
+            self.ancestry_loaded = true;
+            self.load_ancestry(&descendant)?;
+        }
         let (Some(low), Some(high)) = (self.generation(&ancestor)?, self.generation(&descendant)?)
         else {
             self.ancestry_by_git = true;
@@ -690,6 +742,35 @@ impl Objects {
             }
         }
         Ok(Some(false))
+    }
+
+    /// Reads the ancestry of `commit` with one `git rev-list --parents`, so that its generations
+    /// need no round trip per commit; more than [`ANCESTRY_LIMIT`] commits leaves `is-ancestor`
+    /// to git.
+    fn load_ancestry(&mut self, commit: &str) -> Result<()> {
+        let limit = format!("--max-count={}", ANCESTRY_LIMIT + 1);
+        let output = self.git.output(&[
+            "rev-list",
+            "--parents",
+            &limit,
+            "--end-of-options",
+            commit,
+            "--",
+        ])?;
+        let text = String::from_utf8_lossy(&output);
+        if text.lines().count() > ANCESTRY_LIMIT {
+            self.ancestry_by_git = true;
+            return Ok(());
+        }
+        for line in text.lines() {
+            let mut ids = line.split(' ').map(str::to_owned);
+            let Some(id) = ids.next() else { continue };
+            self.commits.entry(id).or_insert_with(|| Node {
+                parents: ids.collect(),
+                generation: None,
+            });
+        }
+        Ok(())
     }
 
     /// The id of the commit `name` names, its node read; `None` when it names no commit.
@@ -875,4 +956,9 @@ fn diff_level(
             }
         }
     }
+}
+
+/// Whether `name` is a full object id, which names the same object for good.
+fn is_object_id(name: &str) -> bool {
+    matches!(name.len(), 40 | 64) && name.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
