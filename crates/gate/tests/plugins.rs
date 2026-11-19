@@ -2197,3 +2197,65 @@ fn a_git_option_no_enabled_rule_reads_may_be_missing() {
         &[],
     );
 }
+
+#[test]
+fn the_commit_msg_hook_checks_the_message_being_written() {
+    let git = GitOptions::new();
+    let repo = &git.repo;
+    repo.write(
+        "bin/gate",
+        &format!(
+            "#!/bin/sh\nexec '{}' \"$@\" --plugin '{}'\n",
+            env!("CARGO_BIN_EXE_gate").replace('\'', "'\\''"),
+            git.plugin.replace('\'', "'\\''")
+        ),
+    );
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = repo.path().join("bin/gate");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"], activation = \"{}\", {RELEASE_SUBJECT} }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n{NO_CI_SKIP}\n\n[hooks]\ncommit-msg = [\"check --commit-message\"]\n",
+            git.root
+        ),
+    );
+    // Committed before the hooks exist, so this commit runs none.
+    repo.commit("chore(core): configure gate");
+    let output = repo.gate(&["sync", "--plugin", &git.plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+
+    // `git commit` runs the generated hook, which runs bin/gate with the message file.
+    let commit = |message: &str| {
+        repo.write("work.txt", message);
+        repo.git(&["add", "-A"]);
+        let output = isolated(
+            Command::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(["commit", "-q", "-m", message]),
+        )
+        .env("GATE_CACHE_DIR", repo.cache.path())
+        .output()
+        .expect("git");
+        (
+            output.status.success(),
+            format!("{}{}", text(&output.stdout), text(&output.stderr)),
+        )
+    };
+
+    let (committed, said) = commit("feat(core): add the thing [skip ci]");
+    assert!(!committed, "a CI-skip directive fails the hook: {said}");
+    assert!(
+        said.contains("the commit message carries the forbidden CI-skip directive [skip ci]")
+            && said.contains("gate check (tree, commit message): "),
+        "{said}"
+    );
+    let (committed, said) = commit("Added the thing");
+    assert!(!committed, "a message out of form fails the hook: {said}");
+    assert!(said.contains("git/commit-message#type-empty"), "{said}");
+    let (committed, said) = commit("feat(core): add the thing");
+    assert!(committed, "a good message passes the hook: {said}");
+}

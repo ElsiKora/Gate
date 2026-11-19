@@ -345,6 +345,17 @@ struct Parsed {
 
 const SCISSORS: &str = "# ------------------------ >8 ------------------------";
 
+/// The message as git stores it from a `commit-msg` file: the lines before the scissors line,
+/// without comment lines, trimmed.
+pub(crate) fn written(raw: &str) -> String {
+    let kept: Vec<&str> = raw
+        .lines()
+        .take_while(|line| *line != SCISSORS)
+        .filter(|line| !line.starts_with('#'))
+        .collect();
+    kept.join("\n").trim().to_owned()
+}
+
 /// The keywords that make a line with an issue reference a footer line.
 const ACTIONS: &[&str] = &[
     "close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved",

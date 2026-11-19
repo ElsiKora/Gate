@@ -132,3 +132,45 @@ fn only_a_commit_of_a_release_form_is_the_release() {
         reported
     );
 }
+
+#[test]
+fn the_message_being_written_is_checked_too() {
+    let mut repo = Repo::default();
+    let activation = repo.commit(&[], "init", &[("a", Some("1"))]);
+    repo.set_ref("refs/heads/main", &activation);
+    let mut check = |message: &str| {
+        repo.set_hook(true);
+        repo.set_message(Some(message));
+        repo.check("no-ci-skip", &settings(&activation), "{}")
+            .expect("runs")
+    };
+
+    let found = check("feat(core): add the thing [skip ci]\n\nThe body.\n");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "the commit message carries the forbidden CI-skip directive [skip ci]"
+    );
+    assert_eq!(found[0].location, None);
+    assert_eq!(
+        found[0].target.as_deref(),
+        Some("feat(core): add the thing [skip ci]")
+    );
+    assert_eq!(check("docs: note\n\nSkip-checks: true\n").len(), 1);
+
+    // A directive in a comment line or after the scissors is not part of the message, and the
+    // release commit carries one by design.
+    assert_eq!(
+        check("feat(core): add the thing\n# [skip ci] in a comment\n").len(),
+        0
+    );
+    assert_eq!(
+        check(
+            "fix(core): mend it\n# ------------------------ >8 ------------------------\n+[skip ci]\n"
+        )
+        .len(),
+        0
+    );
+    assert_eq!(check(RELEASE).len(), 0);
+    assert_eq!(check("feat(core): add the thing\n").len(), 0);
+}

@@ -261,6 +261,7 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 [rules]
 "git/no-ci-skip" = "error"
+"git/commit-message" = "error"
 
 [hooks]
 pre-commit = ["check --staged"]
@@ -273,6 +274,9 @@ bin/gate lock      # resolve the plugins and write their checksums to gate.lock
 bin/gate sync      # write the git hooks
 bin/gate check     # check the working tree
 ```
+
+The `commit-msg` hook checks the message being written, before the commit exists: its form
+(`git/commit-message`) and no CI-skip directive (`git/no-ci-skip`).
 
 The [getting started guide](docs/guide/getting-started.md) walks through it.
 
@@ -300,6 +304,7 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 [rules]
 "git/no-ci-skip" = "error"
+"git/commit-message" = "error"
 
 [[profiles]]
 projects = ["apps/*", "packages/*"]

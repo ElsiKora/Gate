@@ -22,6 +22,8 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 - The rules declare the `[plugins.git] options` keys they read (`Rule::NEEDS`), and under which
   forms, so a key an enabled rule reads is a configuration error (exit 2) when the configuration
   loads, naming the rule, not an error when the rule runs.
+- `git/no-ci-skip` also checks the message being written (`gate check --commit-message`, the
+  `commit-msg` hook), so a CI-skip directive fails the hook instead of the next check.
 
 # 0.1.0
 

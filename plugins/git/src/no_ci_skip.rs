@@ -3,9 +3,11 @@
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Need, Rule, Run, Scope};
+use gate_sdk::{Location, Need, Rule, Run, Scope};
 
-use crate::history::History;
+use crate::commit_message::written;
+use crate::forms::Kind;
+use crate::history::{History, release_version};
 use crate::settings::{self, Settings, pattern};
 
 /// The rule.
@@ -54,6 +56,34 @@ impl Rule for NoCiSkip {
         let forms = settings.forms(release.as_ref())?;
         let directive = pattern("directive-pattern", &run.options().directive_pattern)?;
         let trailer = pattern("trailer-pattern", &run.options().trailer_pattern)?;
+        // The message being written (the commit-msg hook), which no history holds yet.
+        if let Some(message) = run.git()?.message() {
+            let message = written(&message);
+            let release_form = forms.iter().any(|form| form.kind == Kind::Release);
+            let exempt = release_form
+                && release
+                    .as_ref()
+                    .is_some_and(|release| release_version(release, &message).is_some());
+            if !exempt
+                && let Some(found) = directive.find(&message).or_else(|| trailer.find(&message))
+            {
+                let token = found.as_str().trim().to_owned();
+                let header = message.lines().next().unwrap_or_default().to_owned();
+                run.report()
+                    .finding(
+                        "",
+                        None::<Location>,
+                        format!(
+                            "the commit message carries the forbidden CI-skip directive {token}"
+                        ),
+                    )
+                    .target(header)
+                    .help(
+                        "reword the message without the directive; a skipped run leaves main \
+                         unchecked",
+                    );
+            }
+        }
         let history = History::read(&run.git()?, &settings, "git/no-ci-skip")?;
 
         for commit in &history.commits {
