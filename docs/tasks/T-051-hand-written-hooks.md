@@ -39,9 +39,9 @@ what `--hook` changes.
 
 Run on 2026-11-19T19:02Z with the released v0.2.0 (`gate 0.2.0`, its archive checked against
 `SHA256SUMS`). `git diff v0.2.0 4c55ca6 -- crates plugins` is empty, so its hooks and its `gate
-check --help` are `main`'s: `--push <RANGE>` "Check a pushed range <base>..<tip> (a base of zeros is a
-new branch)", `--target-ref <REF>` "The remote ref the --push range goes to", `--commit-message
-<FILE>` "the commit-msg hook passes \"$1\"".
+check --help` are `main`'s: `--push <RANGE>` "Check a pushed range <base>..<tip> (a base of zeros is
+a new branch)", `--target-ref <REF>` "The remote ref the --push range goes to", `--commit-message
+<FILE>` "the commit-msg hook passes "$1".
 
 Two synthetic repositories, each with a local bare `origin`, the `git` plugin at 0.2.0 and the rules
 `git/commit-message`, `git/no-ci-skip` and `git/branch-name` (template `:type/:ticket-:name`), no
