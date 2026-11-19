@@ -57,3 +57,6 @@ native cargo run; the lane round runs the gates.
 2026-11-19: lead's decision: a custom `header-pattern` replaces the breaking path too; the default
 keeps the breaking pattern first. The policy test now expects `feat(a)!: add x` to pass and
 `feat(a_b)!: add x` to fail; ticket 175 had not started, so it builds this tip.
+2026-11-19: ticket 175 (3532474): fmt exit 1 on two layouts in the policy test; clippy failed
+because `release/v0.2.0` did not compile (fixed by T-039), and the round was stopped. Rebased onto
+`release/v0.2.0` at `ef099bc`; the two layouts are now as rustfmt writes them.

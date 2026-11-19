@@ -398,7 +398,12 @@ fn without_the_default_ignores_a_fixup_is_checked() {
     assert_eq!(aspects(Some("fixup! x"), "{}"), Vec::<String>::new());
     assert_eq!(
         aspects(Some("fixup! x"), r#"{"default-ignores": false}"#),
-        ["header-min-length", "type-empty", "scope-empty", "subject-empty"]
+        [
+            "header-min-length",
+            "type-empty",
+            "scope-empty",
+            "subject-empty"
+        ]
     );
     // The repository's own ignores are added to the defaults.
     assert_eq!(
@@ -428,7 +433,10 @@ fn a_header_pattern_or_an_ignore_that_cannot_work_fails_closed() {
             "git/commit-message header-pattern \"^(?<kind>\\\\w+): (?<subject>.+)$\" has no group \
              named type; write a JavaScript regular expression with the named groups type",
         ),
-        (r#"{"header-pattern": "^(\\w+): (.+)$"}"#, "has no group named type"),
+        (
+            r#"{"header-pattern": "^(\\w+): (.+)$"}"#,
+            "has no group named type",
+        ),
         (
             r#"{"ignores": ["["]}"#,
             "git/commit-message ignores \"[\" is not a valid regular expression",
