@@ -150,7 +150,8 @@ impl gate_sdk::Rule for Rule {
                     Location::file(&path),
                     format!("{path} is required for the {role} readiness owner"),
                 )
-                .help("add the readiness owner file");
+                .help("add the readiness owner file")
+                .key("missing");
         }
 
         let start = run.options().startup_file.clone();
@@ -170,7 +171,8 @@ impl gate_sdk::Rule for Rule {
                     Location::file(&start),
                     format!("{start} is required for {role} lifecycle governance"),
                 )
-                .help("add the startup file");
+                .help("add the startup file")
+                .key("missing-file");
             return Ok(());
         };
 
@@ -186,7 +188,8 @@ impl gate_sdk::Rule for Rule {
                     Location::file(&start),
                     format!("{start} must declare {entrypoint} with an executable body"),
                 )
-                .help(format!("declare the function {entrypoint} with a body"));
+                .help(format!("declare the function {entrypoint} with a body"))
+                .key("missing-entrypoint");
             return Ok(());
         };
 
@@ -212,7 +215,8 @@ impl gate_sdk::Rule for Rule {
                 )
                 .help(format!(
                     "await {assert_ready}, then await {listen}, then call {mark_ready}, once each and unconditionally"
-                ));
+                ))
+                .key("order");
         }
 
         Ok(())

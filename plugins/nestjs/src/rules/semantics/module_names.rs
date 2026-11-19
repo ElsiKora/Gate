@@ -151,8 +151,8 @@ impl Default for Options {
     }
 }
 
-/// One finding before it is reported: aspect, path, message and help.
-type Pending = (&'static str, String, String, String);
+/// One finding before it is reported: aspect, path, key, message and help.
+type Pending = (&'static str, String, Option<String>, String, String);
 
 impl gate_sdk::Rule for Rule {
     type Options = Options;
@@ -206,10 +206,10 @@ impl gate_sdk::Rule for Rule {
                 continue;
             };
 
-            if let Some((aspect, message, help)) =
+            if let Some((aspect, key, message, help)) =
                 module_finding(path, scope, name.as_deref(), options)
             {
-                pending.push((aspect, path.to_owned(), message, help));
+                pending.push((aspect, path.to_owned(), Some(key), message, help));
             }
         }
 
@@ -236,6 +236,7 @@ impl gate_sdk::Rule for Rule {
                 pending.push((
                     "semantic-owner-class",
                     path,
+                    Some(expected.clone()),
                     message,
                     format!("export the class {expected} from the file"),
                 ));
@@ -247,6 +248,7 @@ impl gate_sdk::Rule for Rule {
                 pending.push((
                     "shortened-resource-folder",
                     path.clone(),
+                    None,
                     format!(
                         "{path} is a shortened resource folder; use the full entity resource name"
                     ),
@@ -255,10 +257,15 @@ impl gate_sdk::Rule for Rule {
             }
         }
 
-        for (aspect, path, message, help) in pending {
-            run.report()
+        for (aspect, path, key, message, help) in pending {
+            let reported = run
+                .report()
                 .finding(aspect, Location::file(path), message)
                 .help(help);
+
+            if let Some(key) = key {
+                reported.key(key);
+            }
         }
 
         Ok(())
@@ -280,17 +287,18 @@ fn class_name(typescript: &TypeScript<'_>, path: &str) -> gate_sdk::Result<Optio
     }))
 }
 
-/// The finding of one module file in `scope`: aspect, message and help.
+/// The finding of one module file in `scope`: aspect, key, message and help.
 fn module_finding(
     path: &str,
     scope: &LayerScope,
     name: Option<&str>,
     options: &Options,
-) -> Option<(&'static str, String, String)> {
+) -> Option<(&'static str, String, String, String)> {
     let module_suffix = options.module_suffix.as_str();
     let Some(name) = name else {
         return Some((
             "module-class",
+            "#missing".to_owned(),
             format!("{path} does not export a module class"),
             format!(
                 "export the module class, named after the resource folder and ending with {module_suffix}"
@@ -317,6 +325,7 @@ fn module_finding(
     if !name.starts_with(required) {
         return Some((
             "module-owner-prefix",
+            name.to_owned(),
             format!("{path} exports {name}; modules in this owner must use the {required} prefix"),
             format!("start the class name with {required}"),
         ));
@@ -325,6 +334,7 @@ fn module_finding(
     let Some(stem) = name.strip_suffix(module_suffix) else {
         return Some((
             "module-class",
+            name.to_owned(),
             format!("{path} exports {name}; module classes must end with {module_suffix}"),
             format!("end the class name with {module_suffix}"),
         ));
@@ -341,6 +351,7 @@ fn module_finding(
         return (name != expected).then(|| {
             (
                 "semantic-owner-class",
+                expected.clone(),
                 format!("{path} exports {name}; semantic owner requires {expected}"),
                 format!("rename the class to {expected}"),
             )
@@ -355,6 +366,7 @@ fn module_finding(
     (resource.replace('/', "-") != expected).then(|| {
         (
             "resource-folder",
+            name.to_owned(),
             format!("{path} is under {resource}; {name} should live under {expected}"),
             format!(
                 "move the module to the folder {expected}, or rename the class after its folder"

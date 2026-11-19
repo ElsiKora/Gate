@@ -204,33 +204,42 @@ fn unique<'v>(
     label: &str,
     paths: &mut Vec<&'v str>,
     names: &mut Vec<&'v str>,
-    report: &mut impl FnMut(String),
+    report: &mut impl FnMut(&str, String),
 ) {
     match contract.path().string() {
         Some(path) if path.ends_with("/controller.ts") => {
             if paths.contains(&path) {
-                report(format!("{label} duplicates controller path {path}"));
+                report("path", format!("{label} duplicates controller path {path}"));
             } else {
                 paths.push(path);
             }
         }
-        _ => report(format!("{label} must provide an exact controller.ts path")),
+        _ => report(
+            "path",
+            format!("{label} must provide an exact controller.ts path"),
+        ),
     }
 
     match contract.controller_name().string() {
         Some(name) if name.ends_with("Controller") => {
             if names.contains(&name) {
-                report(format!("{label} duplicates controller class {name}"));
+                report(
+                    "class",
+                    format!("{label} duplicates controller class {name}"),
+                );
             } else {
                 names.push(name);
             }
         }
-        _ => report(format!("{label} must provide a Controller class name")),
+        _ => report(
+            "class",
+            format!("{label} must provide a Controller class name"),
+        ),
     }
 }
 
 /// The semantic owner of a row names a parent controller family and carries a decision.
-fn semantic_owner(contract: Contract<'_>, label: &str, report: &mut impl FnMut(String)) {
+fn semantic_owner(contract: Contract<'_>, label: &str, report: &mut impl FnMut(&str, String)) {
     let owner = contract.semantic_owner_name();
 
     if owner != Js::Undefined {
@@ -248,25 +257,28 @@ fn semantic_owner(contract: Contract<'_>, label: &str, report: &mut impl FnMut(S
             });
 
         if !family {
-            report(format!(
-                "{label} semanticOwnerName must identify a parent controller family"
-            ));
+            report(
+                "semantic-owner",
+                format!("{label} semanticOwnerName must identify a parent controller family"),
+            );
         }
 
         if !decision(contract.decision_id()) {
-            report(format!(
-                "{label} semanticOwnerName requires an exact decisionId"
-            ));
+            report(
+                "semantic-owner-decision",
+                format!("{label} semanticOwnerName requires an exact decisionId"),
+            );
         }
     }
 }
 
-/// Reports the rows that break the registry's own contract, in row order. `external` is the folder
-/// prefix of the plane that holds external nouns.
+/// Reports the rows that break the registry's own contract, in row order, each as its key (the row's
+/// path and the check) and its message. `external` is the folder prefix of the plane that holds
+/// external nouns.
 pub(super) fn validate(
     contracts: &[ControllerRow],
     external: &str,
-    mut report: impl FnMut(String),
+    mut report: impl FnMut(String, String),
 ) {
     let mut paths: Vec<&str> = Vec::new();
     let mut names: Vec<&str> = Vec::new();
@@ -277,6 +289,10 @@ pub(super) fn validate(
             "semantic-owner controller contract {}",
             contract.path().json()
         );
+        // Each finding is keyed by its row's path and its check, which stay when a message is
+        // reworded.
+        let row = contract.path().text();
+        let mut report = |check: &str, message: String| report(format!("{row}#{check}"), message);
 
         unique(contract, &label, &mut paths, &mut names, &mut report);
 
@@ -286,7 +302,10 @@ pub(super) fn validate(
             .is_some_and(|name| name.ends_with("Service"))
             || contract.primary_service_path().string().is_none()
         {
-            report(format!("{label} must provide a primary Service class name"));
+            report(
+                "service",
+                format!("{label} must provide a primary Service class name"),
+            );
         }
 
         let classification = contract.classification();
@@ -295,10 +314,13 @@ pub(super) fn validate(
             .iter()
             .any(|known| classification == Js::Str(known))
         {
-            report(format!(
-                "{label} has unsupported classification {}",
-                classification.json()
-            ));
+            report(
+                "classification",
+                format!(
+                    "{label} has unsupported classification {}",
+                    classification.json()
+                ),
+            );
         }
 
         semantic_owner(contract, &label, &mut report);
@@ -309,9 +331,12 @@ pub(super) fn validate(
                 || contract.own_service_entity_name().string().is_none()
                 || contract.own_service_entity_path().string().is_none())
         {
-            report(format!(
-                "{label} a distinct primary service entity requires CUSTOM_USE_CASE and both primaryServiceEntityName/primaryServiceEntityPath"
-            ));
+            report(
+                "service-entity",
+                format!(
+                    "{label} a distinct primary service entity requires CUSTOM_USE_CASE and both primaryServiceEntityName/primaryServiceEntityPath"
+                ),
+            );
         }
 
         let invalid_entity = if contract.plain() {
@@ -321,19 +346,25 @@ pub(super) fn validate(
         };
 
         if invalid_entity {
-            report(format!(
-                "{label} has an invalid entityName for {}",
-                classification.text()
-            ));
+            report(
+                "entity",
+                format!(
+                    "{label} has an invalid entityName for {}",
+                    classification.text()
+                ),
+            );
         }
 
         if (classification == Js::Str(CUSTOM_USE_CASE) || classification == Js::Str(EXTERNAL_NOUN))
             && !decision(contract.decision_id())
         {
-            report(format!(
-                "{label} requires an exact decisionId for {}",
-                classification.text()
-            ));
+            report(
+                "decision",
+                format!(
+                    "{label} requires an exact decisionId for {}",
+                    classification.text()
+                ),
+            );
         }
 
         if classification == Js::Str(EXTERNAL_NOUN)
@@ -342,10 +373,13 @@ pub(super) fn validate(
                 .string()
                 .is_some_and(|path| path.starts_with(external))
         {
-            report(format!(
-                "{label} classifies an external noun outside {}",
-                external.trim_end_matches('/')
-            ));
+            report(
+                "external",
+                format!(
+                    "{label} classifies an external noun outside {}",
+                    external.trim_end_matches('/')
+                ),
+            );
         }
     }
 }

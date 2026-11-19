@@ -90,14 +90,15 @@ impl Rule for ConstantFiles {
                 continue;
             };
 
-            for (aspect, line, message) in findings(&file, &options) {
+            for (aspect, line, key, message) in findings(&file, &options) {
                 run.report()
                     .finding(
                         aspect,
                         report::location(path, line.and_then(|line| usize::try_from(line).ok())),
                         message,
                     )
-                    .help(help(aspect));
+                    .help(help(aspect))
+                    .key(key);
             }
         }
 
@@ -116,7 +117,7 @@ fn help(aspect: &str) -> &'static str {
     }
 }
 
-type Finding = (&'static str, Option<u32>, String);
+type Finding = (&'static str, Option<u32>, String, String);
 
 /// The findings of one constant file, in report order.
 fn findings(file: &SourceFile<'_>, options: &Options) -> Vec<Finding> {
@@ -148,9 +149,15 @@ struct Scan<'f, 'a> {
 }
 
 impl<'a> Scan<'_, 'a> {
-    fn push(&mut self, aspect: &'static str, start: Option<u32>, message: String) {
+    fn push(
+        &mut self,
+        aspect: &'static str,
+        start: Option<u32>,
+        key: impl Into<String>,
+        message: String,
+    ) {
         let line = start.map(|start| self.file.line(start));
-        self.findings.push((aspect, line, message));
+        self.findings.push((aspect, line, key.into(), message));
     }
 
     fn statements(&mut self) {
@@ -161,7 +168,12 @@ impl<'a> Scan<'_, 'a> {
 
         // A directive is an expression statement of the compiler.
         for directive in &program.directives {
-            self.push("shape", Some(directive.span.start), non_constant.clone());
+            self.push(
+                "shape",
+                Some(directive.span.start),
+                "non-constant",
+                non_constant.clone(),
+            );
         }
 
         for statement in &program.body {
@@ -176,6 +188,7 @@ impl<'a> Scan<'_, 'a> {
                         self.push(
                             "shape",
                             Some(statement_start(statement)),
+                            "non-constant",
                             non_constant.clone(),
                         );
                     }
@@ -195,6 +208,7 @@ impl<'a> Scan<'_, 'a> {
                 _ => self.push(
                     "shape",
                     Some(statement_start(statement)),
+                    "non-constant",
                     non_constant.clone(),
                 ),
             }
@@ -216,6 +230,7 @@ impl<'a> Scan<'_, 'a> {
             self.push(
                 "shape",
                 start,
+                "non-const",
                 format!("{path} contains a non-const variable statement"),
             );
         }
@@ -233,6 +248,7 @@ impl<'a> Scan<'_, 'a> {
                 self.push(
                     "callable",
                     Some(declarator.span.start),
+                    binding_name(source, &declarator.id),
                     format!(
                         "{path} has constant {} that retains callable code; move the callable to its owning code file",
                         binding_name(source, &declarator.id)
@@ -246,6 +262,7 @@ impl<'a> Scan<'_, 'a> {
                 self.push(
                     "shape",
                     start,
+                    "export-statement",
                     format!(
                         "{path} must export exactly one constant declaration per export statement"
                     ),
@@ -263,6 +280,7 @@ impl<'a> Scan<'_, 'a> {
             self.push(
                 "shape",
                 start,
+                "backing-after-bag",
                 format!(
                     "{path} declares private backing constants after the exported constant bag"
                 ),
@@ -276,6 +294,7 @@ impl<'a> Scan<'_, 'a> {
                 self.push(
                     "naming",
                     Some(declarator.span.start),
+                    name.as_str(),
                     format!("{path} has private backing constant {name}; use UPPER_CASE"),
                 );
             }
@@ -293,6 +312,7 @@ impl<'a> Scan<'_, 'a> {
             self.push(
                 "shape",
                 None,
+                "exported-bag",
                 format!(
                     "{path} must export exactly one *{} object bag",
                     self.options.bag_suffix
@@ -305,6 +325,7 @@ impl<'a> Scan<'_, 'a> {
             self.push(
                 "shape",
                 None,
+                format!("{name}#declared"),
                 format!(
                     "{path} exports {name}; exported constant must be declared in the same file"
                 ),
@@ -317,6 +338,7 @@ impl<'a> Scan<'_, 'a> {
             self.push(
                 "naming",
                 declared,
+                format!("{name}#bag-suffix"),
                 format!(
                     "{path} exports {name}; exported constant bags must end with {}",
                     self.options.bag_suffix
@@ -329,6 +351,7 @@ impl<'a> Scan<'_, 'a> {
             self.push(
                 "shape",
                 declared,
+                format!("{name}#object"),
                 format!("{path} exports {name}; exported constant bag must be an object literal"),
             );
             return;
@@ -339,6 +362,7 @@ impl<'a> Scan<'_, 'a> {
                 ObjectPropertyKind::SpreadProperty(spread) => self.push(
                     "shape",
                     Some(spread.span.start),
+                    format!("{name}#spread"),
                     format!("{path} exports {name}; constant bags must not use spread assignments"),
                 ),
                 ObjectPropertyKind::ObjectProperty(property) => {
@@ -353,6 +377,7 @@ impl<'a> Scan<'_, 'a> {
                         self.push(
                             "naming",
                             Some(property.span.start),
+                            format!("{name}.{text}"),
                             format!(
                                 "{path} exports {name}; object-bag key {text} must use UPPER_CASE"
                             ),

@@ -44,6 +44,11 @@ What passed under 0.1.0 and now fails, with no change to `gate.toml`:
   `commit-msg` hook), `#` lines included, so a CI-skip directive fails the hook instead of the next
   check.
 - The plugin is built for plugin interface 0.2.0 and loads only in a core of 0.2.0.
+- `git/branch-name`, `commit-message` and `main-history` give each finding whose message names a
+  line, a path or an option value a stable key (what it is about, never a line or column), so an
+  edit above a finding or a reworded message keeps its fingerprint. These findings' fingerprints
+  change once, with this release; `gate baseline prune` re-keys their baseline entries when the
+  repository upgrades.
 
 # 0.1.0
 

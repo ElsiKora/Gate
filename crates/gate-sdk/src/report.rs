@@ -104,6 +104,8 @@ pub struct Finding {
     pub target: Option<String>,
     /// What to do about it.
     pub help: Option<String>,
+    /// A short, stable identity of what the finding is about; see [`Finding::key`].
+    pub key: Option<String>,
 }
 
 impl Finding {
@@ -117,6 +119,17 @@ impl Finding {
     /// Sets what to do about it.
     pub fn help(&mut self, help: impl Into<String>) -> &mut Self {
         self.help = Some(help.into());
+        self
+    }
+
+    /// Sets a short, stable identity of what the finding is about within its rule, aspect and path
+    /// (for example `ProviderEntity.name`, or a controller's class name). It must not change when
+    /// the message's wording does: with a key, the finding's fingerprint, which baselines and SARIF
+    /// match, is its rule, aspect, path and key, so rewording the message or naming a path in it
+    /// differently keeps it. Without one, the fingerprint digests the message. Set one whenever the
+    /// message embeds a path or a value from the options.
+    pub fn key(&mut self, key: impl Into<String>) -> &mut Self {
+        self.key = Some(key.into());
         self
     }
 }
@@ -154,6 +167,7 @@ impl Report {
             location: location.into(),
             target: None,
             help: None,
+            key: None,
         });
         let last = self.findings.len() - 1;
         &mut self.findings[last]

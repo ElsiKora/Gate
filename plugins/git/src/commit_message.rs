@@ -115,7 +115,7 @@ impl Rule for CommitMessage {
         for (aspect, text, help) in found {
             let finding = run.report().finding(aspect, None::<Location>, text);
             if let Some(header) = &header {
-                finding.target(header.clone());
+                finding.target(header.clone()).key(header.as_str());
             }
             finding.help(help);
         }

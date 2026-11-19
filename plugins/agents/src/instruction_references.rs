@@ -167,6 +167,7 @@ impl Rule for InstructionReferences {
             };
             run.report()
                 .finding(aspect, location, message)
+                .key(target.as_str())
                 .target(target)
                 .help(help);
         }

@@ -80,7 +80,8 @@ impl gate_sdk::Rule for Rule {
                     )
                     .help(format!(
                         "name the table first, in double quotes: {decorator}(\"table_name\")"
-                    ));
+                    ))
+                    .key(decorator.as_str());
             }
         }
 

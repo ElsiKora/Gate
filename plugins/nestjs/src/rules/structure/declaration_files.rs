@@ -100,14 +100,15 @@ impl Rule for DeclarationFiles {
                 continue;
             };
 
-            for (aspect, line, message) in findings(&file, &layout, &kinds) {
+            for (aspect, line, key, message) in findings(&file, &layout, &kinds) {
                 run.report()
                     .finding(
                         aspect,
                         location(path, line.and_then(|line| usize::try_from(line).ok())),
                         message,
                     )
-                    .help(help(aspect));
+                    .help(help(aspect))
+                    .key(key);
             }
         }
 
@@ -127,7 +128,7 @@ fn help(aspect: &str) -> &'static str {
     }
 }
 
-type Finding = (&'static str, Option<u32>, String);
+type Finding = (&'static str, Option<u32>, String, String);
 
 /// The findings of one file, in report order.
 fn findings(
@@ -152,6 +153,7 @@ fn findings(
                 findings.push((
                     "test-scenario-declaration",
                     Some(entity.line),
+                    entity.name.clone(),
                     format!(
                         "{path} declares {} inside a test scenario; named contracts and independently bound classes require separate owning files",
                         entity.name
@@ -182,6 +184,7 @@ fn findings(
         findings.push((
             if support { "support-owner" } else { "single-owner" },
             None,
+            "owners".to_owned(),
             format!(
                 "{path} contains multiple code owners: {}. Named classes, interfaces, types and enums require separate owning files regardless of export visibility; cohesive private functions may remain local.",
                 descriptions.join(", ")
@@ -194,6 +197,7 @@ fn findings(
             findings.push((
                 "nested-declaration",
                 Some(entity.line),
+                entity.name.clone(),
                 format!(
                     "{path} declares nested {}; named contracts belong at the top level of their own file",
                     entity.name
@@ -209,6 +213,7 @@ fn findings(
             findings.push((
                 "kind-folder-declaration",
                 Some(entity.line),
+                entity.name.clone(),
                 format!(
                     "{path} declares {}; {folder} contracts belong in the owning {folder}/ folder with a .{folder}.ts filename",
                     entity.name

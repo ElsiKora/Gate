@@ -232,6 +232,7 @@ impl gate_sdk::Rule for Rule {
                         findings.push(Finding::new(
                             "owner-barrel",
                             path,
+                            Some(specifier),
                             format!("{path} re-exports {target} source across its owner barrel"),
                             "re-export only the barrel's own owner",
                         ));
@@ -246,13 +247,18 @@ impl gate_sdk::Rule for Rule {
         }
 
         for finding in findings {
-            run.report()
+            let reported = run
+                .report()
                 .finding(
                     finding.aspect,
                     Location::file(finding.path),
                     finding.message,
                 )
                 .help(finding.help);
+
+            if let Some(key) = finding.key {
+                reported.key(key);
+            }
         }
 
         Ok(())
@@ -263,15 +269,23 @@ impl gate_sdk::Rule for Rule {
 struct Finding {
     aspect: &'static str,
     path: String,
+    key: Option<String>,
     message: String,
     help: &'static str,
 }
 
 impl Finding {
-    fn new(aspect: &'static str, path: &str, message: String, help: &'static str) -> Self {
+    fn new(
+        aspect: &'static str,
+        path: &str,
+        key: Option<String>,
+        message: String,
+        help: &'static str,
+    ) -> Self {
         Self {
             aspect,
             path: path.to_owned(),
+            key,
             message,
             help,
         }
@@ -340,6 +354,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "entity-manager-exposure",
                 path,
+                Some(parameter.clone()),
                 format!(
                     "{path} exposes native {} in public method {parameter}",
                     self.entity_manager
@@ -354,6 +369,7 @@ impl Boundaries<'_> {
                     findings.push(Finding::new(
                         "domain-module-forwarding",
                         path,
+                        Some(name.clone()),
                         format!("{path} forwards domain module {name} across an owner boundary"),
                         "import the domain module where it is used instead of exporting it",
                     ));
@@ -367,6 +383,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "controller-owner",
                 path,
+                None,
                 format!("{path} declares a controller outside an API owner boundary"),
                 "move the controller into an API owner",
             ));
@@ -387,6 +404,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "nested-resource",
                 path,
+                None,
                 format!(
                     "{path} uses a flat key controller filename; \
                      nest key controllers under an owning key folder"
@@ -399,6 +417,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "nested-resource",
                 path,
+                None,
                 format!("{path} flattens a child resource; nest it under its owning resource"),
                 "nest the child resource under its owning resource",
             ));
@@ -410,6 +429,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "nested-resource",
                 path,
+                None,
                 format!(
                     "{path} declares a flat child-resource route; nest it under its owning resource"
                 ),
@@ -433,6 +453,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "api-plane-route",
                 path,
+                None,
                 format!(
                     "{path} hardcodes an API plane route prefix instead of using plane constants"
                 ),
@@ -449,6 +470,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "api-plane-route",
                 path,
+                Some("internal-base".to_owned()),
                 format!(
                     "{path} must compose its route from {}",
                     options.internal_base.export.join(".")
@@ -461,6 +483,7 @@ impl Boundaries<'_> {
             findings.push(Finding::new(
                 "api-plane-route",
                 path,
+                None,
                 format!("{path} contains a stale hardcoded API owner route"),
                 "remove the retired route prefix",
             ));

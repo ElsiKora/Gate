@@ -245,7 +245,8 @@ pub struct BaselineWritten {
 }
 
 /// Runs a full check of the working tree and writes the fingerprints of its findings (after
-/// exceptions, without the core's own) to `gate/baseline.json`.
+/// exceptions, without the core's own) to `gate/baseline.json`, replacing it: for the first
+/// baseline. Once findings are fixed, [`prune_baseline`] drops their entries and adds none.
 ///
 /// # Errors
 /// Fails like [`check`], and when the file cannot be written.
@@ -282,6 +283,82 @@ pub fn write_baseline(start: &Path) -> Result<BaselineWritten> {
         baseline,
         path,
         tracked,
+    })
+}
+
+/// What `gate baseline prune` did.
+#[derive(Debug)]
+pub struct BaselinePruned {
+    /// The entries it re-keyed, as they are now: written without a key for a finding that now has
+    /// one.
+    pub rekeyed: Vec<BaselineEntry>,
+    /// The entries it removed: those that matched no finding although their rule ran.
+    pub removed: Vec<BaselineEntry>,
+    /// The entries the file holds now.
+    pub kept: usize,
+    /// The findings no entry accepts, which `gate check` reports; prune does not add them.
+    pub unaccepted: usize,
+    /// The file, on disk.
+    pub path: PathBuf,
+}
+
+/// Runs a full check of the working tree and prunes `gate/baseline.json` against its findings: an
+/// entry written without a key for a finding its plugin now keys is re-keyed, and the entries
+/// `gate check` reports as stale (they match no finding although their rule ran, an aspect set to
+/// `off` included) are removed. It never adds an entry, so a new finding stays reported. The file is
+/// rewritten only when an entry changes.
+///
+/// # Errors
+/// Fails like [`check`], when the baseline does not load, when `gate/baseline.json` exists but git
+/// does not track it (gate would read none of it), and when the file cannot be written.
+pub fn prune_baseline(start: &Path) -> Result<BaselinePruned> {
+    let request = CheckRequest {
+        source: Some(Source::WorkTree),
+        ..CheckRequest::default()
+    };
+    let run = run(start, &request)?;
+    let root = run.workspace.snapshot().git().root().to_path_buf();
+    let path = root.join(BASELINE_FILE);
+    let tracked = !run
+        .workspace
+        .snapshot()
+        .git()
+        .paths(&["ls-files", "-z", "--", BASELINE_FILE])?
+        .is_empty();
+    if path.exists() && !tracked {
+        return Err(Error::config(format!(
+            "{BASELINE_FILE} exists but git does not track it, and gate reads tracked files only; run git add {BASELINE_FILE} first, then gate baseline prune"
+        )));
+    }
+    let findings = run.findings.finish(
+        run.workspace.exceptions(),
+        &Baseline::default(),
+        &run.ran.per_scope,
+    );
+    let pruned = run
+        .workspace
+        .baseline()
+        .pruned(&findings, &run.ran.per_scope);
+    let unaccepted = pruned
+        .baseline
+        .accept(&findings)
+        .findings
+        .iter()
+        .zip(&findings)
+        .filter(|(accepted, finding)| !**accepted && !baseline::is_core(&finding.rule))
+        .count();
+    if !pruned.removed.is_empty() || !pruned.rekeyed.is_empty() {
+        std::fs::write(&path, pruned.baseline.to_json()?).map_err(|error| {
+            Error::environment(format!("cannot write {}: {error}", path.display()))
+        })?;
+    }
+
+    Ok(BaselinePruned {
+        kept: pruned.baseline.len(),
+        rekeyed: pruned.rekeyed,
+        removed: pruned.removed,
+        unaccepted,
+        path,
     })
 }
 
@@ -509,6 +586,7 @@ fn over_budget(elapsed: Duration, budget: Duration, fails: bool) -> Finding {
         help: Some("find the slow plugin with --timings, or raise --budget".to_owned()),
         norm: None,
         project: None,
+        key: None,
     }
 }
 

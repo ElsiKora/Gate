@@ -116,7 +116,8 @@ impl Rule for DtoDecorators {
                     .help(format!(
                         "use the {} property decorators in DTOs",
                         layout.automator_package
-                    ));
+                    ))
+                    .key("swagger-import");
             }
         }
 
@@ -141,7 +142,8 @@ impl Rule for DtoDecorators {
                     )
                     .help(
                         "describe the property on its entity; DTOs take the description from there",
-                    );
+                    )
+                    .key("describe");
             }
         }
 

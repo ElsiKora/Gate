@@ -268,11 +268,16 @@ struct FileCheck<'f, 'r, 'a> {
 }
 
 impl<'a> FileCheck<'_, '_, 'a> {
-    fn error(&mut self, aspect: &'static str, start: u32, message: &str) {
+    fn error(&mut self, aspect: &'static str, check: &str, start: u32, message: &str) {
         let path = self.source.file.path();
         let line = self.source.file.line(start);
-        self.findings
-            .push(aspect, path, Some(line), format!("{path}:{line} {message}"));
+        self.findings.push_keyed(
+            aspect,
+            path,
+            Some(line),
+            check,
+            format!("{path}:{line} {message}"),
+        );
     }
 
     fn run(mut self) {
@@ -299,6 +304,7 @@ impl<'a> FileCheck<'_, '_, 'a> {
             {
                 self.error(
                     LOGGING,
+                    "mutated",
                     start,
                     "native TypeORM options logging must not be mutated through a materialized object or its local aliases",
                 );
@@ -309,6 +315,7 @@ impl<'a> FileCheck<'_, '_, 'a> {
             if !final_false_logging(object, &self.source.names.logging_property) {
                 self.error(
                     LOGGING,
+                    "final-false",
                     object.span.start,
                     "native TypeORM options must end with effective literal logging:false after overriding spreads or computed properties",
                 );
@@ -339,6 +346,7 @@ impl<'a> FileCheck<'_, '_, 'a> {
                     if !valid {
                         self.error(
                             LOGGER,
+                            "logger-error",
                             call.span.start,
                             "native Logger.error must pass FormatErrorEvidenceForLog(actual error evidence) and a bounded message/context, with no raw additional arguments",
                         );
@@ -413,6 +421,7 @@ impl<'a> FileCheck<'_, '_, 'a> {
             Some(expression) => self.add(expression),
             None => self.error(
                 LOGGING,
+                "finalized",
                 argument.span().start,
                 "native TypeORM options factory or constructor must finalize its effective logging:false options locally on every branch",
             ),
@@ -427,6 +436,7 @@ impl<'a> FileCheck<'_, '_, 'a> {
         if objects.iter().any(Option::is_none) {
             self.error(
                 LOGGING,
+                "finalized",
                 expression.span().start,
                 "native TypeORM options factory or constructor must finalize its effective logging:false options locally on every branch",
             );

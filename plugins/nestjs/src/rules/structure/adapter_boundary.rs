@@ -91,10 +91,11 @@ impl Rule for AdapterBoundary {
                     .any(|external| specifier.starts_with(external.as_str()));
 
                 if external && !path.starts_with(prefix.as_str()) {
-                    findings.push(
+                    findings.push_keyed(
                         "external-package",
                         path,
                         None,
+                        specifier.as_str(),
                         format!(
                             "{path} imports external adapter package {specifier} outside infrastructure"
                         ),
@@ -107,10 +108,11 @@ impl Rule for AdapterBoundary {
                     .is_some_and(|target| target == folder || target.starts_with(&below));
 
                 if inward && loads_infrastructure {
-                    findings.push(
+                    findings.push_keyed(
                         "inward-infrastructure",
                         path,
                         None,
+                        specifier.as_str(),
                         format!(
                             "{path} imports infrastructure adapter {specifier} into an inward owner"
                         ),

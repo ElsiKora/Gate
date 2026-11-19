@@ -119,9 +119,10 @@ impl Rule for ExceptionOwners {
                 .find(|record| record.id == owner);
 
             match record {
-                None => findings.emit(
+                None => findings.emit_keyed(
                     "",
                     at,
+                    format!("{rule}/{owner}#unlisted"),
                     format!(
                         "the exception for {rule} names the owner {owner}, which {implementation} does not list; name an open implementation record, or remove the owner"
                     ),
@@ -133,9 +134,10 @@ impl Rule for ExceptionOwners {
                             || "which has no status".to_owned(),
                             |status| format!("which is `{status}`"),
                         );
-                        findings.emit(
+                        findings.emit_keyed(
                             "",
                             at,
+                            format!("{rule}/{owner}#closed"),
                             format!(
                                 "the exception for {rule} names the owner {owner}, {state}; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
                             ),
@@ -182,16 +184,18 @@ impl Rule for ExceptionDecisions {
             };
 
             match index.as_ref().and_then(|index| index.get(decision)) {
-                None => findings.emit(
+                None => findings.emit_keyed(
                     "",
                     at,
+                    format!("{rule}/{decision}#unlisted"),
                     format!(
                         "the exception for {rule} names the decision {decision}, which {index_path} does not list; name an accepted decision of the index"
                     ),
                 ),
-                Some(found) if found.status != "accepted" => findings.emit(
+                Some(found) if found.status != "accepted" => findings.emit_keyed(
                     "",
                     at,
+                    format!("{rule}/{decision}#not-accepted"),
                     format!(
                         "the exception for {rule} names the decision {decision}, which is `{}`; an exception needs an accepted decision",
                         found.status

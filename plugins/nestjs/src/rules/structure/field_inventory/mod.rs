@@ -341,6 +341,7 @@ impl Rule for FieldInventory {
                 line: None,
                 message,
                 target: None,
+                key: Some("decisions".to_owned()),
             });
             findings.sort_by(|left, right| {
                 (&left.path, left.line, &left.message).cmp(&(
@@ -377,6 +378,10 @@ impl Rule for FieldInventory {
 
             if let Some(target) = finding.target {
                 report.target(target);
+            }
+
+            if let Some(key) = finding.key {
+                report.key(key);
             }
         }
 
@@ -415,6 +420,10 @@ pub(crate) struct Finding {
     /// `<path>:<Class>.<member>`, with ` [<PLANE>,…]` for `unclassified`; `None` for a finding
     /// about no field.
     pub target: Option<String>,
+    /// The finding's stable key: `<Class>.<member>`, with `#<check>` where one field or entry can
+    /// fail several checks of one aspect, or the name of what the finding is about; it stays when
+    /// the message's wording or the options file's path changes.
+    pub key: Option<String>,
 }
 
 impl Finding {
@@ -432,7 +441,17 @@ impl Finding {
             line,
             message,
             target: Some(format!("{}:{key}", key.path)),
+            key: Some(key.to_string()),
         }
+    }
+
+    /// The finding with `#check` after its key, for one of several checks of one aspect.
+    pub(crate) fn check(mut self, check: &str) -> Self {
+        if let Some(key) = &mut self.key {
+            key.push('#');
+            key.push_str(check);
+        }
+        self
     }
 }
 
@@ -468,6 +487,7 @@ fn evaluate(
             line: Some(unread.line),
             message: unread.message.clone(),
             target: None,
+            key: None,
         });
     }
 
@@ -538,20 +558,24 @@ fn check_entries(
 
     for (index, entry) in entries.iter().enumerate() {
         let key = entry.key();
-        let mut problem = |message: String| {
-            findings.push(Finding::about(
-                "classification",
-                lines.path.clone(),
-                lines.line(index),
-                message,
-                &key,
-            ));
+        let mut problem = |check: &str, message: String| {
+            findings.push(
+                Finding::about(
+                    "classification",
+                    lines.path.clone(),
+                    lines.line(index),
+                    message,
+                    &key,
+                )
+                .check(check),
+            );
         };
 
         if classified.contains_key(&key) {
-            problem(format!(
-                "entry {key} repeats an earlier entry for the same field"
-            ));
+            problem(
+                "repeated",
+                format!("entry {key} repeats an earlier entry for the same field"),
+            );
             continue;
         }
 
@@ -567,65 +591,89 @@ fn check_entry(
     entry: &Entry,
     key: &Key,
     accepted: &dyn Fn(&str) -> bool,
-    problem: &mut dyn FnMut(String),
+    problem: &mut dyn FnMut(&str, String),
 ) {
     match (entry.class, entry.kind) {
-        (Class::Code, None) => problem(format!("entry {key} is a CODE and needs a kind")),
-        (class, Some(kind)) if class != Class::Code => problem(format!(
-            "entry {key} names the code kind {}, which only a CODE entry carries",
-            kind.label()
-        )),
+        (Class::Code, None) => problem("kind", format!("entry {key} is a CODE and needs a kind")),
+        (class, Some(kind)) if class != Class::Code => problem(
+            "kind",
+            format!(
+                "entry {key} names the code kind {}, which only a CODE entry carries",
+                kind.label()
+            ),
+        ),
         _ => {}
     }
 
     if entry.class == Class::Machine && entry.reason.as_deref().is_none_or(str::is_empty) {
-        problem(format!("entry {key} is a MACHINE value and needs a reason"));
+        problem(
+            "reason",
+            format!("entry {key} is a MACHINE value and needs a reason"),
+        );
     }
 
     if !accepted(&entry.decision) {
-        problem(format!(
-            "entry {key} names {}, which is not an accepted decision",
-            entry.decision
-        ));
+        problem(
+            "decision",
+            format!(
+                "entry {key} names {}, which is not an accepted decision",
+                entry.decision
+            ),
+        );
     }
 
     if let Some(decision) = &entry.exposing_decision {
         if !entry.class.is_private() {
-            problem(format!(
-                "entry {key} names an exposingDecision, which only a STAFF_NOTE or THIRD_PARTY \
-                 entry carries"
-            ));
+            problem(
+                "exposing-decision",
+                format!(
+                    "entry {key} names an exposingDecision, which only a STAFF_NOTE or \
+                     THIRD_PARTY entry carries"
+                ),
+            );
         } else if !accepted(decision) {
-            problem(format!(
-                "entry {key} names the exposingDecision {decision}, which is not an accepted \
-                 decision"
-            ));
+            problem(
+                "exposing-decision",
+                format!(
+                    "entry {key} names the exposingDecision {decision}, which is not an accepted \
+                     decision"
+                ),
+            );
         }
     }
 
     if entry.alternative == Some(entry.class) {
-        problem(format!(
-            "entry {key} names its own class {} as its alternative",
-            entry.class.label()
-        ));
+        problem(
+            "alternative",
+            format!(
+                "entry {key} names its own class {} as its alternative",
+                entry.class.label()
+            ),
+        );
     }
 
     if entry.exposure.iter().collect::<BTreeSet<_>>().len() != entry.exposure.len() {
-        problem(format!("entry {key} lists an exposure plane twice"));
+        problem(
+            "exposure",
+            format!("entry {key} lists an exposure plane twice"),
+        );
     }
 
     if entry.class != Class::Code && (entry.role.is_some() || entry.scope.is_some()) {
-        problem(format!(
-            "entry {key} names a role or a scope, which only a CODE entry carries"
-        ));
+        problem(
+            "role-scope",
+            format!("entry {key} names a role or a scope, which only a CODE entry carries"),
+        );
     } else if entry.role == Some(Role::Identity) && entry.scope.is_none() {
-        problem(format!(
-            "entry {key} is an IDENTITY code and needs its scope"
-        ));
+        problem(
+            "role-scope",
+            format!("entry {key} is an IDENTITY code and needs its scope"),
+        );
     } else if entry.role != Some(Role::Identity) && entry.scope.is_some() {
-        problem(format!(
-            "entry {key} names a scope, which only an IDENTITY code carries"
-        ));
+        problem(
+            "role-scope",
+            format!("entry {key} names a scope, which only an IDENTITY code carries"),
+        );
     }
 }
 
@@ -699,30 +747,36 @@ fn compare(
             }
 
             if entry.is_stable_key() && derived.contains(&Plane::Public) {
-                findings.push(at_field(
-                    "private-exposure",
-                    format!(
-                        "{} is a STABLE_KEY code exposed on {}, but an internal stable key is \
-                         never displayed on PUBLIC",
-                        field.key,
-                        planes(derived)
-                    ),
-                ));
+                findings.push(
+                    at_field(
+                        "private-exposure",
+                        format!(
+                            "{} is a STABLE_KEY code exposed on {}, but an internal stable key \
+                             is never displayed on PUBLIC",
+                            field.key,
+                            planes(derived)
+                        ),
+                    )
+                    .check("stable-key"),
+                );
             }
 
             if entry.class.is_private()
                 && entry.exposing_decision.is_none()
                 && derived.iter().any(|plane| *plane != Plane::Internal)
             {
-                findings.push(at_field(
-                    "private-exposure",
-                    format!(
-                        "{} is a {} exposed on {} without an exposingDecision",
-                        field.key,
-                        entry.class.label(),
-                        planes(derived)
-                    ),
-                ));
+                findings.push(
+                    at_field(
+                        "private-exposure",
+                        format!(
+                            "{} is a {} exposed on {} without an exposingDecision",
+                            field.key,
+                            entry.class.label(),
+                            planes(derived)
+                        ),
+                    )
+                    .check("exposing-decision"),
+                );
             }
 
             findings
@@ -781,11 +835,11 @@ fn references(
             accepted,
             reference,
             repeated,
-            &mut |message| {
-                findings.push(at_entry(
-                    "config-key-source",
-                    format!("entry {key} {message}"),
-                ));
+            &mut |check: &str, message: String| {
+                findings.push(
+                    at_entry("config-key-source", format!("entry {key} {message}"))
+                        .check(&format!("{}#{check}", reference.source)),
+                );
             },
         )?;
     }
@@ -817,27 +871,30 @@ fn reference_findings(
     accepted: &dyn Fn(&str) -> bool,
     reference: &Reference,
     repeated: bool,
-    problem: &mut dyn FnMut(String),
+    problem: &mut dyn FnMut(&str, String),
 ) -> gate_sdk::Result<()> {
     let source = &reference.source;
 
     if repeated {
-        problem(format!("lists the reference {source:?} twice"));
+        problem("repeated", format!("lists the reference {source:?} twice"));
     }
 
     if !accepted(&reference.decision) {
-        problem(format!(
-            "references {source:?} under {}, which is not an accepted decision",
-            reference.decision
-        ));
+        problem(
+            "decision",
+            format!(
+                "references {source:?} under {}, which is not an accepted decision",
+                reference.decision
+            ),
+        );
     }
 
     if reference.reason.is_empty() {
-        problem(format!("references {source:?} without a reason"));
+        problem("reason", format!("references {source:?} without a reason"));
     }
 
     if let Some(found) = reference::problem(typescript, roots, source)? {
-        problem(format!("references {source:?}, which {found}"));
+        problem("source", format!("references {source:?}, which {found}"));
     }
 
     Ok(())

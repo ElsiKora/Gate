@@ -149,7 +149,8 @@ impl Rule for RawConfigAccess {
                     Location::file(path),
                     format!("{path} imports a raw config service outside an approved config boundary"),
                 )
-                .help("read the typed runtime configuration, or move the file into the configuration boundary");
+                .help("read the typed runtime configuration, or move the file into the configuration boundary")
+                .key("raw-import");
         }
 
         Ok(())

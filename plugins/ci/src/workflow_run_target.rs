@@ -56,6 +56,7 @@ impl Rule for WorkflowRunTarget {
                         Location::line(&workflow.path, item.line),
                         format!("workflow_run names `{name}`, which no workflow defines"),
                     )
+                    .key(name)
                     .target(format!("{}:{name}", workflow.path))
                     .help(
                         "name a workflow by its `name:` (or its path when it has none); GitHub \

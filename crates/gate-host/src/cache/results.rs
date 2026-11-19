@@ -254,6 +254,7 @@ fn encode_finding(finding: &Finding) -> Value {
         "location": location,
         "target": finding.target,
         "help": finding.help,
+        "key": finding.key,
     })
 }
 
@@ -296,6 +297,7 @@ fn decode_finding(value: &Value) -> Option<Finding> {
         location,
         target: optional(value.get("target")?)?,
         help: optional(value.get("help")?)?,
+        key: optional(value.get("key")?)?,
     })
 }
 
@@ -332,6 +334,7 @@ mod tests {
             location,
             target: Some("t".to_owned()),
             help: None,
+            key: None,
         }
     }
 
@@ -365,6 +368,10 @@ mod tests {
                         end_column: 4,
                     },
                 ))),
+                Finding {
+                    key: Some("Thing.one".to_owned()),
+                    ..finding(Some(Location::file("apps/a/x.ts")))
+                },
             ],
             read_set,
             &inputs,

@@ -3088,3 +3088,347 @@ fn a_cold_history_run_computes_one_sync_state_per_commit_for_every_call_and_rule
     assert!(ran.is_empty(), "{ran:?}");
     assert_eq!(states.as_deref(), Some("0 computed, 3 from the cache"));
 }
+
+/// [`probe_repo`] with the built probe pinned in `gate.lock` and already in the cache, so the
+/// commands that take no `--plugin` (`baseline write`, `baseline prune`) run it.
+fn pinned_probe_repo() -> Repo {
+    let repo = probe_repo("");
+    let (_, bytes) = probe();
+    let sum = sha256(bytes);
+    repo.write(
+        "gate.lock",
+        &lock(
+            "acme/rules:probe@0.1.0",
+            "https://example.invalid/probe.wasm",
+            &sum,
+        ),
+    );
+    let blobs = repo.cache.path().join("blobs/sha256");
+    std::fs::create_dir_all(&blobs).expect("cache directories");
+    std::fs::write(blobs.join(&sum), bytes).expect("cache entry");
+    repo
+}
+
+/// Sets `probe/read`'s `options` (a TOML inline table) for project `apps/one` and commits.
+fn read_with(repo: &Repo, options: &str) {
+    repo.write(
+        "apps/one/gate.toml",
+        &format!(
+            "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = {{ level = \"error\", options = {options} }}\n"
+        ),
+    );
+    repo.commit(&format!("probe/read with {options}"));
+}
+
+/// `gate check --format json` in `repo`: its exit code and its findings.
+fn check_json(repo: &Repo) -> (Option<i32>, Vec<serde_json::Value>) {
+    let output = repo.gate(&["check", "--format", "json"]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let findings = report["findings"].as_array().expect("findings").clone();
+    (output.status.code(), findings)
+}
+
+/// The fingerprint of the one finding `gate check` reports, checked against SARIF's.
+fn only_fingerprint(repo: &Repo) -> String {
+    let (code, findings) = check_json(repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    let fingerprint = findings[0]["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_owned();
+    let output = repo.gate(&["check", "--format", "sarif"]);
+    let sarif: serde_json::Value = serde_json::from_str(&text(&output.stdout)).expect("SARIF");
+    assert_eq!(
+        sarif["runs"][0]["results"][0]["partialFingerprints"]["gate/v1"],
+        serde_json::json!(fingerprint)
+    );
+    fingerprint
+}
+
+#[test]
+fn a_finding_with_a_key_keeps_its_fingerprint_when_its_message_changes() {
+    let repo = pinned_probe_repo();
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "first wording", key = "Thing.one" }"#,
+    );
+    let (_, findings) = check_json(&repo);
+    assert_eq!(findings[0]["key"], serde_json::json!("Thing.one"));
+    let keyed = only_fingerprint(&repo);
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "second wording, naming apps/one/a.txt", key = "Thing.one" }"#,
+    );
+    assert_eq!(only_fingerprint(&repo), keyed);
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "second wording", key = "Thing.two" }"#,
+    );
+    assert_ne!(
+        only_fingerprint(&repo),
+        keyed,
+        "another key, another finding"
+    );
+
+    // Without a key the message is the identity: a new wording is a new finding.
+    read_with(&repo, r#"{ at = "a.txt", at_message = "first wording" }"#);
+    let first = only_fingerprint(&repo);
+    assert_ne!(first, keyed);
+    read_with(&repo, r#"{ at = "a.txt", at_message = "second wording" }"#);
+    assert_ne!(only_fingerprint(&repo), first);
+    // A key never gives the fingerprint of a message of the same text.
+    read_with(&repo, r#"{ at = "a.txt", at_message = "Thing.one" }"#);
+    assert_ne!(only_fingerprint(&repo), keyed);
+}
+
+#[test]
+fn a_baseline_entry_with_a_key_accepts_its_finding_after_the_message_changes() {
+    let repo = pinned_probe_repo();
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "first wording", key = "Thing.one" }"#,
+    );
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let written = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+    assert!(written.contains("\"key\": \"Thing.one\""), "{written}");
+    repo.commit("the baseline");
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "second wording", key = "Thing.one" }"#,
+    );
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "{findings:?}");
+    assert!(findings.is_empty(), "{findings:?}");
+
+    // Without a key, the reworded finding is new and its entry is stale.
+    read_with(&repo, r#"{ at = "a.txt", at_message = "first wording" }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline without a key");
+    read_with(&repo, r#"{ at = "a.txt", at_message = "second wording" }"#);
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let mut messages: Vec<&str> = findings
+        .iter()
+        .filter_map(|finding| finding["message"].as_str())
+        .collect();
+    messages.sort_unstable();
+    assert_eq!(
+        messages,
+        [
+            "second wording",
+            "the baseline entry for probe/read at apps/one/a.txt matches no finding",
+        ]
+    );
+}
+
+#[test]
+fn baseline_prune_removes_only_stale_entries_and_never_adds_one() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x", "y"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "{findings:?}");
+
+    // `y` is fixed, `z` is new: check reports the new finding and the stale entry.
+    read_with(&repo, r#"{ paths = ["x", "z"] }"#);
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    assert_eq!(findings.len(), 2, "{findings:?}");
+
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        concat!(
+            "removed probe/read at apps/one/probe: y: none\n",
+            "gate/baseline.json: re-keyed 0, removed 1, added none; 1 kept\n",
+            "1 finding is not in the baseline and stays reported; prune adds none\n",
+        )
+    );
+    let pruned = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+    let entries: serde_json::Value = serde_json::from_str(&pruned).expect("baseline");
+    let messages: Vec<&str> = entries["findings"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .filter_map(|entry| entry["message"].as_str())
+        .collect();
+    assert_eq!(messages, ["x: none"]);
+    repo.commit("the pruned baseline");
+
+    // The new finding stays reported, and nothing is stale.
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let messages: Vec<&str> = findings
+        .iter()
+        .filter_map(|finding| finding["message"].as_str())
+        .collect();
+    assert_eq!(messages, ["z: none"]);
+
+    // Nothing more to prune: the file stays as it is.
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        concat!(
+            "gate/baseline.json: re-keyed 0, removed 0, added none; 1 kept\n",
+            "1 finding is not in the baseline and stays reported; prune adds none\n",
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file"),
+        pruned
+    );
+
+    // A baseline edited by hand is a configuration error, and nothing is written.
+    let edited = pruned.replacen("\"fingerprint\": \"", "\"fingerprint\": \"0", 1);
+    repo.write("gate/baseline.json", &edited);
+    repo.commit("a baseline edited by hand");
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    assert!(
+        text(&output.stderr).contains("the file was edited by hand"),
+        "{}",
+        text(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file"),
+        edited
+    );
+}
+
+#[test]
+fn baseline_prune_re_keys_an_entry_written_before_its_plugin_keyed_the_finding() {
+    let repo = pinned_probe_repo();
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "Thing has no owner" }"#,
+    );
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("a baseline written without keys");
+
+    // The plugin now keys the finding: the old entry matches it no more, so check reports both.
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "Thing has no owner", key = "Thing" }"#,
+    );
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let mut rules: Vec<&str> = findings
+        .iter()
+        .filter_map(|finding| finding["rule"].as_str())
+        .collect();
+    rules.sort_unstable();
+    assert_eq!(rules, ["gate/baseline", "probe/read"], "{findings:?}");
+
+    // Prune rewrites the entry with the key instead of removing it.
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        concat!(
+            "re-keyed probe/read at apps/one/a.txt: Thing\n",
+            "gate/baseline.json: re-keyed 1, removed 0, added none; 1 kept\n",
+        )
+    );
+    let written = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+    assert!(written.contains("\"key\": \"Thing\""), "{written}");
+    repo.commit("the re-keyed baseline");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "{findings:?}");
+    assert!(findings.is_empty(), "{findings:?}");
+
+    // A new finding stays reported: re-keying accepted nothing new.
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "Thing has no owner", key = "Thing", paths = ["n"] }"#,
+    );
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let messages: Vec<&str> = findings
+        .iter()
+        .filter_map(|finding| finding["message"].as_str())
+        .collect();
+    assert_eq!(messages, ["n: none"]);
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        concat!(
+            "gate/baseline.json: re-keyed 0, removed 0, added none; 1 kept\n",
+            "1 finding is not in the baseline and stays reported; prune adds none\n",
+        )
+    );
+}
+
+#[test]
+fn baseline_prune_on_an_untracked_baseline_says_to_add_it_first() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let written = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let error = text(&output.stderr);
+    assert!(
+        error.contains("gate/baseline.json exists but git does not track it")
+            && error.contains("run git add gate/baseline.json first"),
+        "{error}"
+    );
+    assert!(
+        !text(&output.stdout).contains("removed 0"),
+        "{}",
+        text(&output.stdout)
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file"),
+        written
+    );
+}
+
+#[test]
+fn a_finding_that_names_its_line_keeps_its_fingerprint_when_an_edit_above_moves_it() {
+    let repo = pinned_probe_repo();
+    repo.write(
+        "apps/one/x.ts",
+        "export const a = 1;\nexport class Thing {}\n",
+    );
+    read_with(&repo, r#"{ at = "x.ts", line_of = "class Thing" }"#);
+    let (_, findings) = check_json(&repo);
+    assert_eq!(
+        findings[0]["message"],
+        serde_json::json!("x.ts:2 class Thing")
+    );
+    let before = only_fingerprint(&repo);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+
+    // An unrelated edit above the finding moves it, and its message, two lines down.
+    repo.write(
+        "apps/one/x.ts",
+        "// a comment above\nexport const a = 1;\n\nexport class Thing {}\n",
+    );
+    repo.commit("an edit above the finding");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "the baseline still accepts it: {findings:?}");
+    assert!(findings.is_empty(), "{findings:?}");
+
+    repo.git(&["rm", "-q", "gate/baseline.json"]);
+    repo.commit("no baseline");
+    let (_, findings) = check_json(&repo);
+    assert_eq!(
+        findings[0]["message"],
+        serde_json::json!("x.ts:4 class Thing")
+    );
+    assert_eq!(only_fingerprint(&repo), before);
+}

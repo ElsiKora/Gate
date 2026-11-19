@@ -54,9 +54,10 @@ impl Rule for Blockers {
                     }
                 }
             } else if settings.is_started(status) && !none.is_match(blocked_by) {
-                findings.emit(
+                findings.emit_keyed(
                     "started-blocker",
                     &record.location,
+                    record.id.clone(),
                     format!(
                         "{} {} is in progress, so its Blocked by must be none; record the remaining wait as a dated Completion dependency",
                         record.location.path, record.id
@@ -82,9 +83,10 @@ fn closed_status<'l>(ledger: &'l Ledger, settings: &Settings, id: &str) -> Optio
 }
 
 fn closed_blocker(findings: &mut Findings, record: &Record, id: &str, status: &str) {
-    findings.emit(
+    findings.emit_keyed(
         "closed-blocker",
         &record.location,
+        format!("{}/{id}", record.id),
         format!(
             "{} {} is planned, but its Blocked by names {id}, which is `{status}`; keep only open blockers there and move the context to a Dependency context field",
             record.location.path, record.id

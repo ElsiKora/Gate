@@ -22,6 +22,9 @@ pub struct Pending {
     pub line: Option<u32>,
     /// The message.
     pub message: String,
+    /// The stable key of what the finding is about, when the message embeds a path or an option
+    /// value; see `gate_sdk::Finding::key`.
+    pub key: Option<String>,
 }
 
 /// The findings of a run in the order they were found, each distinct one kept once: two checks
@@ -40,13 +43,34 @@ impl Findings {
         line: Option<u32>,
         message: impl Into<String>,
     ) {
-        let finding = Pending {
+        self.add(Pending {
             aspect,
             path: path.into(),
             line,
             message: message.into(),
-        };
+            key: None,
+        });
+    }
 
+    /// Adds a finding with the stable key `key` unless an identical one is already collected.
+    pub fn push_keyed(
+        &mut self,
+        aspect: &'static str,
+        path: impl Into<String>,
+        line: Option<u32>,
+        key: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.add(Pending {
+            aspect,
+            path: path.into(),
+            line,
+            message: message.into(),
+            key: Some(key.into()),
+        });
+    }
+
+    fn add(&mut self, finding: Pending) {
         if !self.pending.contains(&finding) {
             self.pending.push(finding);
         }
@@ -60,9 +84,13 @@ impl Findings {
                 &finding.path,
                 finding.line.and_then(|line| usize::try_from(line).ok()),
             );
-            run.report()
+            let reported = run
+                .report()
                 .finding(finding.aspect, location, finding.message)
                 .help(help);
+            if let Some(key) = finding.key {
+                reported.key(key);
+            }
         }
     }
 }

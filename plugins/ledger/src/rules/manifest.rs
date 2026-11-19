@@ -97,9 +97,10 @@ impl Rule for Manifest {
         };
 
         match serde_json::from_str::<Value>(&manifest_text) {
-            Err(error) => findings.emit(
+            Err(error) => findings.emit_keyed(
                 "manifest-shape",
                 &At::file(path),
+                "json".to_owned(),
                 format!("{path} is not valid JSON: {error}"),
             ),
             Ok(manifest) => checker.check(&manifest, options, &mut findings),
@@ -120,18 +121,20 @@ impl Checker<'_, '_> {
         let path = self.manifest;
         let tree = self.catalog.tree();
         let Some(shape) = Shape::read(manifest) else {
-            findings.emit(
+            findings.emit_keyed(
                 "manifest-shape",
                 &At::file(path),
+                "required-fields".to_owned(),
                 format!("{path} contains malformed required ledger manifest fields"),
             );
             return;
         };
 
         if shape.files.iter().collect::<HashSet<_>>().len() != shape.files.len() {
-            findings.emit(
+            findings.emit_keyed(
                 "manifest-shape",
                 &At::file(path),
+                "canonicalFiles#duplicate".to_owned(),
                 format!("{path} contains duplicate canonicalFiles entries"),
             );
         }
@@ -140,9 +143,10 @@ impl Checker<'_, '_> {
             let required = format!("{}/{file}", shape.root);
 
             if !tree.contains(&join(&[shape.root, file])) {
-                findings.emit(
+                findings.emit_keyed(
                     "manifest-file",
                     &self.location(&required),
+                    format!("canonicalFiles/{file}"),
                     format!("{required} is required by the ledger manifest"),
                 );
             }
@@ -164,12 +168,13 @@ impl Checker<'_, '_> {
             for (label, literal) in &shape.forbidden {
                 if let Some(start) = find(&bytes, literal.as_bytes()) {
                     let line = bytes[..start].split(|byte| *byte == b'\n').count();
-                    findings.emit(
+                    findings.emit_keyed(
                         "forbidden-reference",
                         &At {
                             path: scanned.clone(),
                             line: u32::try_from(line).ok(),
                         },
+                        (*label).to_owned(),
                         format!("{scanned} references forbidden ledger path: {label}"),
                     );
                 }
@@ -197,9 +202,10 @@ impl Checker<'_, '_> {
             _ => None,
         };
         let (Some(pattern), Some((path, is_directory))) = (pattern, target) else {
-            findings.emit(
+            findings.emit_keyed(
                 "manifest-shape",
                 &At::file(manifest),
+                format!("{family}#malformed"),
                 format!("{manifest} contains malformed {family}-family definition"),
             );
             return;
@@ -212,9 +218,10 @@ impl Checker<'_, '_> {
         };
 
         if !exists {
-            findings.emit(
+            findings.emit_keyed(
                 "manifest-file",
                 &location,
+                format!("{family}#missing"),
                 format!("{path} is required by the {family}-family definition"),
             );
             return;
@@ -223,9 +230,10 @@ impl Checker<'_, '_> {
         let regex = match multiline_pattern(pattern) {
             Ok(regex) => regex,
             Err(error) => {
-                findings.emit(
+                findings.emit_keyed(
                     "manifest-shape",
                     &At::file(manifest),
+                    format!("{family}#pattern"),
                     format!("{manifest} contains invalid {family}-family pattern: {error}"),
                 );
                 return;
@@ -238,9 +246,10 @@ impl Checker<'_, '_> {
         };
 
         if matches.is_empty() {
-            findings.emit(
+            findings.emit_keyed(
                 "id-family",
                 &location,
+                family.to_owned(),
                 format!("{path} has no {family}-family ledger IDs"),
             );
         }
@@ -250,9 +259,10 @@ impl Checker<'_, '_> {
         if definition.get("unique").is_some_and(truthy)
             && texts.iter().collect::<HashSet<_>>().len() != texts.len()
         {
-            findings.emit(
+            findings.emit_keyed(
                 "record-unique",
                 &location,
+                family.to_owned(),
                 format!("{path} contains duplicate {family} records"),
             );
         }

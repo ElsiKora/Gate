@@ -8,6 +8,17 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
+## Unreleased
+
+### Changed
+
+- The ledger rules (records, record status, decisions, manifest, reuses, closing notes, blockers,
+  exceptions and the review-progress generator) give each finding whose message names a line, a
+  path or an option value a stable key (what it is about, never a line or column), so an edit
+  above a finding or a reworded message keeps its fingerprint. These findings' fingerprints change
+  once, with this release; `gate baseline prune` re-keys their baseline entries when the
+  repository upgrades.
+
 # 0.1.0
 
 ### Features

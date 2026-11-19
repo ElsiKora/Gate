@@ -514,6 +514,7 @@ fn drift(item: &str, path: &str, message: &str) -> Finding {
         help: Some("generated files change through gate.toml and gate sync only".to_owned()),
         norm: None,
         project: None,
+        key: None,
     }
 }
 

@@ -19,14 +19,22 @@ pub struct Finding {
     pub line: Option<usize>,
     /// The message.
     pub message: String,
+    /// The stable key of what the finding is about; see `gate_sdk::Finding::key`.
+    pub key: String,
 }
 
 impl Finding {
-    fn new(aspect: &'static str, line: Option<usize>, message: String) -> Self {
+    fn new(
+        aspect: &'static str,
+        line: Option<usize>,
+        key: impl Into<String>,
+        message: String,
+    ) -> Self {
         Self {
             aspect,
             line,
             message,
+            key: key.into(),
         }
     }
 
@@ -93,6 +101,7 @@ impl Registry {
             return vec![Finding::new(
                 "registry-shape",
                 None,
+                "missing",
                 format!("{registry} is missing the module registry"),
             )];
         };
@@ -125,6 +134,7 @@ impl Registry {
                     findings.push(Finding::new(
                         "registry-shape",
                         Some(number + 1),
+                        "table#delimiter",
                         format!(
                             "{registry}:{} has a malformed module table delimiter",
                             number + 1
@@ -174,6 +184,7 @@ impl Registry {
             return vec![Finding::new(
                 "registry-shape",
                 Some(number),
+                "row#malformed",
                 format!("{registry}:{number} has a malformed module row"),
             )];
         };
@@ -183,6 +194,7 @@ impl Registry {
             findings.push(Finding::new(
                 "registry-shape",
                 Some(number),
+                format!("{path}#duplicate"),
                 format!("{registry} contains duplicate module path: {path}"),
             ));
         } else {
@@ -193,6 +205,7 @@ impl Registry {
             findings.push(Finding::new(
                 "registry-shape",
                 Some(number),
+                format!("{path}#chapter-link"),
                 format!("{registry}:{number} has a malformed module chapter link"),
             ));
             return findings;
@@ -217,6 +230,7 @@ impl Registry {
             findings.push(Finding::new(
                 "registry-shape",
                 None,
+                "table#missing",
                 format!(
                     "{registry} is missing the {} table",
                     self.header.join(" / ")
@@ -228,6 +242,7 @@ impl Registry {
             findings.push(Finding::new(
                 "registry-coverage",
                 None,
+                format!("{path}#missing"),
                 format!("{registry} is missing source module: {path}"),
             ));
         }
@@ -236,6 +251,7 @@ impl Registry {
             findings.push(Finding::new(
                 "registry-coverage",
                 Some(*line),
+                format!("{path}#unknown"),
                 format!("{registry} references unknown source module: {path}"),
             ));
         }
@@ -269,7 +285,12 @@ impl Registry {
             return None;
         };
 
-        Some(Finding::new("registry-chapter", Some(number), message))
+        Some(Finding::new(
+            "registry-chapter",
+            Some(number),
+            path,
+            message,
+        ))
     }
 
     /// Whether the trimmed line is the header row: `|`, the header cells, each trimmed, and `|`.

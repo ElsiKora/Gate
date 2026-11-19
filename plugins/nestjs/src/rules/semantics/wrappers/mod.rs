@@ -596,7 +596,8 @@ impl<'a> FileCheck<'_, '_, '_, 'a> {
             .target(constructions.exemptions.target(self.file, construction, &name))
             .help(format!(
                 "pass a {factory} message as the exception's first argument"
-            ));
+            ))
+            .key(constructor);
         Ok(())
     }
 
@@ -655,7 +656,8 @@ impl<'a> FileCheck<'_, '_, '_, 'a> {
                         "{path}:{line} {name} is a throw-only error wrapper; inline the complete error construction at each decision site"
                     ),
                 )
-                .help("inline the complete error construction at each decision site");
+                .help("inline the complete error construction at each decision site")
+                .key(name);
         }
 
         if let Some(call) = callable.call()
@@ -677,7 +679,8 @@ impl<'a> FileCheck<'_, '_, '_, 'a> {
                     Location::line(path, line_number(line)),
                     format!("{path}:{line} {name} only forwards to {callee}; inline the call"),
                 )
-                .help(format!("call {callee} directly where {name} is called"));
+                .help(format!("call {callee} directly where {name} is called"))
+                .key(name);
         }
 
         Ok(())

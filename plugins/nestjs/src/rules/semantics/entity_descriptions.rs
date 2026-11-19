@@ -137,7 +137,7 @@ impl gate_sdk::Rule for Rule {
                 finding.message,
             );
 
-            reported.help(finding.help);
+            reported.help(finding.help).key(finding.key);
 
             if let Some(target) = finding.target {
                 reported.target(target);
@@ -156,6 +156,7 @@ struct Finding {
     message: String,
     help: &'static str,
     target: Option<String>,
+    key: String,
 }
 
 /// The description checks of one file.
@@ -276,6 +277,7 @@ impl<'a> Descriptions<'_, 'a> {
             message,
             help,
             target,
+            key: label.clone(),
         };
         let Some(StaticValue::String(text)) = value else {
             findings.push(finding(

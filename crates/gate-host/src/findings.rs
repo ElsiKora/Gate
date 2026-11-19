@@ -7,7 +7,7 @@ use std::fmt::{self, Write as _};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::baseline::{BASELINE_FILE, Baseline, BaselineEntry, is_core};
+use crate::baseline::{BASELINE_FILE, Baseline, BaselineEntry};
 use crate::config::{CORE_PLUGIN, RuleId, RuleKey, ScopedException, Settings};
 
 /// How much a finding matters. `off` is a configuration setting, never a finding's level.
@@ -130,6 +130,10 @@ pub struct Finding {
     pub norm: Option<String>,
     /// The project the finding belongs to; `None` for repository-scope rules.
     pub project: Option<String>,
+    /// The plugin's short, stable identity of what the finding is about within its rule, aspect and
+    /// path; with one, the fingerprint is made of it instead of the message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
 }
 
 impl Finding {
@@ -146,6 +150,7 @@ impl Finding {
             help: None,
             norm: None,
             project: None,
+            key: None,
         }
     }
 
@@ -159,16 +164,26 @@ impl Finding {
         }
     }
 
-    /// A stable id of the finding for baselines and SARIF: a digest of rule, aspect, path and
-    /// message, so it survives moved lines.
+    /// A stable id of the finding for baselines and SARIF: a digest of rule, aspect, path and the
+    /// plugin's key, or the message when the plugin gives no key, so it survives moved lines (and,
+    /// with a key, a reworded message).
     #[must_use]
     pub fn fingerprint(&self) -> String {
         fingerprint(
             &self.rule,
             &self.aspect,
             self.location.as_ref().map_or("", Location::key),
-            &self.message,
+            self.identity(),
         )
+    }
+
+    /// What the fingerprint digests besides rule, aspect and path: the key, else the message.
+    #[must_use]
+    pub fn identity(&self) -> Identity<'_> {
+        match &self.key {
+            Some(key) => Identity::Key(key),
+            None => Identity::Message(&self.message),
+        }
     }
 
     fn sort_key(&self) -> (&str, Option<Span>, &str, &str, &str) {
@@ -182,14 +197,36 @@ impl Finding {
     }
 }
 
-/// The fingerprint of a finding's rule, aspect, path and message: the first 16 bytes of their
-/// sha256, each part followed by a zero byte, as 32 hex digits.
+/// What identifies a finding within its rule, aspect and path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Identity<'a> {
+    /// The plugin's stable key.
+    Key(&'a str),
+    /// The message, when the plugin gives no key.
+    Message(&'a str),
+}
+
+/// The fingerprint of a finding's rule, aspect, path and identity: the first 16 bytes of a sha256,
+/// as 32 hex digits. Without a key it digests rule, aspect, path and message, each followed by a zero
+/// byte. With a key it digests the word `key`, rule, aspect, path and key, each after its length in
+/// eight bytes, big-endian; that input starts with a zero byte, which no rule id does, so a keyed
+/// fingerprint never equals an unkeyed one, and no part can run into the next.
 #[must_use]
-pub fn fingerprint(rule: &str, aspect: &str, path: &str, message: &str) -> String {
+pub fn fingerprint(rule: &str, aspect: &str, path: &str, identity: Identity<'_>) -> String {
     let mut digest = Sha256::new();
-    for part in [rule, aspect, path, message] {
-        digest.update(part.as_bytes());
-        digest.update([0]);
+    match identity {
+        Identity::Message(message) => {
+            for part in [rule, aspect, path, message] {
+                digest.update(part.as_bytes());
+                digest.update([0]);
+            }
+        }
+        Identity::Key(key) => {
+            for part in ["key", rule, aspect, path, key] {
+                digest.update(u64::try_from(part.len()).unwrap_or(u64::MAX).to_be_bytes());
+                digest.update(part.as_bytes());
+            }
+        }
     }
     digest
         .finalize()
@@ -211,6 +248,7 @@ impl Ord for Finding {
             .then_with(|| self.target.cmp(&other.target))
             .then_with(|| self.help.cmp(&other.help))
             .then_with(|| self.norm.cmp(&other.norm))
+            .then_with(|| self.key.cmp(&other.key))
     }
 }
 
@@ -272,7 +310,6 @@ impl Findings {
         ran: &RulesRan,
     ) -> Vec<Finding> {
         let mut used = vec![false; exceptions.len()];
-        let mut accepted = vec![false; baseline.len()];
         let mut kept: Vec<Finding> = self
             .items
             .into_iter()
@@ -288,28 +325,9 @@ impl Findings {
             })
             .collect();
 
-        kept.retain(|finding| {
-            if is_core(&finding.rule) {
-                return true;
-            }
-            let print = finding.fingerprint();
-            let entry = baseline
-                .entries()
-                .iter()
-                .enumerate()
-                .position(|(index, entry)| {
-                    !accepted[index]
-                        && entry.fingerprint == print
-                        && entry.project == finding.project
-                });
-            match entry {
-                Some(index) => {
-                    accepted[index] = true;
-                    false
-                }
-                None => true,
-            }
-        });
+        let accepted = baseline.accept(&kept);
+        let mut flags = accepted.findings.iter();
+        kept.retain(|_| !flags.next().copied().unwrap_or(false));
 
         for (exception, used) in exceptions.iter().zip(used) {
             let rule = exception.rule.rule.to_string();
@@ -320,10 +338,8 @@ impl Findings {
             }
         }
 
-        for (entry, accepted) in baseline.entries().iter().zip(accepted) {
-            if !accepted && ran.ran(entry.project.as_deref(), &entry.rule) {
-                kept.push(stale(entry));
-            }
+        for entry in baseline.stale(&accepted, ran) {
+            kept.push(stale(entry));
         }
 
         kept.sort();
@@ -512,6 +528,7 @@ fn unmatched(exception: &ScopedException) -> Finding {
         help: Some("remove the exception; the finding it accepted is gone".to_owned()),
         norm: None,
         project: None,
+        key: None,
     }
 }
 
@@ -528,9 +545,10 @@ fn stale(entry: &BaselineEntry) -> Finding {
         location: Some(Location::file(BASELINE_FILE, None)),
         target: None,
         help: Some(
-            "run gate baseline write to drop it; the finding it accepted is gone".to_owned(),
+            "run gate baseline prune to drop it; the finding it accepted is gone".to_owned(),
         ),
         norm: None,
         project: None,
+        key: None,
     }
 }

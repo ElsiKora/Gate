@@ -103,7 +103,8 @@ impl Rule for PackagePins {
                          package pins"
                     ),
                 )
-                .help("commit the npm manifest and its lockfile");
+                .help("commit the npm manifest and its lockfile")
+                .key("required");
             return Ok(());
         };
         let manifest = parse(&manifest_path, &manifest)?;
@@ -206,18 +207,20 @@ impl Files<'_> {
                         .is_some_and(|value| value.starts_with(&alias))
             });
         let locked = &packages[canonical.as_str()];
-        let mut report = |path: &str, message: String| {
+        let mut report = |path: &str, check: &str, message: String| {
             run.report()
                 .finding("", Location::file(path), message)
                 .help(
                     "pin the exact version in the manifest and reinstall so the lockfile \
                      resolves it once, from the registry tarball",
-                );
+                )
+                .key(format!("{name}#{check}"));
         };
 
         if self.manifest["dependencies"][name] != version {
             report(
                 self.manifest_path,
+                "pin",
                 format!(
                     "{name} must be exact-pinned to {version} in {}",
                     self.manifest_path
@@ -228,6 +231,7 @@ impl Files<'_> {
         if root["dependencies"][name] != version {
             report(
                 self.lockfile_path,
+                "pin",
                 format!(
                     "{name} must be exact-pinned to {version} in {}",
                     self.lockfile_path
@@ -238,6 +242,7 @@ impl Files<'_> {
         if resolutions.as_slice() != [canonical.clone()] || aliased {
             report(
                 self.lockfile_path,
+                "resolution",
                 format!("{name} must have exactly one root npm registry resolution"),
             );
         }
@@ -249,6 +254,7 @@ impl Files<'_> {
         {
             report(
                 self.lockfile_path,
+                "artifact",
                 format!(
                     "{name} lock artifact must be the immutable {version} npm registry tarball \
                      with exact integrity and no link/alias"

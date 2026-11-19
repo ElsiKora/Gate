@@ -37,6 +37,7 @@ pub struct Entry {
 pub struct Unclassified {
     pub path: String,
     pub line: u32,
+    pub key: String,
     pub message: String,
 }
 
@@ -101,6 +102,7 @@ pub fn specialized_entity_decorators(
                     found.push(Unclassified {
                         path: source.path.to_owned(),
                         line: source.line(decorator.span),
+                        key: format!("{class_name}.{property}@{}", imported.name),
                         message: format!(
                             "{}.{property} uses @{} in an entity class; describe entity fields with @ApiPropertyDescribe only",
                             class_name, imported.name
@@ -394,6 +396,7 @@ pub fn routes<'a>(
                 unclassified.push(Unclassified {
                     path: source.path.to_owned(),
                     line: source.line(call.span),
+                    key: format!("{class_name}@{name}"),
                     message: format!(
                         "{} controller {class_name} has unclassified class decorator {name}",
                         source.path

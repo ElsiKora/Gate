@@ -85,6 +85,7 @@ impl Rule for RuleEnforcement {
         for (location, target, message) in findings {
             run.report()
                 .finding("", location, message)
+                .key(target.as_str())
                 .target(target)
                 .help(
                     "declare the enforcement its class needs (see the rule page), or map the \

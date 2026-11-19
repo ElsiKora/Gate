@@ -84,9 +84,14 @@ impl Rule for ClosingNotes {
                         "has a {name} entry with a closing note while its exact closer {closer} is still `{status}`; remove the note until the closer closes, or name the record that closed the difference as its closer"
                     ),
                 };
-                findings.emit(
+                let label = patterns
+                    .label
+                    .find(&entry.text)
+                    .map_or("", |label| label.as_str());
+                findings.emit_keyed(
                     "",
                     &record.location.below(entry.line),
+                    format!("{}/{closer}{label}", record.id),
                     format!("{} {} {message}", record.location.path, record.id),
                 );
             }

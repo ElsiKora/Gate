@@ -992,5 +992,6 @@ fn finding_from(plugin: &str, grant: &Grant, finding: wit::Finding) -> Result<Fi
         location,
         target: finding.target,
         help: finding.help,
+        key: finding.key,
     })
 }

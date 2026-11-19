@@ -87,6 +87,7 @@ impl Rule for Frontmatter {
                     Location::file(&page),
                     format!("{page} must have {keys} frontmatter"),
                 )
+                .key("required-keys")
                 .target(page.clone())
                 .help(format!(
                     "open the page with a block between two `---` lines that sets {keys}, \

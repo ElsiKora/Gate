@@ -56,20 +56,45 @@ impl At {
     }
 }
 
+/// One collected finding: its aspect, location, message and optional stable key.
+#[derive(Debug)]
+struct Collected {
+    aspect: String,
+    at: At,
+    message: String,
+    key: Option<String>,
+}
+
 /// The findings of one rule run, kept in order without repeats.
 #[derive(Debug, Default)]
 pub struct Findings {
     seen: HashSet<(String, At, String)>,
-    findings: Vec<(String, At, String)>,
+    findings: Vec<Collected>,
 }
 
 impl Findings {
     /// Adds one finding of `aspect`, once.
     pub fn emit(&mut self, aspect: &str, at: &At, message: String) {
+        self.collect(aspect, at, None, message);
+    }
+
+    /// Adds one finding of `aspect` with a stable `key` (what the finding is about, never a line or
+    /// the message), once.
+    pub fn emit_keyed(&mut self, aspect: &str, at: &At, key: String, message: String) {
+        self.collect(aspect, at, Some(key), message);
+    }
+
+    fn collect(&mut self, aspect: &str, at: &At, key: Option<String>, message: String) {
         let finding = (aspect.to_owned(), at.clone(), message);
 
         if self.seen.insert(finding.clone()) {
-            self.findings.push(finding);
+            let (aspect, at, message) = finding;
+            self.findings.push(Collected {
+                aspect,
+                at,
+                message,
+                key,
+            });
         }
     }
 
@@ -81,9 +106,19 @@ impl Findings {
         keep: impl Fn(&str) -> bool,
         rename: impl Fn(&str) -> &str,
     ) {
-        for (aspect, at, message) in self.findings {
+        for Collected {
+            aspect,
+            at,
+            message,
+            key,
+        } in self.findings
+        {
             if keep(&aspect) {
-                report.finding(rename(&aspect), at.location(), message);
+                let finding = report.finding(rename(&aspect), at.location(), message);
+
+                if let Some(key) = key {
+                    finding.key(key);
+                }
             }
         }
     }

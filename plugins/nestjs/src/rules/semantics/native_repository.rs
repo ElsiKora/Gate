@@ -219,7 +219,8 @@ impl gate_sdk::Rule for Rule {
                             )
                             .help(format!(
                                 "declare the parameter as `protected readonly {repository}`"
-                            ));
+                            ))
+                            .key(format!("{name}.{repository}"));
                     }
                 }
             }

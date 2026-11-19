@@ -61,6 +61,7 @@ impl Generator for Adapters {
                                     adapter_path(file)
                                 ),
                             )
+                            .key(adapter_path(file))
                             .target(file.path.clone())
                             .help("rename the rule files so their names differ by more than case or a second `.md`");
                     }

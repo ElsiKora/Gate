@@ -72,6 +72,7 @@ impl Rule for RuleFileSize {
             };
             run.report()
                 .finding(aspect, Location::file(&file.path), message)
+                .key("line-count")
                 .target(file.path.clone())
                 .help("split the area into two rule files, each with its own area");
         }

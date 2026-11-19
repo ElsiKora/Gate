@@ -168,6 +168,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                                 "prohibited-decorator",
                                 unit.path,
                                 line,
+                                format!("@{}", resolved.canonical),
                                 format!(
                                     "{}:{line} uses prohibited TypeORM @{}",
                                     unit.path, resolved.canonical
@@ -229,6 +230,14 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                         "column-declaration",
                         source.path,
                         line,
+                        format!(
+                            "{}.{}#column",
+                            class
+                                .id
+                                .as_ref()
+                                .map_or("<anonymous>", |id| id.name.as_str()),
+                            member_name(source.file, member)
+                        ),
                         format!("{label} {error}"),
                     ));
                 }
@@ -306,6 +315,13 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             line,
             label: format!("{}:{line} {class_name}.{name}", source.path),
             target: format!("{}:{class_name}.{name}", source.path),
+            key: format!(
+                "{}.{name}",
+                class
+                    .id
+                    .as_ref()
+                    .map_or("<anonymous>", |id| id.name.as_str())
+            ),
             slot: self.exceptions.iter().find(|exception| {
                 exception.path == source.path
                     && exception.class == class_name
@@ -320,6 +336,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 &owner,
                 "relation-owner",
+                "no-owning",
                 &format!("has a TypeORM @JoinColumn without an owning {owning}"),
             );
             return;
@@ -329,6 +346,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 &owner,
                 "relation-owner",
+                "owning-count",
                 &format!("must have exactly one owning TypeORM {owning} decorator"),
             );
         }
@@ -337,6 +355,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 &owner,
                 "relation-owner",
+                "join-count",
                 "must have exactly one TypeORM @JoinColumn decorator",
             );
         }
@@ -349,23 +368,31 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
         }
     }
 
-    /// One finding of an owner relation, labelled with it.
-    fn add(&mut self, owner: &Owner<'_, 'a>, aspect: &'static str, message: &str) {
+    /// One finding of an owner relation, labelled with it and keyed by it and `check`.
+    fn add(&mut self, owner: &Owner<'_, 'a>, aspect: &'static str, check: &str, message: &str) {
         self.findings.push(Finding::new(
             aspect,
             owner.path,
             owner.line,
+            format!("{}#{check}", owner.key),
             format!("{} {message}", owner.label),
         ));
     }
 
     /// One finding of an owner relation, labelled with it, with the target `<path>:<class>.<member>`
     /// an exception names.
-    fn add_targeted(&mut self, owner: &Owner<'_, 'a>, aspect: &'static str, message: &str) {
+    fn add_targeted(
+        &mut self,
+        owner: &Owner<'_, 'a>,
+        aspect: &'static str,
+        check: &str,
+        message: &str,
+    ) {
         let mut finding = Finding::new(
             aspect,
             owner.path,
             owner.line,
+            format!("{}#{check}", owner.key),
             format!("{} {message}", owner.label),
         );
         finding.target = Some(owner.target.clone());
@@ -396,7 +423,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                 let parsed = grammar::options(object, &decorator, self.vocabulary);
 
                 for error in &parsed.errors {
-                    self.add(owner, "relation-options", error);
+                    self.add(owner, "relation-options", "options", error);
                 }
 
                 head.options = Some(parsed);
@@ -404,11 +431,13 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             Some([_, _]) => self.add(
                 owner,
                 "relation-options",
+                "options-object",
                 &format!("{decorator} second argument must be an inline options object"),
             ),
             _ => self.add(
                 owner,
                 "relation-options",
+                "arguments",
                 &format!(
                     "{decorator} must receive a direct target arrow and exactly one inline options object"
                 ),
@@ -419,6 +448,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             None => self.add(
                 owner,
                 "relation-target",
+                "arrow",
                 &format!(
                     "{decorator} target must be a direct zero-argument arrow to an entity identifier"
                 ),
@@ -434,6 +464,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                     None => self.add(
                         owner,
                         "relation-type",
+                        "type",
                         &format!(
                             "type must be exactly Relation<{target_name}> or null | Relation<{target_name}>"
                         ),
@@ -441,6 +472,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                     Some(declared) if !declared.wrapped => self.add(
                         owner,
                         "relation-wrapper",
+                        "wrapper",
                         &format!(
                             "type must wrap {target_name} as Relation<{target_name}> imported by name from {}",
                             catalog.vocabulary.package
@@ -450,12 +482,13 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                 }
 
                 match target(catalog, owner.unit, class, identifier) {
-                    Err(error) => self.add(owner, "relation-target", &error),
+                    Err(error) => self.add(owner, "relation-target", "target", &error),
                     Ok((found, identity)) => {
                         if names::resource(&catalog.entities[found].name).is_none() {
                             self.add(
                                 owner,
                                 "relation-target",
+                                "entity-name",
                                 &format!(
                                     "resolved target class {} must have a nonempty canonical *Entity name",
                                     catalog.entities[found].name
@@ -505,6 +538,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 owner,
                 "nullability-exception",
+                "relation",
                 &format!(
                     "{named} requires its exact target, non-null relation type, nullable=true, {}/{}, and absent deferrability tuple",
                     exception.on_delete, exception.on_update
@@ -522,9 +556,9 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             );
 
             if head.excepted {
-                self.add_targeted(owner, "relation-nullability", &message);
+                self.add_targeted(owner, "relation-nullability", "mismatch", &message);
             } else {
-                self.add(owner, "relation-nullability", &message);
+                self.add(owner, "relation-nullability", "mismatch", &message);
             }
         }
     }
@@ -553,6 +587,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 owner,
                 "relation-name",
+                "mutable-role",
                 &format!(
                     "must use unambiguous target-resource name {resource}; a sole relation must not carry mutable role prefix {role}"
                 ),
@@ -582,7 +617,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
         let (errors, items) = grammar::join(join);
 
         for error in &errors {
-            self.add(owner, "join-column", error);
+            self.add(owner, "join-column", "item", error);
         }
 
         if !errors.is_empty() {
@@ -600,6 +635,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 owner,
                 "join-column-name",
+                "member-id",
                 &format!("must join through its own persisted member-id column {member_id}"),
             );
         }
@@ -612,26 +648,22 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 owner,
                 "join-column-name",
+                "qualifier",
                 &format!(
                     "role qualifier {qualifier} must prefix at least one of its own JoinColumn local names"
                 ),
             );
         }
 
-        if grammar::repeats(&local) {
-            self.add(
-                owner,
-                "join-column",
-                "JoinColumn repeats a local column component",
-            );
-        }
-
-        if grammar::repeats(&referenced) {
-            self.add(
-                owner,
-                "join-column",
-                "JoinColumn repeats a referenced column component",
-            );
+        for (components, side) in [(&local, "local"), (&referenced, "referenced")] {
+            if grammar::repeats(components) {
+                self.add(
+                    owner,
+                    "join-column",
+                    &format!("repeated-{side}"),
+                    &format!("JoinColumn repeats a {side} column component"),
+                );
+            }
         }
 
         let target = head.entity.map(|index| &self.catalog.entities[index]);
@@ -642,6 +674,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                     self.add(
                         owner,
                         "join-column-reference",
+                        &format!("referenced:{name}"),
                         &format!(
                             "JoinColumn referenced name {} must resolve to exactly one persisted TypeORM column on {}",
                             quote(name),
@@ -657,6 +690,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                 self.add(
                     owner,
                     "join-column-reference",
+                    &format!("local:{name}"),
                     &format!(
                         "JoinColumn local name {} must resolve to exactly one same-class persisted TypeORM column",
                         quote(name)
@@ -681,7 +715,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             .map(|spelling| names::foreign_key(&foreign_key, spelling, self.vocabulary))
             .unwrap_or_default()
         {
-            self.add(owner, "foreign-key-name", &error);
+            self.add(owner, "foreign-key-name", "name", &error);
         }
 
         self.reuse
@@ -719,6 +753,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             (None, _) => self.add(
                 owner,
                 "join-column-type",
+                &format!("local-type:{}", item.name),
                 &format!(
                     "JoinColumn local name {} must declare one explicit closed TypeScript scalar type and must not be optional",
                     quote(&item.name)
@@ -727,6 +762,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             (Some(_), None) => self.add(
                 owner,
                 "join-column-type",
+                &format!("referenced-type:{}", item.name),
                 &format!(
                     "JoinColumn referenced name {} on {} must declare one explicit closed TypeScript scalar type and must not be optional",
                     quote(&item.referenced),
@@ -744,7 +780,12 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                     item.referenced,
                     type_text(catalog.units[target.unit].file, referenced_column)
                 );
-                self.add(owner, "join-column-type", &message);
+                self.add(
+                    owner,
+                    "join-column-type",
+                    &format!("type-mismatch:{}", item.name),
+                    &message,
+                );
             }
             _ => {}
         }
@@ -766,6 +807,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
                 self.add(
                     owner,
                     "nullability-exception",
+                    &format!("component:{}", item.name),
                     &format!(
                         "{} nullability exception requires the exact non-null {}:{} -> {}:{} component tuple",
                         exception.member,
@@ -793,6 +835,7 @@ impl<'a, 'v> Pass<'_, '_, 'a, 'v> {
             self.add(
                 owner,
                 "relation-nullability",
+                &format!("set-null:{}", item.name),
                 "SET NULL requires a nullable relation option/property and every local persisted column/scalar component to be nullable and non-primary",
             );
         }
@@ -813,6 +856,8 @@ struct Owner<'o, 'a> {
     label: String,
     /// `<path>:<class>.<member>`, the target of an accepted nullability mismatch.
     target: String,
+    /// `<class>.<member>`, what the relation's findings are keyed by.
+    key: String,
     name: String,
     member: &'o ClassElement<'a>,
     /// The nullable relation this slot is.

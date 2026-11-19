@@ -15,7 +15,10 @@ pub struct ProbeOptions {
 /// plugin's `label` when it is set; reports one more finding at `at` (with aspect `aspect`) when it
 /// is set, one at commit `commit`, and, with `at_options_file`, one at the file its options came
 /// from, whose message is what reading that file answers; with `fail`, fails with that text after
-/// reading, behind the path of its options file as the rule addresses it.
+/// reading, behind the path of its options file as the rule addresses it. The finding at `at` reads
+/// `at_message` (default `at`) and carries the key `key` when it is set; with `line_of` as well, the
+/// finding is at the first line of `at` that holds `line_of`, reads `<at>:<line> <line_of>` and
+/// carries the key `line_of`.
 #[derive(Debug, Default)]
 pub struct Read;
 
@@ -29,6 +32,12 @@ pub struct ReadOptions {
     at: Option<String>,
     #[serde(default)]
     aspect: String,
+    #[serde(default)]
+    at_message: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    line_of: Option<String>,
     #[serde(default)]
     commit: Option<String>,
     #[serde(default)]
@@ -60,9 +69,33 @@ impl Rule for Read {
         for message in messages {
             run.report().finding("", Location::file("probe"), message);
         }
-        if let Some(at) = run.options().at.clone() {
+        if let (Some(at), Some(needle)) = (run.options().at.clone(), run.options().line_of.clone())
+        {
+            let text = tree.text(&at).unwrap_or_default();
+            let line = text
+                .lines()
+                .position(|line| line.contains(needle.as_str()))
+                .map_or(1, |index| index + 1);
             let aspect = run.options().aspect.clone();
-            run.report().finding(&aspect, Location::file(at), "at");
+            run.report()
+                .finding(
+                    &aspect,
+                    Location::line(at.clone(), line),
+                    format!("{at}:{line} {needle}"),
+                )
+                .key(needle);
+        } else if let Some(at) = run.options().at.clone() {
+            let aspect = run.options().aspect.clone();
+            let message = run.options().at_message.clone();
+            let key = run.options().key.clone();
+            let finding = run.report().finding(
+                &aspect,
+                Location::file(at),
+                message.unwrap_or_else(|| "at".to_owned()),
+            );
+            if let Some(key) = key {
+                finding.key(key);
+            }
         }
         if let Some(commit) = run.options().commit.clone() {
             run.report().finding("", Location::commit(commit), "commit");

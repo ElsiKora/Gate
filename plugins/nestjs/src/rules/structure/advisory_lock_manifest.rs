@@ -156,10 +156,11 @@ impl Rule for AdvisoryLockManifest {
 
         // An enabled rule needs the registry: without it, the configuration is wrong.
         let Some(text) = run.tree().text(&manifest_path) else {
-            findings.push(
+            findings.push_keyed(
                 "manifest",
                 manifest_path.as_str(),
                 None,
+                "untracked",
                 format!(
                     "The advisory-lock manifest {manifest_path} is not tracked; track it, set `manifest-path` to the manifest, or leave the rule off."
                 ),
@@ -199,10 +200,11 @@ impl Rule for AdvisoryLockManifest {
                 valid.then(|| static_keys(&manifest))
             }
             Err(error) => {
-                findings.push(
+                findings.push_keyed(
                     "manifest",
                     manifest_path.as_str(),
                     None,
+                    "json",
                     format!("Manifest is not valid JSON: {error}"),
                 );
                 None
@@ -277,7 +279,7 @@ fn operation_enum(
         Some(file) if file.fatal() => {}
         Some(file) => {
             if let Some(message) = operation_enum_finding(&file, name, operations) {
-                findings.push("operation-enum", path, None, message);
+                findings.push_keyed("operation-enum", path, None, "declaration", message);
             }
         }
     }
@@ -681,10 +683,11 @@ fn markers(markers: &Markers<'_>, texts: &[(String, String)], findings: &mut Fin
             markers.pattern.captures(line, &mut captures);
 
             if !captures.is_match() {
-                findings.push(
+                findings.push_keyed(
                     "marker",
                     path.as_str(),
                     number,
+                    "malformed",
                     format!("Malformed static-key marker in {path}."),
                 );
                 wrong = true;

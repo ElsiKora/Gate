@@ -321,10 +321,11 @@ impl Rule for AdvisoryLockBoundary {
                     }
                 }
                 Err(rejection) => {
-                    findings.push(
+                    findings.push_keyed(
                         rejection.aspect,
                         path.as_str(),
                         None,
+                        "rejected",
                         String::from_utf16_lossy(&rejection.message),
                     );
                     rejected.push(path.clone());
@@ -338,10 +339,11 @@ impl Rule for AdvisoryLockBoundary {
 
         for path in required {
             if !observed.contains(path) && !rejected.contains(path) {
-                findings.push(
+                findings.push_keyed(
                     "boundary",
                     path.as_str(),
                     None,
+                    "unobserved",
                     format!("Required source SQL boundary {path} was not observed."),
                 );
             }
@@ -444,7 +446,13 @@ fn rules<'o>(
         (Some(manifest), Some(listed)) => match contextual::excluded(manifest, listed) {
             Ok(excluded) => excluded,
             Err(message) => {
-                findings.push("inventory", options_file, None, message);
+                findings.push_keyed(
+                    "inventory",
+                    options_file,
+                    None,
+                    "contextual-resources",
+                    message,
+                );
                 Vec::new()
             }
         },

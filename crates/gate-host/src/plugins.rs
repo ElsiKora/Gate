@@ -792,6 +792,7 @@ fn reported(
         location: finding.location.map(location),
         help: finding.help,
         project: project.map(str::to_owned),
+        key: finding.key,
     }))
 }
 
@@ -1009,6 +1010,7 @@ impl Generators for PluginGenerators<'_> {
             help: finding.help,
             norm: None,
             project: project.map(str::to_owned),
+            key: finding.key,
         });
         self.findings
             .lock()

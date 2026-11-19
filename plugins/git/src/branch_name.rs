@@ -139,6 +139,7 @@ impl Rule for BranchName {
         if let Some((message, help)) = policy.verdict(&name, hook) {
             run.report()
                 .finding("", Location::commit(commit), message)
+                .key(name.as_str())
                 .target(name)
                 .help(help);
         }
