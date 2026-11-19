@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | planned |
+| Status | in progress |
 | Release | v0.2.0 |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
@@ -42,4 +42,7 @@ The second consumer's structure requirement (plan, "From the second consumer's r
 
 ## Resume point
 
-2026-11-18: planned; branch `task/T-026-typescript-barrel-imports`.
+2026-11-19: rule, schema, page and synthetic tests on `task/T-026-typescript-barrel-imports`,
+review round 1 applied (`export *` cycles resolve as a closure, tsconfig aliases and
+`import x = require` tested). Rebased onto the public `main` 59fb163; the workspace round on the
+rebased tip runs in the lane next, then the merge.

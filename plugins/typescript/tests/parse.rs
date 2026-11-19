@@ -237,11 +237,11 @@ fn an_unknown_option_is_an_error() {
 }
 
 #[test]
-fn the_plugin_declares_the_rule_for_the_typescript_language() {
+fn the_plugin_declares_its_rules_for_the_typescript_language() {
     let info = gate_sdk::describe(&typescript::PLUGIN);
-    let rule = info.rules.first().expect("one rule");
+    let rule = info.rules.first().expect("the parse rule");
 
-    assert_eq!((info.name.as_str(), info.rules.len()), ("typescript", 1));
+    assert_eq!((info.name.as_str(), info.rules.len()), ("typescript", 2));
     assert_eq!(rule.name, "parse");
     assert_eq!(rule.languages, ["typescript"]);
     assert!(
