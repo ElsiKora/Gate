@@ -187,6 +187,16 @@ the entries below say.
   after `gate sync` with the compiled modules removed, `gate check --rule 'nestjs/*'` compiled 2
   modules instead of 8 and took 2.74 s instead of 7.00 s. ([209c6c2](https://github.com/ElsiKora/Gate/commit/209c6c2188208f7b94707f99ea043a46638e383f))
 
+### Changed
+
+- **host:** a `gate check --commit-message` run checks only the message being written: the
+  enabled repository rules that declare `READS_MESSAGE`. It no longer checks the work tree; the
+  tree stays with `pre-commit`, `pre-push` and CI. Its summary says `commit message`.
+  `--commit-message` with `--staged`, `--changed`, `--push` or `--rev` is a usage error.
+- **sdk:** the plugin interface is `gate:plugin@0.3.0`. A rule declares `READS_MESSAGE` to read
+  the commit message; `rule-info` carries it as `reads-message`. A 0.3.0 core loads only plugins
+  built for 0.3.0, and every plugin of this repository is released at 0.3.0 with the core.
+
 ### Documentation
 
 - **docs:** upgrading a baseline written by 0.1.0. A finding of a project below the repository root

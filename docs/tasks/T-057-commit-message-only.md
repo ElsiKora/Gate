@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | task file written; design item 1 (how a rule declares the message) waits for the lead |
+| Status | design approved by the lead; code after T-047 |
 | Release | v0.3.0 (it changes what an existing `commit-msg` hook checks) |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
 | Depends on | T-047 (a check loads only the plugins it needs) |
-| Touches | `crates/gate-sdk` (the rule declaration, `Git::message`), `wit/gate.wit` under (b), `crates/gate-host/src/{lib.rs,plugins.rs}`, `crates/gate/src/main.rs`, `plugins/git` (the rules that read the message); `docs/guide/getting-started.md`, `docs/guide/configuration.md`, `CHANGELOG.md` (Changed) |
+| Touches | `wit/gate.wit` (`gate:plugin@0.3.0`), `crates/gate-sdk` (the rule declaration, `Git::message`), `crates/gate-host/src/{lib.rs,plugins.rs}`, `crates/gate/src/main.rs`, `plugins/git` (the rules that read the message); `docs/guide/getting-started.md`, `docs/guide/configuration.md`, `CHANGELOG.md` (Changed) |
 
 ## Goal
 
@@ -22,27 +22,19 @@ CI.
 
 ## Design
 
-1. **A rule declares that it reads the message.** The lead's direction is that the rules whose
-   `NEEDS` include the message are the ones that run. Today `Rule::NEEDS` is a list of `Need
-   { key, when, why }`, where `key` is a key of `[plugins.<name>] options`. The list travels in
-   the options schema under `x-gate-needs`, and `check_needs` refuses the configuration when an
-   enabled rule's key is missing. So the message cannot be one more `Need` as the type stands:
-   `check_needs` would look for an option called `message` and fail the configuration. Two ways
-   to carry it:
-   - (a) In `NEEDS`, as the lead directs. `Need` gains a kind, either an option key (as today)
-     or the message, and the SDK has one constant for the second, `Need::MESSAGE`.
-     `check_needs` skips that kind, and the run selection reads it from `x-gate-needs`. The
-     interface stays `gate:plugin@0.2.0`, since the schema is a string.
-   - (b) A constant beside `READS_HISTORY`, `const READS_MESSAGE: bool`, carried in `rule-info`
-     as `reads-message`. That makes the interface `gate:plugin@0.3.0`.
-
-   Either way, `Git::message` answers only to a rule that declares it, as `Run::git` answers only
-   to a rule that declares `READS_HISTORY`. A rule that reads the message without the declaration
-   gets an error that names it, so the selection below cannot miss a rule that reads the message.
-   A project-scope rule that declares it is refused when its plugin describes itself, because the
-   message belongs to the repository. Writer's view: (b) keeps `NEEDS` to one meaning, options
-   the configuration must hold. (a) keeps the interface version. The lead decides; the rest of
-   this file holds for both.
+1. **A rule declares that it reads the message.** The lead decided on 2026-11-19:
+   - A constant beside `READS_HISTORY`, `const READS_MESSAGE: bool = false`, carried in
+     `rule-info` as `reads-message: bool`. `Rule::NEEDS` keeps its one meaning: keys the plugin's
+     options must hold.
+   - The interface becomes `gate:plugin@0.3.0`. v0.3.0 already breaks the configuration, so it
+     is the release for it. As at 0.2.0, every plugin of this repository is released at 0.3.0
+     with the core, and a 0.3.0 core loads only plugins built for 0.3.0.
+   - `Git::message` answers only to a rule that declares it, as `Run::git` answers only to a rule
+     that declares `READS_HISTORY`. A rule that reads the message without the declaration gets an
+     error that names `READS_MESSAGE`, so the selection below cannot miss a rule that reads the
+     message.
+   - A project-scope rule that declares it is refused when its plugin describes itself, because
+     the message belongs to the repository.
 2. **What the run selects.** A check with `--commit-message` runs only the enabled rules that
    declare the message, in the repository scope. `--rule` narrows that further, as anywhere
    else. The core's own rules do not run. The summary says `commit message`.
@@ -74,9 +66,17 @@ Each test fails before its change. They use synthetic plugins and trees.
   it fails on the tree rule.
 - A rule that calls `Git::message` without the declaration gets the error that names it.
 - A project-scope rule that declares the message fails its plugin's load as broken.
-- Under (a), an enabled rule that needs the message passes `check_needs` with no such option.
+- A component built for `gate:plugin@0.2.0` does not load under the 0.3.0 core, and the error
+  says to use the plugin's 0.3.0 release.
 - `check --commit-message <file> --staged` is a usage error that names `pre-commit`.
 - The summary of a message run is `gate check (commit message): ...`.
+
+## Open items
+
+- **The one interface bump.** Any other change that needs the interface must land in the same
+  `gate:plugin@0.3.0` bump, before v0.3.0 is tagged. Carrying rule-entry decisions to plugins is
+  one. Each such change is named here, or in its own task file that points here, before this
+  task's interface commit merges.
 
 ## Done when
 
@@ -89,5 +89,7 @@ Each test fails before its change. They use synthetic plugins and trees.
 
 ## Resume point
 
-Branched from main `73d33e7`. Task file written; nothing implemented. Next: the lead's decision
-on design item 1, (a) or (b), and on items 3 and 4; then the tests, each failing first.
+Branched from main `73d33e7`. The lead approved the design: item 1 is `READS_MESSAGE` and
+`gate:plugin@0.3.0`, and items 2 to 6 stand as written. The `CHANGELOG.md` entries are under
+Unreleased, Changed. Nothing is implemented. Next, after T-047: the tests, each failing first,
+then the interface, the host, the `git` rules and the two guide pages.
