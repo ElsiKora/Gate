@@ -29,8 +29,11 @@ results, `sync-state` answers, answer files and stored blob contents: each is re
 so removing one costs time and never a wrong answer. Without a bound, `prune` also removes the
 derived entries nothing can use: the results of a plugin no lock pins (results are laid out by
 plugin, `results/<plugin sha256>/<2 hex>/<key>`, format 3, so they go with the plugin as a download
-does, and the format-2 layout, `results/<2 hex>/`, goes too), and each stored blob content that no
-stored `read-at` answer names (`prune` reads `git/answers/` for the ids). A derived entry's last use
+does, and the format-2 layout, `results/<2 hex>/`, goes too, as an older results format), and each
+stored blob content that no stored `read-at` answer names (`prune` reads `git/answers/` for the
+ids), once it was stored more than a day ago, since a run stores a content before the answer file
+that names it. An answer file `prune` cannot read (other than one a run removed meanwhile) stops it
+with an error before anything is removed: the contents it names are unknown. A derived entry's last use
 is its modification time, which a run sets to now each time it uses the entry (a result hit, a
 `sync-state` hit, a blob content read, the answer files it loads). `--older-than <days>` removes the
 derived entries last used more than that many days ago. `--max-size <size>` (`512M`, `2G`: MiB, GiB)
@@ -44,8 +47,11 @@ than a day; a removed file that a check has open stays readable to it; a check t
 gone recomputes it (results, `sync-state`) or asks git (blob contents): a pruned blob content is
 read from git's own object by its stored id, as a full clone already did. Where git lacks the object
 too (a partial clone that cannot fetch it), the stored `read-at` answer is asked of git again as if
-it were not stored; that fails as well, and the error now says to run `git fetch` where it told the
-user to run `gate cache prune`, which does not help.
+it were not stored; that fails as well, and the error says to run `git fetch` and no longer suggests
+`gate cache prune`, which did not help. A removal that empties a `<2 hex>/` directory (or a
+plugin's results directory) removes it too; a run that finds its directory gone at the rename
+creates it again. Accepted as designed: the merged answer file is touched on every run, so in an
+active cache only `--max-size` trims it.
 
 ## Scope
 
@@ -71,6 +77,11 @@ Tests, each failing before the change:
 - A check after its blob contents were removed, in a repository whose git lacks the blobs too, asks
   again and fails with advice to run `git fetch`, never `gate cache prune`; before the change it named
   `gate cache prune`.
+- A stored content no answer names stays while younger than a day; an answer file `prune` cannot
+  read stops it, and nothing is removed.
+- Each use that sets a last use (an answer file loaded, a content read, a `sync-state` read, a
+  result hit) keeps its entry under `--older-than`.
+- An emptied `<2 hex>/` directory goes with its last file.
 - A malformed `--older-than` or `--max-size` is a configuration error, exit 2, that names the form.
 
 The lane: fmt, clippy, the tests above, deny, the release build, and the leak scan, on the pushed

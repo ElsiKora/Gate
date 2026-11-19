@@ -2791,4 +2791,29 @@ mod tests {
         let violations = validator.validate(&schema, &serde_json::json!({ "min": 1 }));
         assert!(violations[0].contains("min"), "{violations:?}");
     }
+
+    #[test]
+    fn a_sync_state_a_run_reads_counts_as_used() {
+        let directory = tempfile::tempdir().expect("cache");
+        let cache = Cache::at(directory.path());
+        let key = Sha256Sum::from_digest(&[7; 32]);
+        let mut temporary = cache.temporary().expect("temporary");
+        temporary
+            .file()
+            .write_all(b"\x01produced\0")
+            .expect("write");
+        let file = cache
+            .insert_answer(temporary, SYNC_STATE, &key)
+            .expect("insert");
+        crate::cache::used_days_ago(&file, 40);
+        assert_eq!(crate::cache::older_than_30(&cache), [file.clone()]);
+
+        let (tag, state) = stored(&cache, &key).expect("read").expect("stored");
+        assert_eq!((tag, state.produced), (1, vec!["produced".to_owned()]));
+        assert_eq!(
+            crate::cache::older_than_30(&cache),
+            Vec::<PathBuf>::new(),
+            "the run read the state"
+        );
+    }
 }

@@ -86,12 +86,23 @@ struct PruneArgs {
     #[arg(long)]
     yes: bool,
     /// Also remove the results and git answers last used more than this many days ago.
-    #[arg(long, value_name = "DAYS")]
+    #[arg(long, value_name = "DAYS", value_parser = parse_days)]
     older_than: Option<u64>,
     /// Also remove results and git answers, least recently used first, until the whole cache is
     /// at most this size: a number of mebibytes (512M) or gibibytes (2G). Pinned downloads stay.
     #[arg(long, value_name = "SIZE", value_parser = parse_size)]
     max_size: Option<u64>,
+}
+
+/// An `--older-than` value: a whole number of days.
+fn parse_days(value: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|_| value.bytes().all(|byte| byte.is_ascii_digit()))
+        .ok_or_else(|| {
+            format!("{value:?} is not a number of days; write a whole number, such as 30")
+        })
 }
 
 /// A `--max-size` value: a whole number followed by `M` (MiB) or `G` (GiB).

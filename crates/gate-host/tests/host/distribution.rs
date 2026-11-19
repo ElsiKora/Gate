@@ -867,7 +867,8 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     put(&cache.result(unpinned.as_str(), &key), "unpinned", now, 0);
     let format_2 = cache.results().join("ee");
     put(&format_2.join("e".repeat(64)), "format 2", now, 0);
-    // One stored answer names the content of blob 2...2; the content of 3...3 is named by none.
+    // One stored answer names the content of blob 2...2; the contents of 3...3, stored two days
+    // ago, and of 5...5, stored now (its answer file not written yet), are named by none.
     let answers = cache.answer("answers/1", &sum(&"f".repeat(64)));
     let answer = format!(
         r#"{{"kind":"read-at","of":["{}","a.txt"],"answer":{{"blob":"{}"}}}}"#,
@@ -878,26 +879,29 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     let named = stored_blob(&cache, &"2".repeat(40));
     put(&named, "named", now, 0);
     let unnamed = stored_blob(&cache, &"3".repeat(40));
-    put(&unnamed, "unnamed", now, 0);
+    put(&unnamed, "unnamed", now, 2);
+    let young_unnamed = stored_blob(&cache, &"5".repeat(40));
+    put(&young_unnamed, "young", now, 0);
     let sync_state = cache.answer("sync-state", &key);
     put(&sync_state, "state", now, 40);
 
     let referenced: BTreeSet<Sha256Sum> = [pinned.clone()].into_iter().collect();
     let plugins = referenced.clone();
 
-    // Without a bound: what nothing can use goes, and nothing else.
+    // Without a bound: what nothing can use goes, and nothing else; a content no answer names
+    // stays a day, since a run stores it before the answer that names it.
     let plan = cache
         .plan(&referenced, &plugins, &PruneBounds::default())
         .expect("plan");
     let mut expected = vec![
-        (format_2.clone(), Reason::Unpinned),
+        (format_2.clone(), Reason::OldFormat),
         (cache.results().join(unpinned.as_str()), Reason::Unpinned),
         (unnamed.clone(), Reason::Unnamed),
     ];
     expected.sort_by(|left, right| left.0.cmp(&right.0));
     assert_eq!(removed(&plan), expected);
     assert_eq!(plan.over, None);
-    assert_eq!(files(cache.root()).len(), 9, "planning removes nothing");
+    assert_eq!(files(cache.root()).len(), 10, "planning removes nothing");
 
     // Older than 30 days: the derived files last used 40 days ago go too; the pinned download
     // and core, 400 days old, stay.
@@ -933,7 +937,7 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
             "{kept:?} is pinned: {paths:?}"
         );
     }
-    for gone in [&kept_result, &answers, &named, &sync_state] {
+    for gone in [&kept_result, &answers, &named, &young_unnamed, &sync_state] {
         assert!(paths.contains(gone), "{gone:?} should go: {paths:?}");
     }
     assert_eq!(plan.over, Some(1));
@@ -945,6 +949,40 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     cache.remove(&plan.entries).expect("remove");
     let left: Vec<PathBuf> = files(cache.root()).into_keys().collect();
     assert_eq!(left.len(), 2, "{left:?}");
+    // The `<2 hex>/` shards and the plugin's results directory the removal emptied go with it.
+    for emptied in [
+        cache.results(),
+        cache.git().join("answers/1"),
+        cache.git().join("blobs"),
+        cache.git().join("sync-state"),
+    ] {
+        let children: Vec<PathBuf> = std::fs::read_dir(&emptied)
+            .expect("read")
+            .map(|entry| entry.expect("entry").path())
+            .collect();
+        assert_eq!(children, Vec::<PathBuf>::new(), "{emptied:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn an_answer_file_prune_cannot_read_stops_it_before_anything_is_removed() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (_directory, cache) = tagged_cache();
+    let now = SystemTime::now();
+    let unnamed = stored_blob(&cache, &"3".repeat(40));
+    put(&unnamed, "unnamed", now, 2);
+    let answers = cache.answer("answers/1", &sum(&"f".repeat(64)));
+    put(&answers, "{}\n", now, 0);
+    std::fs::set_permissions(&answers, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    let planned = cache.plan(&BTreeSet::new(), &BTreeSet::new(), &PruneBounds::default());
+    std::fs::set_permissions(&answers, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    let error = planned.expect_err("an unreadable answer file stops prune");
+    assert!(
+        error.to_string().contains("so nothing was pruned"),
+        "{error}"
+    );
+    assert!(unnamed.is_file(), "the content it may name stays");
 }
 
 #[test]

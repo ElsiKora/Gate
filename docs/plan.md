@@ -81,7 +81,7 @@ From the reviews of T-003 and T-005, kept out of rc.1 on purpose:
   not in v0.2.0; `Tree::contains` in the SDK still lists per probe).
 - The plugin read record as a result-cache key: plugin sha256, rules, options, change set (done:
   the key in CHANGELOG 0.1.0; a warm run hits it since T-025, v0.2.0).
-- `gate cache prune --older-than | --max-size` (open: not in v0.2.0); the changelog in release notes
+- `gate cache prune --older-than | --max-size` (T-056, v0.2.1); the changelog in release notes
   (done, v0.1.0).
 - Commit answers other than sync-drift persist in the cache (done, T-025, v0.2.0; the commit message
   and the hook state are asked again each run, T-039).
@@ -151,5 +151,5 @@ and T-044 (in progress), T-049 (after T-042), T-046 (open), and T-047, the cold 
 every configured plugin, which T-025 and T-037 leave open and which has no task file yet; the
 documents T-050, T-051 and T-054 (merged) go with it. For `v0.3.0`: T-048, then T-052 (open, no task
 file yet), and T-053, all breaking. Still open from the lists above: the listing cost of
-`Tree::contains`, `gate cache prune --older-than | --max-size`, and the second consumer's cold bound
-(T-047). The task table above is the state.
+`Tree::contains` and the second consumer's cold bound (T-047); `gate cache prune --older-than |
+--max-size` is T-056. The task table above is the state.

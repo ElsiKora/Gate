@@ -260,6 +260,7 @@ fn why(reason: Reason) -> String {
         Reason::Unpinned => "no lock pins it".to_owned(),
         Reason::Stale => "left by a run that stopped".to_owned(),
         Reason::Unnamed => "no stored answer names it".to_owned(),
+        Reason::OldFormat => "an older results format".to_owned(),
         Reason::Older(days) => format!(
             "last used more than {} ago",
             plural(usize::try_from(days).unwrap_or(usize::MAX), "day", "days")

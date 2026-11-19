@@ -1079,16 +1079,20 @@ fn cache_prune_lists_then_removes_only_what_no_lock_pins() {
         ("--max-size", "G"),
         ("--max-size", "1.5G"),
         ("--older-than", "ten"),
+        ("--older-than", "+30"),
     ] {
         let output = repo.gate(&["cache", "prune", flag, value], None, &[]);
         assert_eq!(output.status.code(), Some(2), "{flag} {value}");
-        if flag == "--max-size" {
-            assert!(
-                text(&output.stderr).contains("write a whole number and M or G"),
-                "{}",
-                text(&output.stderr)
-            );
-        }
+        let form = if flag == "--max-size" {
+            "write a whole number and M or G, such as 512M or 2G"
+        } else {
+            "is not a number of days; write a whole number, such as 30"
+        };
+        assert!(
+            text(&output.stderr).contains(form),
+            "{flag} {value}: {}",
+            text(&output.stderr)
+        );
     }
 
     // A pinned download larger than --max-size stays, and prune says why the cache stays over.
