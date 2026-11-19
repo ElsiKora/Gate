@@ -971,7 +971,7 @@ fn git_pinned(url: &str, hash: &str) -> Repo {
     repo.write(
         "gate.toml",
         &format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ngit = {{ source = \"{source}\" }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n"
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ngit = {{ source = \"{source}\", options = {{ main = [\"refs/heads/main\"] }} }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n"
         ),
     )
     .write(
