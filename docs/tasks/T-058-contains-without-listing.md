@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | review fix round |
+| Status | review fixes proven; ready to merge |
 | Release | v0.2.1 (core only; no interface, SDK or plugin change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
@@ -102,12 +102,32 @@ fixture (`Fixture::list` filters a `BTreeMap`, which costs the native tests only
 - `cargo fmt`, `clippy -D warnings`, `cargo test`, `cargo deny` pass in one lane round.
 - The leak scan prints nothing.
 
+## Proof
+
+Both lane rounds ran on `cbca98d`, the tip with the review fixes.
+
+- **Round ticket 253** (2026-11-19T22:50:20+00:00 to 22:59:50+00:00):
+  - `cargo fmt --all --check` exit 0;
+  - `cargo clippy --offline --locked --workspace --all-targets -- -D warnings` exit 0;
+  - `cargo deny --offline --locked check` exit 0 (advisories, bans, licenses and sources ok);
+  - `cargo test --offline --locked --workspace --no-fail-fast` exit 101: 1015 passed, 1 failed. The
+    failure was `a_message_past_the_read_set_limit_is_recorded_by_its_digest` in
+    `crates/gate/tests/plugins.rs`, which could not read `git.wasm` while another test of the same
+    binary was rebuilding that component. This branch does not touch that code; T-060 builds each
+    component once per test binary;
+  - the count, `cargo test -p gate-runtime --lib -- --exact
+    grant::tests::a_probe_examines_the_paths_that_start_with_it_not_the_tree --nocapture`, exit 0:
+    "1000 probes of 20000 paths: listing 18000 steps, scan 20000000 paths";
+  - four mutations, each run against the test that must catch it, each exit 101: the range search
+    taken out (the count test, 20000000), the scan for `../` prefixes taken out (the equivalence
+    test), the root prefix taken out of the range (the equivalence test), and a linear `position` in
+    place of `partition_point` (the count test, 18752500).
+- **Rerun ticket 258** (2026-11-19T23:38:15+00:00 to 23:45:21+00:00), the failed target alone:
+  `cargo test --offline --locked -p gate --test plugins` exit 0, 81 passed, 0 failed.
+
+The leak scan printed nothing and exited 0 before each commit.
+
 ## Resume point
 
-2026-11-19T21:26:42+00:00: lane ticket 245 on fd1205d was green (fmt, clippy, test with 1016 passed, deny
-all exit 0; 17000 steps against 20000000 paths; three mutations exit 101). The review of e063252
-asked for one round: count the binary search's comparisons inside its closure, with the mutation
-"linear position instead of partition_point"; `Tree::paths` documented as byte order, each once,
-checked by a `debug_assert` where the host builds its tree; one public `Grant::list` returning the
-paths, with the scan and the count private; this file made to say what the branch does. Committed;
-not compiled yet. Next: one lane round.
+2026-11-19T23:46:16+00:00: the review fixes are proven by round 253 and rerun 258 on `cbca98d`
+(see Proof). Ready for the lead to merge; nothing open.
