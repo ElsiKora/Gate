@@ -84,12 +84,12 @@ pub(crate) fn needed(workspace: &Workspace, selection: &Selection, filter: &Rule
             None => selection.repository,
             Some(name) => selection.runs(name),
         };
-        for name in settings.plugins.keys() {
-            let named = filter.keys().iter().any(|key| {
-                matches!(key, crate::config::RuleKey::Rule(_)) && key.plugin() == name.as_str()
+        for plugin in settings.plugins.keys() {
+            let keyed = filter.keys().iter().any(|key| {
+                matches!(key, crate::config::RuleKey::Rule(_)) && key.plugin() == plugin.as_str()
             });
-            if (runs && filter.allows_plugin(name.as_str())) || named {
-                names.insert(name.clone());
+            if (runs && filter.allows_plugin(plugin.as_str())) || keyed {
+                names.insert(plugin.clone());
             }
         }
     }
