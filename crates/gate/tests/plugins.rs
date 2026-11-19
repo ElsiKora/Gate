@@ -4150,3 +4150,136 @@ fn a_used_result_survives_older_than_and_a_pruned_one_is_computed_again() {
     assert_eq!(ran, ["one"]);
     assert_eq!(after, messages);
 }
+
+/// `repo` with plugin `other` declared at the root and pinned to a component this core cannot
+/// load, committed.
+fn with_broken_other_at_root(repo: &Repo) {
+    let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+    let pinned = std::fs::read_to_string(repo.path().join("gate.lock")).expect("gate.lock");
+    let (toml, lock) = with_unloadable_other(repo, &toml, &pinned);
+    repo.write("gate.toml", &toml);
+    repo.write("gate.lock", &lock);
+    repo.commit("a second plugin, which this core cannot load");
+}
+
+#[test]
+fn a_run_whose_rule_filter_leaves_a_plugin_out_never_loads_it() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_broken_other_at_root(&repo);
+
+    let output = repo.gate(&["check", "--rule", "hello/*"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "only hello runs, so the component of other is never compiled: {}",
+        text(&output.stderr)
+    );
+    let stdout = text(&output.stdout);
+    assert!(
+        stdout.contains("error[hello/marker] apps/hello/src/main.rs:2"),
+        "{stdout}"
+    );
+
+    let output = repo.gate(&["check"]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a full check needs other and fails loading it: {}",
+        text(&output.stdout)
+    );
+    assert!(
+        text(&output.stderr).contains("other"),
+        "{}",
+        text(&output.stderr)
+    );
+}
+
+#[test]
+fn a_staged_change_loads_only_the_plugins_of_the_scopes_it_selects() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    let pinned = std::fs::read_to_string(repo.path().join("gate.lock")).expect("gate.lock");
+    let (spare, lock) =
+        with_unloadable_other(&repo, "[project]\nname = \"spare\"\n\n[plugins]\n", &pinned);
+    repo.write("apps/spare/gate.toml", &spare);
+    repo.write("apps/spare/notes.md", "# Spare\n");
+    repo.write("gate.lock", &lock);
+    repo.commit("a project that declares a plugin this core cannot load");
+
+    repo.write(
+        "apps/hello/src/main.rs",
+        "fn main() {\n    // FIXME: greet by name\n    println!(\"hello, you\");\n}\n",
+    );
+    repo.git(&["add", "-A"]);
+    let output = repo.gate(&["check", "--staged"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the change selects greeter and the repository, which do not declare other: {}",
+        text(&output.stderr)
+    );
+    assert!(
+        text(&output.stdout).contains("error[hello/marker] apps/hello/src/main.rs:2"),
+        "{}",
+        text(&output.stdout)
+    );
+
+    repo.write("apps/spare/notes.md", "# Spare\n\nNow edited.\n");
+    repo.git(&["add", "-A"]);
+    let output = repo.gate(&["check", "--staged"]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a change in spare needs other and fails loading it: {}",
+        text(&output.stdout)
+    );
+}
+
+#[test]
+fn a_plugin_option_its_schema_refuses_fails_sync_and_a_full_check_but_not_a_run_of_another_plugin()
+{
+    let repo = Repo::pinned("{ marker = 5 }");
+    let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "{}\n[rules]\n\"typescript/barrel-imports\" = {{ level = \"error\" }}\n",
+            toml.replace(
+                "[plugins]\n",
+                "[plugins]\ntypescript = { source = \"acme/rules:typescript@0.1.0\" }\n",
+            )
+        ),
+    );
+    repo.write("tsconfig.json", "{}\n");
+    repo.write(
+        "apps/hello/src/greeting.ts",
+        "export const greeting = \"hello\";\n",
+    );
+    repo.commit("the typescript plugin, and an option hello's schema refuses");
+    let plugin = format!("typescript={}", typescript().0.display());
+
+    let output = repo.gate(&["check", "--rule", "typescript/*", "--plugin", &plugin]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "hello does not load, so its options are not checked against its schema: {}",
+        text(&output.stderr)
+    );
+
+    for arguments in [
+        &["check", "--plugin", plugin.as_str()][..],
+        &["sync", "--plugin", plugin.as_str()][..],
+    ] {
+        let output = repo.gate(arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{arguments:?}: {}",
+            text(&output.stdout)
+        );
+        let message = text(&output.stderr);
+        assert!(
+            message.starts_with("gate: configuration error:") && message.contains("hello/marker"),
+            "{arguments:?}: {message}"
+        );
+    }
+}
