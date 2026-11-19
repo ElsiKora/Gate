@@ -920,15 +920,17 @@ fn generators_from(repo: &Repo, wasm: &Path) -> (usize, usize) {
 }
 
 /// A repository whose generator `probe/write` writes, in `apps/one`, what `options` ask, and
-/// whose rule asks sync-state at `HEAD~1`, which runs the run's generators.
+/// whose rule asks sync-state at `HEAD~1`. There the generator also writes a core file, so the
+/// answer follows the run's configuration and every run runs the run's generators on its tree.
 fn generating(options: &str) -> Repo {
     let repo =
         probe_repo(r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1"] } }"#);
-    repo.write("apps/one/gate.toml", &writing(options));
+    let core = r#"files = { "gate.toml" = "overwritten\n" }"#;
+    repo.write("apps/one/gate.toml", &writing(&format!("{options}, {core}")));
     repo.write("apps/one/inputs/a.txt", "a\n");
-    repo.commit("base");
-    repo.write("apps/one/notes.md", "notes\n");
-    repo.commit("tip");
+    repo.commit("the generator writes a core file: the run's configuration answers");
+    repo.write("apps/one/gate.toml", &writing(options));
+    repo.commit("the generator writes what its options name");
     repo
 }
 
@@ -1045,7 +1047,6 @@ fn sync_check_answers_from_the_stored_outputs_until_an_input_changes() {
     let (code, said) = sync_check(&repo);
     assert_eq!(code, Some(0), "{said}");
 }
-
 
 #[test]
 fn a_warm_run_answers_the_runs_generators_from_the_cache_until_a_file_they_read_changes() {
@@ -2683,17 +2684,39 @@ fn reach(clone: &Repo, origin: Option<&Repo>) {
     clone.git(&["remote", "set-url", "origin", &url]);
 }
 
-/// `gate check` with the built probe in `directory` and the cache `cache`.
-fn probe_output_in(directory: &Path, cache: &Path) -> Output {
+/// `gate check` with the built probe in `directory`, the cache `cache` and the environment `env`.
+fn probe_output_in(directory: &Path, cache: &Path, env: &[(&str, &str)]) -> Output {
     let plugin = format!("probe={}", probe().0.display());
     isolated(
         Command::new(env!("CARGO_BIN_EXE_gate"))
-            .args(["check", "--plugin", &plugin, "--format", "json", "--timings"])
+            .args([
+                "check",
+                "--plugin",
+                &plugin,
+                "--format",
+                "json",
+                "--timings",
+            ])
             .current_dir(directory)
-            .env("GATE_CACHE_DIR", cache),
+            .env("GATE_CACHE_DIR", cache)
+            .envs(env.iter().copied()),
     )
     .output()
     .expect("gate")
+}
+
+/// Asserts that a check failed with a message that contains `advice`, and that no stored
+/// `read-at` answer in `cache` says "absent".
+fn failed_storing_no_absent(output: &Output, advice: &str, cache: &Path) {
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_ne!(output.status.code(), Some(0), "{said}");
+    assert!(said.contains(advice), "{said}");
+    assert!(!said.contains("a.txt: none"), "{said}");
+    let stored = stored_read_at(cache);
+    assert!(
+        stored.iter().all(|line| !line.contains(r#""blob":null"#)),
+        "{stored:?}"
+    );
 }
 
 /// The stored `read-at` answers in `cache`, one JSON line each.
@@ -2726,17 +2749,14 @@ fn a_partial_clone_that_cannot_fetch_a_file_stores_no_absent_answer_and_reads_it
     let clone = partial_clone(&origin);
 
     // The remote is unreachable: git cannot fetch the file its tree names. The call fails and
-    // says what to do; no "absent" is stored.
+    // says what to do; no "absent" is stored. Git's reader stops when the fetch fails, or, without
+    // lazy fetches, reads the file as missing.
     reach(&clone, None);
-    let output = probe_output_in(clone.path(), clone.cache.path());
-    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
-    assert_ne!(output.status.code(), Some(0), "{said}");
-    assert!(said.contains("run git fetch"), "{said}");
-    let stored = stored_read_at(clone.cache.path());
-    assert!(
-        stored.iter().all(|line| !line.contains(r#""blob":null"#)),
-        "{stored:?}"
-    );
+    let cache = clone.cache.path();
+    let output = probe_output_in(clone.path(), cache, &[]);
+    failed_storing_no_absent(&output, "run git fetch", cache);
+    let output = probe_output_in(clone.path(), cache, &[("GIT_NO_LAZY_FETCH", "1")]);
+    failed_storing_no_absent(&output, "run git fetch", cache);
 
     // The remote is back: the file is read, and its answer is stored.
     reach(&clone, Some(&origin));
@@ -2766,15 +2786,14 @@ fn a_stored_file_whose_content_neither_the_cache_nor_git_has_is_an_error_not_abs
     std::fs::remove_dir_all(cache.join("git").join("blobs")).expect("stored blobs");
     std::fs::remove_dir_all(cache.join("results")).expect("stored results");
     reach(&second, None);
-    let output = probe_output_in(second.path(), cache);
-    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
-    assert_ne!(output.status.code(), Some(0), "{said}");
-    assert!(said.contains("gate cache prune"), "{said}");
-    assert!(!said.contains("a.txt: none"), "{said}");
+    let output = probe_output_in(second.path(), cache, &[]);
+    failed_storing_no_absent(&output, "gate cache prune", cache);
+    let output = probe_output_in(second.path(), cache, &[("GIT_NO_LAZY_FETCH", "1")]);
+    failed_storing_no_absent(&output, "gate cache prune", cache);
 
     // With the remote back, git fetches the file by the stored id.
     reach(&second, Some(&origin));
-    let output = probe_output_in(second.path(), cache);
+    let output = probe_output_in(second.path(), cache, &[]);
     assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
     assert!(
         text(&output.stdout).contains("read-at HEAD~1:a.txt: first"),
