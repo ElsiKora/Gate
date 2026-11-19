@@ -4145,8 +4145,8 @@ fn a_used_result_survives_older_than_and_a_pruned_one_is_computed_again() {
     // Every derived file pruned: the next run computes the result again, with the same findings.
     let output = repo.gate(&["cache", "prune", "--older-than", "0", "--yes"]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert!(files_below(&cache.join("results")).is_empty());
-    assert!(files_below(&cache.join("git")).is_empty());
+    assert_eq!(files_below(&cache.join("results")), Vec::<PathBuf>::new());
+    assert_eq!(files_below(&cache.join("git")), Vec::<PathBuf>::new());
     let (after, ran, _) = probe_timings(&repo);
     assert_eq!(ran, ["one"]);
     assert_eq!(after, messages);
