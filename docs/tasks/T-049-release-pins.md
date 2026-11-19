@@ -59,8 +59,8 @@ has one version from its subject.
   `gate.lock` with only the plugin's entry moved, and with more; a pin moved to another version
   than the release's; a second plugin's pin moved; the core and another plugin moved with and
   without `release-all-pins`, and a plugin added or removed even with it; the same pin change in a
-  non-release (direct) commit, still reported under `direct`; `release-all-pins` without `release-plugin`, and a pin file in `release-files`, as
-  configuration errors.
+  non-release (direct) commit, still reported under `direct`; `release-all-pins` without
+  `release-plugin`, and a pin file in `release-files`, as configuration errors.
 - The rule page and the plugin changelog under `Unreleased`.
 - `rustfmt --edition 2024 --check` on the changed `.rs` files exits 0 before each commit.
 - fmt, clippy, test (`--no-fail-fast`), deny, build and the git plugin's wasm build exit 0 in one
