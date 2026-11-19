@@ -66,49 +66,49 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
 
-        if options.word_separator.is_empty() {
-            return Err(gate_sdk::Error::config(
-                "the option word-separator is empty; set it to the text between the words of a name, such as \"-\"",
-            ));
-        }
-
-        let grouping = Grouping {
-            resource_files: options.resource_files.clone(),
-            ignored_stems: options.ignored_stems.clone(),
-            separator: options.word_separator.clone(),
-        };
-        let root = layout.source_root;
-        let source = shared.source();
-        let tree = Tree::new(walk::files(source, &root, &walk::UNSKIPPED));
-        let below = crate::layout::folder_prefix(&root);
-
-        for (directory, entries) in &tree.directories {
-            if !directory.starts_with(&below) {
-                continue;
+            if options.word_separator.is_empty() {
+                return Err(gate_sdk::Error::config(
+                    "the option word-separator is empty; set it to the text between the words of a name, such as \"-\"",
+                ));
             }
 
-            for (count, prefix, kind) in grouping
-                .resource_groups(&tree, directory, entries)
-                .into_iter()
-                .chain(grouping.file_groups(&tree, directory, entries))
-            {
-                run.report()
-                    .finding(
-                        "",
-                        Location::file(directory.as_str()),
-                        format!(
-                            "{directory} has {count} {kind} sharing \"{prefix}\"; nest them under {directory}/{prefix}"
-                        ),
-                    )
-                    .help(format!("move the {kind} into {directory}/{prefix}"))
-                    .key(format!("{prefix}#{}", kind.replace(' ', "-")));
-            }
-        }
+            let grouping = Grouping {
+                resource_files: options.resource_files.clone(),
+                ignored_stems: options.ignored_stems.clone(),
+                separator: options.word_separator.clone(),
+            };
+            let root = layout.source_root;
+            let source = shared.source();
+            let tree = Tree::new(walk::files(source, &root, &walk::UNSKIPPED));
+            let below = crate::layout::folder_prefix(&root);
 
-        Ok(())
+            for (directory, entries) in &tree.directories {
+                if !directory.starts_with(&below) {
+                    continue;
+                }
+
+                for (count, prefix, kind) in grouping
+                    .resource_groups(&tree, directory, entries)
+                    .into_iter()
+                    .chain(grouping.file_groups(&tree, directory, entries))
+                {
+                    run.report()
+                        .finding(
+                            "",
+                            Location::file(directory.as_str()),
+                            format!(
+                                "{directory} has {count} {kind} sharing \"{prefix}\"; nest them under {directory}/{prefix}"
+                            ),
+                        )
+                        .help(format!("move the {kind} into {directory}/{prefix}"))
+                        .key(format!("{prefix}#{}", kind.replace(' ', "-")));
+                }
+            }
+
+            Ok(())
         })
     }
 }

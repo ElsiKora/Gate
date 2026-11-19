@@ -84,53 +84,53 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        let matcher = Matcher {
-            package: super::package::resolve(
-                "package",
-                options.package.as_deref(),
-                &layout.nest_common_package,
-            )?,
-            routes: options.route_decorators.clone(),
-        };
-        let replacement = options.replacement.clone();
-        let source = shared.source();
-        let typescript = shared.typescript()?;
-        let paths = syntax::typescript_sources(tree::files(
-            source,
-            &layout.source_root,
-            typescript.settings(),
-        ));
-
-        for path in paths {
-            let Some(file) = project::parsed(typescript, path)? else {
-                continue;
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            let matcher = Matcher {
+                package: super::package::resolve(
+                    "package",
+                    options.package.as_deref(),
+                    &layout.nest_common_package,
+                )?,
+                routes: options.route_decorators.clone(),
             };
-            let mut findings = Vec::new();
-            let bindings = matcher.statements(&file, &mut findings);
+            let replacement = options.replacement.clone();
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let paths = syntax::typescript_sources(tree::files(
+                source,
+                &layout.source_root,
+                typescript.settings(),
+            ));
 
-            if !bindings.is_empty() {
-                matcher.members(&file, &bindings, &mut findings);
+            for path in paths {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
+                let mut findings = Vec::new();
+                let bindings = matcher.statements(&file, &mut findings);
+
+                if !bindings.is_empty() {
+                    matcher.members(&file, &bindings, &mut findings);
+                }
+
+                for (offset, name) in findings {
+                    let line = usize::try_from(file.line(offset)).unwrap_or(usize::MAX);
+
+                    run.report()
+                        .finding(
+                            "",
+                            Location::line(path, line),
+                            format!(
+                                "{path} uses the raw Nest {name} route decorator; declare custom handlers with {replacement}"
+                            ),
+                        )
+                        .help(format!("declare the handler with {replacement}"))
+                        .key(name);
+                }
             }
 
-            for (offset, name) in findings {
-                let line = usize::try_from(file.line(offset)).unwrap_or(usize::MAX);
-
-                run.report()
-                    .finding(
-                        "",
-                        Location::line(path, line),
-                        format!(
-                            "{path} uses the raw Nest {name} route decorator; declare custom handlers with {replacement}"
-                        ),
-                    )
-                    .help(format!("declare the handler with {replacement}"))
-                    .key(name);
-            }
-        }
-
-        Ok(())
+            Ok(())
         })
     }
 }

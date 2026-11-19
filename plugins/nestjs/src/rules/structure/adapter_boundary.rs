@@ -60,70 +60,70 @@ impl Rule<crate::Nest> for AdapterBoundary {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let options = run.options();
-        let prefix = options
-            .infrastructure_prefix
-            .clone()
-            .unwrap_or_else(|| folder_prefix(&layout.infrastructure_folder));
-        // The infrastructure folder itself, and the prefix of the paths below it.
-        let folder = prefix.trim_end_matches('/').to_owned();
-        let below = folder_prefix(&folder);
-        let typescript = shared.typescript()?;
-        let mut findings = Findings::default();
+            let layout = PluginOptions::read(run)?.layout;
+            run.options().check_paths()?;
+            let options = run.options();
+            let prefix = options
+                .infrastructure_prefix
+                .clone()
+                .unwrap_or_else(|| folder_prefix(&layout.infrastructure_folder));
+            // The infrastructure folder itself, and the prefix of the paths below it.
+            let folder = prefix.trim_end_matches('/').to_owned();
+            let below = folder_prefix(&folder);
+            let typescript = shared.typescript()?;
+            let mut findings = Findings::default();
 
-        for (path, loads) in modules::loads(typescript, &layout.source_root, true)? {
-            let inward = options
-                .inward_owner_prefixes
-                .iter()
-                .any(|owner| path.starts_with(owner.as_str()));
-
-            for specifier in &loads.all {
-                let external = options.external_packages.iter().any(|package| {
-                    specifier == package || specifier.starts_with(&format!("{package}/"))
-                }) || options
-                    .external_package_prefixes
+            for (path, loads) in modules::loads(typescript, &layout.source_root, true)? {
+                let inward = options
+                    .inward_owner_prefixes
                     .iter()
-                    .any(|external| specifier.starts_with(external.as_str()));
+                    .any(|owner| path.starts_with(owner.as_str()));
 
-                if external && !path.starts_with(prefix.as_str()) {
-                    findings.push_keyed(
-                        "external-package",
-                        path,
-                        None,
-                        specifier.as_str(),
-                        format!(
-                            "{path} imports external adapter package {specifier} outside infrastructure"
-                        ),
-                    );
-                }
+                for specifier in &loads.all {
+                    let external = options.external_packages.iter().any(|package| {
+                        specifier == package || specifier.starts_with(&format!("{package}/"))
+                    }) || options
+                        .external_package_prefixes
+                        .iter()
+                        .any(|external| specifier.starts_with(external.as_str()));
 
-                // A relative path, a path spelled from the project root or an alias, resolved to
-                // the folder itself or a path below it.
-                let loads_infrastructure = source_target(&layout, path, specifier)
-                    .is_some_and(|target| target == folder || target.starts_with(&below));
+                    if external && !path.starts_with(prefix.as_str()) {
+                        findings.push_keyed(
+                            "external-package",
+                            path,
+                            None,
+                            specifier.as_str(),
+                            format!(
+                                "{path} imports external adapter package {specifier} outside infrastructure"
+                            ),
+                        );
+                    }
 
-                if inward && loads_infrastructure {
-                    findings.push_keyed(
-                        "inward-infrastructure",
-                        path,
-                        None,
-                        specifier.as_str(),
-                        format!(
-                            "{path} imports infrastructure adapter {specifier} into an inward owner"
-                        ),
-                    );
+                    // A relative path, a path spelled from the project root or an alias, resolved to
+                    // the folder itself or a path below it.
+                    let loads_infrastructure = source_target(&layout, path, specifier)
+                        .is_some_and(|target| target == folder || target.starts_with(&below));
+
+                    if inward && loads_infrastructure {
+                        findings.push_keyed(
+                            "inward-infrastructure",
+                            path,
+                            None,
+                            specifier.as_str(),
+                            format!(
+                                "{path} imports infrastructure adapter {specifier} into an inward owner"
+                            ),
+                        );
+                    }
                 }
             }
-        }
 
-        findings.report(run, |aspect| {
-            if aspect == "external-package" {
-                "wrap the package in an infrastructure adapter and load the adapter"
-            } else {
-                "depend on a contract the inward owner declares, and bind the adapter at the edge"
-            }
+            findings.report(run, |aspect| {
+                if aspect == "external-package" {
+                    "wrap the package in an infrastructure adapter and load the adapter"
+                } else {
+                    "depend on a contract the inward owner declares, and bind the adapter at the edge"
+                }
         });
         Ok(())
         })

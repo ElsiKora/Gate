@@ -284,106 +284,106 @@ impl Rule<crate::Nest> for FieldInventory {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-            let layout = PluginOptions::read(run)?.layout;
-            run.options().check_paths()?;
-            let options = run.options();
-            let index = options
-                .decisions
-                .as_ref()
-                .map(|path| (path, shared.text(path)));
-            let decisions = index
-                .as_ref()
-                .and_then(|(_, text)| text.as_deref().map(decisions::accepted));
-            let located = match run.options_file() {
-                Some(file) => Located {
-                    lines: element_lines(&shared.text(file).unwrap_or_default(), "fields"),
-                    path: file.to_owned(),
-                },
-                None => Located {
-                    path: "gate.toml".to_owned(),
-                    lines: Vec::new(),
-                },
-            };
-            let names = Names::new(&layout, options);
-            let typescript = shared.typescript()?;
-            let sources = Sources::new(typescript, &layout.source_root)?;
-            let read = Read {
-                sources: &sources,
-                names: &names,
-            };
-            let accepted = |decision: &str| {
-                decisions
+                let layout = PluginOptions::read(run)?.layout;
+                run.options().check_paths()?;
+                let options = run.options();
+                let index = options
+                    .decisions
                     .as_ref()
-                    .is_none_or(|index| index.contains(decision))
+                    .map(|path| (path, shared.text(path)));
+                let decisions = index
+                    .as_ref()
+                    .and_then(|(_, text)| text.as_deref().map(decisions::accepted));
+                let located = match run.options_file() {
+                    Some(file) => Located {
+                        lines: element_lines(&shared.text(file).unwrap_or_default(), "fields"),
+                        path: file.to_owned(),
+                    },
+                    None => Located {
+                        path: "gate.toml".to_owned(),
+                        lines: Vec::new(),
+                    },
+                };
+                let names = Names::new(&layout, options);
+                let typescript = shared.typescript()?;
+                let sources = Sources::new(typescript, &layout.source_root)?;
+                let read = Read {
+                    sources: &sources,
+                    names: &names,
+                };
+                let accepted = |decision: &str| {
+                    decisions
+                        .as_ref()
+                        .is_none_or(|index| index.contains(decision))
+                };
+                let mut findings = evaluate(read, typescript, options, &located, &accepted)?;
+
+                // Without its decision index the rule cannot tell an accepted decision; one finding
+                // stands for every decision the entries name, so that the run never passes on them.
+                let unread = match &index {
+                Some((path, None)) => Some(format!(
+                    "the decision index {path} is not tracked; correct `decisions` or add the index"
+                )),
+                None if !options.fields.is_empty() => Some(
+                    "the entries name decisions, but `decisions` names no decision index; set it to \
+                     the index that lists the accepted decisions"
+                        .to_owned(),
+                ),
+                _ => None,
             };
-            let mut findings = evaluate(read, typescript, options, &located, &accepted)?;
 
-            // Without its decision index the rule cannot tell an accepted decision; one finding
-            // stands for every decision the entries name, so that the run never passes on them.
-            let unread = match &index {
-            Some((path, None)) => Some(format!(
-                "the decision index {path} is not tracked; correct `decisions` or add the index"
-            )),
-            None if !options.fields.is_empty() => Some(
-                "the entries name decisions, but `decisions` names no decision index; set it to \
-                 the index that lists the accepted decisions"
-                    .to_owned(),
-            ),
-            _ => None,
-        };
-
-            if let Some(message) = unread {
-                findings.push(Finding {
-                    aspect: "classification",
-                    path: located.path.clone(),
-                    line: None,
-                    message,
-                    target: None,
-                    key: Some("decisions".to_owned()),
-                });
-                findings.sort_by(|left, right| {
-                    (&left.path, left.line, &left.message).cmp(&(
-                        &right.path,
-                        right.line,
-                        &right.message,
-                    ))
-                });
-            }
-            let mut reported: Vec<(&'static str, String, Option<u32>, String)> = Vec::new();
-
-            for finding in findings {
-                let row = (
-                    finding.aspect,
-                    finding.path.clone(),
-                    finding.line,
-                    finding.message.clone(),
-                );
-
-                if reported.contains(&row) {
-                    continue;
+                if let Some(message) = unread {
+                    findings.push(Finding {
+                        aspect: "classification",
+                        path: located.path.clone(),
+                        line: None,
+                        message,
+                        target: None,
+                        key: Some("decisions".to_owned()),
+                    });
+                    findings.sort_by(|left, right| {
+                        (&left.path, left.line, &left.message).cmp(&(
+                            &right.path,
+                            right.line,
+                            &right.message,
+                        ))
+                    });
                 }
+                let mut reported: Vec<(&'static str, String, Option<u32>, String)> = Vec::new();
 
-                reported.push(row);
-                let line = finding.line.and_then(|line| usize::try_from(line).ok());
-                let report = run
-                    .report()
-                    .finding(
+                for finding in findings {
+                    let row = (
                         finding.aspect,
-                        location(&finding.path, line),
-                        finding.message,
-                    )
-                    .help(help(finding.aspect));
+                        finding.path.clone(),
+                        finding.line,
+                        finding.message.clone(),
+                    );
 
-                if let Some(target) = finding.target {
-                    report.target(target);
+                    if reported.contains(&row) {
+                        continue;
+                    }
+
+                    reported.push(row);
+                    let line = finding.line.and_then(|line| usize::try_from(line).ok());
+                    let report = run
+                        .report()
+                        .finding(
+                            finding.aspect,
+                            location(&finding.path, line),
+                            finding.message,
+                        )
+                        .help(help(finding.aspect));
+
+                    if let Some(target) = finding.target {
+                        report.target(target);
+                    }
+
+                    if let Some(key) = finding.key {
+                        report.key(key);
+                    }
                 }
 
-                if let Some(key) = finding.key {
-                    report.key(key);
-                }
-            }
-
-            Ok(())
+                Ok(())
         })
     }
 }

@@ -65,72 +65,72 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        {
-            use crate::shared::paths::Form::Name;
-            let o = run.options();
-            crate::shared::paths::check("entity-folder", &o.entity_folder, Name)?;
-            crate::shared::paths::check("enum-folder", &o.enum_folder, Name)?;
-        }
+            {
+                use crate::shared::paths::Form::Name;
+                let o = run.options();
+                crate::shared::paths::check("entity-folder", &o.entity_folder, Name)?;
+                crate::shared::paths::check("enum-folder", &o.enum_folder, Name)?;
+            }
 
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        let paths = Paths {
-            layout: &layout,
-            options,
-        };
-        let typescript = shared.typescript()?;
-        let mut findings = Vec::new();
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            let paths = Paths {
+                layout: &layout,
+                options,
+            };
+            let typescript = shared.typescript()?;
+            let mut findings = Vec::new();
 
-        for (path, loads) in loads(typescript, &layout.source_root, true)? {
-            let owner = paths.owner(path);
-            let entity = path.rsplit('/').nth(1) == Some(options.entity_folder.as_str());
+            for (path, loads) in loads(typescript, &layout.source_root, true)? {
+                let owner = paths.owner(path);
+                let entity = path.rsplit('/').nth(1) == Some(options.entity_folder.as_str());
 
-            for specifier in &loads.all {
-                if entity && paths.names_enum_file(path, specifier) {
-                    findings.push((
-                        "entity-enum-barrel",
-                        path,
-                        format!("{specifier}#enum-file"),
-                        format!(
-                            "{path} loads the enum file {specifier}; import the enum through its owner's enum barrel"
-                        ),
-                        "import the enum through its owner's enum barrel".to_owned(),
-                    ));
-                }
+                for specifier in &loads.all {
+                    if entity && paths.names_enum_file(path, specifier) {
+                        findings.push((
+                            "entity-enum-barrel",
+                            path,
+                            format!("{specifier}#enum-file"),
+                            format!(
+                                "{path} loads the enum file {specifier}; import the enum through its owner's enum barrel"
+                            ),
+                            "import the enum through its owner's enum barrel".to_owned(),
+                        ));
+                    }
 
-                if entity && paths.names_own_enum_barrel(path, specifier) {
-                    let barrel = format!("../{}", options.enum_folder);
-                    findings.push((
-                        "entity-enum-barrel",
-                        path,
-                        format!("{specifier}#own-barrel"),
-                        format!(
-                            "{path} loads its own resource's enum barrel through {specifier}; import it as {barrel}"
-                        ),
-                        format!("import the barrel as {barrel}"),
-                    ));
-                }
+                    if entity && paths.names_own_enum_barrel(path, specifier) {
+                        let barrel = format!("../{}", options.enum_folder);
+                        findings.push((
+                            "entity-enum-barrel",
+                            path,
+                            format!("{specifier}#own-barrel"),
+                            format!(
+                                "{path} loads its own resource's enum barrel through {specifier}; import it as {barrel}"
+                            ),
+                            format!("import the barrel as {barrel}"),
+                        ));
+                    }
 
-                if paths.leaves_owner(path, owner, specifier) {
-                    findings.push((
-                        "owner-alias",
-                        path,
-                        specifier.clone(),
-                        format!("{path} loads {specifier}; use a canonical source-owner alias"),
-                        "load the other owner through its alias".to_owned(),
-                    ));
+                    if paths.leaves_owner(path, owner, specifier) {
+                        findings.push((
+                            "owner-alias",
+                            path,
+                            specifier.clone(),
+                            format!("{path} loads {specifier}; use a canonical source-owner alias"),
+                            "load the other owner through its alias".to_owned(),
+                        ));
+                    }
                 }
             }
-        }
 
-        for (aspect, path, key, message, help) in findings {
-            run.report()
-                .finding(aspect, Location::file(path), message)
-                .help(help)
-                .key(key);
-        }
+            for (aspect, path, key, message, help) in findings {
+                run.report()
+                    .finding(aspect, Location::file(path), message)
+                    .help(help)
+                    .key(key);
+            }
 
-        Ok(())
+            Ok(())
         })
     }
 }

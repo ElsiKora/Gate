@@ -150,112 +150,112 @@ impl Rule<crate::Nest> for AdvisoryLockManifest {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let options = run.options();
-        let manifest_path = options.manifest_path(&layout);
-        let operation_enum_path = options.operation_enum_path(&layout);
-        let mut findings = Findings::default();
+            let layout = PluginOptions::read(run)?.layout;
+            run.options().check_paths()?;
+            let options = run.options();
+            let manifest_path = options.manifest_path(&layout);
+            let operation_enum_path = options.operation_enum_path(&layout);
+            let mut findings = Findings::default();
 
-        // An enabled rule needs the registry: without it, the configuration is wrong.
-        let Some(text) = shared.text(&manifest_path) else {
-            findings.push_keyed(
-                "manifest",
-                manifest_path.as_str(),
-                None,
-                "untracked",
-                format!(
-                    "The advisory-lock manifest {manifest_path} is not tracked; track it, set `manifest-path` to the manifest, or leave the rule off."
-                ),
-            );
-            findings.report(run, help);
-            return Ok(());
-        };
-
-        let marker = pattern::compile(
-            "marker-token",
-            &format!(
-                "{} ([A-Z][A-Z0-9_]*)\\.([A-Z][A-Z0-9_]*)=(-?[0-9]+),(-?[0-9]+)",
-                pattern::escape(&options.marker_token)
-            ),
-        )?;
-        let operations: Vec<&str> = options.operations.iter().map(String::as_str).collect();
-
-        // The manifest's exact formatted form has LF line ends.
-        if text.contains('\r') {
-            findings.push(
-                "manifest",
-                manifest_path.as_str(),
-                None,
-                "Manifest is not in its exact formatted form: it has a carriage return.",
-            );
-        }
-
-        let static_keys = match serde_json::from_str::<Value>(&text) {
-            Ok(manifest) => {
-                let messages = manifest_findings(&manifest, &operations);
-                let valid = messages.is_empty();
-
-                for message in messages {
-                    findings.push("manifest", manifest_path.as_str(), None, message);
-                }
-
-                valid.then(|| static_keys(&manifest))
-            }
-            Err(error) => {
+            // An enabled rule needs the registry: without it, the configuration is wrong.
+            let Some(text) = shared.text(&manifest_path) else {
                 findings.push_keyed(
                     "manifest",
                     manifest_path.as_str(),
                     None,
-                    "json",
-                    format!("Manifest is not valid JSON: {error}"),
+                    "untracked",
+                    format!(
+                        "The advisory-lock manifest {manifest_path} is not tracked; track it, set `manifest-path` to the manifest, or leave the rule off."
+                    ),
                 );
-                None
+                findings.report(run, help);
+                return Ok(());
+            };
+
+            let marker = pattern::compile(
+                "marker-token",
+                &format!(
+                    "{} ([A-Z][A-Z0-9_]*)\\.([A-Z][A-Z0-9_]*)=(-?[0-9]+),(-?[0-9]+)",
+                    pattern::escape(&options.marker_token)
+                ),
+            )?;
+            let operations: Vec<&str> = options.operations.iter().map(String::as_str).collect();
+
+            // The manifest's exact formatted form has LF line ends.
+            if text.contains('\r') {
+                findings.push(
+                    "manifest",
+                    manifest_path.as_str(),
+                    None,
+                    "Manifest is not in its exact formatted form: it has a carriage return.",
+                );
             }
-        };
 
-        let source = shared.source();
-        let typescript = shared.typescript()?;
+            let static_keys = match serde_json::from_str::<Value>(&text) {
+                Ok(manifest) => {
+                    let messages = manifest_findings(&manifest, &operations);
+                    let valid = messages.is_empty();
 
-        operation_enum(
-            typescript,
-            &operation_enum_path,
-            &options.operation_enum_name,
-            &operations,
-            &mut findings,
-        )?;
+                    for message in messages {
+                        findings.push("manifest", manifest_path.as_str(), None, message);
+                    }
 
-        // Markers are compared with a valid manifest only.
-        if let Some(static_keys) = static_keys {
-            let files: Vec<String> = tree::files(source, &layout.source_root, &tree::UNSKIPPED)
-                // Every file whose name ends in `.ts`, in that exact case, in every folder.
-                .filter(|path| path.strip_suffix(".ts").is_some())
-                .map(str::to_owned)
-                .collect();
-            let texts: Vec<(String, String)> = files
-                .into_iter()
-                .filter_map(|path| {
-                    let text = shared.text(&path)?;
-                    Some((path, text))
-                })
-                .collect();
+                    valid.then(|| static_keys(&manifest))
+                }
+                Err(error) => {
+                    findings.push_keyed(
+                        "manifest",
+                        manifest_path.as_str(),
+                        None,
+                        "json",
+                        format!("Manifest is not valid JSON: {error}"),
+                    );
+                    None
+                }
+            };
 
-            markers(
-                &Markers {
-                    token: &options.marker_token,
-                    pattern: &marker,
-                    static_keys: &static_keys,
-                    paths: &options.marker_paths,
-                    required: &options.required_markers,
-                    manifest: &manifest_path,
-                },
-                &texts,
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+
+            operation_enum(
+                typescript,
+                &operation_enum_path,
+                &options.operation_enum_name,
+                &operations,
                 &mut findings,
-            );
-        }
+            )?;
 
-        findings.report(run, help);
-        Ok(())
+            // Markers are compared with a valid manifest only.
+            if let Some(static_keys) = static_keys {
+                let files: Vec<String> = tree::files(source, &layout.source_root, &tree::UNSKIPPED)
+                    // Every file whose name ends in `.ts`, in that exact case, in every folder.
+                    .filter(|path| path.strip_suffix(".ts").is_some())
+                    .map(str::to_owned)
+                    .collect();
+                let texts: Vec<(String, String)> = files
+                    .into_iter()
+                    .filter_map(|path| {
+                        let text = shared.text(&path)?;
+                        Some((path, text))
+                    })
+                    .collect();
+
+                markers(
+                    &Markers {
+                        token: &options.marker_token,
+                        pattern: &marker,
+                        static_keys: &static_keys,
+                        paths: &options.marker_paths,
+                        required: &options.required_markers,
+                        manifest: &manifest_path,
+                    },
+                    &texts,
+                    &mut findings,
+                );
+            }
+
+            findings.report(run, help);
+            Ok(())
         })
     }
 }

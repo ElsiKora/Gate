@@ -141,89 +141,89 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        let service = Service {
-            package: super::package::resolve(
-                "framework-package",
-                options.framework_package.as_deref(),
-                &layout.automator_package,
-            )?,
-            decorator: options.service_decorator.clone(),
-            base: options.service_base.clone(),
-        };
-        let repository = options.repository_parameter.clone();
-        let typescript = shared.typescript()?;
-        let sources = Sources::new(typescript, &layout.source_root)?;
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            let service = Service {
+                package: super::package::resolve(
+                    "framework-package",
+                    options.framework_package.as_deref(),
+                    &layout.automator_package,
+                )?,
+                decorator: options.service_decorator.clone(),
+                base: options.service_base.clone(),
+            };
+            let repository = options.repository_parameter.clone();
+            let typescript = shared.typescript()?;
+            let sources = Sources::new(typescript, &layout.source_root)?;
 
-        for source in sources.iter() {
-            for class in top_level(&source.file).filter_map(class_declaration) {
-                if !service.native(&sources, source, class, &HashSet::new()) {
-                    continue;
-                }
-
-                let name = class
-                    .id
-                    .as_ref()
-                    .map_or("<anonymous>", |id| id.name.as_str());
-
-                for element in &class.body.body {
-                    let ClassElement::MethodDefinition(method) = element else {
-                        continue;
-                    };
-
-                    if !constructor(method) {
+            for source in sources.iter() {
+                for class in top_level(&source.file).filter_map(class_declaration) {
+                    if !service.native(&sources, source, class, &HashSet::new()) {
                         continue;
                     }
 
-                    for parameter in &method.value.params.items {
-                        let BindingPattern::BindingIdentifier(identifier) = &parameter.pattern
-                        else {
+                    let name = class
+                        .id
+                        .as_ref()
+                        .map_or("<anonymous>", |id| id.name.as_str());
+
+                    for element in &class.body.body {
+                        let ClassElement::MethodDefinition(method) = element else {
                             continue;
                         };
-                        // A parameter property carries an accessibility, `readonly` or `override`.
-                        let property = parameter.accessibility.is_some()
-                            || parameter.readonly
-                            || parameter.r#override;
 
-                        if identifier.name != repository.as_str()
-                            || !property
-                            || (parameter.accessibility == Some(TSAccessibility::Protected)
-                                && parameter.readonly)
-                        {
+                        if !constructor(method) {
                             continue;
                         }
 
-                        let start = parameter
-                            .decorators
-                            .first()
-                            .map_or(parameter.span.start, |decorator| {
-                                decorator.span.start.min(parameter.span.start)
-                            });
-                        let line = source.file.line(start);
+                        for parameter in &method.value.params.items {
+                            let BindingPattern::BindingIdentifier(identifier) = &parameter.pattern
+                            else {
+                                continue;
+                            };
+                            // A parameter property carries an accessibility, `readonly` or `override`.
+                            let property = parameter.accessibility.is_some()
+                                || parameter.readonly
+                                || parameter.r#override;
 
-                        run.report()
-                            .finding(
-                                "",
-                                Location::line(
-                                    source.path.as_str(),
-                                    usize::try_from(line).unwrap_or(usize::MAX),
-                                ),
-                                format!(
-                                    "{}:{line} {name}.{repository} must be a protected readonly native repository parameter property",
-                                    source.path
-                                ),
-                            )
-                            .help(format!(
-                                "declare the parameter as `protected readonly {repository}`"
-                            ))
-                            .key(format!("{name}.{repository}"));
+                            if identifier.name != repository.as_str()
+                                || !property
+                                || (parameter.accessibility == Some(TSAccessibility::Protected)
+                                    && parameter.readonly)
+                            {
+                                continue;
+                            }
+
+                            let start = parameter
+                                .decorators
+                                .first()
+                                .map_or(parameter.span.start, |decorator| {
+                                    decorator.span.start.min(parameter.span.start)
+                                });
+                            let line = source.file.line(start);
+
+                            run.report()
+                                .finding(
+                                    "",
+                                    Location::line(
+                                        source.path.as_str(),
+                                        usize::try_from(line).unwrap_or(usize::MAX),
+                                    ),
+                                    format!(
+                                        "{}:{line} {name}.{repository} must be a protected readonly native repository parameter property",
+                                        source.path
+                                    ),
+                                )
+                                .help(format!(
+                                    "declare the parameter as `protected readonly {repository}`"
+                                ))
+                                .key(format!("{name}.{repository}"));
+                        }
                     }
                 }
             }
-        }
 
-        Ok(())
+            Ok(())
         })
     }
 }

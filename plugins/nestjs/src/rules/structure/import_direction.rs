@@ -195,57 +195,57 @@ impl Rule<crate::Nest> for ImportDirection {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let contracts = run.options().contracts.clone();
-        let typescript = shared.typescript()?;
-        let mut findings = Findings::default();
+            let layout = PluginOptions::read(run)?.layout;
+            run.options().check_paths()?;
+            let contracts = run.options().contracts.clone();
+            let typescript = shared.typescript()?;
+            let mut findings = Findings::default();
 
-        for contract in &contracts {
-            let directory = &contract.source_directory;
+            for contract in &contracts {
+                let directory = &contract.source_directory;
 
-            for (path, loads) in
-                modules::loads(typescript, directory, contract.include_declaration_files)?
-            {
-                if contract
-                    .allowed_source_paths
-                    .iter()
-                    .any(|allowed| allowed == path)
-                    || contract
-                        .allowed_source_directories
-                        .iter()
-                        .any(|allowed| path == allowed || path.starts_with(&folder_prefix(allowed)))
+                for (path, loads) in
+                    modules::loads(typescript, directory, contract.include_declaration_files)?
                 {
-                    continue;
-                }
+                    if contract
+                        .allowed_source_paths
+                        .iter()
+                        .any(|allowed| allowed == path)
+                        || contract
+                            .allowed_source_directories
+                            .iter()
+                            .any(|allowed| path == allowed || path.starts_with(&folder_prefix(allowed)))
+                    {
+                        continue;
+                    }
 
-                let specifiers = if contract.runtime_values_only {
-                    &loads.runtime
-                } else {
-                    &loads.all
-                };
+                    let specifiers = if contract.runtime_values_only {
+                        &loads.runtime
+                    } else {
+                        &loads.all
+                    };
 
-                for specifier in specifiers {
-                    if forbids(&layout, contract, path, specifier) {
-                        findings.push_keyed(
-                            contract.aspect.name(),
-                            path,
-                            None,
-                            specifier.as_str(),
-                            format!(
-                                "{path} loads {specifier} outside its {directory} dependency contract"
-                            ),
-                        );
+                    for specifier in specifiers {
+                        if forbids(&layout, contract, path, specifier) {
+                            findings.push_keyed(
+                                contract.aspect.name(),
+                                path,
+                                None,
+                                specifier.as_str(),
+                                format!(
+                                    "{path} loads {specifier} outside its {directory} dependency contract"
+                                ),
+                            );
+                        }
                     }
                 }
             }
-        }
 
-        findings.report(
-            run,
-            |_| "load the module through an owner the contract allows, or move the code",
-        );
-        Ok(())
+            findings.report(
+                run,
+                |_| "load the module through an owner the contract allows, or move the code",
+            );
+            Ok(())
         })
     }
 }

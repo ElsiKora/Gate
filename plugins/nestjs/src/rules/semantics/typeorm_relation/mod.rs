@@ -440,85 +440,85 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        check_paths(run.options())?;
+            check_paths(run.options())?;
 
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        let vocabulary = Vocabulary::new(options, &layout)?;
-        let label = options.foreign_key_label.clone();
-        let exceptions = options.nullable_relations.clone();
-        let spelling = options
-            .foreign_key_case
-            .zip(label.as_deref())
-            .map(|(case, label)| Spelling { case, label });
-        let typescript = shared.typescript()?;
-        let mut files = Vec::new();
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            let vocabulary = Vocabulary::new(options, &layout)?;
+            let label = options.foreign_key_label.clone();
+            let exceptions = options.nullable_relations.clone();
+            let spelling = options
+                .foreign_key_case
+                .zip(label.as_deref())
+                .map(|(case, label)| Spelling { case, label });
+            let typescript = shared.typescript()?;
+            let mut files = Vec::new();
 
-        for path in
-            tree::typescript_files(typescript.source(), &layout.source_root, &tree::UNSKIPPED)
-        {
-            if let Some(file) = typescript.parse(path)? {
-                files.push((path, file));
+            for path in
+                tree::typescript_files(typescript.source(), &layout.source_root, &tree::UNSKIPPED)
+            {
+                if let Some(file) = typescript.parse(path)? {
+                    files.push((path, file));
+                }
             }
-        }
 
-        // A file oxc cannot parse keeps its path for the import candidates and is not read;
-        // `typescript/parse` reports it.
-        let units = files
-            .iter()
-            .map(|(path, file)| Unit {
-                path,
-                file,
-                resolver: (!file.fatal())
-                    .then(|| Bindings::read(file, &vocabulary))
-                    .flatten()
-                    .map(|bindings| (bindings, Binder::new(file))),
-            })
-            .collect();
-        let catalog = Catalog::new(units, &vocabulary);
-        let mut findings = Vec::new();
-        let mut reuse = Reuse::new();
-        let mut pass = Pass {
-            catalog: &catalog,
-            vocabulary: &vocabulary,
-            spelling,
-            exceptions: &exceptions,
-            findings: &mut findings,
-            reuse: &mut reuse,
-        };
-        pass.files();
-
-        if spelling.is_none() && !reuse.is_empty() {
-            return Err(gate_sdk::Error::config(
-                "the option foreign-key-case is not set, but an owning relation's join reaches its foreign key name; set foreign-key-case to \"upper\" or \"lower\" and foreign-key-label",
-            ));
-        }
-
-        for (foreign_key, owners) in reuse {
-            let Some((_, (path, line))) = owners.first_key_value() else {
-                continue;
+            // A file oxc cannot parse keeps its path for the import candidates and is not read;
+            // `typescript/parse` reports it.
+            let units = files
+                .iter()
+                .map(|(path, file)| Unit {
+                    path,
+                    file,
+                    resolver: (!file.fatal())
+                        .then(|| Bindings::read(file, &vocabulary))
+                        .flatten()
+                        .map(|bindings| (bindings, Binder::new(file))),
+                })
+                .collect();
+            let catalog = Catalog::new(units, &vocabulary);
+            let mut findings = Vec::new();
+            let mut reuse = Reuse::new();
+            let mut pass = Pass {
+                catalog: &catalog,
+                vocabulary: &vocabulary,
+                spelling,
+                exceptions: &exceptions,
+                findings: &mut findings,
+                reuse: &mut reuse,
             };
+            pass.files();
 
-            if owners.len() < 2 {
-                continue;
+            if spelling.is_none() && !reuse.is_empty() {
+                return Err(gate_sdk::Error::config(
+                    "the option foreign-key-case is not set, but an owning relation's join reaches its foreign key name; set foreign-key-case to \"upper\" or \"lower\" and foreign-key-label",
+                ));
             }
 
-            let labels: Vec<&str> = owners.keys().map(String::as_str).collect();
-            findings.push(Finding::new(
-                "foreign-key-reuse",
-                path,
-                *line,
-                foreign_key.clone(),
-                format!(
-                    "foreign key name {} is reused across owner relations: {}",
-                    quote(&foreign_key),
-                    labels.join(", ")
-                ),
-            ));
-        }
+            for (foreign_key, owners) in reuse {
+                let Some((_, (path, line))) = owners.first_key_value() else {
+                    continue;
+                };
 
-        findings.sort_by(|left, right| {
-            (&left.message, &left.path, left.line).cmp(&(&right.message, &right.path, right.line))
+                if owners.len() < 2 {
+                    continue;
+                }
+
+                let labels: Vec<&str> = owners.keys().map(String::as_str).collect();
+                findings.push(Finding::new(
+                    "foreign-key-reuse",
+                    path,
+                    *line,
+                    foreign_key.clone(),
+                    format!(
+                        "foreign key name {} is reused across owner relations: {}",
+                        quote(&foreign_key),
+                        labels.join(", ")
+                    ),
+                ));
+            }
+
+            findings.sort_by(|left, right| {
+                (&left.message, &left.path, left.line).cmp(&(&right.message, &right.path, right.line))
         });
 
         for finding in findings {
