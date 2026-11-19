@@ -29,9 +29,12 @@ const RANGE: &str = "${{ github.event.pull_request.base.sha || github.event.befo
 const TARGET_REF: &str =
     "${{ github.base_ref && format('refs/heads/{0}', github.base_ref) || github.ref }}";
 
-/// The group of a run: one per workflow and ref, so a pull request's runs (`refs/pull/<n>/merge`)
-/// and a branch's runs (`refs/heads/<name>`) each queue apart.
-const CONCURRENCY_GROUP: &str = "${{ github.workflow }}-${{ github.ref }}";
+/// The concurrency group of a run of the workflow at `path`: the file's path, so no other workflow
+/// shares it whatever its display name, and the ref, so a pull request's runs
+/// (`refs/pull/<n>/merge`) and a branch's runs (`refs/heads/<name>`) each queue apart.
+fn concurrency_group(path: &str) -> String {
+    format!("{path}@${{{{ github.ref }}}}")
+}
 
 /// Whether a newer run of the group cancels the one in progress: for a pull request, whose older
 /// commits no longer matter; never for a push, so a push to main never cancels a running main check.
@@ -126,7 +129,7 @@ pub fn workflow(
         },
         "permissions": { "contents": "read" },
         "concurrency": {
-            "group": CONCURRENCY_GROUP,
+            "group": concurrency_group(github.workflow.as_str()),
             "cancel-in-progress": CANCEL_IN_PROGRESS,
         },
         "jobs": jobs,

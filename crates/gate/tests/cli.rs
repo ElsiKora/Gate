@@ -1135,15 +1135,15 @@ fn the_workflow_cancels_superseded_pull_request_runs_and_never_main() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let workflow = repo.read(".github/workflows/gate.yml");
 
-    // It runs on pushes and pull requests, and its runs share one group per workflow and ref; a
-    // newer run cancels the one in progress for a pull request only.
+    // It runs on pushes and pull requests, and its runs share one group per workflow file and ref;
+    // a newer run cancels the one in progress for a pull request only.
     assert!(
         workflow.contains("\non:\n  push:\n    branches:\n      - main\n  pull_request:\n    branches:\n      - main\n"),
         "{workflow}"
     );
     let concurrency = concat!(
         "\nconcurrency:\n",
-        "  group: ${{ github.workflow }}-${{ github.ref }}\n",
+        "  group: .github/workflows/gate.yml@${{ github.ref }}\n",
         "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
         "jobs:\n",
     );

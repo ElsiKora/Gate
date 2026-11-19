@@ -19,8 +19,13 @@ the older one, and a push to main never cancels a running main check.
 ## Scope
 
 1. The workflow gets a top-level `concurrency`, always, with no option:
-   - `group: ${{ github.workflow }}-${{ github.ref }}`: one group per workflow and ref (a pull
-     request's ref is `refs/pull/<n>/merge`, a branch's `refs/heads/<name>`);
+   - `group: <workflow>@${{ github.ref }}`, with the workflow file's path from `[ci.github]
+     workflow`: one group per workflow file and ref (a pull request's ref is
+     `refs/pull/<n>/merge`, a branch's `refs/heads/<name>`). Review, 2026-11-19: not
+     `github.workflow`, the display name, which a hand-written workflow named the same would
+     share; not `github.workflow_ref` either, since GitHub's contexts reference documents its ref
+     part only for a branch (`@refs/heads/my_branch`), not that it is `refs/pull/<n>/merge` for a
+     pull request as `github.ref` is;
    - `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`: true for pull requests,
      false for pushes. The workflow runs on `push` to its `branches` and on `pull_request`; it has
      no tag trigger, so a tag never starts it.
@@ -28,11 +33,13 @@ the older one, and a push to main never cancels a running main check.
    full, and one way keeps the generated file the same everywhere.
 2. With `cancel-in-progress` false GitHub still keeps at most one pending run per group: a third
    push to main while one runs and one waits replaces the waiting one, never the running one. The
-   docs say so.
+   docs say so, and that a cancelled pull-request run's `aggregate` job still runs under `always()`
+   and fails naming the cancelled jobs: a red check on the superseded commit, none on the new head.
+   `always()` stays, since a skipped aggregate counts as passing.
 3. `SYNC_STATE_VERSION` 6: a workflow that `gate sync` wrote before is drift now, so a stored
    `sync-state` answer must not call it in sync.
 4. Docs (`docs/guide/configuration.md`, `docs/architecture.md` section 10) and `CHANGELOG.md`
-   under Unreleased.
+   under Unreleased, Features (new behaviour).
 
 ## Tests
 
@@ -50,5 +57,6 @@ the older one, and a push to main never cancels a running main check.
 
 ## Resume point
 
-2026-11-19: branch `task/T-043-ci-concurrency` from `main` at `89c42c7`; task file written; next:
-the concurrency group, the test, the docs, then one lane round.
+2026-11-19: branch `task/T-043-ci-concurrency` from `main` at `89c42c7`; group, test, docs written;
+review fix round (group from the workflow file's path, the aggregate's red check documented, the
+entry under Features) written; round 204 withdrawn before it ran; next: one lane round on the tip.

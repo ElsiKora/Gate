@@ -640,10 +640,10 @@ The first readers raised these points; each is settled:
   history rule checks out the full history, and any job may set `fetch-depth`. Every generated
   checkout sets `persist-credentials: false`, with no setting to keep them: the jobs never push, and
   they read private plugin releases through `GATE_GITHUB_TOKEN`, not through git's credentials. The
-  workflow has one `concurrency` group per workflow and ref
-  (`${{ github.workflow }}-${{ github.ref }}`), with `cancel-in-progress` true for pull requests
-  only, so a superseded pull-request run stops and a push to main never cancels a running main
-  check; no setting changes it.
+  workflow has one `concurrency` group per workflow file and ref (`<workflow>@${{ github.ref }}`,
+  the file's path, so a workflow of another name never shares it), with `cancel-in-progress` true
+  for pull requests only, so a superseded pull-request run stops and a push to main never cancels a
+  running main check; no setting changes it.
 
 **Findings**
 - **Mandatory decisions on exceptions.** `[exception-policy] require-decision = true` makes a decision
