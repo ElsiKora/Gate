@@ -24,6 +24,8 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   `type`, `scope` and `subject` (commitlint's `headerPattern`), `ignores`, regular expressions of
   messages that are not checked, and `default-ignores = false`, which drops commitlint's default
   ignores, so a policy written as one header expression and its own skip list needs no shell step.
+  Both read a pattern as JavaScript reads it without flags; the rule page lists the subset, and a
+  construct outside it is an error that names it.
 - The rules declare the `[plugins.git] options` keys they read (`Rule::NEEDS`), and under which
   forms, so a key an enabled rule reads is a configuration error (exit 2) when the configuration
   loads, naming the rule, not an error when the rule runs.

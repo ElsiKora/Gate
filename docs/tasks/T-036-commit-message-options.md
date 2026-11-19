@@ -60,3 +60,15 @@ keeps the breaking pattern first. The policy test now expects `feat(a)!: add x` 
 2026-11-19: ticket 175 (3532474): fmt exit 1 on two layouts in the policy test; clippy failed
 because `release/v0.2.0` did not compile (fixed by T-039), and the round was stopped. Rebased onto
 `release/v0.2.0` at `ef099bc`; the two layouts are now as rustfmt writes them.
+2026-11-19: the review's fix round. `header-pattern` and `ignores` go through
+`plugins/git/src/javascript.rs`, which translates each JavaScript construct (no flags, Annex B)
+into the `regex` crate's form with the same meaning: `\<`, `\>`, `\A`, `\z`, `\pL` and other
+escapes are their own characters, a class holds only characters (`[[:alpha:]]`, `&&`, `--`, `~~`
+and a nested `[` included), and a `{` that makes no quantifier is a `{`; lookaround,
+backreferences, octal escapes, other `(?` groups, empty classes and lone surrogates are refused by
+name. One unit test per silent case. The rule page states the subset, the renaming of commitlint's
+positional groups, the regular-expression mapping of `ignores` and the `subject-empty` case. Tests:
+`ignores = ["WIP"]` skips a message with `WIP` in its body (`wip x` as the header, so that the
+skip shows), `^WIP` anchors at the message's start only, and a scope `é` under `\w+` fails where
+`e` passes, in place of the `féat` case. The read set records the message's SHA-256 instead of the
+message, in the separate commit `3723123` (`fix(runtime)`), with a test of a 65 MiB message.
