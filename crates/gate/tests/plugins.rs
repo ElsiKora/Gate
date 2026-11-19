@@ -2060,28 +2060,52 @@ fn a_missing_git_plugin_option_is_a_configuration_error_at_load() {
     );
 }
 
-#[test]
-fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_missing() {
-    static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
-    let plugin = format!("git={}", git.0.display());
-    let repo = Repo::empty();
-    repo.write("README.md", "# r\n");
-    let root = repo.commit("init");
-    let release = r"release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'";
-    let config = |options: &str, rules: &str| {
-        format!(
-            "[gate]\nversion = \"0.1.0\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"]{options} }}\n\n[rules]\n{rules}\n"
-        )
-    };
-    let no_ci_skip = "\"git/no-ci-skip\" = { level = \"error\" }";
-    let refused = |options: &str, rules: &str, arguments: &[&str], expected: &str| {
-        repo.write("gate.toml", &config(options, rules));
-        repo.git(&["add", "-A"]);
-        repo.git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
-        let mut all = vec!["check", "--plugin", plugin.as_str()];
+/// A repository with the git plugin built from this tree, for checking `[plugins.git] options`.
+struct GitOptions {
+    repo: Repo,
+    plugin: String,
+    /// The repository's first commit, an activation commit.
+    root: String,
+}
+
+const RELEASE_SUBJECT: &str = r"release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'";
+const NO_CI_SKIP: &str = "\"git/no-ci-skip\" = { level = \"error\" }";
+const BRANCH_NAME: &str =
+    "\"git/branch-name\" = { level = \"error\", options = { pattern = \"^main$\" } }";
+
+impl GitOptions {
+    fn new() -> Self {
+        static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+        let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
+        let repo = Repo::empty();
+        repo.write("README.md", "# r\n");
+        let root = repo.commit("init");
+        Self {
+            repo,
+            plugin: format!("git={}", git.0.display()),
+            root,
+        }
+    }
+
+    /// `gate check` with `arguments` on a committed configuration of `[plugins.git] options`
+    /// `main` and then `options`, and `[rules]` `rules`.
+    fn check(&self, options: &str, rules: &str, arguments: &[&str]) -> Output {
+        self.repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"0.1.0\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"]{options} }}\n\n[rules]\n{rules}\n"
+            ),
+        );
+        self.repo.git(&["add", "-A"]);
+        self.repo
+            .git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
+        let mut all = vec!["check", "--plugin", self.plugin.as_str()];
         all.extend_from_slice(arguments);
-        let output = repo.gate(&all);
+        self.repo.gate(&all)
+    }
+
+    fn refused(&self, options: &str, rules: &str, arguments: &[&str], expected: &str) {
+        let output = self.check(options, rules, arguments);
         let message = text(&output.stderr);
         assert_eq!(output.status.code(), Some(2), "{options}: {message}");
         assert_eq!(text(&output.stdout), "", "nothing ran");
@@ -2090,14 +2114,10 @@ fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_miss
                 && message.contains(expected),
             "{options}: {message}"
         );
-    };
-    let passes = |options: &str, rules: &str, arguments: &[&str]| {
-        repo.write("gate.toml", &config(options, rules));
-        repo.git(&["add", "-A"]);
-        repo.git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
-        let mut all = vec!["check", "--plugin", plugin.as_str()];
-        all.extend_from_slice(arguments);
-        let output = repo.gate(&all);
+    }
+
+    fn passes(&self, options: &str, rules: &str, arguments: &[&str]) {
+        let output = self.check(options, rules, arguments);
         assert_eq!(
             output.status.code(),
             Some(0),
@@ -2105,71 +2125,75 @@ fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_miss
             text(&output.stdout),
             text(&output.stderr)
         );
-    };
+    }
+}
 
+#[test]
+fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_missing() {
+    let git = GitOptions::new();
     // A key every run of the rule reads, named with the rule and what to do.
-    refused(
-        &format!(", {release}"),
-        no_ci_skip,
+    git.refused(
+        &format!(", {RELEASE_SUBJECT}"),
+        NO_CI_SKIP,
         &[],
         "[plugins.git] options has no activation, which \"git/no-ci-skip\" reads: the rule reads \
          history after it; write the 40-hex id of the commit the policy starts after",
     );
     // A key the default forms read: they hold a release form.
-    let activation = format!(", activation = \"{root}\"");
-    refused(
+    let activation = format!(", activation = \"{}\"", git.root);
+    git.refused(
         &activation,
-        no_ci_skip,
+        NO_CI_SKIP,
         &[],
         "[plugins.git] options has no release-subject, which \"git/no-ci-skip\" reads",
     );
     // The keys of main-history's default merge and direct forms.
-    refused(
-        &format!("{activation}, {release}"),
+    git.refused(
+        &format!("{activation}, {RELEASE_SUBJECT}"),
         "\"git/main-history\" = \"error\"",
         &[],
         "[plugins.git] options has no branch-pattern, which \"git/main-history\" reads",
     );
-    refused(
+    git.refused(
         &format!(
-            "{activation}, {release}, branch-pattern = '^feature/.+$', branch-length = [5, 50], dependabot = [\"package.json\"]"
+            "{activation}, {RELEASE_SUBJECT}, branch-pattern = '^feature/.+$', branch-length = [5, 50], dependabot = [\"package.json\"]"
         ),
         "\"git/main-history\" = \"error\"",
         &[],
         "[plugins.git] options has no documentation, which \"git/main-history\" reads",
     );
-
-    // Forms without a release form read no release-subject.
-    passes(
-        &format!("{activation}, forms = [{{ kind = \"direct\", parents = 1, checks = [] }}]"),
-        no_ci_skip,
-        &[],
-    );
-    // A rule that does not read a key does not need it, and neither does a rule the run leaves out.
-    passes(
+    // A rule the run selects by its family is checked.
+    git.refused(
         "",
-        "\"git/branch-name\" = { level = \"error\", options = { pattern = \"^main$\" } }",
-        &[],
-    );
-    passes(
-        "",
-        &format!(
-            "{no_ci_skip}\n\"git/branch-name\" = {{ level = \"error\", options = {{ pattern = \"^main$\" }} }}"
-        ),
-        &["--rule", "git/branch-name"],
-    );
-    refused(
-        "",
-        &format!(
-            "{no_ci_skip}\n\"git/branch-name\" = {{ level = \"error\", options = {{ pattern = \"^main$\" }} }}"
-        ),
+        &format!("{NO_CI_SKIP}\n{BRANCH_NAME}"),
         &["--rule", "git"],
         "has no activation, which \"git/no-ci-skip\" reads",
     );
-    // Off is not enabled.
-    passes(
+}
+
+#[test]
+fn a_git_option_no_enabled_rule_reads_may_be_missing() {
+    let git = GitOptions::new();
+    // Forms without a release form read no release-subject.
+    git.passes(
+        &format!(
+            ", activation = \"{}\", forms = [{{ kind = \"direct\", parents = 1, checks = [] }}]",
+            git.root
+        ),
+        NO_CI_SKIP,
+        &[],
+    );
+    // A rule that does not read a key does not need it, nor does a rule the run leaves out or
+    // one that is off.
+    git.passes("", BRANCH_NAME, &[]);
+    git.passes(
         "",
-        "\"git/no-ci-skip\" = \"off\"\n\"git/branch-name\" = { level = \"error\", options = { pattern = \"^main$\" } }",
+        &format!("{NO_CI_SKIP}\n{BRANCH_NAME}"),
+        &["--rule", "git/branch-name"],
+    );
+    git.passes(
+        "",
+        &format!("\"git/no-ci-skip\" = \"off\"\n{BRANCH_NAME}"),
         &[],
     );
 }
