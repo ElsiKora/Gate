@@ -4095,10 +4095,6 @@ fn a_used_result_survives_older_than_and_a_pruned_one_is_computed_again() {
     let repo = probe_repo(
         r#""probe/git" = { level = "error", options = { read_at = [["HEAD~1", "a.txt"]] } }"#,
     );
-    repo.write("apps/one/a.txt", "first\n");
-    repo.commit("first");
-    repo.write("apps/one/a.txt", "second\n");
-    repo.commit("second");
     // The lock pins the probe this run loads, so its results are a pinned plugin's.
     let plugin = sha256(&probe().1);
     repo.write(
@@ -4109,7 +4105,10 @@ fn a_used_result_survives_older_than_and_a_pruned_one_is_computed_again() {
             &plugin,
         ),
     );
-    repo.commit("pin the probe");
+    repo.write("apps/one/a.txt", "first\n");
+    repo.commit("first");
+    repo.write("apps/one/a.txt", "second\n");
+    repo.commit("second");
     let (messages, ran, _) = probe_timings(&repo);
     assert_eq!(ran, ["one"]);
     assert_eq!(messages, ["read-at HEAD~1:a.txt: first"]);
