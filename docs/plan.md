@@ -11,8 +11,8 @@ reference for every ported rule is the reference implementation, outside this re
 | `v0.1.0-rc.1` | 2026-11-18 | core, runtime, SDK, launcher; plugins `typescript`, `nestjs`, `git`, `ci`, `markdown`, `agents`, `ledger`; dry run of the first consumer's move | first consumer, on a private candidate |
 | `v0.1.0` | 2026-11-18 | the same, fixed by the dry run; guides; public repository from a clean root | first consumer in CI |
 | `v0.2.0` | 2026-11-19, released (tag 17:01Z) | plugin interface `gate:plugin@0.2.0` and every plugin at 0.2.0; `git` branch and commit format at parity with the house linters; the result cache hit by a warm run; stable fingerprints and `gate baseline prune`; option errors as configuration errors; a call state shared by the rules of one call; wasmtime 50.0.2 (CHANGELOG.md, 0.2.0) | second and third consumers, at their leads' time |
-| `v0.2.1` | not set | from the `v0.2.0` tag: T-037, T-042, T-043, T-044, T-047, T-049 | the consumers on 0.2.0 |
-| `v0.3.0` | not set | breaking changes: T-048 (a configuration table renamed), T-053 (`--sha256` removed) | not set |
+| `v0.2.1` | not set | from the `v0.2.0` tag: T-037, T-042, T-043, T-044, T-046, T-047, T-049; documents T-050, T-051, T-054 | the consumers on 0.2.0 |
+| `v0.3.0` | not set | breaking changes: T-048 (a configuration table renamed) and T-052 after it, T-053 (`--sha256` removed) | not set |
 
 ## Tasks
 
@@ -63,14 +63,15 @@ reference for every ported rule is the reference implementation, outside this re
 | T-043 | v0.2.1 | A concurrency group in the generated GitHub workflow | in progress (branch at `d35865f`) | none |
 | T-044 | v0.2.1 | `nestjs/wrappers` names own-parameter reads and adapters of interface ports | in progress (branch at `0576b2b`) | none |
 | T-045 | v0.2.0 | The documents show the first commit | done (merged at `2ae4d79`, after the tag; documents only) | none |
-| T-046 | the lead sets it | A download that stops sending fails within a bound | open (task file on its branch at `104a644`) | none |
+| T-046 | v0.2.1 | A download that stops sending fails within a bound | open (task file on its branch at `104a644`) | none |
 | T-047 | v0.2.1 | The cold compile cost: a cold run compiles every configured plugin, although `--rule` selects one | open (no task file yet; named by T-025 and T-037) | T-025, T-037 |
 | T-048 | v0.3.0 | A rule set below its default names its decision | in progress (design approved; branch at `1129031`) | T-043 |
 | T-049 | v0.2.1 | A release of `git/main-history` that moves a plugin's pin | design approved; code after T-042 merges (branch at `1739c25`) | T-042 |
-| T-050 | v0.2.0 | The plan and the task files say what v0.2.0 merged | in review | none |
-| T-051 | v0.2.0 | Hooks written by hand, in the configuration guide | planned | none |
+| T-050 | v0.2.1 | The plan and the task files say what v0.2.0 merged | in review | none |
+| T-051 | v0.2.1 | Hooks written by hand, in the configuration guide | in progress (branch at `922aed5`) | none |
+| T-052 | v0.3.0 | not written yet; T-048's release line names it beside T-048 | open (no task file yet; writer Gate 001, after T-048) | T-048 |
 | T-053 | v0.3.0 | Pin a local build under its future URL, and check exactly that file | design approved; code after T-044 merges (branch at `5379eed`) | T-044 |
-| T-054 | the lead sets it | The 0.1.0-to-0.2.0 baseline upgrade, written down | done (merged at `4c55ca6`, after the tag; documents only) | none |
+| T-054 | v0.2.1 | The 0.1.0-to-0.2.0 baseline upgrade, written down | done (merged at `4c55ca6`, after the tag; documents only) | none |
 
 ## Open after rc.1
 
@@ -140,14 +141,15 @@ From the second consumer's requirements (2026-11-18):
 ## RESUME POINT
 
 2026-11-19T17:55:18+00:00: `v0.2.0` is released: the tag `v0.2.0` is `main`'s merge `89c42c7`
-(T-035), and the seven plugin tags at 0.2.0 point at the same commit. Every task in the table above whose
-status says merged rests on the merge commit it names on `main`; T-001 to T-024 and T-027 merged
-before the public root (`59fb163`, `v0.1.0`). After the tag, `main` took documents only: T-045
-(`2ae4d79`), T-032's proof on the released v0.2.0 (`105ca02`) and T-054 (`4c55ca6`).
+(T-035), and the seven plugin tags at 0.2.0 point at the same commit. Every task in the table above
+whose status says merged rests on the merge commit it names on `main`; T-001 to T-024 and T-027
+merged before the public root (`59fb163`, `v0.1.0`). After the tag, `main` took documents only:
+T-045 (`2ae4d79`), T-032's proof on the released v0.2.0 (`105ca02`) and T-054 (`4c55ca6`).
 
 In flight for `v0.2.1`, from the `v0.2.0` tag: T-037 (done on its branch, not merged), T-042, T-043
-and T-044 (in progress), T-049 (after T-042), and T-047, the cold cost of compiling every configured
-plugin, which T-025 and T-037 leave open and which has no task file yet. T-046 is open and its
-release is not set. For `v0.3.0`: T-048 and T-053, both breaking. Still open from the lists above:
-the listing cost of `Tree::contains`, `gate cache prune --older-than | --max-size`, and the second
-consumer's cold bound (T-047). The task table above is the state.
+and T-044 (in progress), T-049 (after T-042), T-046 (open), and T-047, the cold cost of compiling
+every configured plugin, which T-025 and T-037 leave open and which has no task file yet; the
+documents T-050, T-051 and T-054 (merged) go with it. For `v0.3.0`: T-048, then T-052 (open, no task
+file yet), and T-053, all breaking. Still open from the lists above: the listing cost of
+`Tree::contains`, `gate cache prune --older-than | --max-size`, and the second consumer's cold bound
+(T-047). The task table above is the state.

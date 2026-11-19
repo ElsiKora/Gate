@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | merged |
-| Release | the lead sets it |
+| Release | v0.2.1 (documents only) |
 | Writer | "Gate 005" |
 | Reviewer | the lead |
 | Depends on | v0.2.0 |

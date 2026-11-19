@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | in review |
-| Release | v0.2.0 (documents only; no version moves) |
+| Release | v0.2.1 (documents only; no version moves) |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead reads the documents |
 | Depends on | `main` at `4c55ca6` |
@@ -53,9 +53,11 @@ Checks on the result, run in the worktree:
 | no task file but this one still says in progress, in review or planned | `grep -l '^\| Status \| \(in progress\|in review\|planned\)' docs/tasks/*.md` | `README.md` (the format) and this file |
 | the leak scan | `leak-scan.sh <worktree>` | prints nothing |
 
-Not in the plan: T-028, which has no task file on `main` or on a pushed branch, and T-052, which
-only T-048's release line names.
+Not in the plan: T-028, which has no task file on `main` or on a pushed branch. T-052 has a row
+without a task file, as the lead set it: v0.3.0, open, writer Gate 001 after T-048.
 
 ## Resume point
 
-2026-11-19T17:55:43+00:00: the task files and the plan are pushed. Next: the lead's read.
+2026-11-19T19:02:08+00:00: the lead's four fixes: T-046, T-050, T-051 and T-054 go to v0.2.1; a
+T-052 row for v0.3.0, open, writer Gate 001 after T-048; T-012 and T-028 stay as they are. Next: the
+lead's read.
