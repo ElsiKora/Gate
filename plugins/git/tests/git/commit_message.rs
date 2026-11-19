@@ -223,7 +223,7 @@ fn the_warning_checks_are_aspects_of_their_own() {
     for aspect in ["header-min-length", "scope-max-length"] {
         assert!(rule.aspects.iter().any(|known| known == aspect), "{aspect}");
     }
-    assert_eq!(rule.aspects.len(), 21);
+    assert_eq!(rule.aspects.len(), 22);
     assert_eq!(
         aspects(Some(&format!("feat({}): add x", "a".repeat(31))), "{}"),
         ["scope-max-length"]
@@ -475,6 +475,116 @@ fn a_header_pattern_or_an_ignore_that_cannot_work_fails_closed() {
         (
             r#"{"ignores": ["(a)\\1"]}"#,
             "has the backreference or octal escape \\1",
+        ),
+    ] {
+        let error = repo
+            .check("commit-message", "{}", options)
+            .expect_err(options);
+        assert!(error.message().contains(expected), "{options}: {error}");
+        assert!(error.is_config(), "a configuration error: {options}");
+    }
+}
+
+/// A policy that refuses an AI co-author trailer, in either case of its token.
+const NO_AGENT: &str = r#"{"prohibited-trailers": ["^[Cc]o-[Aa]uthored-[Bb]y: .*\\b[Aa]gent\\b"]}"#;
+
+/// The trailers `git/commit-message` refuses in `message` under `options`.
+fn refused(message: &str, options: &str) -> Vec<String> {
+    findings(Some(message), options)
+        .into_iter()
+        .filter(|finding| finding.aspect == "prohibited-trailers")
+        .filter_map(|finding| finding.target)
+        .collect()
+}
+
+#[test]
+fn a_prohibited_trailer_in_the_trailer_block_fails_and_is_named() {
+    let message = "feat(core): add the thing\n\nThe body says why.\n\nReviewed-by: A Person\nCo-Authored-By: Example Agent\n";
+    let found: Vec<_> = findings(Some(message), NO_AGENT)
+        .into_iter()
+        .filter(|finding| finding.aspect == "prohibited-trailers")
+        .collect();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0].message,
+        "the trailer \"Co-Authored-By: Example Agent\" is prohibited: it matches \
+         prohibited-trailers \"^[Cc]o-[Aa]uthored-[Bb]y: .*\\\\b[Aa]gent\\\\b\""
+    );
+    assert_eq!(
+        found[0].target.as_deref(),
+        Some("Co-Authored-By: Example Agent")
+    );
+    // Each refused trailer is a finding of its own, and an ignored message is checked too.
+    let two = "fixup! feat(core): add the thing\n\nCo-authored-by: Example Agent\nCo-authored-by: Other Agent\n";
+    assert_eq!(
+        aspects(Some(two), NO_AGENT),
+        ["prohibited-trailers", "prohibited-trailers"]
+    );
+    // A comment line in the block is not part of it: kept, it would be prose, and the block no
+    // trailer block. A trailing old-style Conflicts: block is not part of the message, as in git.
+    for message in [
+        "feat(core): add the thing\n\nThe body says why.\n\nCo-authored-by: Example Agent\n# a note\nReviewed-by: A Person\n",
+        "feat(core): add the thing\n\nThe body says why.\n\nCo-authored-by: Example Agent\n\nConflicts:\n\tsrc/a.rs\n\tsrc/b.rs\n",
+    ] {
+        assert_eq!(
+            refused(message, NO_AGENT),
+            ["Co-authored-by: Example Agent"],
+            "{message:?}"
+        );
+    }
+}
+
+#[test]
+fn the_same_text_outside_the_trailer_block_passes() {
+    for message in [
+        // A paragraph above the last.
+        "feat(core): add the thing\n\nCo-authored-by: Example Agent\n\nThe body says why.\n",
+        // The last paragraph, but with prose in it, so not a trailer block.
+        "feat(core): add the thing\n\nThe body says why.\nCo-authored-by: Example Agent\n",
+        // The title.
+        "Co-authored-by: Example Agent\n",
+    ] {
+        assert_eq!(
+            refused(message, NO_AGENT),
+            Vec::<String>::new(),
+            "{message:?}"
+        );
+    }
+}
+
+#[test]
+fn a_trailer_no_pattern_matches_passes() {
+    let message = "feat(core): add the thing\n\nThe body says why.\n\nSigned-off-by: A Person\nCo-authored-by: Another Person\nAgent: none\n";
+    assert_eq!(refused(message, NO_AGENT), Vec::<String>::new());
+    // Without the option nothing is refused.
+    let agent =
+        "feat(core): add the thing\n\nThe body says why.\n\nCo-authored-by: Example Agent\n";
+    assert_eq!(refused(agent, "{}"), Vec::<String>::new());
+    assert_eq!(refused(agent, NO_AGENT), ["Co-authored-by: Example Agent"]);
+}
+
+#[test]
+fn a_prohibited_trailer_pattern_that_cannot_work_fails_closed() {
+    let mut repo = Repo::default();
+    let root = repo.commit(&[], "init", &[("README.md", Some("# r\n"))]);
+    repo.set_ref("refs/heads/main", &root);
+    repo.set_message(Some(GOOD));
+    for (options, expected) in [
+        (
+            r#"{"prohibited-trailers": ["("]}"#,
+            "git/commit-message prohibited-trailers \"(\" is not a valid regular expression; \
+             write a JavaScript regular expression without lookaround or backreferences that the \
+             trailers to refuse match",
+        ),
+        (
+            r#"{"prohibited-trailers": [""]}"#,
+            "git/commit-message prohibited-trailers has an empty pattern, which refuses every \
+             trailer",
+        ),
+        (
+            r#"{"prohibited-trailers": ["^Co-authored-by: (?!Person)"]}"#,
+            "git/commit-message prohibited-trailers \"^Co-authored-by: (?!Person)\" has a \
+             lookaround",
         ),
     ] {
         let error = repo

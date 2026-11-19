@@ -2,6 +2,18 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 
+## Unreleased
+
+### Added
+
+- `git/commit-message` takes `prohibited-trailers`, regular expressions of the trailers the
+  message being written (the `commit-msg` hook's) may not carry, such as a co-author the
+  repository does not accept. The trailers are found as `git interpret-trailers` finds them, in
+  the message's last paragraph, and each is matched as `Token: value`; every trailer a pattern
+  matches is a finding of the new aspect `prohibited-trailers` that names it, an ignored message
+  included. The same text in the body passes. A pattern that does not compile, or an empty one, is
+  a configuration error (exit 2). Empty by default.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.1.0...plugin-git-v0.2.0) (2026-11-19)
 
 ### Added
