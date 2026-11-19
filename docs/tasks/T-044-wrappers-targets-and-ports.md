@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | in progress |
-| Release | plugin nestjs 0.3.0 |
+| Release | v0.3.0 (plugin nestjs 0.3.0 with the core, on `gate:plugin@0.3.0`; merges after the v0.2.1 tag) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `v0.2.0` |
@@ -43,7 +43,7 @@ Not in scope: any other aspect of the rule; nestjs speed work (T-037 runs in par
 
 ## Resume point
 
-2026-11-19T19:17:45+00:00: the review of 3262226 says merge. Its fix round is in: the release is plugin
-nestjs 0.3.0 (the `port` rename and the moved targets break), the stale "port class" doc comment,
-and tests for several, aliased and generic ports, a port beside a base class, and rest,
-property, destructured and redeclared parameters. Not compiled yet. Next: one lane round on it.
+2026-11-19T19:27:00+00:00: the release moved to v0.3.0: every plugin of the repository releases at 0.3.0
+with the core on `gate:plugin@0.3.0` (T-057), so this breaking change merges after the v0.2.1 tag.
+The plugin CHANGELOG entry is under `# 0.3.0 (unreleased)` / `### Breaking Changes`. Lane round
+232 on 9971f1a counts for the code; this follow-up is documents only.
