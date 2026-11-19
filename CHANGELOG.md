@@ -34,8 +34,8 @@ Each shared plugin keeps its own changelog next to its code.
   curl had no read bound and wget retried 20 times. Run `gate init` and commit `bin/gate` to take
   the new launcher; `gate doctor` says when it differs.
 - **host:** a stored `read-at` answer whose file content neither the cache nor git holds is asked
-  of git again, as if it were not stored, instead of failing with advice to run
-  `gate cache prune`.
+  of git again, as if it were not stored; where git cannot read it either, the error says to run
+  `git fetch`, where it told the user to run `gate cache prune`, which does not help.
 
 ### Performance
 

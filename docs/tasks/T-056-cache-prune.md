@@ -41,10 +41,11 @@ as one unit when no plugin is pinned, and counted in the size, but never entered
 bounds it itself (its defaults: 512 MiB and 65536 files, cleaned hourly, to 70%). A concurrent check
 stays safe: every entry is written to `tmp/` and renamed into place, and `tmp/` keeps files younger
 than a day; a removed file that a check has open stays readable to it; a check that finds an entry
-gone recomputes it (results, `sync-state`) or asks git (blob contents). One change makes the last
-true: a stored `read-at` answer whose content neither the cache nor git holds is asked again as if
-it were not stored, so a pruned blob content never fails a call (today that call fails and tells the
-user to run `gate cache prune`, which does not help).
+gone recomputes it (results, `sync-state`) or asks git (blob contents): a pruned blob content is
+read from git's own object by its stored id, as a full clone already did. Where git lacks the object
+too (a partial clone that cannot fetch it), the stored `read-at` answer is asked of git again as if
+it were not stored; that fails as well, and the error now says to run `git fetch` where it told the
+user to run `gate cache prune`, which does not help.
 
 ## Scope
 
@@ -68,7 +69,8 @@ Tests, each failing before the change:
   over the size with only pinned entries left, it says so and removes nothing pinned.
 - A hit sets the entry's modification time, so a used entry survives `--older-than`.
 - A check after its blob contents were removed, in a repository whose git lacks the blobs too, asks
-  again and passes; before the change it fails.
+  again and fails with advice to run `git fetch`, never `gate cache prune`; before the change it named
+  `gate cache prune`.
 - A malformed `--older-than` or `--max-size` is a configuration error, exit 2, that names the form.
 
 The lane: fmt, clippy, the tests above, deny, the release build, and the leak scan, on the pushed
@@ -76,9 +78,49 @@ commit; `rustfmt --check` natively before each commit.
 
 ## Proof
 
-To be written.
+Lane ticket 252 on `3d8c4a4` (2026-11-19T22:32:01Z to 22:50:18Z, the lane's exit 0), the script's
+steps in order:
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| format | `cargo fmt --all --check` | 0 |
+| lint | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| tests | `cargo test --offline --locked --workspace -j 4 --no-fail-fast`: 1016 passed, 0 failed | 0 |
+| licences | `cargo deny --offline --locked check` | 0 |
+| release build | `cargo build --release --offline --locked -j 4` | 0 |
+
+Then each change taken out of the same commit, one at a time, with the tests named for it; a change
+counts as caught only when a named test fails (a build error would not count):
+
+| Change taken out | Test (`cargo test -p <crate> --test <target> -- <name>`) | Exit, result |
+| --- | --- | --- |
+| results of an unpinned plugin go (any sha counts as pinned) | `gate-host host prune_removes_derived_entries_...` | 101, the test fails |
+| blob contents no answer names go | `gate-host host prune_removes_derived_entries_...` | 101, the test fails |
+| `--older-than` | `gate-host host prune_removes_derived_entries_...` | 101, the test fails |
+| `--older-than` | `gate plugins a_used_result_survives_...` | 101, the test fails |
+| least recently used first, by path on a tie (the tie reversed) | `gate-host host max_size_removes_the_least_recently_used_...` | 101, the test fails |
+| the pinned-alone-exceed message (`over` never set) | `gate-host host prune_removes_derived_entries_...` | 101, the test fails |
+| the pinned-alone-exceed message (`over` never set) | `gate distribution cache_prune_lists_then_removes_only_what_no_lock_pins` | 101, the test fails |
+| a result hit sets the last use | `gate plugins a_used_result_survives_...` | 101, the test fails |
+| a stored `read-at` answer without content is asked again (the old error back) | `gate plugins a_stored_file_whose_content_...` | 101, the test fails |
+
+The round before it (ticket 241 on `4ef8571`) failed one test, `a_used_result_survives_...`: the test
+committed `gate.lock` after its two content commits, so `HEAD~1` read `second`, which is right for
+that history; `3d8c4a4` writes the lock first.
+
+After the round, `main` moved to `ec66737` (T-043, T-046, T-049); the branch is rebased onto it, with
+two conflicts resolved by hand: `CHANGELOG.md` (both sides' entries kept) and the host test file
+(main's `fetch::Bounds` beside this task's `cache::Bounds`, imported as `PruneBounds`). The design's
+last sentences, the done-when line on the re-ask and the `CHANGELOG.md` entry are corrected to what
+the code and its test show: where git lacks a pruned content too, the call still fails, now with
+advice to run `git fetch` (the lead was told when the code showed it).
 
 ## Resume point
+
+2026-11-19T22:51:41+00:00: the full round passed on `3d8c4a4` with each change caught; rebased onto
+`main` `ec66737`. Next: the same round on the rebased tip, then the review.
+
+Earlier:
 
 2026-11-19T19:16:49+00:00: the lead approved the design as written; only downloads are pinned,
 results of pinned plugins included may go under a bound. Code, tests and documents are pushed; the
