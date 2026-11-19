@@ -23,9 +23,9 @@ use gate_typescript::owners::{Owner, Sources};
 
 use self::scan::Scan;
 use crate::layout::{PluginOptions, folder_prefix};
+use crate::shared::decisions;
 use crate::shared::json_lines::element_lines;
 use crate::shared::report::Findings;
-use crate::shared::{decisions, project};
 
 /// The options of `nestjs/notification-egress`. `owner-classes`, `egress` and `owners` are
 /// required.

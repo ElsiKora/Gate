@@ -40,7 +40,6 @@ use gate_typescript::syntax::{
 
 use super::native_repository::Service;
 use crate::layout::PluginOptions;
-use crate::shared::project;
 
 /// The rule.
 #[derive(Debug, Default)]

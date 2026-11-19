@@ -37,7 +37,6 @@ use self::mint::Mint;
 use self::source::{Extraction, SqlSinks};
 use self::sql::{Text, units};
 use crate::layout::{Layout, PluginOptions};
-use crate::shared::project;
 use crate::shared::report::Findings;
 
 /// The extensions of the JavaScript and TypeScript sources read with a syntax tree.

@@ -34,7 +34,6 @@ use crate::shared::decorators::{
     object_property, parameter_type, type_identity,
 };
 use crate::shared::pattern;
-use crate::shared::project;
 use crate::shared::report::Findings;
 
 /// The options of `nestjs/controller-owners`.

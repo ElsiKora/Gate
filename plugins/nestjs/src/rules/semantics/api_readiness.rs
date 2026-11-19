@@ -29,8 +29,6 @@ use gate_typescript::oxc_span::{GetSpan, Span};
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::oxc_syntax::scope::ScopeFlags;
 
-use crate::shared::project;
-
 /// The rule.
 #[derive(Debug, Default)]
 pub struct Rule;

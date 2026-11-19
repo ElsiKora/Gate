@@ -24,7 +24,6 @@ use regex_automata::meta::Regex;
 
 use crate::layout::{Layout, PluginOptions};
 use crate::shared::pattern;
-use crate::shared::project;
 use crate::shared::report::Findings;
 use crate::shared::tree;
 

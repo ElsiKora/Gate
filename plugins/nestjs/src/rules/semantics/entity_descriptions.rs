@@ -25,7 +25,6 @@ use gate_typescript::value::{StaticValue, ValueReader, number_text, string_like}
 
 use super::code_files::{Universe, js_trim_start};
 use crate::layout::PluginOptions;
-use crate::shared::project;
 
 /// The rule.
 #[derive(Debug, Default)]

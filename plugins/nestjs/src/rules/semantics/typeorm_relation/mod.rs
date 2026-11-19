@@ -31,7 +31,7 @@ use gate_typescript::syntax::{computed_key_text, constructor, member_start};
 use gate_typescript::value::number_text;
 
 use crate::layout::{Layout, PluginOptions};
-use crate::shared::{project, tree};
+use crate::shared::tree;
 use catalog::{Catalog, Unit};
 use decorators::Bindings;
 use relation::{Pass, Reuse};

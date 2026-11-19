@@ -21,7 +21,6 @@ use gate_typescript::oxc_ast::ast::{
 use gate_typescript::syntax::constructor;
 
 use crate::layout::PluginOptions;
-use crate::shared::project;
 
 /// The rule.
 #[derive(Debug, Default)]

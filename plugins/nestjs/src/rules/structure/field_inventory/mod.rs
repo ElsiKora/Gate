@@ -35,9 +35,9 @@ use gate_typescript::owners::Sources;
 use self::inventory::Inventory;
 use self::model::{Class, CodeKind, Entry, Field, Key, Plane, Reference, Role, Scope};
 use crate::layout::{Layout, PluginOptions, folder_prefix};
+use crate::shared::decisions;
 use crate::shared::json_lines::element_lines;
 use crate::shared::report::location;
-use crate::shared::{decisions, project};
 
 /// The options of `nestjs/field-inventory`.
 #[derive(Debug, Deserialize, JsonSchema)]
