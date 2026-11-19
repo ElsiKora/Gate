@@ -95,3 +95,7 @@ messages) agrees on every verdict. Added (lead): a rule declares the plugin opti
 (`Rule::NEEDS`, `x-gate-needs` in its options schema) and the host refuses an enabled rule's missing
 key at load (exit 2), naming the rule. Next: a lane round (the host and CLI tests compile only
 there), then the comparison through the built `gate check`.
+2026-11-19: rebased on the public main `59fb163` (the plugin changelog's entries moved under
+Unreleased, above its 0.1.0). The first lane round on the old base failed clippy only
+(`too_many_lines` in the missing-option test, now two tests); it was withdrawn for the move. Next: the
+lane round on the rebased tip, then the comparison through the built `gate check`.

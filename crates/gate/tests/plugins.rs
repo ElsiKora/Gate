@@ -2093,7 +2093,7 @@ impl GitOptions {
         self.repo.write(
             "gate.toml",
             &format!(
-                "[gate]\nversion = \"0.1.0\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"]{options} }}\n\n[rules]\n{rules}\n"
+                "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"]{options} }}\n\n[rules]\n{rules}\n"
             ),
         );
         self.repo.git(&["add", "-A"]);
