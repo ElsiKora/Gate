@@ -89,7 +89,7 @@ Each test fails before its change. They use synthetic plugins and trees.
 
 ## Resume point
 
-2026-11-19T19:42:27+00:00:
+2026-11-19T23:42:18+00:00:
 - Branched from main `73d33e7`, then rebased onto the T-047 tip `1fb98c0`, because the load set
   of item 3 is T-047's. It is rebased again onto main when T-047 merges.
 - The lead approved the design: item 1 is `READS_MESSAGE` and `gate:plugin@0.3.0`, and items 2
@@ -100,4 +100,9 @@ Each test fails before its change. They use synthetic plugins and trees.
 - Nothing is compiled yet. The round runs on the lane only after T-047's gates are green, so a
   T-047 fault does not cost two rounds. The round runs the tests on `e77337c` first, where each is
   expected to fail, then the gates on the tip.
+- T-047's redesign went green in lane ticket 256 on `65e5a55`. This branch is rebased onto its
+  tip `f7269b4` (no conflict): the tests are now `5bf5500`, the change `fbf6e35`. The stored
+  declaration of a rule (`plugins/declarations.rs`, `StoredRule`) gains `reads_message`, so a run
+  that answers from the cache still knows which rules read the message; its entry name already
+  depends on the interface, so an entry written for `gate:plugin@0.2.0` is never read.
 - Next: the round, then the consumer's cold `commit-msg` row, before and after.
