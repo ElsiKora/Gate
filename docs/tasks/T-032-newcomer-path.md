@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done |
 | Release | v0.2.0 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | a separate review session (the workflow change); the lead reads the documents |
@@ -73,8 +73,25 @@ says. Each line's exit code:
 After each scenario `bin/gate sync --check` exits 0 and `git status --short` lists nothing. The
 README's "From Source" and "Development Setup" blocks are the gates of the pushed commit.
 
+Stranger run on the released v0.2.0 (2026-11-19T17:16Z to 17:19Z): an anonymous clone of `main` at
+`89c42c7`, the release page's body read from the public API, the released v0.2.0 binaries and
+plugins, and the same fresh repository, empty configuration and fresh cache as above. The release
+page's Install block is run as written, then the three files it names are committed and `bin/gate
+check` runs. The documents give no commit message; the run first used `chore: add gate`:
+
+| Scenario | Commands | Exit codes |
+| --- | --- | --- |
+| release page | 13 | all 0 |
+| README, one project | 16 | all 0 but the commit: 1 |
+| README, monorepo | 17 | all 0 |
+| getting-started | 21 | all 0 but the commit: 1 |
+
+The commit fails where the documents' own `[hooks]` and `"git/commit-message" = "error"` install
+the commit-msg check: `error[git/commit-message#scope-empty]: the header "chore: add gate" names no
+scope`. With `chore(gate): add gate` every command of the four scenarios exits 0, and after each
+`bin/gate sync --check` exits 0 and `git status --short` lists nothing.
+
 ## Resume point
 
-2026-11-19: written and pushed; the interim proof passes. Next: rebase onto main after T-029 merges,
-repeat the stranger run on that tip, then the gates (actionlint, leak scan) and the review of the
-workflow change.
+2026-11-19: done. The stranger run on the released v0.2.0 passes every documented command; the
+first commit needs a scoped message, which T-045 adds to the documents.
