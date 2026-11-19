@@ -179,7 +179,7 @@ run = ["check --push --format github"]
 ```bash
 bin/gate sync
 git add gate.toml .github/workflows/gate.yml
-git commit -m "chore(gate): add the CI job"
+git commit -m "chore(gate): add the workflow"
 ```
 
 `gate sync` writes the workflow file, and the commit adds it. `checkout` pins the checkout action by
