@@ -1,5 +1,7 @@
 //! The one module that runs the `git` binary. Every other module asks git through [`Git`].
 
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -282,6 +284,53 @@ impl CatFile {
         Ok(Some(content))
     }
 
+    /// Reads the object `name` names (an id or any revision, such as `<commit>^{tree}`): its id,
+    /// its type and its content; `None` when it names nothing.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks.
+    pub fn object(&mut self, name: &str) -> Result<Option<Object>> {
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| Error::environment("git cat-file is closed"))?;
+        writeln!(stdin, "{name}")?;
+        stdin.flush()?;
+        answer(&mut self.stdout, name)
+    }
+
+    /// Reads the objects `names` name in one round trip: every name is written while the answers
+    /// are read, so neither pipe fills while the other waits.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks.
+    pub fn objects(&mut self, names: &[String]) -> Result<Vec<Option<Object>>> {
+        if let [name] = names {
+            return Ok(vec![self.object(name)?]);
+        }
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| Error::environment("git cat-file is closed"))?;
+        let stdout = &mut self.stdout;
+        std::thread::scope(|scope| {
+            let writer = scope.spawn(move || -> std::io::Result<()> {
+                for name in names {
+                    writeln!(stdin, "{name}")?;
+                }
+                stdin.flush()
+            });
+            let answers = names
+                .iter()
+                .map(|name| answer(stdout, name))
+                .collect::<Result<Vec<_>>>();
+            writer
+                .join()
+                .map_err(|_| Error::environment("the git cat-file writer panicked"))??;
+            answers
+        })
+    }
+
     /// Reads the blob `spec` names (`<commit>:<path>`); `None` when it names nothing.
     ///
     /// # Errors
@@ -348,4 +397,482 @@ pub(crate) fn split_nul(bytes: &[u8]) -> Result<Vec<String>> {
             })
         })
         .collect()
+}
+
+/// Reads the answer of a `git cat-file --batch` reader to `name`: the object, or `None` when the
+/// name names nothing.
+///
+/// # Errors
+/// Fails when the reader protocol breaks.
+fn answer(stdout: &mut BufReader<ChildStdout>, name: &str) -> Result<Option<Object>> {
+    let mut header = String::new();
+    stdout.read_line(&mut header)?;
+    if header.is_empty() || header.ends_with(" missing\n") {
+        return Ok(None);
+    }
+    let mut fields = header.trim_end().splitn(3, ' ');
+    let (Some(id), Some(kind), Some(size)) = (
+        fields.next(),
+        fields.next(),
+        fields.next().and_then(|value| value.parse::<usize>().ok()),
+    ) else {
+        return Err(Error::environment(format!(
+            "unexpected git cat-file header {header:?} for {name:?}"
+        )));
+    };
+    let mut content = vec![0; size];
+    stdout.read_exact(&mut content)?;
+    let mut newline = [0; 1];
+    stdout.read_exact(&mut newline)?;
+    Ok(Some(Object {
+        id: id.to_owned(),
+        kind: kind.to_owned(),
+        content,
+    }))
+}
+
+/// One object a [`CatFile`] read.
+#[derive(Clone, Debug)]
+pub struct Object {
+    /// The full object id.
+    pub id: String,
+    /// `blob`, `tree`, `commit` or `tag`.
+    pub kind: String,
+    /// The raw content.
+    pub content: Vec<u8>,
+}
+
+/// The mode of a tree entry that is a tree.
+const TREE_MODE: &[u8] = b"40000";
+
+/// The commits whose ancestry [`Objects::is_ancestor`] reads before it leaves the question to git.
+const ANCESTRY_LIMIT: usize = 200_000;
+
+/// One entry of a tree object.
+struct Entry {
+    name: Vec<u8>,
+    mode: Vec<u8>,
+    id: String,
+}
+
+impl Entry {
+    fn is_tree(&self) -> bool {
+        self.mode == TREE_MODE
+    }
+
+    /// Git's order of tree entries: by name, a tree's name followed by `/`.
+    fn order(&self, other: &Self) -> Ordering {
+        let key = |entry: &Self| {
+            let mut key = entry.name.clone();
+            if entry.is_tree() {
+                key.push(b'/');
+            }
+            key
+        };
+        key(self).cmp(&key(other))
+    }
+}
+
+/// A commit of the ancestry [`Objects`] has read.
+struct Node {
+    parents: Vec<String>,
+    /// One more than the highest generation of its parents; 1 for a root commit.
+    generation: Option<u32>,
+}
+
+/// The git questions about commits and trees that a run asks many times, answered through one
+/// `git cat-file --batch` reader instead of one git process per question.
+pub struct Objects {
+    git: Git,
+    reader: CatFile,
+    commits: HashMap<String, Node>,
+    /// Set when an ancestry could not be read in full (a shallow clone, a missing object, more
+    /// than [`ANCESTRY_LIMIT`] commits): git answers `is-ancestor` from then on.
+    ancestry_by_git: bool,
+}
+
+impl std::fmt::Debug for Objects {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Objects")
+            .field("commits", &self.commits.len())
+            .field("ancestry_by_git", &self.ancestry_by_git)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Objects {
+    /// Starts the reader of `git`.
+    ///
+    /// # Errors
+    /// Fails when git cannot start.
+    pub fn new(git: &Git) -> Result<Self> {
+        Ok(Self {
+            git: git.clone(),
+            reader: git.cat_file()?,
+            commits: HashMap::new(),
+            ancestry_by_git: false,
+        })
+    }
+
+    /// The blob `<commit>:<path>` names; `None` when it names nothing.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks, or the path names something that is not a file.
+    pub fn read_at(&mut self, commit: &str, path: &str) -> Result<Option<Vec<u8>>> {
+        let spec = format!("{commit}:{path}");
+        if spec.contains('\n') {
+            // The reader takes one name per line: git answers a name with a line break.
+            let Some(object) = self.git.try_text(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                &spec,
+            ])?
+            else {
+                return Ok(None);
+            };
+            return self.git.output(&["cat-file", "blob", &object]).map(Some);
+        }
+        self.reader.read_blob(&spec)
+    }
+
+    /// The id of the tree of `commit`; `None` when it names no commit or tree.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks.
+    pub fn tree(&mut self, commit: &str) -> Result<Option<String>> {
+        if commit.contains('\n') {
+            return Ok(None);
+        }
+        Ok(self
+            .reader
+            .object(&format!("{commit}^{{tree}}"))?
+            .map(|object| object.id))
+    }
+
+    /// The paths that differ between the trees of `old` and `new`, as `git diff --name-only
+    /// --no-renames -z old new` lists them, in the same order.
+    ///
+    /// # Errors
+    /// Fails when either names no commit or tree, a tree does not read, or a path is not UTF-8.
+    pub fn changed_paths(&mut self, old: &str, new: &str) -> Result<Vec<String>> {
+        let names = [format!("{old}^{{tree}}"), format!("{new}^{{tree}}")];
+        if names.iter().any(|name| name.contains('\n')) {
+            return Err(Error::environment("a commit name holds a line break"));
+        }
+        let trees = self.reader.objects(&names)?;
+        let tree = |index: usize, name: &str| {
+            trees
+                .get(index)
+                .and_then(Option::as_ref)
+                .map(|object| object.id.clone())
+                .ok_or_else(|| {
+                    Error::environment(format!("{name:?} names no commit or tree; fetch it"))
+                })
+        };
+        let (old, new) = (tree(0, old)?, tree(1, new)?);
+
+        // One level of both trees at a time, every tree of a level read in one round trip.
+        let mut paths: Vec<Vec<u8>> = Vec::new();
+        let mut level = vec![(Some(old), Some(new), Vec::new())];
+        while !level.is_empty() {
+            let mut wanted: Vec<String> = level
+                .iter()
+                .filter(|(old, new, _)| old != new)
+                .flat_map(|(old, new, _)| old.iter().chain(new.iter()).cloned())
+                .collect();
+            wanted.sort_unstable();
+            wanted.dedup();
+            let entries = self.entries(&wanted)?;
+            let mut next = Vec::new();
+            for (old, new, prefix) in level {
+                if old == new {
+                    continue;
+                }
+                let side = |id: &Option<String>| {
+                    id.as_ref()
+                        .and_then(|id| entries.get(id))
+                        .map_or(&[][..], Vec::as_slice)
+                };
+                diff_level(side(&old), side(&new), &prefix, &mut paths, &mut next);
+            }
+            level = next;
+        }
+        // Git lists a diff in tree order, which is the byte order of the full paths: a tree's
+        // name is always followed by `/` within them.
+        paths.sort_unstable();
+        paths
+            .into_iter()
+            .map(|path| {
+                String::from_utf8(path).map_err(|_| {
+                    Error::environment(
+                        "git listed a path that is not UTF-8; rename it, gate reads UTF-8 paths only",
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// The entries of each of the trees `ids`, by id, read in one round trip.
+    fn entries(&mut self, ids: &[String]) -> Result<HashMap<String, Vec<Entry>>> {
+        let objects = self.reader.objects(ids)?;
+        let mut trees = HashMap::new();
+        for (id, object) in ids.iter().zip(objects) {
+            let object = object
+                .filter(|object| object.kind == "tree")
+                .ok_or_else(|| Error::environment(format!("git has no tree {id}; fetch it")))?;
+            trees.insert(id.clone(), parse_tree(&object)?);
+        }
+        Ok(trees)
+    }
+
+    /// Whether `ancestor` is `descendant` or one of its ancestors, as `git merge-base
+    /// --is-ancestor` answers: `false` when either names no commit.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks or git cannot start.
+    pub fn is_ancestor(&mut self, ancestor: &str, descendant: &str) -> Result<bool> {
+        if !self.ancestry_by_git
+            && let Some(answer) = self.ancestry(ancestor, descendant)?
+        {
+            return Ok(answer);
+        }
+        Ok(self
+            .git
+            .try_text(&[
+                "merge-base",
+                "--is-ancestor",
+                "--end-of-options",
+                ancestor,
+                descendant,
+            ])?
+            .is_some())
+    }
+
+    /// [`Objects::is_ancestor`] from the commits read; `None` when git is to answer.
+    fn ancestry(&mut self, ancestor: &str, descendant: &str) -> Result<Option<bool>> {
+        let (Some(ancestor), Some(descendant)) = (self.commit(ancestor)?, self.commit(descendant)?)
+        else {
+            return Ok(None);
+        };
+        if ancestor == descendant {
+            return Ok(Some(true));
+        }
+        let (Some(low), Some(high)) = (self.generation(&ancestor)?, self.generation(&descendant)?)
+        else {
+            self.ancestry_by_git = true;
+            return Ok(None);
+        };
+        if low >= high {
+            return Ok(Some(false));
+        }
+        // Every commit on a path down to the ancestor has a higher generation than it.
+        let mut seen = HashSet::from([descendant.clone()]);
+        let mut stack = vec![descendant];
+        while let Some(id) = stack.pop() {
+            let parents = self
+                .commits
+                .get(&id)
+                .map(|node| node.parents.clone())
+                .unwrap_or_default();
+            for parent in parents {
+                if parent == ancestor {
+                    return Ok(Some(true));
+                }
+                let generation = self.commits.get(&parent).and_then(|node| node.generation);
+                if generation.is_some_and(|generation| generation > low)
+                    && seen.insert(parent.clone())
+                {
+                    stack.push(parent);
+                }
+            }
+        }
+        Ok(Some(false))
+    }
+
+    /// The id of the commit `name` names, its node read; `None` when it names no commit.
+    fn commit(&mut self, name: &str) -> Result<Option<String>> {
+        if self.commits.contains_key(name) {
+            return Ok(Some(name.to_owned()));
+        }
+        if name.contains('\n') {
+            return Ok(None);
+        }
+        let Some(object) = self.reader.object(&format!("{name}^{{commit}}"))? else {
+            return Ok(None);
+        };
+        if object.kind != "commit" {
+            return Ok(None);
+        }
+        let id = object.id.clone();
+        self.insert(object);
+        Ok(Some(id))
+    }
+
+    fn insert(&mut self, object: Object) {
+        let parents = object
+            .content
+            .split(|byte| *byte == b'\n')
+            .take_while(|line| !line.is_empty())
+            .filter_map(|line| line.strip_prefix(b"parent "))
+            .map(|id| String::from_utf8_lossy(id).into_owned())
+            .collect();
+        self.commits.insert(
+            object.id,
+            Node {
+                parents,
+                generation: None,
+            },
+        );
+    }
+
+    /// The generation of the commit `id`, every ancestor's computed on the way; `None` when an
+    /// ancestor does not read (a shallow clone's boundary) or the ancestry passes
+    /// [`ANCESTRY_LIMIT`].
+    fn generation(&mut self, id: &str) -> Result<Option<u32>> {
+        let mut stack = vec![id.to_owned()];
+        while let Some(top) = stack.last().cloned() {
+            if self.commits.len() > ANCESTRY_LIMIT {
+                return Ok(None);
+            }
+            if !self.commits.contains_key(&top) {
+                match self.reader.object(&top)? {
+                    Some(object) if object.kind == "commit" => self.insert(object),
+                    _ => return Ok(None),
+                }
+            }
+            let Some(node) = self.commits.get(&top) else {
+                return Ok(None);
+            };
+            if node.generation.is_some() {
+                stack.pop();
+                continue;
+            }
+            let mut highest = 0;
+            let mut pending = None;
+            for parent in &node.parents {
+                if let Some(generation) = self.commits.get(parent).and_then(|node| node.generation)
+                {
+                    highest = highest.max(generation);
+                } else {
+                    pending = Some(parent.clone());
+                    break;
+                }
+            }
+            if let Some(parent) = pending {
+                stack.push(parent);
+            } else {
+                if let Some(node) = self.commits.get_mut(&top) {
+                    node.generation = Some(highest + 1);
+                }
+                stack.pop();
+            }
+        }
+        Ok(self.commits.get(id).and_then(|node| node.generation))
+    }
+}
+
+/// The entries of a tree object.
+fn parse_tree(object: &Object) -> Result<Vec<Entry>> {
+    let tree = &object.id;
+    let raw = tree.len() / 2;
+    let mut entries = Vec::new();
+    let mut rest = object.content.as_slice();
+    while !rest.is_empty() {
+        let broken = || Error::environment(format!("git tree {tree} does not parse"));
+        let space = rest
+            .iter()
+            .position(|byte| *byte == b' ')
+            .ok_or_else(broken)?;
+        let nul = rest.iter().position(|byte| *byte == 0).ok_or_else(broken)?;
+        if nul < space || rest.len() < nul + 1 + raw {
+            return Err(broken());
+        }
+        let id = rest[nul + 1..nul + 1 + raw].iter().fold(
+            String::with_capacity(raw * 2),
+            |mut hex, byte| {
+                use std::fmt::Write as _;
+                let _infallible = write!(hex, "{byte:02x}");
+                hex
+            },
+        );
+        entries.push(Entry {
+            mode: rest[..space].to_vec(),
+            name: rest[space + 1..nul].to_vec(),
+            id,
+        });
+        rest = &rest[nul + 1 + raw..];
+    }
+    Ok(entries)
+}
+
+/// The tree pairs below one level of a diff, to read next: the old side's tree, the new side's,
+/// and the path prefix of their entries.
+type Level = Vec<(Option<String>, Option<String>, Vec<u8>)>;
+
+/// Diffs the entries of one tree level: a file that differs is listed, a tree that differs or
+/// that only one side has goes to `next`.
+fn diff_level(
+    old: &[Entry],
+    new: &[Entry],
+    prefix: &[u8],
+    paths: &mut Vec<Vec<u8>>,
+    next: &mut Level,
+) {
+    let path = |entry: &Entry| {
+        let mut path = prefix.to_vec();
+        path.extend_from_slice(&entry.name);
+        path
+    };
+    let nested = |entry: &Entry| {
+        let mut nested = path(entry);
+        nested.push(b'/');
+        nested
+    };
+    let (mut left, mut right) = (old.iter().peekable(), new.iter().peekable());
+    loop {
+        let order = match (left.peek(), right.peek()) {
+            (None, None) => return,
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (Some(before), Some(after)) => before.order(after),
+        };
+        match order {
+            Ordering::Less => {
+                if let Some(entry) = left.next() {
+                    if entry.is_tree() {
+                        next.push((Some(entry.id.clone()), None, nested(entry)));
+                    } else {
+                        paths.push(path(entry));
+                    }
+                }
+            }
+            Ordering::Greater => {
+                if let Some(entry) = right.next() {
+                    if entry.is_tree() {
+                        next.push((None, Some(entry.id.clone()), nested(entry)));
+                    } else {
+                        paths.push(path(entry));
+                    }
+                }
+            }
+            Ordering::Equal => {
+                if let (Some(before), Some(after)) = (left.next(), right.next()) {
+                    if before.is_tree() {
+                        if before.id != after.id {
+                            next.push((
+                                Some(before.id.clone()),
+                                Some(after.id.clone()),
+                                nested(before),
+                            ));
+                        }
+                    } else if before.id != after.id || before.mode != after.mode {
+                        paths.push(path(before));
+                    }
+                }
+            }
+        }
+    }
 }

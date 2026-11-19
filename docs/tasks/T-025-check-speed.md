@@ -70,6 +70,23 @@
   gate --test plugins` 40 passed, 4 failed (the version fixtures, before the merge); fmt and clippy of
   the three crates exit 0. Lane ticket 143 queued: the five gates, the four new tests on c32848a (each
   must fail), then one cold and three warm runs on the copy.
+- Second goal, git first. Copy of the second consumer's converted tree (10450 tracked files), this
+  branch's core, `gate check --timings --rule 'git/*'`, a fresh cache, load average 150 to 200, so
+  wall times only give the shape:
+  - 1674c77 and before: the old main-history over 100 first-parent commits did not finish in 300 s;
+    the whole history (1013 first-parent commits since activation) did not finish in 300 s.
+  - Cause: `sync-state` for every direct commit, about 4 s each here. Of the 778 non-merge
+    first-parent commits since activation (`git rev-list --first-parent --no-merges`), 196 are
+    releases, 570 direct commits change documentation only, 12 change a code path.
+  - 68cc1d8: main-history asks `sync-state` only for a direct commit that changes a path outside
+    `documentation`, and only for those paths. Whole history: 179.95 s wall, 21.74 s user; host time
+    by kind: changed-paths 51.2 s in 778, sync-state 50.8 s in 12, merge-tree 20.7 s in 235,
+    is-ancestor 18.7 s in 237, tree 17.3 s in 234, read-at 7.7 s in 810. A documentation file that
+    differs from `gate sync` at a direct commit is no longer reported by main-history (the lead's
+    direction; the reference asks a direct commit only for its changed paths).
+  - Then: `tree`, `changed-paths` (a diff of trees read object by object), `read-at` and
+    `is-ancestor` (a commit-graph walk by generation) through one `git cat-file --batch` reader per
+    run. Whole history: 258.02 s wall (with tests running beside it), 12.21 s user.
+- Lane ticket 143 ran on 68cc1d8: fmt, clippy, test (892 passed, 0 failed) and deny exit 0.
 - Open: per-rule time needs the plugin to say where a rule starts (an interface question, put to the
-  lead); git answers about commits other than `sync-state` are not stored on disk although
-  architecture §9 says so (each is a git process); the second goal waits for the per-rule split.
+  lead); the 12 `sync-state` answers at about 4 s each; `merge-tree` is one git process per merge.

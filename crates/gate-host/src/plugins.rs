@@ -26,7 +26,7 @@ use crate::config::{
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
 use crate::findings::{Finding, Findings, Level, Location, RuleFilter, RulesRan, Span};
-use crate::git::{CatFile, Git};
+use crate::git::{Git, Objects};
 use crate::lock::{Lock, Wanted};
 use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
@@ -484,7 +484,7 @@ impl Loaded {
             commit_plugins: Mutex::new(BTreeMap::new()),
             states: Mutex::new(BTreeMap::new()),
             counted: SyncStateCount::default(),
-            reader: Mutex::new(None),
+            objects: Mutex::new(None),
         });
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
@@ -1174,8 +1174,9 @@ struct GitHistory {
     states: Mutex<BTreeMap<String, Arc<StateSlot>>>,
     /// How many `sync-state` answers this run computed, and how many it read from the cache.
     counted: SyncStateCount,
-    /// The one `git cat-file --batch` reader `read-at` asks, started on first use.
-    reader: Mutex<Option<CatFile>>,
+    /// The one `git cat-file --batch` reader that answers `tree`, `changed-paths`, `read-at` and
+    /// `is-ancestor`, started on first use.
+    objects: Mutex<Option<Objects>>,
 }
 
 /// The `sync-state` answer of one commit in a run.
@@ -1258,16 +1259,7 @@ impl History for GitHistory {
     }
 
     fn tree(&self, commit: &str) -> std::result::Result<String, HostError> {
-        let spec = format!("{commit}^{{tree}}");
-        self.git
-            .try_text(&[
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                "--end-of-options",
-                &spec,
-            ])
-            .map_err(host)?
+        self.objects(|objects| objects.tree(commit))?
             .ok_or_else(|| HostError::new(format!("{commit:?} names no commit, so it has no tree")))
     }
 
@@ -1332,54 +1324,11 @@ impl History for GitHistory {
         parent: &str,
         commit: &str,
     ) -> std::result::Result<Vec<String>, HostError> {
-        self.git
-            .paths(&[
-                "diff",
-                "--name-only",
-                "--no-renames",
-                "-z",
-                "--end-of-options",
-                parent,
-                commit,
-                "--",
-            ])
-            .map_err(host)
+        self.objects(|objects| objects.changed_paths(parent, commit))
     }
 
     fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
-        let spec = format!("{commit}:{path}");
-        // The batch reader takes one name per line; a name with a line break is asked alone.
-        if !spec.contains('\n') {
-            let mut reader = self.reader.lock().unwrap_or_else(PoisonError::into_inner);
-            if reader.is_none() {
-                *reader = Some(self.git.cat_file().map_err(host)?);
-            }
-            if let Some(batch) = reader.as_mut() {
-                let answer = batch.read_blob(&spec);
-                if answer.is_err() {
-                    // The protocol may be out of step: the next read starts a fresh reader.
-                    *reader = None;
-                }
-                return answer.map_err(host);
-            }
-        }
-        let Some(object) = self
-            .git
-            .try_text(&[
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                "--end-of-options",
-                &spec,
-            ])
-            .map_err(host)?
-        else {
-            return Ok(None);
-        };
-        self.git
-            .output(&["cat-file", "blob", &object])
-            .map(Some)
-            .map_err(host)
+        self.objects(|objects| objects.read_at(commit, path))
     }
 
     fn is_ancestor(
@@ -1387,16 +1336,7 @@ impl History for GitHistory {
         ancestor: &str,
         descendant: &str,
     ) -> std::result::Result<bool, HostError> {
-        self.git
-            .try_text(&[
-                "merge-base",
-                "--is-ancestor",
-                "--end-of-options",
-                ancestor,
-                descendant,
-            ])
-            .map(|answer| answer.is_some())
-            .map_err(host)
+        self.objects(|objects| objects.is_ancestor(ancestor, descendant))
     }
 
     fn sync_state(&self, commit: &str) -> std::result::Result<SyncState, HostError> {
@@ -1445,6 +1385,26 @@ struct Computed {
 }
 
 impl GitHistory {
+    /// Asks the run's object reader, starting it on first use; after a failure the next question
+    /// starts a fresh reader, as the protocol may be out of step.
+    fn objects<T>(
+        &self,
+        ask: impl FnOnce(&mut Objects) -> Result<T>,
+    ) -> std::result::Result<T, HostError> {
+        let mut slot = self.objects.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.is_none() {
+            *slot = Some(Objects::new(&self.git).map_err(host)?);
+        }
+        let Some(objects) = slot.as_mut() else {
+            return Err(HostError::new("git cat-file did not start"));
+        };
+        let answer = ask(objects);
+        if answer.is_err() {
+            *slot = None;
+        }
+        answer.map_err(host)
+    }
+
     /// What `gate sync` produces at `commit` and which of it `gate sync --check` reports there.
     ///
     /// The generators run on the commit's tree with the commit's configuration and the plugins

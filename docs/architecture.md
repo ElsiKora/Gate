@@ -405,12 +405,15 @@ all = ["lint", "unit"]
   lasting failure. The deadline is only a backstop for a machine that stalls: on the machine the
   defaults were measured on, the default fuel (10^12) runs out first, at about 355 s of the 600 s;
   on a machine more than 1.7 times slower, the deadline can come first, and that failure may pass.
-- **History is immutable, so its answers are cached for good.** The host answers `git` calls natively
-  and stores each answer about a commit (`changed-paths`, `read-at`, `tree`, `merge-tree`, `sync-state`,
-  `is-ancestor` of two commit ids) in the persistent cache by commit id. Answers that depend on refs
-  (`head`, `branch`, `range`, `resolve`, `log` of a range with a ref) are recorded in the call's read
-  set by the commit ids they returned, so a moved ref re-runs the call. A history rule re-reads thousands of commits, but
-  only new commits cost anything after the first run.
+- **History is immutable, so its answers are cached for good.** The host answers `git` calls natively.
+  `tree`, `changed-paths` (a diff of two trees, walked object by object), `read-at` and `is-ancestor`
+  (a walk of the commit graph by generation, left to git in a shallow clone or past 200 000 commits)
+  go through one `git cat-file --batch` reader per run, not one git process per question;
+  `merge-tree` runs git once per question. `sync-state` answers are stored in the persistent cache by
+  commit id. A call's findings are stored with the read set that proves them (see the result cache
+  above): answers that depend on refs (`head`, `branch`, `range`, `resolve`, `log` of a range with a
+  ref) are recorded there by the commit ids they returned, so a moved ref re-runs the call, and an
+  unchanged history re-runs nothing.
 - The cache lives outside the repository (`$GATE_CACHE_DIR`, default the user cache directory),
   content-addressed, shared by every worktree, filled by atomic rename, safe under concurrent first use,
   and needs no network once filled.

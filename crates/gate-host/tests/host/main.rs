@@ -6,6 +6,7 @@ mod distribution;
 mod findings;
 mod fixture;
 mod http;
+mod objects;
 mod projects;
 mod snapshot;
 mod sync;
