@@ -900,6 +900,7 @@ fn probe_generated(repo: &Repo) -> (Vec<String>, Vec<String>, Option<String>) {
     (messages, ran, timing(&stderr, "timings: generators: "))
 }
 
+
 #[test]
 fn a_warm_run_answers_the_runs_generators_from_the_cache_until_a_file_they_read_changes() {
     let repo =
@@ -3117,6 +3118,140 @@ fn read_at_answers_and_contents_are_stored_and_read_back_without_asking_git() {
     assert_eq!(
         answers(&stderr).as_deref(),
         Some("0 asked, 2 from the cache")
+    );
+}
+
+/// A repository whose `apps/one/a.txt` is `first` at `HEAD~1` and `second` at `HEAD`, served to
+/// partial clones; the probe reads the file at `HEAD~1`, which a `blob:none` clone lacks.
+fn partial_origin() -> Repo {
+    let origin = probe_repo(
+        r#""probe/git" = { level = "error", options = { read_at = [["HEAD~1", "a.txt"]] } }"#,
+    );
+    origin.write("apps/one/a.txt", "first\n");
+    origin.commit("first");
+    origin.write("apps/one/a.txt", "second\n");
+    origin.commit("second");
+    origin.git(&["config", "uploadpack.allowFilter", "true"]);
+    origin
+}
+
+/// A `blob:none` clone of `origin`, with its own cache.
+fn partial_clone(origin: &Repo) -> Repo {
+    let clone = Repo {
+        directory: tempfile::tempdir().expect("temporary directory"),
+        cache: tempfile::tempdir().expect("temporary cache"),
+    };
+    let url = format!("file://{}", origin.path().display());
+    clone.git(&["clone", "-q", "--filter=blob:none", &url, "."]);
+    clone
+}
+
+/// Points the clone's promisor remote at `origin`, or at nothing when `origin` is `None`.
+fn reach(clone: &Repo, origin: Option<&Repo>) {
+    let url = origin.map_or_else(
+        || "file:///nonexistent/origin.git".to_owned(),
+        |origin| format!("file://{}", origin.path().display()),
+    );
+    clone.git(&["remote", "set-url", "origin", &url]);
+}
+
+/// `gate check` with the built probe in `directory` and the cache `cache`.
+fn probe_output_in(directory: &Path, cache: &Path) -> Output {
+    let plugin = format!("probe={}", probe().0.display());
+    isolated(
+        Command::new(env!("CARGO_BIN_EXE_gate"))
+            .args(["check", "--plugin", &plugin, "--format", "json", "--timings"])
+            .current_dir(directory)
+            .env("GATE_CACHE_DIR", cache),
+    )
+    .output()
+    .expect("gate")
+}
+
+/// The stored `read-at` answers in `cache`, one JSON line each.
+fn stored_read_at(cache: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut directories = vec![cache.join("git")];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.map(|entry| entry.expect("a directory entry").path()) {
+            if entry.is_dir() {
+                directories.push(entry);
+            } else if let Ok(content) = std::fs::read_to_string(&entry) {
+                lines.extend(
+                    content
+                        .lines()
+                        .filter(|line| line.contains(r#""kind":"read-at""#))
+                        .map(str::to_owned),
+                );
+            }
+        }
+    }
+    lines
+}
+
+#[test]
+fn a_partial_clone_that_cannot_fetch_a_file_stores_no_absent_answer_and_reads_it_once_it_can() {
+    let origin = partial_origin();
+    let clone = partial_clone(&origin);
+
+    // The remote is unreachable: git cannot fetch the file its tree names. The call fails and
+    // says what to do; no "absent" is stored.
+    reach(&clone, None);
+    let output = probe_output_in(clone.path(), clone.cache.path());
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_ne!(output.status.code(), Some(0), "{said}");
+    assert!(said.contains("run git fetch"), "{said}");
+    let stored = stored_read_at(clone.cache.path());
+    assert!(
+        stored.iter().all(|line| !line.contains(r#""blob":null"#)),
+        "{stored:?}"
+    );
+
+    // The remote is back: the file is read, and its answer is stored.
+    reach(&clone, Some(&origin));
+    let (messages, ran, _) = probe_timings(&clone);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, ["read-at HEAD~1:a.txt: first"]);
+    let stored = stored_read_at(clone.cache.path());
+    assert!(
+        stored.iter().any(|line| line.contains(r#""blob":""#)),
+        "{stored:?}"
+    );
+}
+
+#[test]
+fn a_stored_file_whose_content_neither_the_cache_nor_git_has_is_an_error_not_absent() {
+    let origin = partial_origin();
+    let first = partial_clone(&origin);
+    let second = partial_clone(&origin);
+
+    // The first clone reads the file and stores its answer.
+    let (messages, _, _) = probe_timings(&first);
+    assert_eq!(messages, ["read-at HEAD~1:a.txt: first"]);
+
+    // The second clone shares the cache without the stored content, and cannot fetch the file:
+    // the stored answer cannot produce it, which is an error that says what to do.
+    let cache = first.cache.path();
+    std::fs::remove_dir_all(cache.join("git").join("blobs")).expect("stored blobs");
+    std::fs::remove_dir_all(cache.join("results")).expect("stored results");
+    reach(&second, None);
+    let output = probe_output_in(second.path(), cache);
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_ne!(output.status.code(), Some(0), "{said}");
+    assert!(said.contains("gate cache prune"), "{said}");
+    assert!(!said.contains("a.txt: none"), "{said}");
+
+    // With the remote back, git fetches the file by the stored id.
+    reach(&second, Some(&origin));
+    let output = probe_output_in(second.path(), cache);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stdout).contains("read-at HEAD~1:a.txt: first"),
+        "{}",
+        text(&output.stdout)
     );
 }
 
