@@ -10,6 +10,10 @@
 //! that goes through a ref, or asks `sync-state`, answers what it was recorded with. A question
 //! about commit ids never changes and is not asked again.
 //!
+//! A generator's output is stored the same way, under the core version, the plugin's sha256, the
+//! generator, its options and its grant, with the files it wrote beside its findings: it reads
+//! only the tree, so the same checks prove it.
+//!
 //! An entry that cannot be read or does not parse is a miss, never an error: the call runs and
 //! stores its result again.
 
@@ -17,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 
 use gate_runtime::{GitQuery, Grant, History, ReadSet};
-use gate_sdk::{CheckRequest, FileLocation, Finding, Location, Span};
+use gate_sdk::{CheckRequest, FileLocation, Finding, GeneratedFile, Location, Span};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -25,12 +29,14 @@ use super::{Cache, Sha256Sum};
 use crate::error::{Error, Result};
 
 /// Raised when an entry written before would be read differently.
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 
 /// A stored call: its findings, its read set, and the digests that check the read set again.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Stored {
     pub(crate) findings: Vec<Finding>,
+    /// For a generator, the files it wrote, at repository paths.
+    pub(crate) files: Vec<GeneratedFile>,
     pub(crate) read_set: ReadSet,
     /// For each listed prefix, the digest of the tracked paths that start with it.
     listed: BTreeMap<String, String>,
@@ -69,9 +75,23 @@ impl Stored {
         let changed = read_set.changed.then(|| selection(inputs.changed));
         Self {
             findings,
+            files: Vec::new(),
             read_set,
             listed,
             changed,
+        }
+    }
+
+    /// A generator's outcome: [`Stored::new`] with the files it wrote.
+    pub(crate) fn generated(
+        files: Vec<GeneratedFile>,
+        findings: Vec<Finding>,
+        read_set: ReadSet,
+        inputs: &Inputs<'_>,
+    ) -> Self {
+        Self {
+            files,
+            ..Self::new(findings, read_set, inputs)
         }
     }
 
@@ -141,6 +161,22 @@ fn selection(changed: Option<&[String]>) -> String {
     super::hex(&hasher.finalize())
 }
 
+/// The key of a generator's output: like [`key`], with the generator and its options (JSON) for
+/// the request.
+pub(crate) fn generate_key(
+    plugin_sha256: &str,
+    generator: &str,
+    options: &str,
+    grant: &Grant,
+) -> Sha256Sum {
+    let mut hasher = Sha256::new();
+    hasher.update(format!(
+        "gate-generate\0{FORMAT}\0{}\0{plugin_sha256}\0{generator}\0{options}\0{grant:?}\0",
+        env!("CARGO_PKG_VERSION")
+    ));
+    Sha256Sum::from_digest(&hasher.finalize())
+}
+
 /// The stored result under `key`; `None` when there is none or it cannot be read back.
 pub(crate) fn load(cache: &Cache, key: &Sha256Sum) -> Option<Stored> {
     let bytes = std::fs::read(cache.result(key)).ok()?;
@@ -182,9 +218,18 @@ fn encode(stored: &Stored) -> Value {
         .iter()
         .map(|(query, recorded)| json!({ "query": query.to_words(), "depends-on": recorded }))
         .collect();
+    let files: Vec<Value> = stored
+        .files
+        .iter()
+        .map(|file| match std::str::from_utf8(&file.contents) {
+            Ok(text) => json!({ "path": file.path, "text": text }),
+            Err(_) => json!({ "path": file.path, "bytes": file.contents }),
+        })
+        .collect();
     json!({
         "format": FORMAT,
         "findings": findings,
+        "files": files,
         "listed": stored.listed,
         "read": read,
         "changed": stored.changed,
@@ -201,6 +246,12 @@ fn decode(value: &Value) -> Option<Stored> {
         .as_array()?
         .iter()
         .map(decode_finding)
+        .collect::<Option<Vec<_>>>()?;
+    let files = value
+        .get("files")?
+        .as_array()?
+        .iter()
+        .map(decode_file)
         .collect::<Option<Vec<_>>>()?;
     let listed: BTreeMap<String, String> = value
         .get("listed")?
@@ -232,10 +283,25 @@ fn decode(value: &Value) -> Option<Stored> {
     };
     Some(Stored {
         findings,
+        files,
         read_set,
         listed,
         changed,
     })
+}
+
+fn decode_file(value: &Value) -> Option<GeneratedFile> {
+    let path = value.get("path")?.as_str()?.to_owned();
+    let contents = match (value.get("text"), value.get("bytes")) {
+        (Some(text), None) => text.as_str()?.as_bytes().to_vec(),
+        (None, Some(bytes)) => bytes
+            .as_array()?
+            .iter()
+            .map(|byte| u8::try_from(byte.as_u64()?).ok())
+            .collect::<Option<_>>()?,
+        _ => return None,
+    };
+    Some(GeneratedFile { path, contents })
 }
 
 fn encode_finding(finding: &Finding) -> Value {
@@ -369,7 +435,24 @@ mod tests {
             read_set,
             &inputs,
         );
-        assert_eq!(decode(&encode(&stored)), Some(stored));
+        assert_eq!(decode(&encode(&stored)), Some(stored.clone()));
+
+        let generated = Stored::generated(
+            vec![
+                GeneratedFile {
+                    path: "apps/a/gen.md".to_owned(),
+                    contents: b"text\n".to_vec(),
+                },
+                GeneratedFile {
+                    path: "apps/a/gen.bin".to_owned(),
+                    contents: vec![0, 0xff, 0xfe],
+                },
+            ],
+            stored.findings.clone(),
+            stored.read_set.clone(),
+            &inputs,
+        );
+        assert_eq!(decode(&encode(&generated)), Some(generated));
     }
 
     #[test]

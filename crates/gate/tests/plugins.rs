@@ -854,6 +854,81 @@ fn a_run_dependent_answer_follows_the_files_the_runs_generators_read() {
     );
 }
 
+/// One `gate check --timings` with the built probe: its findings, sorted, the calls that ran, and
+/// the `--timings` line of the generators that ran and came from the cache.
+fn probe_generated(repo: &Repo) -> (Vec<String>, Vec<String>, Option<String>) {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &plugin,
+        "--format",
+        "json",
+        "--timings",
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut messages: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str().map(str::to_owned))
+        .collect();
+    messages.sort();
+    let stderr = text(&output.stderr);
+    let mut ran: Vec<String> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("timings: call probe "))
+        .filter_map(|call| call.split_once(": ran ").map(|(scope, _)| scope.to_owned()))
+        .collect();
+    ran.sort();
+    let generated = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("timings: generators: "))
+        .map(str::to_owned);
+    (messages, ran, generated)
+}
+
+#[test]
+fn a_warm_run_answers_the_runs_generators_from_the_cache_until_a_file_they_read_changes() {
+    let repo =
+        probe_repo(r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1"] } }"#);
+    repo.write(
+        "apps/one/gate.toml",
+        &writing(r#"list = "gen.list", files = { "gate.toml" = "overwritten\n" }"#),
+    );
+    repo.write("apps/one/gen.list", "gen/a.md\n");
+    repo.commit("the generator writes a core file: the run's configuration answers");
+    repo.write("apps/one/gate.toml", &writing(r#"list = "gen.list""#));
+    repo.write("apps/one/gen/a.md", "listed\n");
+    repo.commit("it writes what gen.list names");
+
+    let (_, ran, generated) = probe_generated(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(generated.as_deref(), Some("1 ran, 0 from the cache"));
+
+    // Nothing changed: the call's stored result asks sync-state again, whose answer follows the
+    // run's generators; their outputs come from the cache, nothing runs.
+    let (messages, ran, generated) = probe_generated(&repo);
+    assert_eq!(
+        messages,
+        ["sync-state HEAD~1: produced gen/a.md; drift gen/a.md"]
+    );
+    assert!(ran.is_empty(), "{ran:?}");
+    assert_eq!(generated.as_deref(), Some("0 ran, 1 from the cache"));
+
+    // The file the generator reads changes: it runs again, and so does the call.
+    repo.write("apps/one/gen.list", "gen/b.md\n");
+    let (messages, ran, generated) = probe_generated(&repo);
+    assert_eq!(
+        messages,
+        ["sync-state HEAD~1: produced gen/b.md; drift gen/b.md"]
+    );
+    assert_eq!(ran, ["one"]);
+    assert_eq!(generated.as_deref(), Some("1 ran, 0 from the cache"));
+}
+
 #[test]
 fn a_commit_whose_gate_lock_does_not_match_its_gate_toml_falls_back() {
     let repo =
