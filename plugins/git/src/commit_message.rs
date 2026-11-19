@@ -1006,7 +1006,9 @@ mod tests {
         assert!(!letters.is_match("wip"));
         let refused = javascript("ignores", "^(?=wip)", WRITE_IGNORE).expect_err("refused");
         assert!(
-            refused.to_string().contains("ignores \"^(?=wip)\" has a lookaround"),
+            refused
+                .to_string()
+                .contains("ignores \"^(?=wip)\" has a lookaround"),
             "{refused}"
         );
     }

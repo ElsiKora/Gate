@@ -6,6 +6,8 @@
 //! nested class) can take effect: JavaScript reads those as literal characters, and so does the
 //! translation. A construct JavaScript has and the `regex` crate cannot match is refused by name.
 
+use std::fmt::Write as _;
+
 /// `.` of JavaScript, which matches no line terminator.
 pub(crate) const ANY: &str = r"[^\n\r\x{2028}\x{2029}]";
 const DIGIT: &str = "[0-9]";
@@ -47,14 +49,15 @@ fn escape(chars: &[char], at: usize, out: &mut String) -> Result<usize, String> 
         None => return Err(r"a trailing \".to_owned()),
         Some('b') => r"(?-u:\b)",
         Some('B') => r"(?-u:\B)",
-        Some(&escaped) => match class_escape(escaped) {
-            Some(set) => set,
-            None => {
+        Some(&escaped) => {
+            if let Some(set) = class_escape(escaped) {
+                set
+            } else {
                 let (character, next) = character_escape(chars, at, false)?;
                 literal(out, character);
                 return Ok(next);
             }
-        },
+        }
     };
     out.push_str(set);
     Ok(at + 1)
@@ -186,17 +189,16 @@ fn class(chars: &[char], mut at: usize, out: &mut String) -> Result<usize, Strin
         match character {
             ']' => break,
             '-' => atoms.push(Atom::Dash),
-            '\\' => match chars.get(at).copied().and_then(class_escape) {
-                Some(set) => {
+            '\\' => {
+                if let Some(set) = chars.get(at).copied().and_then(class_escape) {
                     atoms.push(Atom::Set(set));
                     at += 1;
-                }
-                None => {
+                } else {
                     let (escaped, next) = character_escape(chars, at, true)?;
                     atoms.push(Atom::Character(escaped));
                     at = next;
                 }
-            },
+            }
             other => atoms.push(Atom::Character(other)),
         }
     }
@@ -216,7 +218,9 @@ fn class(chars: &[char], mut at: usize, out: &mut String) -> Result<usize, Strin
         };
         match (first.character(), last.character()) {
             (Some(low), Some(high)) if low > high => {
-                return Err(format!("the range {low}-{high}, whose ends are out of order"));
+                return Err(format!(
+                    "the range {low}-{high}, whose ends are out of order"
+                ));
             }
             (Some(low), Some(high)) => {
                 literal(out, low);
@@ -290,7 +294,7 @@ fn literal(out: &mut String, character: char) {
     if character.is_ascii_alphanumeric() || character == ' ' {
         out.push(character);
     } else {
-        out.push_str(&format!("\\x{{{:X}}}", u32::from(character)));
+        let _ = write!(out, "\\x{{{:X}}}", u32::from(character));
     }
 }
 
