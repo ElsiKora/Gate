@@ -4515,7 +4515,7 @@ fn after_gate_sync_no_check_compiles_a_plugin_again() {
     );
     repo.commit("a second plugin, with no rule configured");
     let plugin = format!("typescript={}", typescript().0.display());
-    assert!(compiled_modules(repo.cache.path()).is_empty());
+    assert_eq!(compiled_modules(repo.cache.path()), BTreeSet::new());
 
     let output = repo.gate(&["sync", "--plugin", &plugin]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
