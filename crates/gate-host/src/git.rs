@@ -303,12 +303,9 @@ impl CatFile {
         writeln!(stdin, "{object}")?;
         stdin.flush()?;
 
-        let mut header = String::new();
-        self.stdout.read_line(&mut header)?;
-
-        if header.is_empty() || header.ends_with(" missing\n") {
+        let Some(header) = header(&mut self.stdout)? else {
             return Ok(None);
-        }
+        };
 
         let size = header
             .trim_end()
@@ -355,6 +352,7 @@ impl CatFile {
             .as_mut()
             .ok_or_else(|| Error::environment("git cat-file is closed"))?;
         let stdout = &mut self.stdout;
+        let child = &mut self.child;
         std::thread::scope(|scope| {
             let writer = scope.spawn(move || -> std::io::Result<()> {
                 for name in names {
@@ -366,10 +364,18 @@ impl CatFile {
                 .iter()
                 .map(|name| answer(stdout, name))
                 .collect::<Result<Vec<_>>>();
-            writer
+            if answers.is_err() {
+                // The writer may be blocked on a full pipe that no one reads any more: stopping
+                // git ends its write with an error.
+                let _stopped = child.kill();
+            }
+            let written = writer
                 .join()
-                .map_err(|_| Error::environment("the git cat-file writer panicked"))??;
-            answers
+                .map_err(|_| Error::environment("the git cat-file writer panicked"))?;
+            // A failed read says what went wrong; the writer's broken pipe follows from it.
+            let answers = answers?;
+            written?;
+            Ok(answers)
         })
     }
 
@@ -385,11 +391,9 @@ impl CatFile {
         writeln!(stdin, "{spec}")?;
         stdin.flush()?;
 
-        let mut header = String::new();
-        self.stdout.read_line(&mut header)?;
-        if header.is_empty() || header.ends_with(" missing\n") {
+        let Some(header) = header(&mut self.stdout)? else {
             return Ok(None);
-        }
+        };
         let mut fields = header.trim_end().rsplitn(3, ' ');
         let size = fields.next().and_then(|value| value.parse::<usize>().ok());
         let kind = fields.next();
@@ -503,11 +507,9 @@ pub(crate) fn split_nul(bytes: &[u8]) -> Result<Vec<String>> {
 /// # Errors
 /// Fails when the reader protocol breaks.
 fn answer(stdout: &mut BufReader<ChildStdout>, name: &str) -> Result<Option<Object>> {
-    let mut header = String::new();
-    stdout.read_line(&mut header)?;
-    if header.is_empty() || header.ends_with(" missing\n") {
+    let Some(header) = header(stdout)? else {
         return Ok(None);
-    }
+    };
     let mut fields = header.trim_end().splitn(3, ' ');
     let (Some(id), Some(kind), Some(size)) = (
         fields.next(),
@@ -527,6 +529,20 @@ fn answer(stdout: &mut BufReader<ChildStdout>, name: &str) -> Result<Option<Obje
         kind: kind.to_owned(),
         content,
     }))
+}
+
+/// The header line of `git cat-file --batch`'s next answer; `None` for an object that is missing.
+/// The end of its output is an error: the reader has stopped, and an answer read from it would
+/// say "absent" of an object that may exist.
+fn header(stdout: &mut BufReader<ChildStdout>) -> Result<Option<String>> {
+    let mut header = String::new();
+    stdout.read_line(&mut header)?;
+    if header.is_empty() {
+        return Err(Error::environment(
+            "git cat-file stopped answering; run the check again, and if it recurs run `git fsck`",
+        ));
+    }
+    Ok((!header.ends_with(" missing\n")).then_some(header))
 }
 
 /// One object a [`CatFile`] read.
@@ -1073,4 +1089,70 @@ fn diff_level(
 /// Whether `name` is a full object id, which names the same object for good.
 pub(crate) fn is_object_id(name: &str) -> bool {
     matches!(name.len(), 40 | 64) && name.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn git(directory: &Path, arguments: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(directory)
+            .args(arguments)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {arguments:?}");
+    }
+
+    /// A reader that takes each request and ends its output without an answer, as git does
+    /// when it stops.
+    fn stopping() -> CatFile {
+        let mut child = Command::new("sh")
+            .args(["-c", "read request; exit 0"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("sh");
+        let stdin = child.stdin.take();
+        let stdout = BufReader::new(child.stdout.take().expect("stdout"));
+        CatFile {
+            child,
+            stdin,
+            stdout,
+        }
+    }
+
+    #[test]
+    fn a_reader_that_stopped_is_an_error_not_an_absent_object() {
+        let directory = tempfile::tempdir().expect("a directory");
+        git(directory.path(), &["init", "-q", "-b", "main"]);
+        std::fs::write(directory.path().join("a.txt"), "a\n").expect("write");
+        git(directory.path(), &["add", "a.txt"]);
+        git(directory.path(), &["commit", "-q", "-m", "a"]);
+        let mut reader = Git::discover(directory.path())
+            .expect("git")
+            .cat_file()
+            .expect("cat-file");
+        assert_eq!(
+            reader.read_blob("HEAD:a.txt").expect("read"),
+            Some(b"a\n".to_vec())
+        );
+        assert_eq!(reader.read_blob("HEAD:absent.txt").expect("read"), None);
+
+        assert!(stopping().read_blob("HEAD:a.txt").is_err());
+        assert!(stopping().object("HEAD").is_err());
+        assert!(stopping().read("HEAD").is_err());
+        assert!(
+            stopping()
+                .objects(&["HEAD".to_owned(), "HEAD^{tree}".to_owned()])
+                .is_err()
+        );
+    }
 }
