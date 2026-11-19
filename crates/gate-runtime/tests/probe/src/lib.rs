@@ -423,6 +423,9 @@ pub struct WriteOptions {
     fail: bool,
     #[serde(default)]
     list: Option<String>,
+    /// A directory: each file under it is written as `gen/<its name>`.
+    #[serde(default)]
+    list_under: Option<String>,
     #[serde(default)]
     report: Option<String>,
 }
@@ -445,6 +448,12 @@ impl Generator for Write {
             let listed = run.tree().text(&list).unwrap_or_default();
             for path in listed.lines().filter(|line| !line.is_empty()) {
                 run.write(path.to_owned(), "listed\n");
+            }
+        }
+        if let Some(directory) = run.options().list_under.clone() {
+            for path in run.tree().under(&directory) {
+                let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
+                run.write(format!("gen/{name}"), "under\n");
             }
         }
         if let Some(message) = run.options().report.clone() {
