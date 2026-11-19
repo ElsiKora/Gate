@@ -106,8 +106,10 @@ not the generated feature lists of the older ones.
 - A release that ships binaries lists `SHA-256:` and one line per asset in its body (Claude-Switcher).
 - Release commits: `chore(release): <version> [skip ci]`.
 
-Gate follows the same changelog shape and commit rules. Its release job is part of task T-004; it has to
-write the same headings and the SHA-256 lines.
+Gate follows the same changelog shape and commit rules, but its `CHANGELOG.md` is written by hand,
+not by semantic-release: before a version is tagged, its section is written, newest first; the
+release takes that section as its notes, fails without it, and adds the SHA-256 lines. Each shared
+plugin keeps its own changelog next to its code.
 
 ## Branches and automation
 

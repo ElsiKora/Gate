@@ -12,7 +12,8 @@ It takes a repository with one project; a monorepo adds a few lines, covered in 
 ## 1. Install Gate in the Repository
 
 Gate is installed into a repository, not onto a machine: every developer, hook and CI job then runs the
-same pinned version through `bin/gate`. Download the release once to run `gate init`:
+same pinned version through `bin/gate`. Download the release once to run `gate init`, in the root of
+your repository; the last line removes the downloaded files:
 
 ```bash
 version=0.1.0
@@ -53,13 +54,16 @@ source = "ElsiKora/Gate:git@0.1.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
-activation = "0123456789abcdef0123456789abcdef01234567"  # the commit the policy starts after
+activation = "<the output of git rev-parse HEAD>"  # the commit the policy starts after
 release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 [rules]
 "git/no-ci-skip" = "error"
 "git/commit-message" = "error"
 ```
+
+Write the commit the git rules start after in place of `<the output of git rev-parse HEAD>`: for a
+new policy, the output of `git rev-parse HEAD`. A commit before it is never checked.
 
 A plugin entry is a table whose `source` is `<owner>/<repo>:<plugin>@<version>`: the asset
 `<plugin>.wasm` of the release `plugin-<plugin>-v<version>`. Turn on the `markdown` rules you want in
@@ -74,9 +78,12 @@ repository-scope rules and the rules that look at the project's own files (proje
 the `markdown` rules. In a monorepo, project-scope rules go in a project's `gate.toml` or in a
 `[[profiles]]` entry of the root file; see [monorepo.md](monorepo.md#-profiles).
 
-Every plugin you add or change is resolved and pinned by `gate lock`:
+Every plugin you add or change is resolved and pinned by `gate lock`. Gate reads only tracked files,
+so add the three files `gate init` wrote first; later edits to them are read without another
+`git add`:
 
 ```bash
+git add gate.toml gate.lock bin/gate
 bin/gate lock
 ```
 
@@ -137,6 +144,7 @@ budget = 10
 
 ```bash
 bin/gate sync
+git add .githooks
 ```
 
 `gate sync` writes the hooks into `.githooks/` and sets `core.hooksPath` once for the clone; every
@@ -164,6 +172,7 @@ run = ["check --push --format github"]
 
 ```bash
 bin/gate sync
+git add .github/workflows/gate.yml
 ```
 
 `gate sync` writes the workflow file; commit it. `checkout` pins the checkout action by its full commit
