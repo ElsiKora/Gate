@@ -142,5 +142,12 @@
   same run took 5.73 s wall, 0.77 s user, 0.53 s sys, plugins 4805 ms. What is left of a warm run is
   loading the plugins (`Runtime::new`, compiled modules read back). The cold run's largest host
   share is `read-at`: 19.2 s in 810, the next item.
+- 2026-11-19T06:57:07+00:00: 34ab5b5 stores `read-at` answers (the blob id) and each blob's content once.
+  Main moved by one empty commit on the second copy, `--rule 'git/*'`, profile build, load about
+  150: the first such run asked git all 810 (`git.read-at 26518 ms in 810`, call ran 46678 ms,
+  "812 asked, 1482 from the cache"); main moved once more, the call ran 17068 ms with
+  `git.read-at 632 ms in 810` and "2 asked, 2293 from the cache"; 3.40 s user, 2.20 s sys. The
+  call's own work is fuel 2.73e10. Both runs spent 12 to 14 s in the snapshot, because a copied
+  tree's git index no longer matches its files (a clone in place does not pay it).
 - Open: per-rule time and fuel need the plugin to say where a rule starts (an interface question,
   put to the lead); the 12 `sync-state` answers at about 4 s each.
