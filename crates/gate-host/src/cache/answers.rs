@@ -216,9 +216,7 @@ fn well_formed(kind: &str, of: &[String], answer: &Answer) -> bool {
         ("merge-tree", [first, second, _version], Answer::Tree(tree)) => {
             id(first) && id(second) && tree.as_ref().is_none_or(id)
         }
-        ("is-ancestor", [ancestor, descendant], Answer::Holds(_)) => {
-            id(ancestor) && id(descendant)
-        }
+        ("is-ancestor", [ancestor, descendant], Answer::Holds(_)) => id(ancestor) && id(descendant),
         ("read-at", [commit, _path], Answer::Blob(blob)) => {
             id(commit) && blob.as_ref().is_none_or(id)
         }
@@ -290,7 +288,11 @@ mod tests {
             (
                 (
                     "merge-tree",
-                    vec!["e".repeat(40), "f".repeat(40), "git version 2.50.1".to_owned()],
+                    vec![
+                        "e".repeat(40),
+                        "f".repeat(40),
+                        "git version 2.50.1".to_owned(),
+                    ],
                 ),
                 Answer::Tree(None),
             ),
@@ -324,7 +326,11 @@ mod tests {
             ("read-at", json!(["HEAD", "a.md"]), blob(Value::Null)),
             ("read-at", json!([commit, "a.md"]), blob(json!("abc"))),
             ("tree", json!([commit]), blob(Value::Null)),
-            ("is-ancestor", json!([commit, commit]), json!({ "paths": [] })),
+            (
+                "is-ancestor",
+                json!([commit, commit]),
+                json!({ "paths": [] }),
+            ),
         ] {
             let wrong = json!({ "kind": kind, "of": of, "answer": answer });
             let file = format!("{}\n{wrong}\n", text[0]);

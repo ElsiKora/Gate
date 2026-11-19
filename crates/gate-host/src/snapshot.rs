@@ -50,13 +50,16 @@ impl fmt::Display for BlobId {
     }
 }
 
+/// A commit's listing, by the revision asked: the commit it names and its paths' blob ids.
+type Listing = (String, Arc<BTreeMap<String, BlobId>>);
+
 /// What the snapshots of one run's commits share: the listing of each commit, the content of each
 /// blob read, by its id, and one `git cat-file` reader. A blob's content never changes, so a file
 /// that several commits hold is read once.
 #[derive(Debug, Default)]
 pub(crate) struct Shared {
     /// By revision as asked: the commit it names and its listing.
-    listings: Mutex<HashMap<String, (String, Arc<BTreeMap<String, BlobId>>)>>,
+    listings: Mutex<HashMap<String, Listing>>,
     contents: Mutex<HashMap<BlobId, Arc<[u8]>>>,
     reader: Mutex<Option<CatFile>>,
 }
