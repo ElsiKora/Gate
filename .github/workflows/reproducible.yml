@@ -1,0 +1,187 @@
+# Released components are reproducible (architecture.md section 12). Each release runner builds the
+# selected components twice through scripts/build-component.sh: once in the checkout with the default
+# cargo home, once in a copy of the checkout at another path with a second cargo home. The core is
+# packed through scripts/pack-core.sh. Any sha256 difference fails the job. Each runner builds the core
+# of its target; plugins are built on the ubuntu-24.04 runner only, the host they are released from
+# (a plugin module differs between the Linux and the macOS host, run 44307223391).
+#
+# It runs on every push to main or to a task branch, for the core and every plugin, and it is the build
+# of both release workflows, which call it with the components they release and publish the first
+# build's files only after the comparison passes. Each runner that built something uploads its first
+# build as the artifact components-<target>: gate-<target>.tar.gz for the core, <directory>.wasm for a
+# plugin of plugins/<directory>.
+name: Reproducible components
+
+on:
+  push:
+    branches:
+      - main
+      - "task/**"
+  workflow_call:
+    inputs:
+      components:
+        description: >-
+          What to build: "all" (the core and every plugin), "core", or "plugin:<directory>" for the
+          plugin of plugins/<directory>.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reproducible-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') }}
+
+jobs:
+  build:
+    name: Build twice for ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            plugins: true
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            plugins: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      TARGET: ${{ matrix.target }}
+      COMPONENTS: ${{ inputs.components || 'all' }}
+      PLUGINS: ${{ matrix.plugins }}
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the musl C toolchain
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+
+      - name: Install the Rust toolchain of rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET" wasm32-wasip2
+
+      # One line per component: kind, package, file name stem, cargo output file.
+      - name: List the components
+        id: list
+        run: |
+          plugins=$(cargo metadata --locked --no-deps --format-version 1 | jq -r --arg plugins "$PWD/plugins/" '
+            .packages[]
+            | select(.manifest_path | startswith($plugins))
+            | (.manifest_path | ltrimstr($plugins) | rtrimstr("/Cargo.toml")) as $directory
+            | select($directory | contains("/") | not)
+            | .name as $package
+            | .targets[] | select(.kind | index("cdylib"))
+            | "plugin\t\($package)\t\($directory)\t\(.name | gsub("-"; "_")).wasm"')
+          core=$(printf 'core\tgate\tgate-%s\tgate' "$TARGET")
+          if [ "$PLUGINS" != true ]; then
+            all=$core
+          else
+            all=$(printf '%s\n%s' "$core" "$plugins")
+          fi
+          case $COMPONENTS in
+            all) list=$all ;;
+            core) list=$core ;;
+            plugin:*)
+              wanted=${COMPONENTS#plugin:}
+              list=$(awk -F '\t' -v wanted="$wanted" '$3 == wanted' <<< "$plugins")
+              if [ -z "$list" ]; then
+                echo "::error::$COMPONENTS: plugins/$wanted is not a plugin with a cdylib target"
+                exit 1
+              fi
+              if [ "$PLUGINS" != true ]; then
+                list=
+              fi
+              ;;
+            *)
+              echo "::error::components is \"$COMPONENTS\"; use all, core or plugin:<directory>"
+              exit 1
+              ;;
+          esac
+          if [ -z "$list" ]; then
+            echo "Nothing to build on this runner for $COMPONENTS."
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$list" > "$RUNNER_TEMP/components"
+          cat "$RUNNER_TEMP/components"
+          echo "count=$(wc -l < "$RUNNER_TEMP/components" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Copy the checkout to a second path
+        if: steps.list.outputs.count != '0'
+        run: |
+          second="$RUNNER_TEMP/second/a-checkout-at-another-depth"
+          mkdir -p "$(dirname "$second")"
+          cp -R "$GITHUB_WORKSPACE" "$second"
+          echo "SECOND=$second" >> "$GITHUB_ENV"
+
+      - name: Build in the checkout, then in the second path with a second cargo home
+        if: steps.list.outputs.count != '0'
+        run: |
+          # build_all <output directory>: builds every listed component in the current checkout.
+          build_all() {
+            local out=$1 target_dir kind package stem file
+            mkdir -p "$out"
+            target_dir=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.target_directory')
+            while IFS=$'\t' read -r kind package stem file <&3; do
+              echo "::group::$package in $PWD"
+              case $kind in
+                core)
+                  scripts/build-component.sh "$package" "$TARGET"
+                  scripts/pack-core.sh "$target_dir/$TARGET/release/$file" "$out/$stem.tar.gz"
+                  ;;
+                plugin)
+                  scripts/build-component.sh "$package" wasm32-wasip2
+                  cp "$target_dir/wasm32-wasip2/release/$file" "$out/$stem.wasm"
+                  ;;
+              esac
+              echo "::endgroup::"
+            done 3< "$RUNNER_TEMP/components"
+          }
+          build_all "$RUNNER_TEMP/first"
+          (
+            export CARGO_HOME="$RUNNER_TEMP/second-cargo-home"
+            cd "$SECOND"
+            build_all "$RUNNER_TEMP/second-out"
+          )
+
+      - name: Compare the two builds
+        if: steps.list.outputs.count != '0'
+        run: |
+          status=0
+          {
+            echo "### $TARGET"
+            echo
+            echo "| File | First build | Second build |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for path in "$RUNNER_TEMP"/first/*; do
+            file=${path##*/}
+            first=$(shasum -a 256 "$path" | cut -d ' ' -f 1)
+            second=$(shasum -a 256 "$RUNNER_TEMP/second-out/$file" | cut -d ' ' -f 1)
+            echo "$file: $first $second"
+            echo "| \`$file\` | \`$first\` | \`$second\` |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$first" != "$second" ]; then
+              echo "::error::$file differs between the two builds; the first differing bytes:"
+              cmp -l "$path" "$RUNNER_TEMP/second-out/$file" | head -20 || true
+              status=1
+            fi
+          done
+          exit "$status"
+
+      - name: Keep the first build
+        if: steps.list.outputs.count != '0'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: components-${{ matrix.target }}
+          path: ${{ runner.temp }}/first/
+          if-no-files-found: error
+          retention-days: 1

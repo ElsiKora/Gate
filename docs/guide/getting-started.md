@@ -1,0 +1,176 @@
+# Getting Started
+
+This guide installs Gate in a repository, runs the first check, wires the git hooks and adds the CI job.
+It takes a repository with one project; a monorepo adds a few lines, covered in [monorepo.md](monorepo.md).
+
+## 📋 Before You Start
+
+- macOS on Apple silicon or Linux on x86-64
+- `git`, `curl` and a POSIX shell
+- A git repository; Gate reads only tracked files, so commit or `git add` what you want checked
+
+## 1. Install Gate in the Repository
+
+Gate is installed into a repository, not onto a machine: every developer, hook and CI job then runs the
+same pinned version through `bin/gate`. Download the release once to run `gate init`:
+
+```bash
+version=0.1.0
+target=aarch64-apple-darwin          # or x86_64-unknown-linux-musl
+curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/gate-${target}.tar.gz"
+curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/SHA256SUMS"
+shasum -a 256 -c SHA256SUMS --ignore-missing
+tar -xzf "gate-${target}.tar.gz"
+./gate init
+rm gate "gate-${target}.tar.gz" SHA256SUMS
+```
+
+`gate init` writes three files:
+
+| File | What it is | Commit it |
+| --- | --- | --- |
+| `gate.toml` | the configuration: plugins, rules, hooks, CI | yes |
+| `gate.lock` | the resolved URL and sha256 of the core for each platform and of every plugin | yes |
+| `bin/gate` | a short POSIX launcher that reads `gate.lock`, fetches and verifies the core once, and runs it | yes |
+
+The core and the plugins are cached outside the repository (`$GATE_CACHE_DIR`, by default your user
+cache directory), shared by every worktree, and need no network once cached.
+
+## 2. Add Plugins and Rules
+
+A fresh `gate.toml` names the core's version and nothing else. Add the plugins you want and turn rules
+on:
+
+```toml
+[gate]
+version = "0.1.0"
+
+[plugins]
+markdown = { source = "ElsiKora/Gate:markdown@0.1.0" }
+
+[plugins.git]
+source = "ElsiKora/Gate:git@0.1.0"
+
+[plugins.git.options]
+main = ["refs/remotes/origin/main", "refs/heads/main"]
+activation = "0123456789abcdef0123456789abcdef01234567"  # the commit the policy starts after
+release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
+
+[rules]
+"git/no-ci-skip" = "error"
+```
+
+A plugin entry is a table whose `source` is `<owner>/<repo>:<plugin>@<version>`: the asset
+`<plugin>.wasm` of the release `plugin-<plugin>-v<version>`. Turn on the `markdown` rules you want in
+the same `[rules]` table, for example:
+
+```toml
+"markdown/local-links" = { level = "error", options = { roots = ["docs"], extra-files = ["README.md"] } }
+```
+
+In a repository that is a single project (no `[workspace]`), the root `[rules]` holds both
+repository-scope rules and the rules that look at the project's own files (project scope), such as
+the `markdown` rules. In a monorepo, project-scope rules go in a project's `gate.toml` or in a
+`[[profiles]]` entry of the root file; see [monorepo.md](monorepo.md#-profiles).
+
+Every plugin you add or change is resolved and pinned by `gate lock`:
+
+```bash
+bin/gate lock
+```
+
+A run whose `gate.lock` does not match `gate.toml` fails and tells you to run `gate lock`. See
+[configuration.md](configuration.md) for every key, and [plugins.md](plugins.md) for the shared plugins.
+
+## 3. Run the First Check
+
+```bash
+bin/gate check
+```
+
+Gate checks the tracked files of the working tree. It prints each finding with its rule, location and
+message, the norm it enforces if you mapped one, and a one-line summary with the number of errors and
+warnings. The exit code is `0` when no finding is an error, `1` when one is, and `2` when the
+configuration or the environment is wrong.
+
+To see what the configuration says about a rule (its level, norm and options, the file each came from,
+and its exceptions), and every rule that is on or off:
+
+```bash
+bin/gate explain markdown/local-links
+bin/gate list                      # every rule that is configured, and what is off
+```
+
+What a rule checks and which options it takes is on its page, `plugins/<plugin>/rules/<rule>.md` in
+this repository; [plugins.md](plugins.md) links them.
+
+## 4. Fix or Except a Finding
+
+Fix the code, or, when a finding is right but must stay for now, add an exception with a reason to
+`gate.exceptions.toml` beside `gate.toml`, and commit it:
+
+```toml
+# gate.exceptions.toml
+[[exception]]
+rule = "markdown/local-links"
+target = "docs/legacy/index.md:old-site/setup.md"
+reason = "the old site's links, removed when the site moves"
+```
+
+The target is the one the finding prints, here `<page>:<link destination>`. An exception that matches
+nothing is itself reported, so the list only shrinks. See [configuration.md](configuration.md#exceptions).
+
+On a repository with many findings, adopt a rule first with a baseline: `bin/gate baseline write`
+stores today's findings in `gate/baseline.json`, which you commit. They are no longer reported; new ones
+are, and an entry that no longer matches is reported too, so the baseline only shrinks.
+
+## 5. Wire the Hooks
+
+```toml
+[hooks]
+pre-commit = ["check --staged"]
+commit-msg = ["check --commit-message"]
+pre-push = ["check --push"]
+budget = 10
+```
+
+```bash
+bin/gate sync
+```
+
+`gate sync` writes the hooks into `.githooks/` and sets `core.hooksPath` once for the clone; every
+worktree of the clone shares it. Commit `.githooks/`. The hooks call `bin/gate`, so every developer runs
+the pinned version; they never skip themselves on an environment variable. A hook may also run one of
+your steps, for example `run format` to check the staged files. `budget` makes a hook that takes longer
+than 10 seconds warn. On a fresh clone, `bin/gate doctor` tells you when `gate sync` has not run yet.
+
+## 6. Add the CI Job
+
+```toml
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"   # v7.0.1
+
+[ci.github.jobs.gate]
+name = "Gate"
+runs-on = "ubuntu-latest"
+run = ["check --push --format github"]
+```
+
+```bash
+bin/gate sync
+```
+
+`gate sync` writes the workflow file; commit it. `checkout` pins the checkout action by its full commit
+id. The workflow's generated first job runs `gate sync --check`, which fails when the hooks or the
+workflow drift from `gate.toml`, and lists the projects the change touches. In a job, `--push` takes no
+value: the job passes the pull request's or the push's range. Generated `check` commands run with
+`--no-overrides`, so no plugin can be swapped in CI, and, when the job sets `budget = <seconds>`, with
+`--budget <seconds> --budget-fails`, so a run over it fails. With `--format github` findings show as
+annotations on the pull request; with `--format sarif` you can upload them to code scanning.
+
+## Next Steps
+
+- [configuration.md](configuration.md): levels, norms, options files, exceptions, steps and suites
+- [monorepo.md](monorepo.md): several projects, each with its own rules
+- [writing-a-plugin.md](writing-a-plugin.md) and [writing-a-rule.md](writing-a-rule.md): your own rules

@@ -1,0 +1,175 @@
+//! The git plugin's rules run natively through the SDK against synthetic histories.
+
+mod branch_name;
+mod main_history;
+mod no_ci_skip;
+mod repo;
+
+use repo::{Repo, settings};
+
+#[test]
+fn the_rules_read_history_over_the_repository() {
+    let info = gate_sdk::describe(&git::PLUGIN);
+    let names: Vec<&str> = info.rules.iter().map(|rule| rule.name.as_str()).collect();
+    assert_eq!(names, ["main-history", "no-ci-skip", "branch-name"]);
+    for rule in &info.rules {
+        assert!(rule.reads_history, "{}", rule.name);
+        assert_eq!(rule.scope, gate_sdk::Scope::Repository);
+        let schema: serde_json::Value =
+            serde_json::from_str(&rule.options_schema).expect("the schema is JSON");
+        assert_eq!(
+            schema["additionalProperties"],
+            serde_json::Value::Bool(false)
+        );
+    }
+    assert_eq!(info.rules[0].aspects, ["direct", "merge", "release"]);
+}
+
+#[test]
+fn the_plugin_options_schema_requires_main_and_types_the_forms() {
+    let info = gate_sdk::describe(&git::PLUGIN);
+    let schema: serde_json::Value =
+        serde_json::from_str(&info.options_schema).expect("the schema is JSON");
+    let mut required: Vec<&str> = schema["required"]
+        .as_array()
+        .expect("required keys")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    required.sort_unstable();
+    assert_eq!(required, ["main"]);
+    assert_eq!(
+        schema["additionalProperties"],
+        serde_json::Value::Bool(false)
+    );
+    assert!(
+        schema["properties"]["branch-length"].is_object(),
+        "{schema}"
+    );
+    assert!(schema["properties"]["forms"].is_object(), "{schema}");
+}
+
+#[test]
+fn the_settings_are_required_and_checked() {
+    let mut repo = Repo::default();
+    let root = repo.commit(&[], "init", &[("README.md", Some("# r\n"))]);
+    repo.set_ref("refs/heads/main", &root);
+
+    for rule in ["main-history", "no-ci-skip", "branch-name"] {
+        let options = if rule == "branch-name" {
+            r#"{"pattern": "^feat/"}"#
+        } else {
+            "{}"
+        };
+        let missing = repo.check(rule, "{}", options).expect_err("no settings");
+        assert!(
+            missing.message().contains("missing field `main`"),
+            "{missing}"
+        );
+        if rule == "branch-name" {
+            continue;
+        }
+
+        let short = settings("abc");
+        let error = repo
+            .check(rule, &short, "{}")
+            .expect_err("short activation");
+        assert!(
+            error.message().contains("is not a full commit id"),
+            "{error}"
+        );
+
+        let unknown = settings(&root).replace("\"main\"", "\"mainline\"");
+        let error = repo.check(rule, &unknown, "{}").expect_err("unknown key");
+        assert!(
+            error.message().contains("unknown field `mainline`"),
+            "{error}"
+        );
+
+        let generated =
+            settings(&root).replace("\"main\"", "\"generated\": [\".agents/**\"], \"main\"");
+        let error = repo
+            .check(rule, &generated, "{}")
+            .expect_err("generated is not an option");
+        assert!(
+            error.message().contains("unknown field `generated`"),
+            "{error}"
+        );
+
+        let elsewhere = "b".repeat(40);
+        let error = repo
+            .check(rule, &settings(&elsewhere), "{}")
+            .expect_err("not on main");
+        assert!(
+            error.message().contains("is not an ancestor of main"),
+            "{error}"
+        );
+
+        let groupless = settings(&root).replace(r"(\\d+\\.\\d+\\.\\d+)", r"\\d+\\.\\d+\\.\\d+");
+        assert_ne!(groupless, settings(&root));
+        let error = repo
+            .check(rule, &groupless, "{}")
+            .expect_err("no capture group");
+        assert!(error.message().contains("has no capture group"), "{error}");
+
+        let inverted = settings(&root).replace("[8, 30]", "[30, 8]");
+        let error = repo
+            .check(rule, &inverted, "{}")
+            .expect_err("min above max");
+        assert!(
+            error
+                .message()
+                .contains("has its minimum above its maximum"),
+            "{error}"
+        );
+
+        let nowhere = settings(&root).replace("refs/heads/main", "refs/heads/trunk");
+        let error = repo.check(rule, &nowhere, "{}").expect_err("no main");
+        assert!(
+            error.message().contains("none of the main references"),
+            "{error}"
+        );
+    }
+
+    let partial = format!(
+        r#"{{"main": ["refs/heads/main"], "activation": "{root}", "release-subject": "^(r)$"}}"#
+    );
+    assert_eq!(repo.check("no-ci-skip", &partial, "{}").expect("runs"), []);
+    let error = repo
+        .check("main-history", &partial, "{}")
+        .expect_err("incomplete");
+    assert!(
+        error.message().contains(
+            "has no branch-pattern; the branch check of [plugins.git] options form 1 (merge) reads it"
+        ),
+        "{error}"
+    );
+
+    // Forms that read nothing else: only `activation` is missing.
+    let main_only = r#"{"main": ["refs/heads/main"], "forms": [{"kind": "direct", "checks": []}]}"#;
+    for rule in ["main-history", "no-ci-skip"] {
+        let error = repo
+            .check(rule, main_only, "{}")
+            .expect_err("no activation");
+        assert!(
+            error.message().contains(&format!(
+                "has no activation; git/{rule} reads history after it"
+            )),
+            "{error}"
+        );
+    }
+
+    // The default forms have a release form, which reads `release-subject`.
+    let unreleased = format!(r#"{{"main": ["refs/heads/main"], "activation": "{root}"}}"#);
+    for rule in ["main-history", "no-ci-skip"] {
+        let error = repo
+            .check(rule, &unreleased, "{}")
+            .expect_err("no release-subject");
+        assert!(
+            error.message().contains(
+                "has no release-subject; [plugins.git] options form 2 (release) matches the release commits by it"
+            ),
+            "{error}"
+        );
+    }
+}

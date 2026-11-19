@@ -1,0 +1,25 @@
+[package]
+name = "gate-plugin-ci"
+description = "The ci plugin of Gate: workflow actions are pinned by commit, workflow_run names workflows that exist"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.1.0"
+
+[lib]
+# The component is `ci.wasm`; the rlib lets the native tests call the plugin.
+name = "ci"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+globset.workspace = true
+regex.workspace = true
+yaml-rust2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

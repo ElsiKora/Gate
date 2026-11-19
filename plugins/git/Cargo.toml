@@ -1,0 +1,25 @@
+[package]
+name = "gate-plugin-git"
+description = "The git plugin of Gate: the history of main since activation has the forms of the policy, no commit skips CI, and the checked-out branch has an allowed name"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.1.0"
+
+[lib]
+# The component is `git.wasm`; the rlib lets the native tests call the plugin.
+name = "git"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-agents-format.workspace = true
+gate-sdk.workspace = true
+globset.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

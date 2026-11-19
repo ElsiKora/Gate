@@ -1,0 +1,21 @@
+[package]
+name = "gate-plugin-ledger"
+description = "The ledger plugin of Gate: decision, record, manifest, blocker, closing-note, reuse and exception rules over a Markdown ledger"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.1.0"
+
+[lib]
+# The component is `ledger.wasm`; the rlib lets the native tests call the plugin.
+name = "ledger"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+regex.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

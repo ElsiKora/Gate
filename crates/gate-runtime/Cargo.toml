@@ -1,0 +1,23 @@
+[package]
+name = "gate-runtime"
+description = "Runs Gate plugins: WebAssembly components under wasmtime, sandboxed, with read-set recording"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+bytes.workspace = true
+gate-sdk.workspace = true
+globset.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

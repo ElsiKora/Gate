@@ -1,0 +1,18 @@
+[package]
+name = "gate-test"
+description = "Runs a Gate plugin's rules on fixture trees and compares the findings with an expected file"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+gate-sdk.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a vulnerability
+    url: https://github.com/ElsiKora/Gate/security/advisories/new
+    about: Report security issues privately, never in a public issue.
+  - name: 📘 Guides
+    url: https://github.com/ElsiKora/Gate/tree/main/docs/guide
+    about: Installation, configuration, monorepos, writing plugins and rules.

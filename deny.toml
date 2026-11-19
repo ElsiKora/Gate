@@ -1,0 +1,73 @@
+[graph]
+all-features = false
+no-default-features = false
+
+[advisories]
+ignore = []
+unmaintained = "all"
+yanked = "deny"
+
+[licenses]
+# ISC and BSD-3-Clause: rustls, rustls-webpki, ring, untrusted and subtle (the TLS stack of the
+# HTTP client). CDLA-Permissive-2.0: webpki-roots, Mozilla's root certificates, bundled so the
+# static Linux binary needs no system certificate store. Apache-2.0 WITH LLVM-exception and
+# BSD-2-Clause: wasmtime's tree (the plugin runtime).
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.93
+
+# oxc_ecmascript and oxc_syntax (gate-typescript) format numbers with dragonbox_ecma, which is offered
+# only under Apache-2.0 with the LLVM exception or BSL-1.0; both are permissive and the exception is
+# scoped to that crate.
+[[licenses.exceptions]]
+allow = ["BSL-1.0"]
+crate = "dragonbox_ecma"
+
+[bans]
+allow-wildcard-paths = true
+multiple-versions = "deny"
+wildcards = "deny"
+# wasmtime 50 (gate-runtime) builds on wasm-tools 0.261, the guest SDK's wit-bindgen 0.63 on 0.262,
+# and no wit-bindgen release uses 0.261. Each skip names the exact version so a new duplicate fails.
+skip = [
+ { crate = "wasm-encoder@0.261.0", reason = "wasmtime 50 against wit-bindgen 0.63" },
+ { crate = "wasm-metadata@0.261.0", reason = "wasmtime 50 against wit-bindgen 0.63" },
+ { crate = "wasmparser@0.261.0", reason = "wasmtime 50 against wit-bindgen 0.63" },
+ { crate = "wit-component@0.261.0", reason = "wasmtime 50 against wit-bindgen 0.63" },
+ { crate = "wit-parser@0.261.0", reason = "wasmtime 50 against wit-bindgen 0.63" },
+ { crate = "sha2@0.10.9", reason = "cranelift-codegen under wasmtime 50; gate uses sha2 0.11" },
+ { crate = "digest@0.10.7", reason = "sha2 0.10 under cranelift-codegen" },
+ { crate = "block-buffer@0.10.4", reason = "sha2 0.10 under cranelift-codegen" },
+ { crate = "crypto-common@0.1.7", reason = "sha2 0.10 under cranelift-codegen" },
+ { crate = "cpufeatures@0.2.17", reason = "sha2 0.10 under cranelift-codegen" },
+ { crate = "thiserror@1.0.69", reason = "redox_users under the module cache's directories-next, Redox only" },
+ { crate = "thiserror-impl@1.0.69", reason = "redox_users under the module cache's directories-next, Redox only" },
+ { crate = "getrandom@0.2.17", reason = "redox_users under the module cache's directories-next, Redox only" },
+ { crate = "syn@2.0.119", reason = "thiserror 1 under redox_users (Redox only), phf_macros under oxc and tracing-attributes under oxc_resolver" },
+ { crate = "hashbrown@0.16.1", reason = "gimli under wasmtime's addr2line (trap backtraces), halfbrown under simd-json under oxc_resolver" },
+ { crate = "hashbrown@0.14.5", reason = "dashmap 6 under oxc_resolver (gate-typescript)" },
+ { crate = "itertools@0.14.0", reason = "cranelift under wasmtime 50; oxc_semantic (gate-typescript) uses itertools 0.15" },
+ { crate = "num-bigint@0.4.8", reason = "fraction under jsonschema (options validation); oxc_ecmascript (gate-typescript) uses num-bigint 0.5" },
+ { crate = "base64@0.22.1", reason = "wasmtime's module cache; ureq uses base64 0.23" },
+ { crate = "windows-sys@0.52.0", reason = "ring under ureq's rustls; wasmtime's rustix uses windows-sys 0.61" },
+ { crate = "getrandom@0.3.4", reason = "ahash under jsonschema (options validation)" },
+ { crate = "r-efi@5.3.0", reason = "getrandom 0.3 under jsonschema's ahash, UEFI only" },
+ { crate = "wit-bindgen@0.57.1", reason = "wasip2 under getrandom 0.3, wasm targets only" },
+]
+
+[sources]
+allow-git = []
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+unknown-git = "deny"
+unknown-registry = "deny"

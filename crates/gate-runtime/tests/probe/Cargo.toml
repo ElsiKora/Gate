@@ -1,0 +1,24 @@
+[package]
+name = "gate-runtime-probe"
+description = "A test plugin that probes the runtime's sandbox; built for wasm32-wasip2 by gate-runtime's tests"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Builds instead a plugin `other` whose `describe` traps: a load failure that may pass.
+describe-traps = []
+# Builds instead a plugin `other` whose `describe` never ends: it runs out of fuel, on every run.
+describe-spins = []
+
+[dependencies]
+gate-sdk.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

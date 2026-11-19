@@ -1,0 +1,70 @@
+[workspace]
+members = ["crates/gate", "crates/gate-host", "crates/gate-runtime", "crates/gate-runtime/tests/probe", "crates/gate-sdk", "crates/gate-test", "examples/plugin-hello", "languages/typescript", "plugins/agents", "plugins/agents/format", "plugins/ci", "plugins/git", "plugins/ledger", "plugins/markdown", "plugins/nestjs", "plugins/typescript"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+rust-version = "1.99.1"
+version = "0.1.0"
+
+[workspace.dependencies]
+bytes = { version = "=1.12.1", default-features = false }
+clap = { version = "=4.6.7", default-features = false, features = ["derive", "error-context", "help", "std", "usage"] }
+gate-agents-format = { path = "plugins/agents/format" }
+gate-host = { path = "crates/gate-host" }
+gate-runtime = { path = "crates/gate-runtime" }
+gate-sdk = { path = "crates/gate-sdk" }
+gate-test = { path = "crates/gate-test" }
+gate-typescript = { path = "languages/typescript" }
+globset = { version = "=0.4.20", default-features = false }
+ignore = "=0.4.33"
+jsonschema = { version = "=0.61.2", default-features = false }
+oxc_allocator = "=0.153.0"
+oxc_ast = "=0.153.0"
+oxc_ast_visit = "=0.153.0"
+oxc_ecmascript = "=0.153.0"
+oxc_parser = "=0.153.0"
+oxc_resolver = { version = "=11.24.3", default-features = false }
+oxc_semantic = "=0.153.0"
+oxc_span = "=0.153.0"
+oxc_syntax = "=0.153.0"
+pulldown-cmark = { version = "=0.13.6", default-features = false }
+regex = "=1.13.1"
+regex-automata = { version = "=0.4.18", default-features = false, features = ["meta", "nfa-pikevm", "std", "syntax", "unicode"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "process"] }
+schemars = { version = "=1.2.3", default-features = false, features = ["derive", "std"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+sha2 = "=0.11.1"
+signal-hook = { version = "=0.4.5", default-features = false, features = ["iterator"] }
+tempfile = "=3.27.0"
+tokio = { version = "=1.54.1", default-features = false }
+toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde"] }
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls"] }
+wasmtime = { version = "=50.0.1", default-features = false, features = ["addr2line", "backtrace", "cache", "component-model", "cranelift", "demangle", "parallel-compilation", "runtime", "std"] }
+wasmtime-wasi = { version = "=50.0.1", default-features = false, features = ["p2"] }
+wit-bindgen = "=0.63.0"
+yaml-rust2 = { version = "=0.13.0", default-features = false }
+
+[workspace.lints.rust]
+missing_debug_implementations = "warn"
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+dbg_macro = "deny"
+pedantic = { level = "warn", priority = -1 }
+print_stderr = "allow"
+todo = "deny"
+unwrap_used = "deny"
+
+[profile.release]
+codegen-units = 16
+debug = false
+lto = false
+opt-level = 3
+strip = true

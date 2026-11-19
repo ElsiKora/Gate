@@ -1,0 +1,20 @@
+[package]
+name = "gate-plugin-typescript"
+description = "The typescript plugin of Gate: the TypeScript language and the rule that every source file parses"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+# The component is `typescript.wasm`; the rlib lets the native tests call the plugin.
+name = "typescript"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+gate-typescript.workspace = true
+
+[lints]
+workspace = true

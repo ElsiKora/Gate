@@ -1,0 +1,16 @@
+[package]
+name = "gate-agents-format"
+description = "The agent rule-file format of Gate's agents plugin: rule files, their rules and Enforcement/Status lines"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+pulldown-cmark.workspace = true
+regex.workspace = true
+yaml-rust2.workspace = true
+
+[lints]
+workspace = true

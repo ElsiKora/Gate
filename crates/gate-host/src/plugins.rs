@@ -1,0 +1,1916 @@
+//! The plugins of a run: loading them, checking the configuration against what they declare, and
+//! running their rules over the snapshot through the plugin runtime.
+//!
+//! A plugin's paths are relative to its grant root; the runtime hands back findings and read sets
+//! with repository paths, so everything here (reporting, exceptions, the read-set record) sees
+//! repository paths only.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as _;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+
+use gate_runtime::{Blob, Call, Grant, History, HostError, Plugin, ReadSet, Runtime, Tree};
+use gate_sdk::{Commit, CommitRange, RuleInfo, RuleRun, Scope, SyncState};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+use crate::cache::{Cache, Sha256Sum};
+use crate::changes::{ChangeSet, Selection};
+use crate::config::{
+    PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings,
+};
+use crate::error::{Error, Result};
+use crate::fetch::{FetchConfig, Fetcher};
+use crate::findings::{Finding, Findings, Level, Location, RuleFilter, RulesRan, Span};
+use crate::git::Git;
+use crate::lock::{Lock, Wanted};
+use crate::snapshot::{Snapshot, Source};
+use crate::sync::{self, GeneratedFile as SyncFile, Generators};
+use crate::workspace::{RuleDeclaration, RuleScope, Workspace};
+
+/// The local builds `--plugin` gives, by plugin name: the path and the bytes read once.
+pub(crate) type Overrides = BTreeMap<PluginName, (PathBuf, Vec<u8>)>;
+
+/// The plugins a run declares, loaded into one runtime.
+pub struct Loaded {
+    runtime: Runtime,
+    plugins: BTreeMap<PluginName, Plugin>,
+    schemas: BTreeMap<(PluginName, String), Value>,
+    /// The schema of each plugin's `[plugins.<name>] options`.
+    plugin_schemas: BTreeMap<PluginName, Value>,
+    /// The run's `--plugin` builds, which `git.sync-state` loads again at other commits.
+    overrides: Arc<Overrides>,
+}
+
+impl std::fmt::Debug for Loaded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Loaded")
+            .field("plugins", &self.plugins.keys().collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
+}
+
+/// What one plugin call read, for the read-set record of the result cache.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PluginReads {
+    /// The project the call ran for; `None` for the repository scope.
+    pub project: Option<String>,
+    /// The plugin.
+    pub plugin: String,
+    /// The paths listed and read (repository paths, with blob ids) and the git queries.
+    pub read_set: ReadSet,
+}
+
+/// What the plugins of a run reported.
+#[derive(Debug, Default)]
+pub(crate) struct Ran {
+    pub(crate) rules: usize,
+    pub(crate) per_scope: RulesRan,
+    pub(crate) reads: Vec<PluginReads>,
+}
+
+/// Loads every plugin the configuration declares: the local build `--plugin` gave for its name
+/// (`overrides`, read once), else the download `gate.lock` pins, from the cache or fetched. The
+/// bytes that load are the bytes that were hashed. `None` when no configuration declares a plugin.
+///
+/// # Errors
+/// Fails when a plugin is declared with two sources, a pinned download cannot be fetched or does
+/// not hash to its pin, a build is not a valid plugin or is another plugin than its name says, or a
+/// rule declares an options schema that is not JSON.
+pub(crate) fn load(
+    workspace: &Workspace,
+    lock: Option<&Lock>,
+    overrides: &Overrides,
+) -> Result<Option<Loaded>> {
+    let Some(fetched) = fetch_components(workspace, lock, overrides)? else {
+        return Ok(None);
+    };
+    let (loaded, _) = instantiate(fetched, overrides, true)?;
+    Ok(Some(loaded))
+}
+
+/// A declared plugin's component: fetched and verified against its pin, or read from `--plugin`.
+struct Fetched {
+    name: PluginName,
+    source: PluginSource,
+    /// Where the bytes came from, for messages.
+    from: String,
+    bytes: Vec<u8>,
+}
+
+/// The components of every plugin the configuration declares; `None` when none is declared.
+///
+/// # Errors
+/// Fails when a plugin is declared with two sources, `gate.lock` pins no download of one, or a
+/// pinned download cannot be fetched or does not hash to its pin.
+fn fetch_components(
+    workspace: &Workspace,
+    lock: Option<&Lock>,
+    overrides: &Overrides,
+) -> Result<Option<Vec<Fetched>>> {
+    let wanted = Wanted::of(workspace);
+    let mut declared: BTreeSet<&PluginName> = BTreeSet::new();
+    for settings in scopes(workspace).map(|(_, settings)| settings) {
+        declared.extend(settings.plugins.keys());
+    }
+    if declared.is_empty() {
+        return Ok(None);
+    }
+
+    let cache = Cache::from_env()?;
+    let mut fetcher = None;
+    let mut components = Vec::new();
+    for name in declared {
+        let source = wanted.source_of(name)?;
+        let (from, bytes) = if let Some((path, bytes)) = overrides.get(name) {
+            (format!("--plugin {name}={}", path.display()), bytes.clone())
+        } else {
+            let pin = lock
+                .and_then(|lock| lock.plugins.get(source))
+                .ok_or_else(|| {
+                    Error::config(format!(
+                        "gate.lock pins no download of {source}; run gate lock and commit gate.lock"
+                    ))
+                })?;
+            if fetcher.is_none() {
+                fetcher = Some(Fetcher::new(FetchConfig::from_env()?, cache.clone()));
+            }
+            let fetcher = fetcher
+                .as_ref()
+                .ok_or_else(|| Error::environment("the plugin fetcher is unavailable"))?;
+            let path = fetcher.fetch(&source.asset(), pin).map_err(|error| {
+                let message = format!("plugin {name} = {source}: {}", error.message());
+                match error.kind() {
+                    crate::error::ErrorKind::Config => Error::config(message),
+                    crate::error::ErrorKind::Environment => Error::environment(message),
+                }
+            })?;
+            let bytes = std::fs::read(&path).map_err(|error| {
+                Error::environment(format!("cannot read {}: {error}", path.display()))
+            })?;
+            let actual = Sha256Sum::from_digest(&Sha256::digest(&bytes));
+            if actual != pin.sha256 {
+                return Err(Error::environment(format!(
+                    "{} changed after it was verified: gate.lock pins sha256 {}, the file now has sha256 {actual}; run gate again, and check what else writes to the cache",
+                    path.display(),
+                    pin.sha256
+                )));
+            }
+            (source.to_string(), bytes)
+        };
+        components.push(Fetched {
+            name: name.clone(),
+            source: source.clone(),
+            from,
+            bytes,
+        });
+    }
+    Ok(Some(components))
+}
+
+/// Why a fetched component did not load.
+#[derive(Debug)]
+struct LoadFailure {
+    error: Error,
+    /// Whether it fails the same way every time under this core: the component is not one this
+    /// core loads (the runtime's `Load` or `Plugin` error), uses up the core's fuel or memory while
+    /// it describes itself, is another plugin than its name says, or declares an options schema
+    /// that is not a JSON Schema. Otherwise (the runtime's setup, a trap or the deadline while it describes
+    /// itself) the failure may pass by the next run.
+    lasting: bool,
+}
+
+/// Compiles and checks the fetched components. A component that does not load is left out of the
+/// result and its failure returned by name; with `strict`, the first such failure fails the call
+/// instead.
+///
+/// # Errors
+/// Fails when the runtime cannot start, or with `strict` as above.
+fn instantiate(
+    fetched: Vec<Fetched>,
+    overrides: &Overrides,
+    strict: bool,
+) -> Result<(Loaded, BTreeMap<PluginName, LoadFailure>)> {
+    let cache = Cache::from_env()?;
+    let runtime = Runtime::new(gate_runtime::Config {
+        module_cache: Some(cache.modules()),
+        ..gate_runtime::Config::default()
+    })
+    .map_err(|error| Error::environment(error.to_string()))?;
+    let mut plugins = BTreeMap::new();
+    let mut schemas = BTreeMap::new();
+    let mut plugin_schemas = BTreeMap::new();
+    let mut unloadable = BTreeMap::new();
+
+    for component in fetched {
+        match compile(&runtime, &component) {
+            Ok((plugin, options, rules)) => {
+                plugin_schemas.insert(component.name.clone(), options);
+                schemas.extend(
+                    rules
+                        .into_iter()
+                        .map(|(rule, schema)| ((component.name.clone(), rule), schema)),
+                );
+                plugins.insert(component.name, plugin);
+            }
+            Err(failure) if strict => return Err(failure.error),
+            Err(failure) => {
+                unloadable.insert(component.name, failure);
+            }
+        }
+    }
+
+    Ok((
+        Loaded {
+            runtime,
+            plugins,
+            schemas,
+            plugin_schemas,
+            overrides: Arc::new(overrides.clone()),
+        },
+        unloadable,
+    ))
+}
+
+/// A component compiled under this core: the plugin, the schema of its `[plugins.<name>] options`
+/// and its rules' options schemas by rule.
+type Compiled = (Plugin, Value, Vec<(String, Value)>);
+
+/// One component compiled under this core, with the schema of its `[plugins.<name>] options` and
+/// its rules' options schemas.
+///
+/// # Errors
+/// Fails when it is not a valid plugin, is another plugin than its name says, or the plugin or a
+/// rule declares an options schema that is not a JSON Schema.
+fn compile(runtime: &Runtime, component: &Fetched) -> std::result::Result<Compiled, LoadFailure> {
+    let Fetched {
+        name,
+        source,
+        from,
+        bytes,
+    } = component;
+    let plugin = runtime
+        .load(name.as_str(), bytes)
+        .map_err(|error| LoadFailure {
+            lasting: lasting_load_failure(error.kind()),
+            error: Error::environment(format!("{from}: {error}")),
+        })?;
+    if plugin.info().name != source.plugin {
+        return Err(LoadFailure {
+            error: Error::config(format!(
+                "{from}: the file is plugin {}, not {}; give the build of {}",
+                plugin.info().name,
+                source.plugin,
+                source.plugin
+            )),
+            lasting: true,
+        });
+    }
+    let options = schema(name, "the plugin", &plugin.info().options_schema)?;
+    let mut schemas = Vec::new();
+    for rule in &plugin.info().rules {
+        let schema = schema(name, &format!("rule {}", rule.name), &rule.options_schema)?;
+        schemas.push((rule.name.clone(), schema));
+    }
+    Ok((plugin, options, schemas))
+}
+
+/// An options schema `what` of plugin `name` declares, checked to compile as JSON Schema.
+///
+/// # Errors
+/// Fails, for good, when it is empty, not JSON, or not a JSON Schema: the plugin is broken.
+fn schema(name: &PluginName, what: &str, text: &str) -> std::result::Result<Value, LoadFailure> {
+    let broken = |problem: String| LoadFailure {
+        error: Error::environment(format!(
+            "plugin {name}: {what} declares an options schema that {problem}; the plugin is broken, report it to its authors"
+        )),
+        lasting: true,
+    };
+    let schema: Value =
+        serde_json::from_str(text).map_err(|error| broken(format!("is not JSON ({error})")))?;
+    jsonschema::validator_for(&schema)
+        .map_err(|error| broken(format!("is not a valid JSON Schema ({error})")))?;
+    Ok(schema)
+}
+
+/// Whether a runtime error while loading a component recurs every time under this core: the
+/// component does not compile, link or declare itself validly (`Load`), breaks the interface
+/// (`Plugin`), or uses up the fuel or memory the core gives `describe` (the limits are the core's
+/// and `describe` has no input, so it does the same on every run). Anything else while loading (a
+/// trap or the deadline in `describe`, the machine) may pass by the next run. A `Load` from a
+/// later call is not lasting: see [`passing_call_failure`].
+fn lasting_load_failure(kind: gate_runtime::ErrorKind) -> bool {
+    matches!(
+        kind,
+        gate_runtime::ErrorKind::Load
+            | gate_runtime::ErrorKind::Plugin
+            | gate_runtime::ErrorKind::OutOfFuel
+            | gate_runtime::ErrorKind::OutOfMemory
+    )
+}
+
+impl Loaded {
+    /// Checks the configuration and the `--rule` keys of `filter` against what the loaded plugins
+    /// declare.
+    ///
+    /// # Errors
+    /// Fails on the first configuration error, naming the file, line and section, or the first key
+    /// that names no configured rule.
+    pub(crate) fn validate(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
+        self.validate_except(workspace, filter, &BTreeSet::new())
+    }
+
+    /// [`Loaded::validate`] without the rules and exceptions of the plugins in `skipped`, which
+    /// did not load, so what they declare is unknown.
+    ///
+    /// # Errors
+    /// As [`Loaded::validate`].
+    fn validate_except(
+        &self,
+        workspace: &Workspace,
+        filter: &RuleFilter,
+        skipped: &BTreeSet<PluginName>,
+    ) -> Result<()> {
+        let declaration = |name: &PluginName, _: &PluginSource, rule: &str| {
+            let info = self.rule(name, rule)?;
+            Some(RuleDeclaration {
+                scope: match info.scope {
+                    Scope::Project => RuleScope::Project,
+                    Scope::Repository => RuleScope::Repository,
+                },
+                aspects: info.aspects.clone(),
+                options_schema: self
+                    .schemas
+                    .get(&(name.clone(), rule.to_owned()))
+                    .cloned()
+                    .unwrap_or(Value::Bool(true)),
+            })
+        };
+        workspace.validate_plugin_options(
+            &|name: &PluginName| self.plugin_schemas.get(name).cloned(),
+            &JsonSchemaValidator,
+        )?;
+        workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
+        self.check_generators(workspace)?;
+        workspace.check_rule_filter(filter, &declaration)
+    }
+
+    /// Checks that every `[generate]` key names a generator its plugin declares. A key whose
+    /// plugin no gate.toml declares fails earlier, when the configuration loads.
+    ///
+    /// # Errors
+    /// Fails on the first key that names no generator of its plugin, naming the key and the
+    /// generators the plugin declares.
+    fn check_generators(&self, workspace: &Workspace) -> Result<()> {
+        for entry in sync::generator_entries(workspace) {
+            let item = entry.generator;
+            let Some(plugin) = self
+                .plugins
+                .iter()
+                .find(|(name, _)| name.as_str() == item.plugin())
+                .map(|(_, plugin)| plugin)
+            else {
+                continue;
+            };
+            let declared = &plugin.info().generators;
+            if declared
+                .iter()
+                .any(|generator| generator.name == item.name())
+            {
+                continue;
+            }
+            let hint = if declared.is_empty() {
+                format!(
+                    "plugin {} declares no generator; remove the entry",
+                    item.plugin()
+                )
+            } else {
+                let names: Vec<String> = declared
+                    .iter()
+                    .map(|generator| format!("{}/{}", item.plugin(), generator.name))
+                    .collect();
+                format!("its generators are {}", names.join(", "))
+            };
+            return Err(Error::config(format!(
+                "{}: \"{item}\": plugin {} has no generator {}; {hint}",
+                entry.origin,
+                item.plugin(),
+                item.name()
+            )));
+        }
+        Ok(())
+    }
+
+    fn rule(&self, plugin: &PluginName, rule: &str) -> Option<&RuleInfo> {
+        self.plugins
+            .get(plugin)?
+            .info()
+            .rules
+            .iter()
+            .find(|info| info.name == rule)
+    }
+
+    /// Runs every enabled rule `filter` allows in every scope `selection` runs, one plugin call per
+    /// scope and plugin, and pushes the findings with their levels and norms from configuration.
+    ///
+    /// # Errors
+    /// Fails when a call fails: a trap, a limit, an environment failure the plugin reports.
+    pub(crate) fn run(
+        &self,
+        workspace: &Workspace,
+        selection: &Selection,
+        changes: Option<&ChangeSet>,
+        range: Option<CommitRange>,
+        filter: &RuleFilter,
+        findings: &mut Findings,
+    ) -> Result<Ran> {
+        let snapshot = workspace.shared_snapshot();
+        let tree: Arc<dyn Tree> = Arc::new(SnapshotTree {
+            paths: snapshot.paths().map(str::to_owned).collect(),
+            changed: changes
+                .filter(|set| !set.everything)
+                .map(|set| set.paths.iter().cloned().collect()),
+            snapshot: Arc::clone(&snapshot),
+        });
+        let history: Arc<dyn History> = Arc::new(GitHistory {
+            git: snapshot.git().clone(),
+            head: snapshot.commit().map(str::to_owned),
+            range,
+            overrides: Arc::clone(&self.overrides),
+            run_workspace: workspace.clone(),
+            run: OnceLock::new(),
+            commit_plugins: Mutex::new(BTreeMap::new()),
+            states: Mutex::new(BTreeMap::new()),
+        });
+
+        let mut planned = Vec::new();
+        for (project, settings) in scopes(workspace) {
+            let runs = match project {
+                None => selection.repository,
+                Some(name) => selection.runs(name),
+            };
+            if !runs {
+                continue;
+            }
+            let root = project
+                .and_then(|name| workspace.projects().get(name))
+                .map(|project| project.root.clone());
+            for name in settings.plugins.keys() {
+                let Some(plugin) = self.plugins.get(name) else {
+                    continue;
+                };
+                let mut rules = enabled_rules(plugin, name, settings, workspace, project)?;
+                rules.retain(|rule| filter.allows(&rule.id.to_string()));
+                if rules.is_empty() {
+                    continue;
+                }
+                let grant = grant(root.as_deref(), settings, name);
+                let request = gate_sdk::CheckRequest {
+                    project: root.clone().unwrap_or_default(),
+                    norms: norms(settings),
+                    rules: rules.iter().map(|rule| rule.run.clone()).collect(),
+                    plugin_options: settings
+                        .plugin_options(name)
+                        .map(Value::to_string)
+                        .unwrap_or_default(),
+                    languages: languages(settings),
+                };
+                planned.push((project, settings, name, rules, plugin, request, grant));
+            }
+        }
+
+        let calls: Vec<Call<'_>> = planned
+            .iter()
+            .map(|(_, _, _, _, plugin, request, grant)| Call {
+                plugin,
+                request: request.clone(),
+                tree: Arc::clone(&tree),
+                history: Some(Arc::clone(&history)),
+                grant: grant.clone(),
+            })
+            .collect();
+        let outcomes = self.runtime.check_all(&calls);
+
+        let mut ran = Ran::default();
+        for ((project, settings, name, rules, _, _, _), outcome) in planned.iter().zip(outcomes) {
+            let outcome = outcome.map_err(|error| Error::environment(error.to_string()))?;
+            for finding in outcome.findings {
+                if let Some(finding) = reported(name, settings, rules, *project, finding)? {
+                    findings.push(finding);
+                }
+            }
+            for rule in rules {
+                ran.per_scope.insert(*project, &rule.id.to_string());
+            }
+            ran.rules += rules.len();
+            ran.reads.push(PluginReads {
+                project: project.map(str::to_owned),
+                plugin: name.to_string(),
+                read_set: outcome.read_set,
+            });
+        }
+        Ok(ran)
+    }
+}
+
+/// A plugin's finding as the report holds it, with its level and norm from `settings`; `None` when
+/// configuration turns its rule or aspect off. The runtime has already refused a finding of a rule
+/// the call did not run or of an undeclared aspect.
+fn reported(
+    name: &PluginName,
+    settings: &Settings,
+    rules: &[Enabled],
+    project: Option<&str>,
+    finding: gate_sdk::Finding,
+) -> Result<Option<Finding>> {
+    let id = rule_id(name, &finding.rule)?;
+    let preset = rules
+        .iter()
+        .find(|rule| rule.id == id)
+        .and_then(|rule| rule.preset);
+    let level = match settings.setting(&id, &finding.aspect).or(preset) {
+        Some(Setting::Off) => return Ok(None),
+        Some(Setting::On(level)) => level,
+        None => Level::Error,
+    };
+    Ok(Some(Finding {
+        norm: settings.norm(&id, &finding.aspect).map(str::to_owned),
+        rule: id.to_string(),
+        aspect: finding.aspect,
+        level,
+        message: finding.message,
+        target: finding.target.or_else(|| match &finding.location {
+            Some(gate_sdk::Location::Commit(commit)) => Some(commit.clone()),
+            _ => None,
+        }),
+        location: finding.location.map(location),
+        help: finding.help,
+        project: project.map(str::to_owned),
+    }))
+}
+
+/// What `plugin`'s calls in a scope may read: the project's `root` (`None`: the repository) and the
+/// extra paths the scope's declaration of the plugin reads.
+fn grant(root: Option<&str>, settings: &Settings, plugin: &PluginName) -> Grant {
+    let Some(root) = root else {
+        return Grant::repository();
+    };
+    let reads: Vec<String> = settings
+        .plugins
+        .get(plugin)
+        .map(|declared| {
+            declared
+                .value
+                .reads
+                .iter()
+                .map(|path| path.as_str().to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    Grant::new(root, &reads)
+}
+
+/// The plugins' generators and rule declarations as `gate sync` asks for them: generators run over
+/// the workspace's snapshot with their project's grant.
+pub struct PluginGenerators<'w> {
+    workspace: &'w Workspace,
+    loaded: Option<Arc<Loaded>>,
+    /// One line per `--plugin` build: name, path and sha256.
+    overrides: Vec<String>,
+    /// Whether a generator call failed in a way that may pass by the next call (the plugin
+    /// reported an environment failure, trapped, or the runtime could not start). Every call
+    /// failure is an environment error to the user, as in `gate check`; sync-state reads this to
+    /// decide whether an answer may be stored.
+    passing: std::sync::atomic::AtomicBool,
+    /// What the generators reported while they ran, as `gate/sync#<generator>` findings.
+    findings: Mutex<Vec<Finding>>,
+}
+
+impl std::fmt::Debug for PluginGenerators<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PluginGenerators")
+            .field("loaded", &self.loaded.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'w> PluginGenerators<'w> {
+    /// Loads every plugin the configuration declares, as `gate check` does: the local build of
+    /// each `overrides` entry for this run, else its `gate.lock` pin, whose lock check skips the
+    /// plugins an override covers. Then checks the configuration against what they declare.
+    ///
+    /// # Errors
+    /// Fails like `gate check` loading its plugins.
+    pub fn load(workspace: &'w Workspace, overrides: &[crate::PluginOverride]) -> Result<Self> {
+        let (lines, files) = crate::resolve_overrides(workspace, overrides)?;
+        let lock = crate::lock::verify_with(workspace, &files.keys().cloned().collect())?;
+        let loaded = load(workspace, lock.as_ref(), &files)?;
+        if let Some(loaded) = &loaded {
+            loaded.validate(workspace, &RuleFilter::new(Vec::new()))?;
+        }
+        Ok(Self {
+            workspace,
+            loaded: loaded.map(Arc::new),
+            overrides: lines,
+            passing: std::sync::atomic::AtomicBool::new(false),
+            findings: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// The generators of `workspace` from plugins already loaded and checked against it.
+    fn with_loaded(workspace: &'w Workspace, loaded: Option<Arc<Loaded>>) -> Self {
+        Self {
+            workspace,
+            loaded,
+            overrides: Vec::new(),
+            passing: std::sync::atomic::AtomicBool::new(false),
+            findings: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// One line per `--plugin` build this run uses: name, path and sha256.
+    #[must_use]
+    pub fn overrides(&self) -> &[String] {
+        &self.overrides
+    }
+
+    /// A generator call's failure as the user sees it: an environment error, as in `gate check`.
+    /// One that may pass by the next call is noted for [`PluginGenerators::had_passing_failure`].
+    fn failed(&self, error: &gate_runtime::Error) -> Error {
+        if passing_call_failure(error.kind()) {
+            self.passing
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        Error::environment(error.to_string())
+    }
+
+    /// What the generators that ran so far reported, as `gate/sync#<generator>` findings at level
+    /// error, sorted; taken, so a second call answers only what ran since.
+    #[must_use]
+    pub fn take_findings(&self) -> Vec<Finding> {
+        let mut findings =
+            std::mem::take(&mut *self.findings.lock().unwrap_or_else(PoisonError::into_inner));
+        findings.sort();
+        findings
+    }
+
+    /// Whether a generator call failed in a way that may pass by the next call.
+    fn had_passing_failure(&self) -> bool {
+        self.passing.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The loaded plugin of `item`, with its name.
+    fn plugin(&self, item: &PluginItem) -> Result<(&PluginName, &Plugin, &Loaded)> {
+        let loaded = self.loaded.as_deref().ok_or_else(|| {
+            Error::config(format!(
+                "[generate] {item}: no gate.toml declares plugin {}; declare it in [plugins]",
+                item.plugin()
+            ))
+        })?;
+        let (name, plugin) = loaded
+            .plugins
+            .iter()
+            .find(|(name, _)| name.as_str() == item.plugin())
+            .ok_or_else(|| {
+                Error::config(format!(
+                    "[generate] {item}: no gate.toml declares plugin {}; declare it in [plugins]",
+                    item.plugin()
+                ))
+            })?;
+        Ok((name, plugin, loaded))
+    }
+
+    /// The grant of `name`'s calls for the project named `project` (`None`: the repository).
+    fn grant(&self, project: Option<&str>, name: &PluginName) -> Grant {
+        let root = project
+            .and_then(|project| self.workspace.projects().get(project))
+            .map(|project| project.root.as_str());
+        let settings = project
+            .and_then(|project| self.workspace.settings(project))
+            .unwrap_or_else(|| self.workspace.repository());
+        grant(root, settings, name)
+    }
+}
+
+impl Generators for PluginGenerators<'_> {
+    fn generate(
+        &self,
+        project: Option<&str>,
+        generator: &PluginItem,
+        options: Option<&Value>,
+    ) -> Result<Vec<SyncFile>> {
+        let (name, plugin, loaded) = self.plugin(generator)?;
+        let snapshot = self.workspace.shared_snapshot();
+        let tree: Arc<dyn Tree> = Arc::new(SnapshotTree {
+            paths: snapshot.paths().map(str::to_owned).collect(),
+            changed: None,
+            snapshot,
+        });
+        let options = options.map_or_else(|| "{}".to_owned(), Value::to_string);
+        let (output, _, _) = loaded
+            .runtime
+            .generate(
+                plugin,
+                tree,
+                &self.grant(project, name),
+                generator.name(),
+                &options,
+            )
+            .map_err(|error| self.failed(&error))?;
+        let reported = output.findings.into_iter().map(|finding| Finding {
+            rule: sync::SYNC_RULE.to_owned(),
+            aspect: generator.to_string(),
+            level: Level::Error,
+            message: finding.message,
+            target: finding.target.or_else(|| match &finding.location {
+                Some(gate_sdk::Location::Commit(commit)) => Some(commit.clone()),
+                _ => None,
+            }),
+            location: finding.location.map(location),
+            help: finding.help,
+            norm: None,
+            project: project.map(str::to_owned),
+        });
+        self.findings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend(reported);
+        Ok(output
+            .files
+            .into_iter()
+            .map(|file| SyncFile {
+                path: file.path,
+                contents: file.contents,
+            })
+            .collect())
+    }
+
+    fn owns(&self, project: Option<&str>, generator: &PluginItem) -> Result<Vec<String>> {
+        let (name, plugin, _) = self.plugin(generator)?;
+        plugin
+            .owned(generator.name(), &self.grant(project, name))
+            .map_err(|error| self.failed(&error))?
+            .ok_or_else(|| {
+                Error::config(format!(
+                    "[generate] {generator}: plugin {name} declares no generator {}",
+                    generator.name()
+                ))
+            })
+    }
+
+    fn reads_history(&self, filter: &RuleFilter) -> bool {
+        let Some(loaded) = self.loaded.as_deref() else {
+            return false;
+        };
+        scopes(self.workspace).any(|(project, settings)| {
+            settings.plugins.keys().any(|name| {
+                let Some(plugin) = loaded.plugins.get(name) else {
+                    return false;
+                };
+                enabled_rules(plugin, name, settings, self.workspace, project)
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|rule| {
+                        filter.allows(&rule.id.to_string())
+                            && loaded
+                                .rule(name, rule.id.rule())
+                                .is_some_and(|info| info.reads_history)
+                    })
+            })
+        })
+    }
+}
+
+/// The repository scope, then each project with settings, in name order.
+fn scopes(workspace: &Workspace) -> impl Iterator<Item = (Option<&str>, &Settings)> {
+    std::iter::once((None, workspace.repository())).chain(workspace.projects().iter().filter_map(
+        |project| {
+            workspace
+                .settings(&project.name)
+                .map(|settings| (Some(project.name.as_str()), settings))
+        },
+    ))
+}
+
+fn rule_id(plugin: &PluginName, rule: &str) -> Result<RuleId> {
+    RuleId::parse(&format!("{plugin}/{rule}")).map_err(|error| {
+        Error::environment(format!(
+            "plugin {plugin} reported a finding of rule {rule:?}: {error}; the plugin is broken, report it to its authors"
+        ))
+    })
+}
+
+/// A rule that runs in a call.
+struct Enabled {
+    id: RuleId,
+    run: RuleRun,
+    /// The level its presets give it.
+    preset: Option<Setting>,
+}
+
+/// The rules of `plugin` that run in this scope, with what their call carries: those whose scope
+/// matches and that configuration enables (a `[rules]` entry, a family level or a preset), unless
+/// everything about them is `off`.
+fn enabled_rules(
+    plugin: &Plugin,
+    name: &PluginName,
+    settings: &Settings,
+    workspace: &Workspace,
+    project: Option<&str>,
+) -> Result<Vec<Enabled>> {
+    let scope = if project.is_none() {
+        Scope::Repository
+    } else {
+        Scope::Project
+    };
+    let presets = presets(plugin, name, settings)?;
+    let mut rules = Vec::new();
+
+    for info in plugin
+        .info()
+        .rules
+        .iter()
+        .filter(|info| info.scope == scope)
+    {
+        let id = rule_id(name, &info.name)?;
+        let preset = presets.get(info.name.as_str());
+        let entry = settings.rules.get(&id);
+        if entry.is_none() && preset.is_none() && !settings.families.contains_key(name.as_str()) {
+            continue;
+        }
+        let level = settings
+            .setting(&id, "")
+            .or_else(|| preset.and_then(|preset| preset.level));
+        let any_aspect_on = entry.is_some_and(|entry| {
+            entry
+                .levels
+                .values()
+                .any(|level| matches!(level.value, Setting::On(_)))
+        });
+        if level == Some(Setting::Off) && !any_aspect_on {
+            continue;
+        }
+        let options = settings
+            .options(&id)
+            .or_else(|| preset.and_then(|preset| preset.options.as_ref()));
+        let exceptions = workspace
+            .exceptions()
+            .iter()
+            .filter(|exception| {
+                exception.project.as_deref() == project && exception.rule.rule == id
+            })
+            .map(|exception| exception.target.clone())
+            .collect();
+        rules.push(Enabled {
+            id,
+            run: RuleRun {
+                name: info.name.clone(),
+                options: options.map(Value::to_string).unwrap_or_default(),
+                options_file: entry
+                    .and_then(|entry| entry.options.as_ref())
+                    .and_then(|options| options.value.file.clone()),
+                exceptions,
+            },
+            preset: preset.and_then(|preset| preset.level),
+        });
+    }
+    Ok(rules)
+}
+
+/// One rule of a preset: `{ "level": .., "options": .. }`.
+#[derive(Debug, Default)]
+struct PresetRule {
+    level: Option<Setting>,
+    options: Option<Value>,
+}
+
+/// The rules of the presets these settings extend from `plugin`, later presets over earlier.
+fn presets(
+    plugin: &Plugin,
+    name: &PluginName,
+    settings: &Settings,
+) -> Result<BTreeMap<String, PresetRule>> {
+    let mut rules = BTreeMap::new();
+    for item in settings
+        .extends
+        .iter()
+        .filter(|item| item.value.plugin() == name.as_str())
+    {
+        let Some(preset) = plugin
+            .info()
+            .presets
+            .iter()
+            .find(|preset| preset.name == item.value.name())
+        else {
+            return Err(Error::config(format!(
+                "{}: plugin {name} has no preset {}; run gate list to see its presets",
+                item.origin,
+                item.value.name()
+            )));
+        };
+        let broken = |problem: String| {
+            Error::environment(format!(
+                "plugin {name}: preset {} {problem}; the plugin is broken, report it to its authors",
+                preset.name
+            ))
+        };
+        let table: BTreeMap<String, Value> = serde_json::from_str(&preset.rules)
+            .map_err(|error| broken(format!("is not a JSON object of rules: {error}")))?;
+        for (rule, value) in table {
+            let level = match value.get("level") {
+                None => None,
+                Some(Value::String(level)) => Some(
+                    Setting::parse(level)
+                        .map_err(|error| broken(format!("sets rule {rule}: {error}")))?,
+                ),
+                Some(other) => {
+                    return Err(broken(format!(
+                        "sets rule {rule} to the level {other}, which is not a string"
+                    )));
+                }
+            };
+            rules.insert(
+                rule,
+                PresetRule {
+                    level,
+                    options: value.get("options").cloned(),
+                },
+            );
+        }
+    }
+    Ok(rules)
+}
+
+/// Every norm the configuration of this scope maps, without repeats: of every configured rule,
+/// of every plugin and the core's, whatever its level, as `check-request.norms` promises.
+fn norms(settings: &Settings) -> Vec<String> {
+    let mut norms = BTreeSet::new();
+    for entry in settings.rules.values() {
+        norms.extend(entry.norm.iter().map(|norm| norm.value.clone()));
+        norms.extend(entry.norms.values().map(|norm| norm.value.clone()));
+    }
+    norms.into_iter().collect()
+}
+
+/// The `[languages.<id>]` settings as one JSON object by id; empty when there are none.
+fn languages(settings: &Settings) -> String {
+    if settings.languages.is_empty() {
+        return String::new();
+    }
+    let languages: serde_json::Map<String, Value> = settings
+        .languages
+        .iter()
+        .map(|(id, language)| (id.clone(), language.value.clone()))
+        .collect();
+    Value::Object(languages).to_string()
+}
+
+/// JSON Schema validation of rule options.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct JsonSchemaValidator;
+
+impl SchemaValidator for JsonSchemaValidator {
+    fn validate(&self, schema: &Value, value: &Value) -> Vec<String> {
+        match jsonschema::validator_for(schema) {
+            Err(error) => vec![format!(
+                "the plugin declares an options schema that is not valid JSON Schema ({error}); report it to its authors"
+            )],
+            Ok(validator) => validator
+                .iter_errors(value)
+                .map(|error| {
+                    let path = error.instance_path().to_string();
+                    if path.is_empty() {
+                        error.to_string()
+                    } else {
+                        format!("{path}: {error}")
+                    }
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The snapshot as the plugin runtime reads it.
+struct SnapshotTree {
+    snapshot: Arc<Snapshot>,
+    paths: Vec<String>,
+    changed: Option<Vec<String>>,
+}
+
+impl Tree for SnapshotTree {
+    fn paths(&self) -> &[String] {
+        &self.paths
+    }
+
+    fn read(&self, path: &str) -> std::result::Result<Option<Blob>, HostError> {
+        let Some(bytes) = self.snapshot.read(path).map_err(host)? else {
+            return Ok(None);
+        };
+        let id = self
+            .snapshot
+            .blob_id(path)
+            .map(|id| id.as_str().to_owned())
+            .unwrap_or_default();
+        Ok(Some(Blob {
+            id,
+            bytes: bytes.to_vec(),
+        }))
+    }
+
+    fn changed(&self) -> Option<&[String]> {
+        self.changed.as_deref()
+    }
+}
+
+/// A finding's location in a report: a repository path, or a commit's full id.
+fn location(location: gate_sdk::Location) -> Location {
+    match location {
+        gate_sdk::Location::Commit(commit) => Location::Commit { commit },
+        gate_sdk::Location::File(file) => Location::File {
+            path: file.path,
+            span: file.span.map(|span| Span {
+                line: span.line,
+                column: span.column,
+                end_line: span.end_line,
+                end_column: span.end_column,
+            }),
+        },
+    }
+}
+
+/// The repository's history as the plugin runtime reads it.
+struct GitHistory {
+    git: Git,
+    /// The commit of the run's snapshot: the `--rev` commit, or `HEAD`.
+    head: Option<String>,
+    /// The run's range under `--rev` or `--push`.
+    range: Option<CommitRange>,
+    /// The run's `--plugin` builds, used again for the generators at another commit.
+    overrides: Arc<Overrides>,
+    /// The run's workspace: its configuration answers `sync-state` at a commit whose own
+    /// configuration this core does not read.
+    run_workspace: Workspace,
+    /// What `sync-state` needs of the run's configuration, computed once on first use.
+    run: OnceLock<std::result::Result<RunContext, Error>>,
+    /// The plugins loaded for commits' own configurations, by what they were loaded from.
+    commit_plugins: Mutex<BTreeMap<Sha256Sum, CommitPlugins>>,
+    /// The `sync-state` answers of this run, by commit id.
+    states: Mutex<BTreeMap<String, SyncState>>,
+}
+
+/// The run's configuration as `sync-state` uses it, computed once per run.
+struct RunContext {
+    /// The hash of the files the run's configuration was read from, `gate.lock` among them.
+    hash: Sha256Sum,
+    /// The run's plugins, loaded and checked against its configuration.
+    loaded: Option<Arc<Loaded>>,
+    /// The paths each generator writes under the run's configuration, by project and generator,
+    /// computed on first use.
+    outputs: OnceLock<RunOutputs>,
+    /// The hash a run-dependent answer is stored under: the configuration's and the run outputs',
+    /// computed on first use.
+    key: OnceLock<Sha256Sum>,
+}
+
+/// The paths each generator writes under the run's configuration, on the run's tree.
+struct RunOutputs {
+    by_entry: BTreeMap<EntryKey, BTreeSet<String>>,
+    /// Whether a generator failed with an environment error, so these outputs may differ next run.
+    transient: bool,
+}
+
+/// The variable CI sets to the branch under test: a pull request's checkout is a detached `HEAD`,
+/// which names no branch.
+pub const BRANCH_VARIABLE: &str = "GATE_BRANCH";
+
+/// The branch under test: `branch_variable` (the value of [`BRANCH_VARIABLE`]) when it is set and
+/// not empty, else the branch `HEAD` is on.
+fn current_branch(branch_variable: Option<String>, git: &Git) -> Result<Option<String>> {
+    match branch_variable
+        .map(|branch| branch.trim().to_owned())
+        .filter(|branch| !branch.is_empty())
+    {
+        Some(branch) => Ok(Some(branch)),
+        None => git.branch(),
+    }
+}
+
+/// The plugins a commit's configuration declares, as this core loads them.
+#[derive(Clone)]
+struct CommitPlugins {
+    loaded: Option<Arc<Loaded>>,
+    /// The plugins whose component fetched and matched its pin but does not load under this core:
+    /// it does not compile, link or declare itself validly, or breaks the interface.
+    unloadable: BTreeSet<PluginName>,
+}
+
+/// A `[generate]` entry: its project (`None`: the repository) and `<plugin>/<generator>`.
+type EntryKey = (Option<String>, String);
+
+/// The fields of one `git log -z` record: id, parents, raw message, author date.
+const LOG_FIELDS: usize = 4;
+
+impl History for GitHistory {
+    fn head(&self) -> std::result::Result<Option<String>, HostError> {
+        Ok(self.head.clone())
+    }
+
+    fn branch(&self) -> std::result::Result<Option<String>, HostError> {
+        current_branch(std::env::var(BRANCH_VARIABLE).ok(), &self.git).map_err(host)
+    }
+
+    fn range(&self) -> std::result::Result<Option<CommitRange>, HostError> {
+        Ok(self.range.clone())
+    }
+
+    fn resolve(&self, rev: &str) -> std::result::Result<Option<String>, HostError> {
+        self.git.resolve_commit(rev).map_err(host)
+    }
+
+    fn tree(&self, commit: &str) -> std::result::Result<String, HostError> {
+        let spec = format!("{commit}^{{tree}}");
+        self.git
+            .try_text(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                &spec,
+            ])
+            .map_err(host)?
+            .ok_or_else(|| HostError::new(format!("{commit:?} names no commit, so it has no tree")))
+    }
+
+    fn merge_tree(
+        &self,
+        first: &str,
+        second: &str,
+    ) -> std::result::Result<Option<String>, HostError> {
+        self.git.merge_tree(first, second).map_err(host)
+    }
+
+    fn revisions(&self, range: &str) -> std::result::Result<Vec<String>, HostError> {
+        let output = self
+            .git
+            .output(&["rev-parse", "--revs-only", "--end-of-options", range])
+            .map_err(host)?;
+        Ok(String::from_utf8_lossy(&output)
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect())
+    }
+
+    fn log(&self, range: &str) -> std::result::Result<Vec<Commit>, HostError> {
+        // `-z` ends each record with NUL and the format separates fields with NUL, which a commit
+        // message cannot hold: any other byte of a message is safe.
+        let output = self
+            .git
+            .output(&[
+                "log",
+                "-z",
+                "--format=%H%x00%P%x00%B%x00%aI",
+                "--end-of-options",
+                range,
+                "--",
+            ])
+            .map_err(host)?;
+        let text = String::from_utf8_lossy(&output);
+        let mut fields: Vec<&str> = text.split('\0').collect();
+        if fields.last() == Some(&"") {
+            fields.pop();
+        }
+        let (records, rest) = fields.as_chunks::<LOG_FIELDS>();
+        if !rest.is_empty() {
+            return Err(HostError::new(format!(
+                "git log {range} printed {} NUL-separated fields, not records of {LOG_FIELDS}; check the git version",
+                fields.len()
+            )));
+        }
+        Ok(records
+            .iter()
+            .map(|[id, parents, message, author_date]| Commit {
+                id: (*id).to_owned(),
+                parents: parents.split_whitespace().map(str::to_owned).collect(),
+                message: (*message).to_owned(),
+                author_date: (*author_date).to_owned(),
+            })
+            .collect())
+    }
+
+    fn changed_paths(
+        &self,
+        parent: &str,
+        commit: &str,
+    ) -> std::result::Result<Vec<String>, HostError> {
+        self.git
+            .paths(&[
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "-z",
+                "--end-of-options",
+                parent,
+                commit,
+                "--",
+            ])
+            .map_err(host)
+    }
+
+    fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
+        let spec = format!("{commit}:{path}");
+        let Some(object) = self
+            .git
+            .try_text(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                &spec,
+            ])
+            .map_err(host)?
+        else {
+            return Ok(None);
+        };
+        self.git
+            .output(&["cat-file", "blob", &object])
+            .map(Some)
+            .map_err(host)
+    }
+
+    fn is_ancestor(
+        &self,
+        ancestor: &str,
+        descendant: &str,
+    ) -> std::result::Result<bool, HostError> {
+        self.git
+            .try_text(&[
+                "merge-base",
+                "--is-ancestor",
+                "--end-of-options",
+                ancestor,
+                descendant,
+            ])
+            .map(|answer| answer.is_some())
+            .map_err(host)
+    }
+
+    fn sync_state(&self, commit: &str) -> std::result::Result<SyncState, HostError> {
+        if let Some(state) = self
+            .states
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(commit)
+        {
+            return Ok(state.clone());
+        }
+        let state = self.sync_state_at(commit).map_err(|error| {
+            HostError::new(format!("git.sync-state at commit {commit}: {error}"))
+        })?;
+        self.states
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(commit.to_owned(), state.clone());
+        Ok(state)
+    }
+}
+
+/// The kind of [`Cache::answer`] that holds `sync-state` answers.
+const SYNC_STATE: &str = "sync-state";
+
+/// The meaning of a stored `sync-state` answer, in its key: raised when the same commit and
+/// configuration would answer differently, so answers stored before are not reused. 2: no drift
+/// under the fallback. 3: only lasting load failures stored, validation per plugin, the lower
+/// fuel default. 4: the fuel default back to 10^12, so a fuel failure stored under 10^11 is not
+/// reused.
+const SYNC_STATE_VERSION: u32 = 4;
+
+/// The first byte of a stored answer that holds the paths.
+const ANSWER: u8 = b'p';
+/// The first byte of a commit's stored answer that depends on the run's configuration: the
+/// paths are stored under the key that adds that configuration's hash.
+const RUN_DEPENDENT: u8 = b'r';
+
+/// The sync state at a commit, whether the run's configuration took part in it, and whether it
+/// may be stored for good.
+struct Computed {
+    state: SyncState,
+    uses_run: bool,
+    /// False when a generator failed with an environment error (a passing failure) or the run
+    /// outputs it used came from one: the answer holds for this run only.
+    lasting: bool,
+}
+
+impl GitHistory {
+    /// What `gate sync` produces at `commit` and which of it `gate sync --check` reports there.
+    ///
+    /// The generators run on the commit's tree with the commit's configuration and the plugins
+    /// its `gate.lock` pins (or the run's `--plugin` builds). Only when that `gate.toml` is not a
+    /// configuration of this core (it does not parse, or does not validate) do the run's own
+    /// configuration and plugins run on the commit's tree instead, and then only `produced`
+    /// answers: files another tool wrote cannot be judged by this core's generators, so `drift`
+    /// is empty and a history rule judges by path alone. A generator that fails, or
+    /// whose output `gate sync` would refuse, never fails the call: it answers the paths it could
+    /// not produce. A commit without a `gate.toml` generates nothing.
+    ///
+    /// Answers are stored in the cache by commit, core version and `--plugin` builds; an answer
+    /// the run's configuration took part in is stored under the hash of that configuration and of
+    /// the run's generator outputs as well, and the commit's entry points there. An answer a
+    /// generator's environment error took part in is not stored.
+    ///
+    /// # Errors
+    /// Fails when git cannot read the commit, a plugin the commit pins cannot be fetched or does
+    /// not match its pin, or the run's own configuration or plugins fail.
+    fn sync_state_at(&self, commit: &str) -> Result<SyncState> {
+        let cache = Cache::from_env()?;
+        let own_key = self.state_key(commit, None);
+        match stored(&cache, &own_key)? {
+            Some((ANSWER, state)) => return Ok(state),
+            Some(_) => {
+                let run_key = self.state_key(commit, Some(self.run_key()?));
+                if let Some((_, state)) = stored(&cache, &run_key)? {
+                    return Ok(state);
+                }
+            }
+            None => {}
+        }
+
+        let computed = self.compute(commit)?;
+        if !computed.lasting {
+            return Ok(computed.state);
+        }
+        if computed.uses_run {
+            let run_key = self.state_key(commit, Some(self.run_key()?));
+            store(&cache, &run_key, ANSWER, &computed.state)?;
+            store(&cache, &own_key, RUN_DEPENDENT, &SyncState::default())?;
+        } else {
+            store(&cache, &own_key, ANSWER, &computed.state)?;
+        }
+        Ok(computed.state)
+    }
+
+    /// [`GitHistory::sync_state_at`] without the cache.
+    fn compute(&self, commit: &str) -> Result<Computed> {
+        let snapshot = Snapshot::open(&self.git, Source::Commit(commit.to_owned()))?;
+        if snapshot.read(crate::config::FILE_NAME)?.is_none() {
+            return Ok(Computed {
+                state: SyncState::default(),
+                uses_run: false,
+                lasting: true,
+            });
+        }
+        match Workspace::from_snapshot(snapshot) {
+            Ok(workspace) => {
+                if let Some(computed) = self.at_own_configuration(&workspace)? {
+                    return Ok(computed);
+                }
+            }
+            Err(error) if matches!(error.kind(), crate::error::ErrorKind::Config) => {}
+            Err(error) => return Err(error),
+        }
+
+        let context = self.run_context()?;
+        let workspace = self.run_workspace.with_snapshot(Snapshot::open(
+            &self.git,
+            Source::Commit(commit.to_owned()),
+        )?);
+        let generators = PluginGenerators::with_loaded(&workspace, context.loaded.clone());
+        let mut computed = self.state_in(&workspace, &generators, false)?;
+        computed.uses_run = true;
+        // `produced` already holds every drifting path, a failing generator's run outputs too.
+        computed.state.drift.clear();
+        Ok(computed)
+    }
+
+    /// The answer with the commit's own configuration; `None` when that configuration does not
+    /// validate against its `gate.lock`, its plugins or the core, so the run's configuration
+    /// answers.
+    fn at_own_configuration(&self, workspace: &Workspace) -> Result<Option<Computed>> {
+        let lock =
+            match crate::lock::verify_with(workspace, &self.overrides.keys().cloned().collect()) {
+                Ok(lock) => lock,
+                Err(error) if matches!(error.kind(), crate::error::ErrorKind::Config) => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
+        let plugins = self.commit_plugins(workspace, lock.as_ref())?;
+        // The rules of a plugin that does not load cannot be checked; the configuration is still
+        // checked against every plugin that loads. The generators of those answer, and the
+        // others' answer their paths.
+        if let Some(loaded) = &plugins.loaded
+            && loaded
+                .validate_except(workspace, &RuleFilter::new(Vec::new()), &plugins.unloadable)
+                .is_err()
+        {
+            return Ok(None);
+        }
+        let generators = PluginGenerators::with_loaded(workspace, plugins.loaded);
+        match self.state_in(workspace, &generators, !plugins.unloadable.is_empty()) {
+            Ok(computed) => Ok(Some(computed)),
+            Err(error) if matches!(error.kind(), crate::error::ErrorKind::Config) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The plugins a commit's configuration declares, loaded once per run for each set of pins.
+    ///
+    /// # Errors
+    /// Fails when a pinned component cannot be fetched or does not match its pin, or fails to load
+    /// in a way that may pass by the next run (a trap or the deadline in `describe`, the machine):
+    /// an environment error, not an answer. A component that does not load under this core for
+    /// good does not fail: its generators cannot produce.
+    fn commit_plugins(&self, workspace: &Workspace, lock: Option<&Lock>) -> Result<CommitPlugins> {
+        let mut hasher = Sha256::new();
+        for (source, declarations) in &Wanted::of(workspace).plugins {
+            hasher.update(format!("{source}\0"));
+            for declaration in declarations {
+                hasher.update(format!("{}\0", declaration.name));
+            }
+            if let Some(pin) = lock.and_then(|lock| lock.plugins.get(source)) {
+                hasher.update(format!("{}\0", pin.sha256));
+            }
+        }
+        let key = Sha256Sum::from_digest(&hasher.finalize());
+        if let Some(plugins) = self
+            .commit_plugins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&key)
+        {
+            return Ok(plugins.clone());
+        }
+        let fetched = fetch_components(workspace, lock, &self.overrides).map_err(|error| {
+            Error::environment(format!(
+                "a plugin this commit's gate.lock pins cannot be fetched or does not match its pin: {error}; run again with network access, or pass --plugin <name>=<path.wasm> for it"
+            ))
+        })?;
+        let plugins = match fetched {
+            None => CommitPlugins {
+                loaded: None,
+                unloadable: BTreeSet::new(),
+            },
+            Some(fetched) => {
+                let (loaded, failures) = instantiate(fetched, &self.overrides, false)?;
+                if let Some((name, failure)) = failures.iter().find(|(_, failure)| !failure.lasting)
+                {
+                    return Err(Error::environment(format!(
+                        "plugin {name}, which this commit's gate.lock pins, did not load in a way that may pass ({}); run again",
+                        failure.error
+                    )));
+                }
+                CommitPlugins {
+                    loaded: Some(Arc::new(loaded)),
+                    unloadable: failures.into_keys().collect(),
+                }
+            }
+        };
+        self.commit_plugins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key, plugins.clone());
+        Ok(plugins)
+    }
+
+    /// The run's configuration hash and plugins, computed once.
+    fn run_context(&self) -> Result<&RunContext> {
+        self.run
+            .get_or_init(|| {
+                let workspace = &self.run_workspace;
+                let lock =
+                    crate::lock::verify_with(workspace, &self.overrides.keys().cloned().collect())?;
+                let loaded = load(workspace, lock.as_ref(), &self.overrides)?.map(Arc::new);
+                if let Some(loaded) = &loaded {
+                    loaded.validate(workspace, &RuleFilter::new(Vec::new()))?;
+                }
+                Ok(RunContext {
+                    hash: configuration_hash(workspace)?,
+                    loaded,
+                    outputs: OnceLock::new(),
+                    key: OnceLock::new(),
+                })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// The paths each generator writes under the run's configuration, on the run's tree.
+    fn run_outputs(&self) -> Result<&RunOutputs> {
+        let context = self.run_context()?;
+        Ok(context.outputs.get_or_init(|| {
+            let workspace = &self.run_workspace;
+            let generators = PluginGenerators::with_loaded(workspace, context.loaded.clone());
+            let mut by_entry: BTreeMap<EntryKey, BTreeSet<String>> = BTreeMap::new();
+            for entry in sync::generator_entries(workspace) {
+                if let Ok(outputs) = sync::generator_outputs(&entry, &generators) {
+                    by_entry
+                        .entry(entry_key(&entry))
+                        .or_default()
+                        .extend(outputs.into_iter().map(|output| output.path));
+                }
+            }
+            RunOutputs {
+                by_entry,
+                transient: generators.had_passing_failure(),
+            }
+        }))
+    }
+
+    /// The hash a run-dependent answer is stored under: the run configuration's, and the paths
+    /// each of its generators writes on the run's tree (they read the run's files, which the
+    /// configuration's hash does not cover).
+    fn run_key(&self) -> Result<&Sha256Sum> {
+        let context = self.run_context()?;
+        if let Some(key) = context.key.get() {
+            return Ok(key);
+        }
+        let outputs = self.run_outputs()?;
+        let mut hasher = Sha256::new();
+        hasher.update(format!("{}\0", context.hash.as_str()));
+        for ((project, generator), paths) in &outputs.by_entry {
+            hasher.update(format!(
+                "{}\0{generator}\0{}\0",
+                project.as_deref().unwrap_or("/"),
+                paths.len()
+            ));
+            for path in paths {
+                hasher.update(format!("{path}\0"));
+            }
+        }
+        Ok(context
+            .key
+            .get_or_init(|| Sha256Sum::from_digest(&hasher.finalize())))
+    }
+
+    /// What `gate sync` produces in `workspace` and which of it `gate sync --check` reports, both
+    /// sorted. `produced` holds every output (generators', hooks', CI's) and every path `gate sync`
+    /// would remove (a tracked file under an owned glob that no generator writes, a hook or
+    /// workflow gate wrote that the configuration no longer names); `drift` holds the outputs that
+    /// are missing, differ or are not executable, and the paths it would remove. A `[generate]`
+    /// entry whose generator fails, or whose output `gate sync` would refuse (outside the
+    /// repository, a protected path, a path another output writes), writes nothing here: both
+    /// lists hold the tracked files under its globs and the paths that entry writes under the
+    /// run's configuration, and the answer uses the run's configuration.
+    ///
+    /// # Errors
+    /// Fails when the core's own outputs (hooks, workflow) are wrong for the configuration, as a
+    /// configuration error, or git cannot read the commit.
+    /// With `unloadable` (a plugin of the configuration does not load under this core), the CI
+    /// workflow, whose jobs depend on which rules read history, is answered as drifting too. When a
+    /// generator call fails in a way that may pass, the answer holds for this run only.
+    fn state_in(
+        &self,
+        workspace: &Workspace,
+        generators: &PluginGenerators<'_>,
+        unloadable: bool,
+    ) -> Result<Computed> {
+        let mut outputs = sync::core_outputs(workspace, generators)?;
+        let entries = sync::generator_entries(workspace);
+        let mut failed: BTreeSet<EntryKey> = BTreeSet::new();
+        let mut written: Vec<(EntryKey, Vec<sync::Output>)> = Vec::new();
+        // A generator's environment error may pass by the next run: the answer is not stored.
+        for entry in &entries {
+            match sync::generator_outputs(entry, generators) {
+                Ok(files) => written.push((entry_key(entry), files)),
+                Err(_) => {
+                    failed.insert(entry_key(entry));
+                }
+            }
+        }
+        let mut writers: BTreeMap<&str, Vec<&EntryKey>> = BTreeMap::new();
+        for (key, files) in &written {
+            for file in files {
+                writers.entry(file.path.as_str()).or_default().push(key);
+            }
+        }
+        let core: BTreeSet<&str> = outputs.iter().map(|output| output.path.as_str()).collect();
+        let shared: Vec<EntryKey> = writers
+            .iter()
+            .filter(|(path, keys)| keys.len() > 1 || core.contains(*path))
+            .flat_map(|(_, keys)| keys.iter().map(|key| (*key).clone()))
+            .collect();
+        failed.extend(shared);
+        for (key, files) in written {
+            if !failed.contains(&key) {
+                outputs.extend(files);
+            }
+        }
+        let outputs = sync::sorted(outputs)?;
+
+        let mut owned = Vec::new();
+        for entry in &entries {
+            match generators.owns(entry.project, entry.generator) {
+                Ok(globs) => owned.extend(globs.into_iter().map(|glob| sync::Owned {
+                    item: entry.generator.to_string(),
+                    glob,
+                })),
+                Err(_) => {
+                    failed.insert(entry_key(entry));
+                }
+            }
+        }
+        let mut transient = generators.had_passing_failure();
+
+        let mut drift: BTreeSet<String> = sync::check(workspace, &outputs, &owned)?
+            .iter()
+            .filter_map(|finding| finding.location.as_ref()?.path().map(str::to_owned))
+            .collect();
+        let uses_run = !failed.is_empty();
+        if uses_run {
+            let run_outputs = self.run_outputs()?;
+            transient |= run_outputs.transient;
+            for key in &failed {
+                drift.extend(run_outputs.by_entry.get(key).into_iter().flatten().cloned());
+            }
+        }
+        if unloadable {
+            drift.extend(
+                outputs
+                    .iter()
+                    .filter(|output| output.item == "ci")
+                    .map(|output| output.path.clone()),
+            );
+        }
+        // What check reports beyond the outputs is what sync removes, which it owns too.
+        let produced: BTreeSet<String> = outputs
+            .into_iter()
+            .map(|output| output.path)
+            .chain(drift.iter().cloned())
+            .collect();
+        Ok(Computed {
+            state: SyncState {
+                produced: produced.into_iter().collect(),
+                drift: drift.into_iter().collect(),
+            },
+            uses_run,
+            lasting: !transient,
+        })
+    }
+
+    /// The cache key of a `sync-state` answer: the commit, the core's version, the `--plugin`
+    /// builds, and for an answer the run's configuration took part in, [`GitHistory::run_key`].
+    fn state_key(&self, commit: &str, configuration: Option<&Sha256Sum>) -> Sha256Sum {
+        let mut hasher = Sha256::new();
+        hasher.update(format!(
+            "{SYNC_STATE}\0{SYNC_STATE_VERSION}\0{}\0{commit}\0",
+            env!("CARGO_PKG_VERSION")
+        ));
+        for (name, (_, bytes)) in &*self.overrides {
+            hasher.update(format!(
+                "{name}\0{}\0",
+                Sha256Sum::from_digest(&Sha256::digest(bytes)).as_str()
+            ));
+        }
+        if let Some(configuration) = configuration {
+            hasher.update(format!("configuration\0{}\0", configuration.as_str()));
+        }
+        Sha256Sum::from_digest(&hasher.finalize())
+    }
+}
+
+/// Whether a call's failure, on a component that has loaded, may pass by the next call: the plugin
+/// reports an environment failure, traps, runs past the deadline (wall-clock time, which load on
+/// the machine stretches), the runtime cannot start, or the component does not instantiate (`Load`:
+/// a component that loaded once cannot fail to instantiate for good, so that is the machine). An
+/// interface break, or a fuel or memory limit, recurs for the same component and input.
+fn passing_call_failure(kind: gate_runtime::ErrorKind) -> bool {
+    matches!(
+        kind,
+        gate_runtime::ErrorKind::Setup
+            | gate_runtime::ErrorKind::Load
+            | gate_runtime::ErrorKind::Trap
+            | gate_runtime::ErrorKind::Deadline
+            | gate_runtime::ErrorKind::Reported
+    )
+}
+
+/// The key of a `[generate]` entry.
+fn entry_key(entry: &sync::GeneratorEntry<'_>) -> EntryKey {
+    (
+        entry.project.map(str::to_owned),
+        entry.generator.to_string(),
+    )
+}
+
+/// The hash of the files a workspace's configuration was read from, by path, and `gate.lock`.
+fn configuration_hash(workspace: &Workspace) -> Result<Sha256Sum> {
+    let inputs = workspace.inputs();
+    let lock = crate::lock::LOCK_FILE.to_owned();
+    let paths: BTreeSet<&String> = inputs
+        .everywhere
+        .iter()
+        .chain(inputs.projects.values().flatten())
+        .chain(std::iter::once(&lock))
+        .collect();
+    let mut hasher = Sha256::new();
+    for path in paths {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+        match workspace.snapshot().read(path)? {
+            Some(bytes) => {
+                hasher.update(Sha256::digest(&bytes[..]));
+            }
+            None => hasher.update(b"absent"),
+        }
+    }
+    Ok(Sha256Sum::from_digest(&hasher.finalize()))
+}
+
+/// A stored `sync-state` answer: its first byte and the state. After the first byte come the
+/// produced paths, each ended by NUL, then one NUL, then the drifting paths, each ended by NUL; a
+/// path is never empty.
+fn stored(cache: &Cache, key: &Sha256Sum) -> Result<Option<(u8, SyncState)>> {
+    let file = cache.answer(SYNC_STATE, key);
+    match std::fs::read(&file) {
+        Ok(bytes) => {
+            let Some((&tag, rest)) = bytes.split_first() else {
+                return Ok(None);
+            };
+            let mut state = SyncState::default();
+            let mut in_drift = false;
+            for path in String::from_utf8_lossy(rest).split_terminator('\0') {
+                if path.is_empty() {
+                    in_drift = true;
+                } else if in_drift {
+                    state.drift.push(path.to_owned());
+                } else {
+                    state.produced.push(path.to_owned());
+                }
+            }
+            Ok(Some((tag, state)))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(Error::environment(format!(
+            "cannot read {}: {error}; remove it, and gate computes it again",
+            file.display()
+        ))),
+    }
+}
+
+/// Stores a `sync-state` answer: its first byte and the state, as [`stored`] reads it.
+fn store(cache: &Cache, key: &Sha256Sum, tag: u8, state: &SyncState) -> Result<()> {
+    let mut temporary = cache.temporary()?;
+    let mut bytes = vec![tag];
+    for path in &state.produced {
+        bytes.extend_from_slice(path.as_bytes());
+        bytes.push(0);
+    }
+    bytes.push(0);
+    for path in &state.drift {
+        bytes.extend_from_slice(path.as_bytes());
+        bytes.push(0);
+    }
+    temporary.file().write_all(&bytes).map_err(|error| {
+        Error::environment(format!(
+            "cannot write {}: {error}",
+            temporary.path().display()
+        ))
+    })?;
+    cache.insert_answer(temporary, SYNC_STATE, key)?;
+    Ok(())
+}
+
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "used as map_err(host), which passes the error by value"
+)]
+fn host(error: Error) -> HostError {
+    HostError::new(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repository_on(branch: &str) -> (tempfile::TempDir, Git) {
+        let directory = tempfile::tempdir().expect("directory");
+        let git = |arguments: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(directory.path())
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_AUTHOR_NAME", "Test")
+                .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+                .env("GIT_COMMITTER_NAME", "Test")
+                .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+                .status()
+                .expect("git");
+            assert!(status.success(), "git {arguments:?}");
+        };
+        git(&["init", "--quiet", "--initial-branch", branch]);
+        git(&["commit", "--quiet", "--allow-empty", "--message", "first"]);
+        // A tag with the branch's name: `symbolic-ref --short` would answer heads/<branch>.
+        git(&["tag", branch]);
+        let found = Git::discover(directory.path()).expect("discover");
+        (directory, found)
+    }
+
+    #[test]
+    fn the_branch_is_the_ci_variable_else_the_branch_head_is_on_even_beside_a_tag_of_its_name() {
+        let (_directory, git) = repository_on("feature/login");
+        assert_eq!(
+            current_branch(None, &git).expect("branch").as_deref(),
+            Some("feature/login")
+        );
+        assert_eq!(
+            current_branch(Some(" ".to_owned()), &git)
+                .expect("branch")
+                .as_deref(),
+            Some("feature/login"),
+            "an empty variable names no branch"
+        );
+        assert_eq!(
+            current_branch(Some("fix/from-a-pull-request".to_owned()), &git)
+                .expect("branch")
+                .as_deref(),
+            Some("fix/from-a-pull-request"),
+            "CI's variable names the branch of a detached pull request checkout"
+        );
+    }
+
+    #[test]
+    fn only_a_failure_that_recurs_marks_a_component_unloadable_for_good() {
+        use gate_runtime::ErrorKind as Kind;
+        // The core's limits on a describe without input: the same on every run.
+        for kind in [Kind::Load, Kind::Plugin, Kind::OutOfFuel, Kind::OutOfMemory] {
+            assert!(lasting_load_failure(kind), "{kind:?}");
+        }
+        for kind in [
+            Kind::Setup,
+            Kind::Request,
+            Kind::Trap,
+            Kind::Deadline,
+            Kind::Reported,
+        ] {
+            assert!(
+                !lasting_load_failure(kind),
+                "{kind:?} while loading answers for this run only"
+            );
+        }
+        // A component that loaded once and then does not instantiate meets the machine.
+        for kind in [
+            Kind::Setup,
+            Kind::Load,
+            Kind::Trap,
+            Kind::Deadline,
+            Kind::Reported,
+        ] {
+            assert!(passing_call_failure(kind), "{kind:?}");
+        }
+        for kind in [
+            Kind::Request,
+            Kind::OutOfFuel,
+            Kind::OutOfMemory,
+            Kind::Plugin,
+        ] {
+            assert!(!passing_call_failure(kind), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn an_options_schema_that_is_not_a_json_schema_breaks_the_plugin_for_good() {
+        let name = PluginName::try_from("hello".to_owned()).expect("a plugin name");
+        for (text, problem) in [
+            ("", "is not JSON"),
+            ("not json", "is not JSON"),
+            (r#"{"type": 5}"#, "is not a valid JSON Schema"),
+        ] {
+            let failure = schema(&name, "the plugin", text).expect_err(text);
+            assert!(failure.lasting, "{text}");
+            let message = failure.error.to_string();
+            assert!(
+                message.contains("plugin hello: the plugin declares an options schema that")
+                    && message.contains(problem)
+                    && message.contains("the plugin is broken"),
+                "{text}: {message}"
+            );
+        }
+        let valid = r#"{"type": "object", "additionalProperties": false}"#;
+        assert_eq!(
+            schema(&name, "rule marker", valid).expect("a JSON Schema"),
+            serde_json::json!({ "type": "object", "additionalProperties": false })
+        );
+    }
+
+    #[test]
+    fn schema_violations_name_the_key() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "max": { "type": "integer" } },
+            "additionalProperties": false
+        });
+        let validator = JsonSchemaValidator;
+        assert_eq!(
+            validator.validate(&schema, &serde_json::json!({ "max": 3 })),
+            Vec::<String>::new()
+        );
+        let violations = validator.validate(&schema, &serde_json::json!({ "max": "three" }));
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].starts_with("/max: "), "{violations:?}");
+        let violations = validator.validate(&schema, &serde_json::json!({ "min": 1 }));
+        assert!(violations[0].contains("min"), "{violations:?}");
+    }
+}

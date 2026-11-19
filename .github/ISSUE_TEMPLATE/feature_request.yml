@@ -1,0 +1,40 @@
+name: ✨ Feature request
+description: A new command, option, rule or plugin, or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A rule for your own conventions can live in your own plugin; see docs/guide/writing-a-plugin.md.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - core (configuration, projects, change selection, reports, cache)
+        - plugin runtime or SDK
+        - distribution (launcher, lock, releases)
+        - hooks, CI, steps
+        - a shared plugin
+        - documentation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What Gate should do. A configuration or command example helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you considered, including a plugin of your own.

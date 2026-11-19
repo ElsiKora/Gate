@@ -1,0 +1,26 @@
+[package]
+name = "gate-plugin-agents"
+description = "The agents plugin of Gate: agent rule files, their ids, enforcement and references, skills, and the generated Claude Code adapters and AGENTS.md block"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.1.0"
+
+[lib]
+# The component is `agents.wasm`; the rlib lets the native tests call the plugin.
+name = "agents"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-agents-format.workspace = true
+gate-sdk.workspace = true
+globset.workspace = true
+ignore.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

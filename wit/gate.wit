@@ -1,0 +1,177 @@
+/// The interface between the Gate core (the host) and a plugin (a WebAssembly component).
+///
+/// A plugin is one `.wasm` component that exports `describe`, `check` and `generate`. It sees the
+/// tracked tree of its scope read-only through `tree`, git data through `git` (only for rules that
+/// declare `reads-history`), and nothing else: no files, network, clock or environment. Levels,
+/// norms and exceptions belong to the core's configuration, never to the plugin.
+package gate:plugin@0.1.0;
+
+interface types {
+  /// How much a finding weighs; set by configuration, never by the plugin.
+  enum level { error, warning, note }
+
+  /// What a rule sees: its project's subtree, or the whole repository once per run.
+  enum scope { repository, project }
+
+  /// A one-based line and column range; `end-line` and `end-column` are inclusive.
+  record span { line: u32, column: u32, end-line: u32, end-column: u32 }
+
+  /// A tracked path relative to the scope's root, and where in it.
+  record file-location { path: string, span: option<span> }
+
+  /// Where a finding is: in a file, or on a commit (its full id) for a rule that reads history.
+  variant location { file(file-location), commit(string) }
+
+  /// One violation a rule reports.
+  record finding {
+    /// The rule's name inside the plugin, e.g. `barrel-exports`.
+    rule: string,
+    /// A named part of the rule; empty when the rule has one.
+    aspect: string,
+    message: string,
+    location: option<location>,
+    /// What the finding is about, in the rule's own documented grammar (for example
+    /// `src/user.entity.ts:UserEntity.parent`); exceptions match it.
+    target: option<string>,
+    help: option<string>,
+  }
+
+  /// A rule a plugin declares.
+  record rule-info {
+    name: string,
+    title: string,
+    aspects: list<string>,
+    scope: scope,
+    /// The rule reads commits, not only the snapshot; only such rules may call `git`.
+    reads-history: bool,
+    /// The languages whose files the rule reads, e.g. `["typescript"]`; empty for none.
+    languages: list<string>,
+    /// The JSON Schema of the rule's options.
+    options-schema: string,
+  }
+
+  /// A generator a plugin declares; `owns` are the project-relative globs whose tracked files
+  /// `gate sync` deletes when no generator produced them.
+  record generator-info { name: string, title: string, options-schema: string, owns: list<string> }
+
+  /// A named set of rule settings; `rules` is JSON: rule name -> `{ "level": .., "options": .. }`.
+  record preset { name: string, rules: string }
+
+  /// What `describe` answers.
+  record plugin-info {
+    name: string,
+    version: string,
+    /// The JSON Schema of the `[plugins.<name>] options`, shared by the plugin's rules; the host
+    /// validates the configuration against it when the plugin loads.
+    options-schema: string,
+    rules: list<rule-info>,
+    generators: list<generator-info>,
+    presets: list<preset>,
+  }
+
+  /// One enabled rule of a `check` call.
+  record rule-run {
+    name: string,
+    /// JSON, already validated by the host against the rule's schema.
+    options: string,
+    /// The tracked file the options came from, readable by the rule.
+    options-file: option<string>,
+    /// The targets of this rule's exceptions, for rules whose result depends on them.
+    exceptions: list<string>,
+  }
+
+  /// One `check` call: every enabled rule of the plugin for one project.
+  record check-request {
+    /// The project's root, relative to the repository; empty for the repository.
+    project: string,
+    rules: list<rule-run>,
+    /// JSON: the `[plugins.<name>]` options, shared by the plugin's rules.
+    plugin-options: string,
+    /// JSON: the `[languages.<id>]` settings of the languages the plugin declares.
+    languages: string,
+    /// Every norm the configuration maps, for rules about rule documents.
+    norms: list<string>,
+  }
+
+  /// A file a generator writes, at a path relative to the project root; the host maps it.
+  record generated-file { path: string, contents: list<u8> }
+
+  /// What `generate` answers; its findings surface as `gate/sync#<generator>`.
+  record generate-result { files: list<generated-file>, findings: list<finding> }
+}
+
+/// The snapshot, read-only, tracked files only, within the call's grant.
+interface tree {
+  /// The tracked paths under `prefix` (empty for all), sorted.
+  paths: func(prefix: string) -> list<string>;
+  /// The bytes of a tracked path; none when it is not tracked or not granted.
+  read: func(path: string) -> option<list<u8>>;
+  /// The paths the run's change selection names, when the run has one.
+  changed: func() -> option<list<string>>;
+}
+
+/// Git history, granted only to rules that declare `reads-history`.
+interface git {
+  record commit {
+    id: string,
+    parents: list<string>,
+    /// The raw full message (`%B`); the SDK derives the subject and the body from it.
+    message: string,
+    /// Strict ISO 8601.
+    author-date: string,
+  }
+
+  /// The run's range: `base` none for a new branch.
+  record commit-range { base: option<string>, head: string, target-ref: option<string> }
+
+  /// What `gate sync` produces at a commit, and which of it differs (the SDK's `SyncState`; a
+  /// record cannot share the name of the function that answers it).
+  record sync-paths {
+    /// Every path `gate sync` writes or owns there: generator outputs, tracked files under a glob
+    /// a generator owns, and the core's hook and CI files.
+    produced: list<string>,
+    /// The produced paths that are missing, differ, are not executable, or are stale there;
+    /// empty at a commit whose `gate.toml` is not a configuration of this core (before the
+    /// repository moved to Gate), where only `produced` counts.
+    drift: list<string>,
+  }
+
+  /// The commit the snapshot stands on; none in a repository without commits.
+  head: func() -> option<string>;
+  /// The checked-out branch; none when detached.
+  branch: func() -> option<string>;
+  /// The run's range under `--rev` or `--push`; none for other runs.
+  range: func() -> option<commit-range>;
+  /// The commit a ref or revision names; none when it names no commit.
+  resolve: func(rev: string) -> option<string>;
+  /// The tree id of a commit.
+  tree: func(commit: string) -> string;
+  /// The tree of git's merge of two commits (`git merge-tree --write-tree`); none on conflict.
+  merge-tree: func(first: string, second: string) -> option<string>;
+  /// The commits of a revision range (`a..b`, or one revision for its ancestry), newest first.
+  log: func(range: string) -> list<commit>;
+  /// The paths a commit changed against one of its parents.
+  changed-paths: func(parent: string, commit: string) -> list<string>;
+  /// The bytes of a path at a commit; none when absent there.
+  read-at: func(commit: string, path: string) -> option<list<u8>>;
+  is-ancestor: func(ancestor: string, descendant: string) -> bool;
+  /// What `gate sync` produces at that commit, and which of it differs. A generator's error
+  /// answers the paths it could not produce; a pinned plugin that cannot be fetched or does not
+  /// match its pin, a failure of git, and a failure that may pass by the next run fail the call.
+  sync-state: func(commit: string) -> sync-paths;
+}
+
+world plugin {
+  use types.{plugin-info, check-request, finding, generate-result};
+
+  import tree;
+  import git;
+  /// A diagnostic line for `--verbose`; never part of a finding.
+  import log: func(message: string);
+
+  export describe: func() -> plugin-info;
+  /// `err` is an environment failure (the run fails, the message names the plugin); a violation is
+  /// a finding.
+  export check: func(request: check-request) -> result<list<finding>, string>;
+  export generate: func(name: string, project: string, options: string) -> result<generate-result, string>;
+}

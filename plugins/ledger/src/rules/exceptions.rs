@@ -1,0 +1,207 @@
+//! `ledger/exception-owners` and `ledger/exception-decisions`: the owner an exception names is an
+//! open implementation record, and the decision it names is accepted.
+
+use gate_sdk::schemars::JsonSchema;
+use gate_sdk::serde::Deserialize;
+use gate_sdk::{Error, Rule, Run, Tree};
+
+use crate::catalog::{At, Catalog, Findings};
+use crate::index::DecisionIndex;
+use crate::records::Ledger;
+use crate::settings::{Settings, check_path};
+use crate::text::LineIndex;
+
+/// The options of both exception rules.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(
+    crate = "gate_sdk::serde",
+    default,
+    deny_unknown_fields,
+    rename_all = "kebab-case"
+)]
+#[schemars(crate = "gate_sdk::schemars")]
+pub struct Options {
+    /// The project's exceptions file.
+    pub exceptions: String,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            exceptions: "gate.exceptions.toml".to_owned(),
+        }
+    }
+}
+
+/// One `[[exception]]` as these rules read it; the host checks the rest of its shape.
+#[derive(Debug, Deserialize)]
+#[serde(crate = "gate_sdk::serde")]
+struct Exception {
+    rule: String,
+    decision: Option<String>,
+    owner: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "gate_sdk::serde")]
+struct File {
+    #[serde(default)]
+    exception: Vec<toml::Spanned<Exception>>,
+}
+
+/// An exception with the line it starts on.
+struct Located {
+    at: At,
+    exception: Exception,
+}
+
+/// The exceptions of the file, each at its line; empty when the file is not tracked.
+fn exceptions(tree: &Tree<'_>, path: &str, rule: &str) -> gate_sdk::Result<Vec<Located>> {
+    check_path(&format!("ledger/{rule} option exceptions"), path)?;
+    let Some(text) = tree.text(path) else {
+        return Ok(Vec::new());
+    };
+    let file: File = toml::from_str(&text).map_err(|error| {
+        Error::new(format!(
+            "{path} is not a valid exceptions file: {}; fix it so the host can load it",
+            error.message()
+        ))
+    })?;
+    let lines = LineIndex::new(&text);
+
+    Ok(file
+        .exception
+        .into_iter()
+        .map(|spanned| {
+            let line = lines.line(spanned.span().start);
+            Located {
+                at: At::line(path, line),
+                exception: spanned.into_inner(),
+            }
+        })
+        .collect())
+}
+
+/// The rule `ledger/exception-owners`.
+#[derive(Debug, Default)]
+pub struct ExceptionOwners;
+
+impl Rule for ExceptionOwners {
+    type Options = Options;
+
+    const NAME: &'static str = "exception-owners";
+    const TITLE: &'static str = "The owner an exception names is an open implementation record";
+
+    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+        let settings = Settings::read(run)?;
+        let tree = run.tree();
+        let exceptions = exceptions(&tree, &run.options().exceptions, Self::NAME)?;
+
+        if exceptions
+            .iter()
+            .all(|located| located.exception.owner.is_none())
+        {
+            return Ok(());
+        }
+
+        let ledger = Ledger::read(&Catalog::new(tree), &settings)?;
+        let implementation = settings.implementation.as_str();
+        let mut findings = Findings::default();
+
+        for Located { at, exception } in &exceptions {
+            let Some(owner) = exception.owner.as_deref().map(str::trim) else {
+                continue;
+            };
+            let rule = &exception.rule;
+            let record = ledger
+                .implementation
+                .iter()
+                .find(|record| record.id == owner);
+
+            match record {
+                None => findings.emit(
+                    "",
+                    at,
+                    format!(
+                        "the exception for {rule} names the owner {owner}, which {implementation} does not list; name an open implementation record, or remove the owner"
+                    ),
+                ),
+                Some(record) => match record.status.as_deref() {
+                    Some(status) if settings.is_open(status) => {}
+                    status => {
+                        let state = status.map_or_else(
+                            || "which has no status".to_owned(),
+                            |status| format!("which is `{status}`"),
+                        );
+                        findings.emit(
+                            "",
+                            at,
+                            format!(
+                                "the exception for {rule} names the owner {owner}, {state}; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
+                            ),
+                        );
+                    }
+                },
+            }
+        }
+
+        findings.write_all(run.report());
+        Ok(())
+    }
+}
+
+/// The rule `ledger/exception-decisions`.
+#[derive(Debug, Default)]
+pub struct ExceptionDecisions;
+
+impl Rule for ExceptionDecisions {
+    type Options = Options;
+
+    const NAME: &'static str = "exception-decisions";
+    const TITLE: &'static str =
+        "The decision an exception names is an accepted decision of the index";
+
+    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+        let settings = Settings::read(run)?;
+        let tree = run.tree();
+        let path = run.options().exceptions.clone();
+        let exceptions = exceptions(&tree, &path, Self::NAME)?;
+
+        if exceptions.is_empty() {
+            return Ok(());
+        }
+
+        let index_path = settings.decisions.as_str();
+        let index = DecisionIndex::load(&tree, index_path)?;
+        let mut findings = Findings::default();
+
+        for Located { at, exception } in &exceptions {
+            let rule = &exception.rule;
+            let Some(decision) = exception.decision.as_deref().map(str::trim) else {
+                continue;
+            };
+
+            match index.as_ref().and_then(|index| index.get(decision)) {
+                None => findings.emit(
+                    "",
+                    at,
+                    format!(
+                        "the exception for {rule} names the decision {decision}, which {index_path} does not list; name an accepted decision of the index"
+                    ),
+                ),
+                Some(found) if found.status != "accepted" => findings.emit(
+                    "",
+                    at,
+                    format!(
+                        "the exception for {rule} names the decision {decision}, which is `{}`; an exception needs an accepted decision",
+                        found.status
+                    ),
+                ),
+                Some(_) => {}
+            }
+        }
+
+        findings.write_all(run.report());
+        Ok(())
+    }
+}

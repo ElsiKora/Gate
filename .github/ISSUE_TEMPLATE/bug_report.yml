@@ -1,0 +1,63 @@
+name: 🐞 Bug report
+description: Gate reports something wrong, misses something, or fails to run.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report. Do not report a vulnerability here: see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Gate version
+      description: The output of `gate --version`.
+      placeholder: gate 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - aarch64-apple-darwin
+        - x86_64-unknown-linux-musl
+        - other (say which below)
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin and rule
+      description: The plugin and version, and the rule id, if the bug is in a rule.
+      placeholder: ElsiKora/Gate:git@0.1.0, git/commit-subject
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: The smallest `gate.toml` (and project `gate.toml`) that shows the bug.
+      render: toml
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: What Gate printed, and its exit code.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What you expected instead, and why.
+    validations:
+      required: true

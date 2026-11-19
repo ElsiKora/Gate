@@ -1,0 +1,134 @@
+use crate::repo::{Repo, lines, merged, settings, short};
+
+const RELEASE: &str = "chore(release): 1.2.0 [skip ci]";
+
+#[test]
+fn directives_and_trailers_are_reported_on_every_commit_but_the_release() {
+    let mut repo = Repo::default();
+    let old = repo.commit(&[], "start [skip ci]", &[("a", Some("1"))]);
+    let activation = repo.commit(&[&old], "activate", &[("a", Some("2"))]);
+    let branch = repo.commit(&[&activation], "feat: work [CI SKIP]", &[("b", Some("1"))]);
+    let merge = repo.commit(
+        &[&activation, &branch],
+        "Merge branch 'feat/work'",
+        &[("b", Some("1"))],
+    );
+    let release = repo.commit(&[&merge], RELEASE, &[("CHANGELOG.md", Some("1.2.0"))]);
+    let trailer = repo.commit(
+        &[&release],
+        "docs: note\n\nSkip-Checks: true",
+        &[("docs/a.md", Some("x"))],
+    );
+    repo.set_ref("refs/remotes/origin/main", &trailer);
+    let side_release = repo.commit(&[&trailer], RELEASE, &[("c", Some("1"))]);
+    let local = repo.commit(&[&side_release], "wip [no ci]", &[("d", Some("1"))]);
+    repo.set_head(&local);
+
+    let findings = repo
+        .check("no-ci-skip", &settings(&activation), "{}")
+        .expect("runs");
+    let mut found = lines(&findings);
+    found.sort();
+    let mut expected = vec![
+        format!(
+            " commit:{branch} {} carries the forbidden CI-skip directive [CI SKIP]",
+            short(&branch)
+        ),
+        format!(
+            " commit:{trailer} {} carries the forbidden CI-skip directive Skip-Checks: true",
+            short(&trailer)
+        ),
+        format!(
+            " commit:{side_release} {} carries the forbidden CI-skip directive [skip ci]",
+            short(&side_release)
+        ),
+        format!(
+            " commit:{local} {} carries the forbidden CI-skip directive [no ci]",
+            short(&local)
+        ),
+    ];
+    expected.sort();
+    assert_eq!(found, expected);
+    assert_eq!(findings[0].target.as_deref().map(str::len), Some(40));
+}
+
+#[test]
+fn the_patterns_are_options() {
+    let mut repo = Repo::default();
+    let activation = repo.commit(&[], "init", &[("a", Some("1"))]);
+    let tip = repo.commit(
+        &[&activation],
+        "fix: thing [skip ci] NOCI",
+        &[("a", Some("2"))],
+    );
+    repo.set_ref("refs/heads/main", &tip);
+
+    let findings = repo
+        .check(
+            "no-ci-skip",
+            &settings(&activation),
+            r#"{"directive-pattern": "NOCI", "trailer-pattern": "^never$"}"#,
+        )
+        .expect("runs");
+    assert_eq!(
+        lines(&findings),
+        [format!(
+            " commit:{tip} {} carries the forbidden CI-skip directive NOCI",
+            short(&tip)
+        )]
+    );
+
+    let error = repo
+        .check(
+            "no-ci-skip",
+            &settings(&activation),
+            r#"{"directive-pattern": "("}"#,
+        )
+        .expect_err("invalid");
+    assert!(
+        error
+            .message()
+            .contains("directive-pattern \"(\" is not a valid regular expression"),
+        "{error}"
+    );
+}
+
+#[test]
+fn only_a_commit_of_a_release_form_is_the_release() {
+    let mut repo = Repo::default();
+    let activation = repo.commit(&[], "init", &[("a", Some("1"))]);
+    let release = repo.commit(&[&activation], RELEASE, &[("CHANGELOG.md", Some("1.2.0"))]);
+    repo.set_ref("refs/heads/main", &release);
+    let reported = [format!(
+        " commit:{release} {} carries the forbidden CI-skip directive [skip ci]",
+        short(&release)
+    )];
+    let found = |forms: &str| {
+        lines(
+            &repo
+                .check("no-ci-skip", &merged(&settings(&activation), forms), "{}")
+                .expect("runs"),
+        )
+    };
+
+    // The default forms have a release form; so does a policy that lists one.
+    assert_eq!(found("{}"), Vec::<String>::new());
+    assert_eq!(
+        found(
+            r#"{"forms": [{"kind": "release", "parents": 1}, {"kind": "direct", "parents": 1}]}"#
+        ),
+        Vec::<String>::new()
+    );
+    // Without a release form, or when an earlier form takes the commit, it is not the release.
+    assert_eq!(
+        found(r#"{"forms": [{"kind": "direct", "parents": 1, "checks": []}]}"#),
+        reported
+    );
+    assert_eq!(
+        found(
+            r#"{"forms": [{"kind": "direct", "parents": 1, "subject": "^chore", "checks": []},
+                          {"kind": "release", "parents": 1}]}"#
+        ),
+        reported
+    );
+}

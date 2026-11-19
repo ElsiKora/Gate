@@ -1,0 +1,110 @@
+# The core release: on a tag v<version>, build gate for each released target through
+# reproducible.yml, which packs gate-<target>.tar.gz and checks that a second build gives the same
+# bytes, then write SHA256SUMS and the configuration schema, and create the release, whose notes are
+# the CHANGELOG.md section of the version (scripts/changelog-section.sh) and the checksums.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Check the tag
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Rust toolchain of rust-toolchain.toml
+        run: rustup toolchain install
+
+      - name: Check that the tag is the version of the workspace
+        run: |
+          version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "gate") | .version')
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::the tag is $TAG and Cargo.toml says $version; tag v$version or bump the version"
+            exit 1
+          fi
+
+      - name: Check that CHANGELOG.md has the section of the version
+        run: scripts/changelog-section.sh CHANGELOG.md "${TAG#v}"
+
+  # The core is built twice on each release runner, in two paths with two cargo homes, and released
+  # only if both builds have the same sha256 (architecture.md section 12). The build jobs can only
+  # read; the release job, which can write, compiles nothing.
+  build:
+    name: Build
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reproducible.yml
+    with:
+      components: core
+
+  release:
+    name: Create the release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the tag, for CHANGELOG.md
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Collect the archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          pattern: components-*
+          merge-multiple: true
+
+      - name: Write gate.schema.json and SHA256SUMS
+        working-directory: dist
+        run: |
+          mkdir core
+          tar -xzf gate-x86_64-unknown-linux-musl.tar.gz -C core gate
+          core/gate schema > gate.schema.json
+          rm -r core
+          sha256sum gate-*.tar.gz gate.schema.json > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Write the release notes
+        run: |
+          {
+            scripts/changelog-section.sh CHANGELOG.md "${TAG#v}"
+            echo
+            echo "SHA-256:"
+            echo
+            while read -r sum file; do
+              echo "- \`$file\`: \`$sum\`"
+            done < dist/SHA256SUMS
+          } > notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          flags=()
+          case "$TAG" in
+            *-*) flags+=(--prerelease) ;;
+          esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md "${flags[@]}" \
+            dist/gate-*.tar.gz dist/gate.schema.json dist/SHA256SUMS

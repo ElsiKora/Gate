@@ -1,0 +1,20 @@
+package gate:spike;
+
+/// Read-only access to the tracked tree, served by the host.
+interface tree {
+  /// Every tracked path, slash-separated and relative to the repository root.
+  list-files: func() -> list<string>;
+  /// The bytes of one tracked file; none when it is not tracked.
+  read-file: func(path: string) -> option<list<u8>>;
+}
+
+world plugin {
+  import tree;
+
+  /// Runs the tasks a JSON request names and answers with the JSON outcome.
+  export run: func(request: string) -> string;
+  /// Parses every TypeScript file and returns the flat node table of all of them.
+  export table: func(request: string) -> list<u8>;
+  /// Runs the decorator rule over a flat node table another plugin built.
+  export table-rule: func(table: list<u8>) -> string;
+}

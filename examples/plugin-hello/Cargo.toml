@@ -1,0 +1,21 @@
+[package]
+name = "gate-plugin-hello"
+description = "The smallest Gate plugin: one rule that reports a marker left in a file"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+gate-test.workspace = true
+
+[lints]
+workspace = true

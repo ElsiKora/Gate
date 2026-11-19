@@ -1,0 +1,112 @@
+# A shared plugin's release: on a tag plugin-<name>-v<version>, build plugins/<name> for
+# wasm32-wasip2 through reproducible.yml, which builds it twice on the ubuntu-24.04 runner and
+# requires the same bytes, and create the release with <name>.wasm and <name>.wasm.sha256, whose notes
+# are the plugins/<name>/CHANGELOG.md section of the version (scripts/changelog-section.sh). gate lock
+# pins <owner>/<repo>:<name>@<version> to that asset. The build jobs, which compile third-party code,
+# can only read; the release job, which can write, compiles nothing.
+name: Release a plugin
+
+on:
+  push:
+    tags:
+      - "plugin-*-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plugin:
+    name: Find the plugin of ${{ github.ref_name }}
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.plugin.outputs.name }}
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Rust toolchain of rust-toolchain.toml
+        run: rustup toolchain install
+
+      - name: Find the plugin the tag names
+        id: plugin
+        run: |
+          rest=${TAG#plugin-}
+          name=${rest%-v*}
+          version=${rest##*-v}
+          manifest=$PWD/plugins/$name/Cargo.toml
+          if [ ! -f "$manifest" ]; then
+            echo "::error::$TAG names plugin $name, and plugins/$name/Cargo.toml does not exist"
+            exit 1
+          fi
+          declared=$(cargo metadata --locked --no-deps --format-version 1 --manifest-path "$manifest" \
+            | jq -r --arg manifest "$manifest" '.packages[] | select(.manifest_path == $manifest) | .version')
+          if [ "$declared" != "$version" ]; then
+            echo "::error::the tag is version $version and plugins/$name/Cargo.toml says $declared"
+            exit 1
+          fi
+          scripts/changelog-section.sh "plugins/$name/CHANGELOG.md" "$version"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+  # The module is built twice on the ubuntu-24.04 runner, in two paths with two cargo homes, and
+  # released only if both builds have the same sha256 (architecture.md section 12).
+  build:
+    name: Build
+    needs: plugin
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reproducible.yml
+    with:
+      components: plugin:${{ needs.plugin.outputs.name }}
+
+  release:
+    name: Release ${{ github.ref_name }}
+    needs: [plugin, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      NAME: ${{ needs.plugin.outputs.name }}
+    steps:
+      - name: Check out the tag, for the plugin's CHANGELOG.md
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the module of the Linux runner's first build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: components-x86_64-unknown-linux-musl
+
+      - name: Write its checksum
+        run: |
+          sha256sum "$NAME.wasm" > "$NAME.wasm.sha256"
+          cat "$NAME.wasm.sha256"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          read -r sum _ < "$NAME.wasm.sha256"
+          {
+            scripts/changelog-section.sh "plugins/$NAME/CHANGELOG.md" "${TAG##*-v}"
+            echo
+            echo "SHA-256:"
+            echo
+            echo "- \`$NAME.wasm\`: \`$sum\`"
+          } > notes.md
+          flags=()
+          case "${TAG##*-v}" in
+            *-*) flags+=(--prerelease) ;;
+          esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md "${flags[@]}" \
+            "$NAME.wasm" "$NAME.wasm.sha256"

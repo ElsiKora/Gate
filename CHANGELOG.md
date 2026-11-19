@@ -1,0 +1,60 @@
+<!--
+The lead writes a version's section before tagging it, newest first, in the format of the other
+ElsiKora repositories; the release takes that section as its notes and fails without it:
+a minor or major release is an `#` heading, a patch an `##` heading, each with `### Features` and
+`### Bug Fixes` entries of the form `- **scope:** subject ([sha](commit link))`.
+Entries link their commit from the second release on; the first release's section, 0.1.0, links
+none, because the public history starts at a fresh root at 0.1.0.
+Each shared plugin keeps its own changelog next to its code.
+-->
+
+# 0.1.0
+
+The first release: the core, the plugin runtime, the SDK and the launcher. The seven plugins are
+released on their own; each keeps its changelog next to its code under `plugins/`.
+
+### Features
+
+- **host:** one configuration file per repository, `gate.toml`, with nested `gate.toml` files and
+  profiles for projects. Unknown keys, unknown rules, options that fail a schema and exceptions
+  without a reason are configuration errors, exit 2, that name the file, the line and the key,
+  raised before anything runs. A plugin's own `[plugins.<name>] options` are checked against the
+  schema the plugin declares, and so is every `[generate]` key, when the plugins load.
+- **host:** projects from pnpm workspaces, the `workspaces` of `package.json`, explicit globs or
+  nested `gate.toml` files; a path belongs to the project with the longest root that contains it.
+  `gate list` shows the projects and `gate list --origin` where each setting came from.
+- **host:** `gate check` on the whole tree, the staged files (`--staged`), the changes since a base
+  (`--changed --base <rev>`), a pushed range (`--push <base>..<tip>`) or one commit (`--rev`, whose
+  base is its parent). The report says which projects ran and which were skipped and why.
+- **host:** reports as text, JSON, SARIF or GitHub annotations, with findings in a stable order and
+  a stable fingerprint; levels `error`, `warning`, `note` and `off` per rule or aspect, and the
+  repository's own rule id printed with each finding. `--list-changed-projects` prints only the
+  projects a change selects, also as GitHub step outputs.
+- **host:** baselines (`gate baseline write`) and exceptions that only shrink: an entry or an
+  exception that matches nothing is reported.
+- **host:** an exact result cache keyed by the plugin's sha256, the rules, the options and the blob
+  ids of every file a plugin read, shared by every worktree and kept outside the repository;
+  `gate cache prune` lists the entries no `gate.lock` pins and removes them with `--yes`.
+- **host:** `gate sync` writes the git hooks, the CI workflow and the files plugins generate, and
+  `gate sync --check` reports drift. A generator that fails is a `gate/sync#<generator>` finding.
+  The CI workflow can end in one aggregate job to require, and it reads private plugin releases with
+  a token.
+- **host:** `gate run` runs the repository's own commands as named steps and suites, per project or
+  at the root, on the staged or changed files if asked. A step started from a hook sees the hook's
+  arguments and input. External tools are pinned by version and sha256, and only the tools of the
+  steps that run are fetched.
+- **host:** `gate init`, `gate doctor`, `gate explain`, `gate schema` and `gate lock`; time budgets
+  with `--budget`, `--budget-fails` and `--timings`.
+- **host:** plugins pinned like the core: one source form, `<owner>/<repo>:<plugin>@<version>`,
+  resolved to a URL and a sha256 in `gate.lock`; a checksum that does not match fails closed.
+  `--plugin <name>=<file.wasm>` tries a local build for one run, outside the cache.
+- **runtime:** plugins are WebAssembly components that read only what the core hands them. Rules
+  that need git history declare it and get a read-only view of the commits, and history rules over a
+  long history cost only the new commits after the first run. Every plugin call has a fuel limit and
+  a deadline that count only the plugin's own work.
+- **sdk:** the Rust SDK for rules, generators and languages, with the `plugin!` declaration, the
+  options schema of the plugin and of each rule, and `gate-test` for fixture trees.
+- **release:** `bin/gate`, a short launcher committed to the repository, which installs the core
+  pinned in `gate.lock`, from a public or a private release. Components are reproducible: their
+  sha256 depends only on the source, `Cargo.lock` and the pinned toolchain. A release's notes are
+  its section of the changelog.

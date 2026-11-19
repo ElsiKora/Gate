@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-labelledby="title">
+  <title id="title">Gate</title>
+  <defs>
+    <linearGradient id="mark" gradientUnits="userSpaceOnUse" x1="215" y1="640" x2="515" y2="360">
+      <stop offset="0" stop-color="#7312D4"/>
+      <stop offset="1" stop-color="#D11CC7"/>
+    </linearGradient>
+    <linearGradient id="word" gradientUnits="userSpaceOnUse" x1="0" y1="350" x2="0" y2="650">
+      <stop offset="0" stop-color="#D11CC7"/>
+      <stop offset="1" stop-color="#7312D4"/>
+    </linearGradient>
+    <clipPath id="letters">
+      <rect x="700" y="300" width="1200" height="350"/>
+    </clipPath>
+  </defs>
+
+  <rect x="85" y="230" width="540" height="540" rx="72" fill="#1F1F1F"/>
+  <g fill="none" stroke="url(#mark)" stroke-width="36" stroke-linecap="round">
+    <path d="M453.3 431.2 A120 120 0 1 0 453.3 568.8"/>
+    <path d="M355 500 H515"/>
+  </g>
+  <circle cx="355" cy="500" r="28" fill="url(#mark)"/>
+
+  <g clip-path="url(#letters)" fill="none" stroke="url(#word)" stroke-width="64" stroke-linejoin="miter" stroke-miterlimit="4">
+    <path d="M965.4 424.2 A118 118 0 1 0 993 500 H895"/>
+    <path d="M1101 670 L1226 420 L1351 670"/>
+    <path d="M1143.5 585 H1308.5" stroke-width="50"/>
+    <path d="M1405 382 H1605 M1505 382 V650"/>
+    <path d="M1855 382 H1687 V618 H1855 M1687 500 H1835"/>
+  </g>
+
+  <rect x="24" y="1013" width="936" height="14" fill="#7312D4"/>
+  <rect x="960" y="1013" width="936" height="14" fill="#D11CC7"/>
+</svg>
