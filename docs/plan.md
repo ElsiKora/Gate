@@ -144,9 +144,9 @@ From the second consumer's requirements (2026-11-18):
   folder; kind children stay importable within their owner; test roots are outside unless configured
   exempt (done, T-026, v0.2.0).
 - A full `gate check` with every plugin, cold cache, is no slower than the reference tool on the same
-  tree; `--timings` and `--budget` stay (release criterion of each move; T-025, then T-047, merged
-  at `340cf8b`: a check compiles only the plugins it runs; this plan records no measurement of the
-  full cold check after it). Measured on its
+  tree; `--timings` and the time thresholds stay (release criterion of each move; T-025, then T-047,
+  merged at `340cf8b`: a check compiles only the plugins it runs; this plan records no measurement
+  of the full cold check after it). Measured on its
   converted tree with rc.1, cold, `gate check --rule '<plugin>/*' --timings`: git over 90 s, nestjs
   38.3 s, ledger 12.0 s, typescript 5.2 s, the others under 2 s; all together 507 s, against 6.99 s.
 - `nestjs`: a table whose owner declares a judge routine is filtered by the judge's columns only through

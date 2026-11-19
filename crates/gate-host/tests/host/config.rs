@@ -819,6 +819,52 @@ fn budget_root(hooks: Option<&str>, job: Option<&str>) -> String {
 }
 
 #[test]
+fn a_check_entry_that_gate_check_would_refuse_is_a_configuration_error() {
+    // The entry is parsed as gate check parses it, so a hook or a job never runs what the command
+    // refuses while gate sync --check says it is in sync.
+    for (entry, part) in [
+        (
+            "check --budget 3",
+            "\"check --budget 3\": unexpected argument '--budget' found",
+        ),
+        (
+            "check --warn-after 6 --fail-after 3",
+            "\"check --warn-after 6 --fail-after 3\": --fail-after (3 s) is not above --warn-after (6 s)",
+        ),
+        (
+            "check --warn-after 0",
+            "\"check --warn-after 0\": invalid value '0' for '--warn-after <SECONDS>'",
+        ),
+        ("check --warn-after 1e20", "\"1e20\": too many seconds"),
+        ("check --staged --push", "cannot be used with"),
+    ] {
+        let hooks = error(&[(
+            "gate.toml",
+            &root_with(&format!("\n[hooks]\npre-push = [\"{entry}\"]\n")),
+        )]);
+        assert_all(&hooks, &["[hooks] pre-push: ", part]);
+        let job = error(&[(
+            "gate.toml",
+            &root_with(&format!(
+                "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@0123456789abcdef0123456789abcdef01234567\"\n\n[ci.github.jobs.gate]\nname = \"Gate\"\nrun = [\"{entry}\"]\n"
+            )),
+        )]);
+        assert_all(&job, &["[ci.github] jobs.gate: ", part]);
+    }
+
+    // What the command takes, an entry takes: both thresholds, either spelling, a pushed range.
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &root_with(
+            "\n[hooks]\npre-commit = [\"check --staged --warn-after=3 --fail-after 6\"]\ncommit-msg = [\"check --commit-message\"]\npre-push = [\"check --push --format json\"]\n",
+        ),
+    )
+    .add();
+    Workspace::open(repo.path(), Source::WorkTree).expect("valid entries");
+}
+
+#[test]
 fn a_budget_is_a_table_of_one_or_two_thresholds_above_zero_in_order() {
     let expected =
         "a table { warn-after = <seconds>, fail-after = <seconds> }, with one key or both";

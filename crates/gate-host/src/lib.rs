@@ -20,6 +20,7 @@
 pub mod baseline;
 pub mod cache;
 pub mod changes;
+pub mod cli;
 pub mod config;
 pub mod doctor;
 pub mod error;

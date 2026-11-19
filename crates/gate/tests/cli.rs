@@ -534,6 +534,7 @@ fn fail_after_not_above_warn_after_and_the_removed_budget_options_are_usage_erro
         &["check", "--budget", "3"][..],
         &["check", "--warn-after", "3", "--budget-fails"],
         &["check", "--warn-after", "0"],
+        &["check", "--warn-after", "1e20"],
     ] {
         let output = repo.gate(arguments);
         assert_eq!(
@@ -1288,7 +1289,7 @@ name = "Shallow"
 timeout-minutes = 10
 fetch-depth = 5
 budget = {{ warn-after = 60, fail-after = 300 }}
-run = ["check", "check --warn-after 3"]
+run = ["check", "check --warn-after 3", "check --fail-after=200"]
 
 [steps]
 static = {{ run = "echo static" }}
@@ -1338,6 +1339,10 @@ history = ["policy"]
     assert!(
         shallow.contains("\n        run: bin/gate check --warn-after 3 --no-overrides\n"),
         "an entry with its own threshold keeps exactly that, and nothing makes it fail: {shallow}"
+    );
+    assert!(
+        shallow.contains("\n        run: bin/gate check --fail-after=200 --no-overrides\n"),
+        "a threshold written with = counts as written: {shallow}"
     );
 }
 

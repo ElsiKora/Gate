@@ -53,6 +53,11 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
   an unknown key are configuration errors; each key alone and both load.
 - The generated hooks pass both thresholds to every check; a job passes exactly its thresholds, and
   an entry that writes its own threshold keeps exactly that, with nothing that makes it fail.
+- A `check` entry of `[hooks]` or a job that `gate check` would refuse is a configuration error
+  naming the entry: `--budget`, thresholds out of order, a 0, more seconds than a run can last,
+  options that conflict. The entries are parsed with the definition `gate check` parses
+  (`gate_host::cli`), so one definition serves both (review of `c552c19`).
+- `--warn-after 1e20` exits 2, not a panic; a threshold written `--fail-after=200` counts as written.
 - The round runs actionlint on a workflow generated with a `budget` table.
 
 ## Done when
@@ -64,6 +69,6 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
 
 ## Resume point
 
-2026-11-19: code, tests and docs rebased over the T-048 tip `52b2935` (over `main` at `9b18b32`, which
-has T-043): `SYNC_STATE_VERSION` is 7, and the hand-written hooks section names the new budget; next:
-one lane round on the pushed tip, then the review.
+2026-11-19: review fix round of `c552c19` written (entries parsed by `gate check`'s own definition,
+the `=` form tested, too many seconds refused, two plan lines); next: one lane round on the pushed
+tip.

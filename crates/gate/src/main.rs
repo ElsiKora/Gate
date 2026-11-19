@@ -7,11 +7,10 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use gate_host::cache::Cache;
-use gate_host::config::RuleKey;
+use gate_host::cli::{CheckArgs, OutputFormat, parse_target_ref, target_ref_without_push};
 use gate_host::report::{render_finding, render_selection};
 use gate_host::{
     ChangeRequest, CheckRequest, EXIT_FAILURE, Error, Fetcher, Format, PluginOverride, RuleFilter,
@@ -129,56 +128,6 @@ fn parse_size(value: &str) -> Result<u64, String> {
 }
 
 #[derive(Debug, Args)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each bool is one command-line flag"
-)]
-struct CheckArgs {
-    /// Check the index, and only the projects the staged change touches.
-    #[arg(long, conflicts_with_all = ["rev", "push"])]
-    staged: bool,
-    /// Check the tree of a commit.
-    #[arg(long, value_name = "REV", conflicts_with = "push")]
-    rev: Option<String>,
-    /// Check only the projects changed since --base (and those that depend on them).
-    #[arg(long, requires = "base", conflicts_with = "push")]
-    changed: bool,
-    /// The revision --changed compares with.
-    #[arg(long, value_name = "REV", requires = "changed")]
-    base: Option<String>,
-    /// Check a pushed range <base>..<tip> (a base of zeros is a new branch).
-    #[arg(long, value_name = "RANGE")]
-    push: Option<String>,
-    /// The remote ref the --push range goes to (the pre-push hook and CI pass it).
-    #[arg(long, value_name = "REF", requires = "push", value_parser = parse_target_ref)]
-    target_ref: Option<String>,
-    /// The output format.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    format: OutputFormat,
-    /// Replace one pinned plugin with a local build for this run: <name>=<path.wasm>. Repeatable.
-    #[arg(long = "plugin", value_name = "NAME=PATH", value_parser = PluginOverride::parse)]
-    plugins: Vec<PluginOverride>,
-    /// Refuse every --plugin override (the generated CI jobs pass it).
-    #[arg(long)]
-    no_overrides: bool,
-    /// Print only the projects the change selects (text, json or github-output); no rule runs.
-    #[arg(long)]
-    list_changed_projects: bool,
-    /// The commit message file under review (the commit-msg hook passes "$1").
-    #[arg(long, value_name = "FILE")]
-    commit_message: Option<PathBuf>,
-    /// A git hook starts this run; the generated hooks pass it, so rules that apply only while a
-    /// developer works (a prohibited branch name) know they do.
-    #[arg(long)]
-    hook: bool,
-    /// Run only this rule, <plugin>/<rule>, or every rule of a plugin, <plugin>/*. Repeatable.
-    #[arg(long = "rule", value_name = "ID", value_parser = RuleFilter::parse)]
-    rules: Vec<RuleKey>,
-    #[command(flatten)]
-    run: RunArgs,
-}
-
-#[derive(Debug, Args)]
 struct SyncArgs {
     /// Write nothing: report every generated file that differs from gate.toml, and exit 1 if any.
     #[arg(long)]
@@ -217,24 +166,6 @@ struct RunCommandArgs {
     arguments: Vec<String>,
 }
 
-/// Options passed through to the run.
-#[derive(Debug, Args)]
-struct RunArgs {
-    /// Print the time of each phase and plugin call to standard error.
-    #[arg(long)]
-    timings: bool,
-    /// Report a run that takes longer than this many seconds as a gate/budget warning.
-    #[arg(long, value_name = "SECONDS", value_parser = parse_seconds)]
-    warn_after: Option<Duration>,
-    /// Report a run that takes longer than this many seconds as a gate/budget error; above
-    /// --warn-after when both are given.
-    #[arg(long, value_name = "SECONDS", value_parser = parse_seconds)]
-    fail_after: Option<Duration>,
-    /// Stop at the first error finding.
-    #[arg(long)]
-    fail_fast: bool,
-}
-
 #[derive(Debug, Args)]
 struct ListArgs {
     /// The output format.
@@ -265,88 +196,9 @@ enum BaselineCommand {
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
-enum OutputFormat {
-    Text,
-    Json,
-    Sarif,
-    Github,
-    /// `name=value` lines for `$GITHUB_OUTPUT` (with --list-changed-projects only).
-    GithubOutput,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
 enum ListFormat {
     Text,
     Json,
-}
-
-/// A `--target-ref` value: a full ref, the form the pre-push hook and the generated CI pass.
-fn parse_target_ref(value: &str) -> Result<String, String> {
-    match value.strip_prefix("refs/") {
-        Some(name) if !name.is_empty() && !name.ends_with('/') => Ok(value.to_owned()),
-        _ => Err(format!(
-            "{value:?} is not a full ref; pass the full remote ref, such as refs/heads/main"
-        )),
-    }
-}
-
-/// Refuses `--target-ref` without `--push`. clap drops `requires = "push"` when a present
-/// argument conflicts with --push (--rev and --staged do), so it is checked here as well.
-fn target_ref_needs_push(target_ref: Option<&str>, push: Option<&str>) -> Result<(), Error> {
-    if target_ref.is_some() && push.is_none() {
-        return Err(Error::config(
-            "--target-ref names the remote ref a --push range updates; pass it with --push",
-        ));
-    }
-    Ok(())
-}
-
-/// `--commit-message` checks only the message being written; a flag that picks the tree to check
-/// beside it is refused, since the tree is the other hooks' and CI's to check.
-fn message_checks_no_tree(arguments: &CheckArgs) -> Result<(), Error> {
-    if arguments.commit_message.is_none() {
-        return Ok(());
-    }
-    let selector = [
-        (arguments.staged, "--staged"),
-        (arguments.changed, "--changed"),
-        (arguments.base.is_some(), "--base"),
-        (arguments.push.is_some(), "--push"),
-        (arguments.rev.is_some(), "--rev"),
-    ]
-    .into_iter()
-    .find_map(|(given, flag)| given.then_some(flag));
-    match selector {
-        None => Ok(()),
-        Some(flag) => Err(Error::config(format!(
-            "--commit-message checks only the message being written, so it takes no {flag}: the tree is checked by the pre-commit hook (check --staged), the pre-push hook (check --push) and CI; run those checks apart"
-        ))),
-    }
-}
-
-/// Refuses a `--fail-after` that is not above `--warn-after`: the run would fail before it warns.
-fn fail_after_above_warn_after(run: &RunArgs) -> Result<(), Error> {
-    if let (Some(warn), Some(fail)) = (run.warn_after, run.fail_after)
-        && fail <= warn
-    {
-        return Err(Error::config(format!(
-            "--fail-after ({} s) is not above --warn-after ({} s); a run warns first and fails later, so raise --fail-after or lower --warn-after",
-            fail.as_secs_f64(),
-            warn.as_secs_f64()
-        )));
-    }
-    Ok(())
-}
-
-fn parse_seconds(value: &str) -> Result<Duration, String> {
-    let seconds: f64 = value
-        .parse()
-        .map_err(|_| format!("{value:?} is not a number of seconds"))?;
-    if seconds.is_finite() && seconds > 0.0 {
-        Ok(Duration::from_secs_f64(seconds))
-    } else {
-        Err(format!("{value:?}: give a number of seconds above 0"))
-    }
 }
 
 fn main() -> ExitCode {
@@ -405,9 +257,9 @@ fn print(text: &str) -> Result<u8, Error> {
 }
 
 fn check(arguments: &CheckArgs) -> Result<u8, Error> {
-    target_ref_needs_push(arguments.target_ref.as_deref(), arguments.push.as_deref())?;
-    message_checks_no_tree(arguments)?;
-    fail_after_above_warn_after(&arguments.run)?;
+    if let Some(refusal) = arguments.refusal() {
+        return Err(Error::config(refusal));
+    }
     let commit_message = match &arguments.commit_message {
         None => None,
         Some(path) => Some(std::fs::read_to_string(path).map_err(|error| {
@@ -766,7 +618,11 @@ fn override_lines(generators: &gate_host::PluginGenerators<'_>) -> String {
 }
 
 fn run(arguments: &RunCommandArgs) -> Result<u8, Error> {
-    target_ref_needs_push(arguments.target_ref.as_deref(), arguments.push.as_deref())?;
+    if let Some(refusal) =
+        target_ref_without_push(arguments.target_ref.as_deref(), arguments.push.as_deref())
+    {
+        return Err(Error::config(refusal));
+    }
     let changes = if let Some(range) = &arguments.push {
         ChangeRequest::Push {
             range: range.clone(),

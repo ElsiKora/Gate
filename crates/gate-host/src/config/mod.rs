@@ -1202,7 +1202,8 @@ fn check_budget(budget: &Budget) -> Option<String> {
 ///
 /// # Errors
 /// Fails, saying what is expected, when the command is empty, names another command, holds shell
-/// syntax, or combines `--commit-message` with a flag that picks a tree.
+/// syntax, combines `--commit-message` with a flag that picks a tree, or is a `check` whose
+/// arguments `gate check` refuses (an unknown option, a value it refuses, thresholds out of order).
 pub fn check_gate_command(command: &str) -> std::result::Result<(), String> {
     let words: Vec<&str> = command.split_whitespace().collect();
     if let Some(word) = words.iter().find(|word| {
@@ -1262,7 +1263,10 @@ pub fn check_gate_command(command: &str) -> std::result::Result<(), String> {
     }
     match words.as_slice() {
         [] => Err("an entry is empty; write a gate command such as \"check --staged\"".to_owned()),
-        ["check", ..] | ["sync", "--check"] => Ok(()),
+        ["check", arguments @ ..] => {
+            crate::cli::check_entry(arguments).map_err(|message| format!("{command:?}: {message}"))
+        }
+        ["sync", "--check"] => Ok(()),
         ["run", name, flags @ ..] if flags.len() <= 1 => {
             Name::try_from((*name).to_owned())
                 .map_err(|message| format!("{command:?}: {message}"))?;

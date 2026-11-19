@@ -41,6 +41,8 @@ file, the key and what is expected, with exit code `2`:
 - an exception without a `reason`, or without a `decision` when `[decision-policy]` requires one;
 - a rule entry that sets a level below its default without a `decision` when `[decision-policy]`
   requires one (checked when the plugins load, since presets come from plugins);
+- a `check` entry of `[hooks]` or of a CI job that `gate check` would refuse (an unknown option, a
+  value it refuses, `--fail-after` not above `--warn-after`), checked with the same definition;
 - a `gate.lock` that does not match the configuration.
 
 ## `[gate]`

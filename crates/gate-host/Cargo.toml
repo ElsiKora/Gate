@@ -8,6 +8,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+clap.workspace = true
 gate-runtime.workspace = true
 gate-sdk.workspace = true
 globset.workspace = true
