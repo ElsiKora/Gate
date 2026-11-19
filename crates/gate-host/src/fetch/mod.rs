@@ -598,16 +598,20 @@ impl Fetcher {
         temporary: &mut Temporary,
     ) -> Result<Sha256Sum> {
         let deadline = Instant::now() + GLOBAL_TIMEOUT;
-        let (_, response) = self.get_anonymous(asset, url, deadline)?;
-        let status = response.status().as_u16();
-        if status == 200 {
-            return stream(
+        // Every 200 answer streams into the temporary file under the same asset name, URL and bounds.
+        let save = |response: ureq::http::Response<ureq::Body>, temporary: &mut Temporary| {
+            stream(
                 asset,
                 url,
                 response.into_body().into_reader(),
                 temporary,
                 self.bounds,
-            );
+            )
+        };
+        let (_, response) = self.get_anonymous(asset, url, deadline)?;
+        let status = response.status().as_u16();
+        if status == 200 {
+            return save(response, temporary);
         }
         let refused = matches!(status, 401 | 403 | 404);
         let Some(github) = refused.then(|| self.github_asset(url)).flatten() else {
@@ -668,13 +672,7 @@ impl Fetcher {
             .call()
             .map_err(|error| transport(asset, &found.url, &error, self.bounds))?;
         match response.status().as_u16() {
-            200 => stream(
-                asset,
-                url,
-                response.into_body().into_reader(),
-                temporary,
-                self.bounds,
-            ),
+            200 => save(response, temporary),
             301 | 302 | 303 | 307 | 308 => {
                 let target = location(&response)
                     .and_then(|location| resolve(&found.url, location))
@@ -686,13 +684,7 @@ impl Fetcher {
                 // The redirect target is signed; the credential stays with the API.
                 let (_, response) = self.get_anonymous(asset, &target, deadline)?;
                 match response.status().as_u16() {
-                    200 => stream(
-                        asset,
-                        url,
-                        response.into_body().into_reader(),
-                        temporary,
-                        self.bounds,
-                    ),
+                    200 => save(response, temporary),
                     status => Err(Error::environment(format!(
                         "cannot download {asset} from {url}: the storage GitHub redirected to answered HTTP {status}; try again later"
                     ))),

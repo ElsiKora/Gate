@@ -110,3 +110,7 @@ short.
 hint; one 15-minute deadline per download in the core (`within`) and in the launcher (`--max-time`
 from `$deadline`); wget's missing overall limit in section 12; the connect-phase test. Next: one
 lane round on the fix commit, its exit codes in a Proof section.
+
+2026-11-19: round ticket 235 on 5e412d6: fmt 0, clippy 101 (`clippy::too_many_lines`, `download_into` 105/100;
+the deadline and the bounds made its three `stream` calls longer); test, deny and build skipped by the
+lane rule. `download_into` now streams every 200 answer through one closure. Next: the round again.
