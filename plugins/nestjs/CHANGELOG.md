@@ -14,6 +14,10 @@ a rule id, aspect, option or finding message that changes is a breaking change.
   it, a reworded message or the option file's path no longer makes a baseline entry stale. The
   fingerprints of these findings change once, with this release; `gate baseline prune` re-keys
   their baseline entries when the repository upgrades.
+- A wrong option, a file the options name that is not tracked or cannot be read, or a
+  `[languages.typescript] tsconfig` that names an untracked file, ends the run as a configuration
+  error (exit 2, `configuration error`), not as an environment error. A source file the rule cannot
+  read or parse stays an environment error.
 
 # 0.1.0
 
