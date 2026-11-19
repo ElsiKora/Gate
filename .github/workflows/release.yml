@@ -1,7 +1,8 @@
 # The core release: on a tag v<version>, build gate for each released target through
 # reproducible.yml, which packs gate-<target>.tar.gz and checks that a second build gives the same
-# bytes, then write SHA256SUMS and the configuration schema, and create the release, whose notes are
-# the CHANGELOG.md section of the version (scripts/changelog-section.sh) and the checksums.
+# bytes, then write SHA256SUMS and the configuration schema, and create the release as the latest
+# one, whose notes are the install steps of the version, the CHANGELOG.md section of the version
+# (scripts/changelog-section.sh) and the checksums.
 name: Release
 
 on:
@@ -85,9 +86,33 @@ jobs:
           sha256sum gate-*.tar.gz gate.schema.json > SHA256SUMS
           cat SHA256SUMS
 
+      # The notes open with the install steps of this version, then the changelog section and the
+      # checksums. A newcomer lands on the release page first.
       - name: Write the release notes
         run: |
           {
+            sed "s/@VERSION@/${TAG#v}/g" <<'INSTALL'
+          ## Install
+
+          Gate is installed into a repository. In the repository's root:
+
+          ```bash
+          version=@VERSION@
+          target=aarch64-apple-darwin          # or x86_64-unknown-linux-musl
+          curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/gate-${target}.tar.gz"
+          curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/SHA256SUMS"
+          shasum -a 256 -c SHA256SUMS --ignore-missing
+          tar -xzf "gate-${target}.tar.gz"
+          ./gate init
+          rm gate "gate-${target}.tar.gz" SHA256SUMS
+          ```
+
+          `gate init` writes `gate.toml`, `gate.lock` and `bin/gate`; commit all three, and from then on run
+          `bin/gate`. The [README](https://github.com/ElsiKora/Gate#readme) and the
+          [getting-started guide](https://github.com/ElsiKora/Gate/blob/v@VERSION@/docs/guide/getting-started.md) walk
+          through a first configuration.
+
+          INSTALL
             scripts/changelog-section.sh CHANGELOG.md "${TAG#v}"
             echo
             echo "SHA-256:"
@@ -102,9 +127,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          flags=()
+          # A core release is the repository's latest release (a plugin release never is); a
+          # prerelease is not.
           case "$TAG" in
-            *-*) flags+=(--prerelease) ;;
+            *-*) flags=(--prerelease --latest=false) ;;
+            *) flags=(--latest) ;;
           esac
           gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md "${flags[@]}" \
             dist/gate-*.tar.gz dist/gate.schema.json dist/SHA256SUMS
