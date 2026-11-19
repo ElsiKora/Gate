@@ -320,7 +320,7 @@ fn an_option_path_must_be_in_normal_form() {
     ] {
         assert_eq!(
             error(rule, options, plugin, &ledger()),
-            format!("rule {rule} failed: {message}"),
+            format!("rule {rule}: {message}"),
             "{rule}"
         );
     }
@@ -346,7 +346,7 @@ fn a_closed_status_must_be_lowercase() {
             r#"{"closed-statuses":["done","Verified"]}"#,
             &ledger()
         ),
-        r#"rule blockers failed: [plugins.ledger] options closed-statuses has "Verified"; statuses are compared in lowercase, so write "verified""#
+        r#"rule blockers: [plugins.ledger] options closed-statuses has "Verified"; statuses are compared in lowercase, so write "verified""#
     );
 }
 

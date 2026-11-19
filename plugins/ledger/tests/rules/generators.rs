@@ -204,7 +204,7 @@ fn decision_counts_write_nothing_for_an_untracked_index_and_report_a_missing_blo
         )
         .expect_err("not normal")
         .message(),
-        "generator decision-counts failed: [generate] ledger/decision-counts decisions \"./index.md\" is not in normal form; write \"index.md\""
+        "generator decision-counts: [generate] ledger/decision-counts decisions \"./index.md\" is not in normal form; write \"index.md\""
     );
 }
 
@@ -422,7 +422,7 @@ fn review_progress_reports_an_untracked_roadmap_and_refuses_bad_options() {
         error(&format!(
             r#"{{"path": "{ROADMAP}", "cross-cutting-kinds": ["re t"], "zero-answer-kinds": []}}"#
         )),
-        "generator review-progress failed: [generate] ledger/review-progress kind \"re t\" must be uppercase letters and digits, such as \"RET\""
+        "generator review-progress: [generate] ledger/review-progress kind \"re t\" must be uppercase letters and digits, such as \"RET\""
     );
     let kinds = |cross: &str, zero: &str| {
         error(&format!(
@@ -431,9 +431,9 @@ fn review_progress_reports_an_untracked_roadmap_and_refuses_bad_options() {
     };
     assert_eq!(
         kinds(r#""F001""#, ""),
-        "generator review-progress failed: [generate] ledger/review-progress kind \"F001\" has the form of a feature (F and three digits); name the kind otherwise"
+        "generator review-progress: [generate] ledger/review-progress kind \"F001\" has the form of a feature (F and three digits); name the kind otherwise"
     );
-    let twice = "generator review-progress failed: [generate] ledger/review-progress kind \"RET\" is listed twice; list each kind once, in cross-cutting-kinds or in zero-answer-kinds";
+    let twice = "generator review-progress: [generate] ledger/review-progress kind \"RET\" is listed twice; list each kind once, in cross-cutting-kinds or in zero-answer-kinds";
     assert_eq!(kinds(r#""RET", "RET""#, ""), twice);
     assert_eq!(kinds(r#""RET""#, r#""RET""#), twice);
 }
