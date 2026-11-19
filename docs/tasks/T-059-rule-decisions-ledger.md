@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead's decision; no code |
-| Release | v0.3.0 (recommended), in the same interface bump as T-057 |
+| Status | in progress (design approved by the lead, 2026-11-19) |
+| Release | v0.3.0, in the same interface bump as T-057 |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | T-048 (`decision` on rule entries); T-057 (the `gate:plugin@0.3.0` bump), whichever merges first rebases the other's WIT and SDK lines |
-| Touches | `wit/gate.wit`, `crates/gate-host/src/plugins.rs` (the request), `crates/gate-host/src/config` (the decisions of a scope's file), `crates/gate-sdk/src/rule.rs`, `plugins/ledger` (one new rule and its page), tests, docs, `CHANGELOG.md` |
+| Depends on | T-048 (`decision` on rule entries): the branch sits on its tip `52b2935`, as T-052 does. T-057 makes the same `gate:plugin@0.3.0` bump; whichever of the two merges second rebases the WIT and SDK lines |
+| Touches | `wit/gate.wit`, `crates/gate-runtime/src/runtime.rs` (the interface version, the request's paths), `crates/gate-host/src/plugins.rs` (the request), `crates/gate-host/src/config` (the decisions of a file), `crates/gate-sdk` (`RuleDecision`, `run.rule_decisions()`), `plugins/ledger` (one new rule and its page), the request literals of the plugins' tests, the runtime's probe, tests, docs, `CHANGELOG.md`, `docs/plan.md` (one row) |
 
 ## Goal
 
@@ -81,9 +81,11 @@ What the host puts in the list:
 - In `[rules]` and in the `rules` of `[[profiles]]`; the key as written, so a finding names the
   entry the reader sees.
 
-Open, the same as for exceptions today: in a repository whose top is not a project, the root file's
-decisions, like the root's exceptions, reach no ledger rule. Closing it for both is its own task (a
-repository-scope sibling of the two rules, reading the index from the repository root).
+Out of scope (lead, 2026-11-19), named as a follow-up the lead records: **the root file without a
+root project**. In a repository whose top is not a project, the root file's decisions, like the
+root's exceptions (`gate.exceptions.toml` beside the root `gate.toml`), reach no ledger rule. One
+follow-up covers both: a repository-scope way to check them against the index read from the
+repository root, for exceptions and rule decisions alike.
 
 Not taken: delivering exceptions through the same list so that `ledger/exception-decisions` no
 longer reads `gate.exceptions.toml`. `ledger/exception-owners` still needs the file for `owner`, so
@@ -91,7 +93,9 @@ the plugin keeps one reader of it either way; it would widen this change for no 
 
 ## 3. Tests
 
-What would let a broken change through, or block a good one:
+What would let a broken change through, or block a good one (as written: `crates/gate/tests/plugins.rs`
+through the runtime's probe rule `probe/decisions`, which reports each decision of its call, and
+`plugins/ledger/tests/rules/rule_decisions.rs`):
 
 - Host, the request: a decision on a rule entry and on a family entry in a project's `gate.toml`
   arrives in that project's call, with the key as written, the id trimmed, the path `gate.toml`
@@ -110,6 +114,22 @@ What would let a broken change through, or block a good one:
   `accepted`.
 - The rule's page, with its example finding run against a synthetic tree.
 
+## Built
+
+- `wit/gate.wit`: `record rule-decision` and `check-request.rule-decisions`, and the package at
+  `gate:plugin@0.3.0` (the line T-057 writes too); `docs/architecture.md` shows both.
+- Host: `Config::rule_decisions` lists every decision of a file's `[rules]` and `[[profiles]] rules`
+  with the line of the entry's value; `plugins.rs` fills a project's call from
+  `Workspace::project_config` (the root file for the root project) with repository paths and
+  `Span::line`, and the repository call with none. The runtime gives the plugin each path relative
+  to its grant's root, as it does an options file. The result cache key holds the request, so a
+  changed decision is not answered from the cache.
+- SDK: `RuleDecision`, `CheckRequest::rule_decisions`, `Call::rule_decisions` and
+  `Run::rule_decisions`; the writing-a-rule guide says a rule never reads `gate.toml` and names
+  both accessors.
+- Ledger: `ledger/rule-decisions` (no options) and its page; `index::refusal` is the one judgement
+  of a named decision, which `ledger/exception-decisions` now uses too (its messages unchanged).
+
 ## 4. Recommendation
 
 v0.3.0. The release already bumps the interface to `gate:plugin@0.3.0` for T-057, and every plugin is
@@ -124,10 +144,11 @@ If v0.3.0 is to stay as it is, the interface addition waits for 0.4.0; a plugin 
 
 ## Done when
 
-- The lead decides; then one lane round on the pushed tip: fmt, clippy, test (`--workspace
-  --no-fail-fast`), deny and the release build exit 0, and the leak scan prints nothing.
-- Do not edit docs/plan.md.
+- One lane round on the pushed tip: fmt, clippy, test (`--workspace --no-fail-fast`), deny and the
+  release build exit 0, and the leak scan prints nothing.
+- docs/plan.md: only the T-059 row (lead, 2026-11-19).
 
 ## Resume point
 
-2026-11-19: design written from `main` at `8b9208f`; waiting for the lead's decision before any code.
+2026-11-19: design approved; code written on T-048's tip `52b2935`; next: one lane round on the
+pushed tip, then review.
