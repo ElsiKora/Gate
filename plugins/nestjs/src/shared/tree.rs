@@ -142,3 +142,98 @@ pub fn is_test_scenario(layout: &Layout, path: &str) -> bool {
         .iter()
         .any(|suffix| path.ends_with(suffix.as_str()))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gate_typescript::{Source, sorted_with_prefix};
+
+    use super::{UNSKIPPED, entries, files, folders};
+
+    /// A sorted source that counts the paths it hands out, however they are asked for.
+    struct Counting {
+        paths: Vec<String>,
+        handed: Cell<usize>,
+    }
+
+    impl Counting {
+        fn new(modules: usize) -> Self {
+            let mut paths: Vec<String> = (0..modules)
+                .flat_map(|module| {
+                    ["index.ts", "a.ts", "b/index.ts", "b/c.ts"]
+                        .map(|file| format!("src/m{module:03}/{file}"))
+                })
+                .collect();
+            paths.sort_unstable();
+            Self {
+                paths,
+                handed: Cell::new(0),
+            }
+        }
+
+        fn count<'s>(
+            &'s self,
+            paths: impl Iterator<Item = &'s str> + 's,
+        ) -> Box<dyn Iterator<Item = &'s str> + 's> {
+            Box::new(paths.inspect(|_| self.handed.set(self.handed.get() + 1)))
+        }
+    }
+
+    impl Source for Counting {
+        fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_> {
+            self.count(self.paths.iter().map(String::as_str))
+        }
+
+        fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
+            self.count(sorted_with_prefix(&self.paths, prefix))
+        }
+
+        fn bytes(&self, _path: &str) -> gate_typescript::Result<Option<Rc<[u8]>>> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn a_walk_below_one_folder_reads_only_the_paths_below_it() {
+        let source = Counting::new(200);
+
+        let found = entries(&source, "src/m007", &UNSKIPPED);
+        assert_eq!(
+            found.into_iter().collect::<Vec<_>>(),
+            [
+                ("a.ts".to_owned(), false),
+                ("b".to_owned(), true),
+                ("index.ts".to_owned(), false)
+            ]
+        );
+        // Four files below the folder, and at most the one path that ends the range: not the
+        // 800 tracked paths.
+        assert!(
+            source.handed.get() <= 5,
+            "{} paths read",
+            source.handed.get()
+        );
+
+        source.handed.set(0);
+        let below: Vec<&str> = files(&source, "src/m007/b", &UNSKIPPED).collect();
+        assert_eq!(below, ["src/m007/b/c.ts", "src/m007/b/index.ts"]);
+        assert!(
+            source.handed.get() <= 3,
+            "{} paths read",
+            source.handed.get()
+        );
+
+        // Every folder of the tree, each walked once, reads each path a bounded number of times.
+        source.handed.set(0);
+        for folder in folders(&source, "src", &UNSKIPPED) {
+            let _ = entries(&source, &folder, &UNSKIPPED);
+        }
+        assert!(
+            source.handed.get() <= 4 * 800,
+            "{} paths read for 400 folders of 800 paths",
+            source.handed.get()
+        );
+    }
+}

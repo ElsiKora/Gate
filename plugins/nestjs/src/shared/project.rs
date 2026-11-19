@@ -153,6 +153,10 @@ impl Source for CallSource<'_> {
         Box::new(self.paths.iter().map(String::as_str))
     }
 
+    fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
+        Box::new(gate_typescript::sorted_with_prefix(&self.paths, prefix))
+    }
+
     fn bytes(&self, path: &str) -> gate_typescript::Result<Option<Rc<[u8]>>> {
         if let Some(known) = self.read.borrow().get(path) {
             return Ok(known.clone());
