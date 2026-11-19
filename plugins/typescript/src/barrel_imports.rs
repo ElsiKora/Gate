@@ -269,19 +269,12 @@ impl<'a> Checker<'_, 'a> {
     /// The syntax tree of a tracked file; `None` when it is not tracked or does not parse, which
     /// `typescript/parse` reports.
     fn parse(&self, path: &str) -> Result<Option<std::rc::Rc<SourceFile<'a>>>> {
-        let file = self
-            .typescript
-            .parse(path)
-            .map_err(|error| Error::new(error.to_string()))?;
+        let file = self.typescript.parse(path)?;
         Ok(file.filter(|file| !file.fatal()))
     }
 
     fn check(&self, path: &str, load: &Load, found: &mut Vec<Found>) -> Result<()> {
-        let Some(target) = self
-            .typescript
-            .resolve(path, &load.specifier)
-            .map_err(|error| Error::new(error.to_string()))?
-        else {
+        let Some(target) = self.typescript.resolve(path, &load.specifier)? else {
             return Ok(());
         };
         let Some(folder) = self.barrel_folder(path, &target) else {
@@ -420,11 +413,7 @@ impl<'a> Checker<'_, 'a> {
                 Some(name) => {
                     own.names.insert(export_name(name));
                 }
-                None => match self
-                    .typescript
-                    .resolve(path, &export.source.value)
-                    .map_err(|error| Error::new(error.to_string()))?
-                {
+                None => match self.typescript.resolve(path, &export.source.value)? {
                     Some(target) => own.stars.push(target),
                     None => own.open = true,
                 },

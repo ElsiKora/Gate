@@ -78,11 +78,27 @@ Step two (ci, agents, markdown, typescript):
 
 Kept as environment errors in step two: a file that is not UTF-8, YAML or JavaScript
 (`plugins/ci/src/workflows.rs:84` and 89, `plugins/agents/src/load.rs:135`,
-`plugins/markdown/src/pages.rs:50`, `plugins/typescript/src/parse.rs:82` and 84), the language
-library's read and resolve failures passed through (`plugins/typescript/src/barrel_imports.rs:275`,
-283, 426), and `plugins/ci/src/actions_pinned.rs:33` (built-in patterns, a bug). The language
-library's own `Error` has no kind, so `languages/typescript/src/lib.rs:182` (a configured
-`tsconfig` that is not tracked) stays an environment error until that type carries one.
+`plugins/markdown/src/pages.rs:50`, `plugins/typescript/src/parse.rs:81`), and
+`plugins/ci/src/actions_pinned.rs:33` (built-in patterns, a bug).
+
+The language library: `gate_typescript::Error` carries the kind (`Error::config`, `is_config`), and
+one `From<gate_typescript::Error> for gate_sdk::Error` keeps it. `languages/typescript/src/lib.rs:182`
+(a configured `tsconfig` that is not tracked) is a configuration error. The typescript plugin passes
+library errors on with `?` (`plugins/typescript/src/barrel_imports.rs:272`, 277, 416 and
+`plugins/typescript/src/parse.rs:80`), no longer through `Error::new(error.to_string())`.
+
+The nestjs sites that convert library errors, switched to the `From` in the nestjs sweep:
+`plugins/nestjs/src/shared/project.rs:29` (the helper `error`, to be removed), and its callers
+`shared/project.rs:44`, `rules/semantics/native_functions.rs:177`,
+`rules/semantics/entity_descriptions.rs:125`, `rules/semantics/migrations.rs:398`,
+`rules/semantics/native_repository.rs:160`, `rules/semantics/wrappers/provenance.rs:333`,
+`rules/semantics/api_readiness.rs:165`, `rules/semantics/typeorm_relation/mod.rs:461`,
+`rules/structure/barrel_exports.rs:376`, `rules/structure/raw_config_access.rs:139`,
+`rules/structure/advisory_lock_manifest.rs:268`, `rules/structure/notification_egress/mod.rs:247`,
+`rules/structure/asset_storage/mod.rs:615`, `rules/structure/automator_metadata/mod.rs:55`,
+`rules/structure/controller_owners/mod.rs:138`, `rules/structure/advisory_lock_boundary/mod.rs:504`,
+`rules/structure/field_inventory/mod.rs:311`, `rules/structure/field_inventory/reference.rs:67`
+(paths under `plugins/nestjs/src/`).
 
 ## Done when
 
@@ -101,3 +117,8 @@ error`) and a missing `--plugin` file (`environment error`). Waiting for T-036's
 a round.
 2026-11-19: step two for ci, agents, markdown and typescript written (sites above), with a
 `Changed` entry in each plugin's changelog; nestjs and ledger wait for the lead's split.
+2026-11-19: lead's decisions: the split (nestjs and ledger go to another writer on
+`task/T-038-sweep-nestjs-ledger` from `3ba7389`, merged here before one round); the language
+library's error carries the kind, with one `From` into the SDK's error and an end-to-end test of an
+untracked configured tsconfig (exit 2, `configuration error`); every pattern option of the git
+plugin is read as JavaScript reads it.

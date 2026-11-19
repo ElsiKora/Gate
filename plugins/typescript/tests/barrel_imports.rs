@@ -426,6 +426,7 @@ fn the_options_are_checked() {
     ] {
         let error = check(USERS, options).expect_err(options);
         assert!(error.message().contains(expected), "{options}: {error}");
+        assert!(error.is_config(), "{options}: {error}");
     }
     let info = gate_sdk::describe(&typescript::PLUGIN);
     let rule = info

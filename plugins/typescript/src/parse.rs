@@ -77,15 +77,12 @@ impl Rule for Parse {
         let typescript = TypeScript::new(&source, settings, &allocator);
 
         for path in &paths {
-            let file = typescript
-                .parse(path)
-                .map_err(|error| gate_sdk::Error::new(error.to_string()))?
-                .ok_or_else(|| {
-                    gate_sdk::Error::new(format!(
-                        "{path} is tracked but its contents could not be read; check that the \
-                         file exists in the snapshot and that the plugin is granted it"
-                    ))
-                })?;
+            let Some(file) = typescript.parse(path)? else {
+                return Err(gate_sdk::Error::new(format!(
+                    "{path} is tracked but its contents could not be read; check that the file \
+                     exists in the snapshot and that the plugin is granted it"
+                )));
+            };
 
             if file.fatal() {
                 let first = file.errors().first();
