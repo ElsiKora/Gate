@@ -545,7 +545,7 @@ impl Loaded {
     /// # Errors
     /// Fails when a call fails: a trap, a limit, an environment failure the plugin reports.
     pub(crate) fn run(
-        &self,
+        self: &Arc<Self>,
         workspace: &Workspace,
         selection: &Selection,
         changes: Option<&ChangeSet>,
@@ -566,7 +566,7 @@ impl Loaded {
         let git_history = Arc::new(GitHistory::new(
             &snapshot,
             range,
-            Arc::clone(&self.overrides),
+            Arc::clone(self),
             workspace.clone(),
         ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
@@ -1315,6 +1315,8 @@ struct GitHistory {
     range: Option<CommitRange>,
     /// The run's `--plugin` builds, used again for the generators at another commit.
     overrides: Arc<Overrides>,
+    /// The run's plugins, which also answer `sync-state` under the run's configuration.
+    run_loaded: Arc<Loaded>,
     /// Each `--plugin` build's name and sha256, as every `sync-state` key holds them; hashed once.
     builds: OnceLock<String>,
     /// The run's workspace: its configuration answers `sync-state` at a commit whose own
@@ -1643,14 +1645,15 @@ impl GitHistory {
     fn new(
         snapshot: &Snapshot,
         range: Option<CommitRange>,
-        overrides: Arc<Overrides>,
+        run_loaded: Arc<Loaded>,
         run_workspace: Workspace,
     ) -> Self {
         Self {
             git: snapshot.git().clone(),
             head: snapshot.commit().map(str::to_owned),
             range,
-            overrides,
+            overrides: Arc::clone(&run_loaded.overrides),
+            run_loaded,
             builds: OnceLock::new(),
             run_workspace,
             run: OnceLock::new(),
@@ -1973,20 +1976,17 @@ impl GitHistory {
         Ok(plugins)
     }
 
-    /// The run's configuration hash and plugins, computed once.
+    /// The run's configuration hash and plugins, computed once. The plugins are the run's own,
+    /// checked against every rule of the configuration, not only those the run's filter allows.
     fn run_context(&self) -> Result<&RunContext> {
         self.run
             .get_or_init(|| {
                 let workspace = &self.run_workspace;
-                let lock =
-                    crate::lock::verify_with(workspace, &self.overrides.keys().cloned().collect())?;
-                let loaded = load(workspace, lock.as_ref(), &self.overrides)?.map(Arc::new);
-                if let Some(loaded) = &loaded {
-                    loaded.validate(workspace, &RuleFilter::new(Vec::new()))?;
-                }
+                self.run_loaded
+                    .validate(workspace, &RuleFilter::new(Vec::new()))?;
                 Ok(RunContext {
                     hash: configuration_hash(workspace)?,
-                    loaded,
+                    loaded: Some(Arc::clone(&self.run_loaded)),
                     outputs: OnceLock::new(),
                     key: OnceLock::new(),
                 })

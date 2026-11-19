@@ -361,7 +361,7 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     let loaded = if request.list_changed_projects {
         None
     } else {
-        plugins::load(&workspace, lock.as_ref(), &files)?
+        plugins::load(&workspace, lock.as_ref(), &files)?.map(std::sync::Arc::new)
     };
     phase("load", at);
     let at = Instant::now();
