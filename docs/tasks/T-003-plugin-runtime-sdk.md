@@ -68,7 +68,7 @@ Whichever of T-003 and T-005 merges second rebases and wires these:
 
 - `--target-ref <ref>`: T-005 owns the flag on `check` and `run`, valid only with `--push` and carried
   in the change selection as `Option<String>` (Gate 003 names the field). T-003's own flag
-  (`gate check --target-ref`, `ChangeRequest::Push { target_ref }`, 1401964) is dropped then; T-003
+  (`gate check --target-ref`, `ChangeRequest::Push { target_ref }`) is dropped then; T-003
   only feeds T-005's value into `commit-range.target-ref` through `PushRange::target_ref`, and keeps
   the test in `crates/gate/tests/plugins.rs` (a history rule sees the ref with the flag, none
   without it) against T-005's flag. The value is always a full `refs/...` ref: T-005's CLI refuses
@@ -80,7 +80,7 @@ Whichever of T-003 and T-005 merges second rebases and wires these:
 
 ## Resume point
 
-2026-11-17T01:52:37+00:00: merged to main as `c7ab6ca`; gates on the merged tree all exit 0. The
+2026-11-17T01:52:37+00:00: merged to main; gates on the merged tree all exit 0. The
 review of the fix round found no blocker; its findings are T-013.
 
 2026-11-17T00:43:08+00:00: origin/main with T-005 merged in (a merge, not a rebase, so the reviewed
@@ -91,8 +91,8 @@ no generator writes, and removes them through T-005's guard. Generator findings 
 `git.sync-drift` answers what `gate sync --check` reports at the commit, with the generators its
 `gate.lock` pins (or the run's `--plugin` builds), stored in the cache's `git/sync-drift/` by commit,
 core version and builds. Before the move to Gate (a `gate.toml` this core does not read) it uses the
-run's configuration on the commit's tree, keyed also by that configuration's hash (architecture
-65a0d94); a failing generator answers its owned files and the paths it writes in the run. Next: the
+run's configuration on the commit's tree, keyed also by that configuration's hash (architecture);
+a failing generator answers its owned files and the paths it writes in the run. Next: the
 full round on the tip.
 
 2026-11-16T22:21:36+00:00: items 1, 2, 3 and 5 written and pushed; `gate-runtime`, `gate-host` and `gate` have

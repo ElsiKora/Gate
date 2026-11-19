@@ -50,12 +50,12 @@ outputs. `SYNC_STATE_VERSION` (2) joins the answer key. Tests: the fallback comm
 `sync_state_before_the_move_to_gate_uses_the_runs_configuration_and_never_fails_the_call` now answers no
 drift while the commit with its own configuration (HEAD~1) still drifts;
 `a_generator_failing_under_the_fallback_answers_its_paths_as_produced_only` is new.
-The gates at `e888f47` (2026-11-17T18:08:37+00:00, `job-all.sh`): fmt, clippy (workspace and
+The gates (2026-11-17T18:08:37+00:00, `job-all.sh`): fmt, clippy (workspace and
 wasm32-wasip2), test (296 passed, 0 failed, 2 ignored), deny, release build and leak scan all exit 0.
 T-013 item 4 timings on that release build (`timing.sh`, 1,000 synthetic commits, 200 before the
 move to Gate; load average 47.89 before the first run, 42.72 before the second): first run 83.89 s,
 second run 0.82 s, 8 drift (was 208 at T-013: the 200 commits from before the move no longer drift),
 1,200 stored answers. Next: review.
 
-Merged to main after `c586dee` with every gate exit 0 and 374 tests (the merge message records
+Merged to main with every gate exit 0 and 374 tests (the merge message records
 them). The review found no blocker; its findings are T-014 items 10 to 12.

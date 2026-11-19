@@ -6,7 +6,7 @@
 | Release | the next git plugin release |
 | Writer | "Gate 006" |
 | Reviewer | a session that did not write it, named by the lead |
-| Depends on | main at 86b7b04 |
+| Depends on | main |
 | Touches | `plugins/git/**`, this file |
 
 ## Goal
@@ -44,7 +44,7 @@ the branch it works on.
 
 ## Resume point
 
-2026-11-18: review round at de3a9fe answered (push target, anchoring on the pages, a
+2026-11-18: review round answered (push target, anchoring on the pages, a
 merge subject without its branch capture, `pattern` required in the schema, the changelog, the
 no-ci-skip exemption tied to a release form, which moved `forms` into `[plugins.git] options`); the
 gates run on the fix commit. The host's branch reading is not in this task.

@@ -18,16 +18,16 @@ reference for every ported rule is the reference implementation, outside this re
 | --- | --- | --- | --- | --- |
 | T-000 | - | Baseline: the reference implementation's runs and timings (outside the repository) | done | none |
 | T-001 | - | Measure the plugin form | done: wasm components; phases 0.94-1.65x native, 23% less memory (spike/RESULTS.md) | none |
-| T-002 | rc.1 | Host foundations: workspace layout, CLI, configuration, projects, snapshot, change selection, findings, report | done (`af9afb8`; reviewed, one fix round) | none |
-| T-003 | rc.1 | Plugin interface (WIT), runtime, SDK, fixture harness | done (`c7ab6ca`; reviewed, fix round; findings in T-013) | T-001 |
+| T-002 | rc.1 | Host foundations: workspace layout, CLI, configuration, projects, snapshot, change selection, findings, report | done (reviewed, one fix round) | none |
+| T-003 | rc.1 | Plugin interface (WIT), runtime, SDK, fixture harness | done (reviewed, fix round; findings in T-013) | T-001 |
 | T-004 | rc.1 | Distribution: lock, verified fetch, cache, launcher, release workflow | done (reviewed, one fix round) | T-002 |
-| T-005 | rc.1 | Sync and run: hooks, CI jobs, steps, suites, tools, doctor | done (`68927dd`; reviewed, fix round, last list) | T-002 |
+| T-005 | rc.1 | Sync and run: hooks, CI jobs, steps, suites, tools, doctor | done (reviewed, fix round, last list) | T-002 |
 | T-006 | rc.1 | TypeScript language library and plugin | done (reviewed, fix round; acceptance A–D identical on main's host) | T-003 |
 | T-007 | rc.1 | Plugin `nestjs`: T-007a crate and structure rules, T-007b semantic rules | done | T-006 |
 | T-008 | rc.1 | Plugins `git`, `ci`, `markdown`, `agents` | done (no unexpected difference on main's gate; `rule-enforcement` partial until every plugin loads) | T-003 |
 | T-009 | rc.1 | Plugin `ledger` | done (C 33 identical, 6 wait for nestjs on main; D 46/46; reviewed, fix round) | T-003 |
 | T-010 | rc.1 | Acceptance against the reference implementation (outside the repository); first consumer dry run | done (first consumer green on rc.1: list, sync --check and check exit 0) | T-002 |
-| T-011 | v0.1.0 | Public presentation: README, licence, changelog, contributing, guides | merged (`6ef58a5`); second pass after T-002, T-003 | none |
+| T-011 | v0.1.0 | Public presentation: README, licence, changelog, contributing, guides | merged; second pass after T-002, T-003 | none |
 | T-012 | v0.2.0 | Product plugins ported 1:1 (outside the repository) | planned | T-007 |
 | T-013 | rc.1 | Sync-drift and sync fixes from the T-003 fix-round review; `gate sync --plugin` | done (reviewed, fix round, verified) | T-003 |
 | T-015 | rc.1 | sync-state answers no drift under the fallback (history from before Gate is judged by path) | done (reviewed) | T-013 |
@@ -109,9 +109,9 @@ From the second consumer's requirements (2026-11-18):
 ## RESUME POINT
 
 2026-11-18 23:30 UTC: T-001 to T-024 and T-027 merged; main carries version 0.1.0 (merge of
-release/v0.1.0, c32848a). Its gates: the full round on d30ecb8 (release build, shellcheck,
-actionlint), the short round on eb42d38 (fmt, clippy, wasm32 clippy, deny, leak scan) and the
-targeted round on c32848a (fmt, clippy, the plugins tests 40 of 40, leak scan), all exit 0. Next: the
+release/v0.1.0). Its gates: the full round (release build, shellcheck,
+actionlint), the short round (fmt, clippy, wasm32 clippy, deny, leak scan) and the
+targeted round (fmt, clippy, the plugins tests 40 of 40, leak scan), all exit 0. Next: the
 fresh public root, the v0.1.0 tags one at a time, the first consumer's lock on v0.1.0. In progress for
 v0.2.0: T-025 (speed), T-026 (barrel imports), T-029 (branch and commit format), the product plugins
 outside the repository (T-012) and their acceptances. The task table above is the state.

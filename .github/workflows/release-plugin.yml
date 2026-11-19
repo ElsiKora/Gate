@@ -104,7 +104,8 @@ jobs:
             echo
             echo "- \`$NAME.wasm\`: \`$sum\`"
           } > notes.md
-          flags=()
+          # A plugin release is never the repository's latest release: that is the core's.
+          flags=(--latest=false)
           case "${TAG##*-v}" in
             *-*) flags+=(--prerelease) ;;
           esac

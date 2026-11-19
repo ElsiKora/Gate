@@ -14,9 +14,8 @@
 </p>
 
 > [!NOTE]
-> Gate is being built towards its first release, `v0.1.0`. Parts of this README and of the guides
-> describe interfaces that are still landing; they are marked in the source and checked before the
-> release.
+> `v0.1.0` is the first release: the core, the plugin runtime, the Rust SDK, the launcher and seven
+> shared plugins. What changes from one release to the next is in the [changelog](CHANGELOG.md).
 
 ## 💡 Highlights
 
@@ -178,6 +177,9 @@ Gate/
 ├── wit/                   # The plugin interface (gate:plugin)
 ├── languages/typescript/  # The TypeScript language library
 ├── plugins/               # The shared plugins: typescript, git, markdown, agents, ledger, nestjs, ci
+├── examples/              # A minimal plugin, built in CI
+├── scripts/               # Release and build scripts, the reproducible component build
+├── spike/                 # The measurement that chose the plugin form (spike/RESULTS.md)
 ├── docs/architecture.md   # The design
 ├── docs/guide/            # The guides
 ├── rust-toolchain.toml    # The pinned Rust toolchain
@@ -198,7 +200,8 @@ Gate/
 ### From a Release
 
 Gate is installed into a repository, not onto a machine. The release archive is only needed once, to
-run `gate init`:
+run `gate init`. Run these in the root of your repository; the last line removes the downloaded
+files:
 
 ```bash
 version=0.1.0
@@ -208,6 +211,7 @@ curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/SHA2
 shasum -a 256 -c SHA256SUMS --ignore-missing
 tar -xzf "gate-${target}.tar.gz"
 ./gate init
+rm gate "gate-${target}.tar.gz" SHA256SUMS
 ```
 
 `gate init` writes a starting `gate.toml`, `gate.lock` and `bin/gate`, a short POSIX launcher you
@@ -256,7 +260,7 @@ source = "ElsiKora/Gate:git@0.1.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
-activation = "0123456789abcdef0123456789abcdef01234567"  # the commit the policy starts after
+activation = "<the output of git rev-parse HEAD>"  # the commit the policy starts after
 release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 [rules]
@@ -269,14 +273,20 @@ commit-msg = ["check --commit-message"]
 pre-push = ["check --push"]
 ```
 
+Write the commit the git rules start after in place of `<the output of git rev-parse HEAD>`: for a
+new policy, the output of `git rev-parse HEAD`. Gate reads only tracked files, and the
+pre-commit hook only staged ones, so add each file Gate writes:
+
 ```bash
-bin/gate lock      # resolve the plugins and write their checksums to gate.lock
-bin/gate sync      # write the git hooks
-bin/gate check     # check the working tree
+git add gate.toml gate.lock bin/gate
+bin/gate lock                 # resolve the plugins and write their checksums to gate.lock
+bin/gate sync                 # write the git hooks
+git add gate.lock .githooks
+bin/gate check                # check the working tree
 ```
 
-The `commit-msg` hook checks the message being written, before the commit exists: its form
-(`git/commit-message`) and no CI-skip directive (`git/no-ci-skip`).
+Then commit the files you added. The `commit-msg` hook checks the message being written, before the
+commit exists: its form (`git/commit-message`) and no CI-skip directive (`git/no-ci-skip`).
 
 The [getting started guide](docs/guide/getting-started.md) walks through it.
 
@@ -299,7 +309,7 @@ source = "ElsiKora/Gate:git@0.1.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
-activation = "0123456789abcdef0123456789abcdef01234567"  # the commit the policy starts after
+activation = "<the output of git rev-parse HEAD>"  # the commit the policy starts after
 release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 [rules]
@@ -333,6 +343,9 @@ forbidden-packages = ["@nestjs/swagger"]
 ```
 
 ```bash
+git add gate.toml apps/server/gate.toml
+bin/gate lock                               # pin the plugins the new files name
+git add gate.lock
 bin/gate list --origin                      # projects, plugins and rules, and where each came from
 bin/gate check --changed --base origin/main # only the projects a change touches, and their dependents
 ```
@@ -432,13 +445,16 @@ same way as these: see [writing a plugin](docs/guide/writing-a-plugin.md).
 | Task / Feature | Status |
 | --- | --- |
 | Architecture: a core with no rule, plugins for everything | ✅ Done |
-| Plugin form measured (WebAssembly component or native process) | 🚧 In Progress |
-| Core: configuration, projects, snapshots, change selection, reports | 🚧 In Progress |
-| Plugin interface, runtime, Rust SDK, fixture harness | 🚧 In Progress |
-| Lock, verified fetch, cache, launcher, release workflow | 🚧 In Progress |
-| Hooks, CI jobs, steps, suites, tools, `doctor` | 🚧 In Progress |
-| Shared plugins: `typescript`, `git`, `markdown`, `agents`, `ledger`, `nestjs` | 🚧 In Progress |
-| `v0.1.0`, the first public release | 🚧 In Progress |
+| Plugin form measured: WebAssembly components | ✅ Done |
+| Core: configuration, projects, snapshots, change selection, reports | ✅ Done |
+| Plugin interface, runtime, Rust SDK, fixture harness | ✅ Done |
+| Lock, verified fetch, cache, launcher, release workflow | ✅ Done |
+| Hooks, CI jobs, steps, suites, tools, `doctor` | ✅ Done |
+| Shared plugins: `typescript`, `git`, `markdown`, `agents`, `ledger`, `nestjs`, `ci` | ✅ Done |
+| `v0.1.0`, the first public release | ✅ Done |
+| Faster full checks on large trees and long histories | 🚧 In Progress |
+| `git`: branch names and commit messages | 🚧 In Progress |
+| `typescript/barrel-imports` | 🚧 In Progress |
 | Cargo and Go workspace discovery | 🚧 In Progress |
 
 ## ❓ FAQ
@@ -483,9 +499,10 @@ plugin's author needs a Rust toolchain, to build the plugin.
 <summary><strong>How do I silence a finding?</strong></summary>
 
 Add an `[[exception]]` entry to the `gate.exceptions.toml` beside the project's `gate.toml`, with the
-rule, the target and a reason, and optionally the decision it follows. An exception that matches nothing is reported, so the list only shrinks. To adopt a new rule on
-a codebase with many existing findings, write a baseline (`gate baseline write`) instead, and work it
-down. There are no suppression comments in source files. See the
+rule, the target and a reason, and optionally the decision it follows. An exception that matches
+nothing is reported, so the list only shrinks. To adopt a new rule on a codebase with many existing
+findings, write a baseline (`gate baseline write`) instead, and work it down. There are no
+suppression comments in source files. See the
 [configuration guide](docs/guide/configuration.md#exceptions).
 
 </details>

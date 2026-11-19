@@ -63,7 +63,7 @@ releases, and a release's notes are its changelog section.
   --locked`, `cargo deny --locked check`, `shellcheck`, `actionlint` and the leak scan exit 0 on the
   pushed commit, rebased on main after the version bump.
 
-## Review fix round (lead, 2026-11-18, review of `4919c1c`: merge after fixes)
+## Review fix round (lead, 2026-11-18, review: merge after fixes)
 
 1. The changelog comments say the lead writes a version's section before tagging;
    `plugins/ledger/CHANGELOG.md` has its `## 0.1.0` section. No fallback.
@@ -82,6 +82,6 @@ releases, and a release's notes are its changelog section.
 
 ## Resume point
 
-2026-11-18: branch `task/T-022-host-run-and-release`, rebased on main `86b7b04` (0.1.0-rc.1).
-First version `4919c1c` reviewed: merge after fixes. Fix round written; next: the gates on the new
+2026-11-18: branch `task/T-022-host-run-and-release`, rebased on main (0.1.0-rc.1).
+First version reviewed: merge after fixes. Fix round written; next: the gates on the new
 tip, then the report.

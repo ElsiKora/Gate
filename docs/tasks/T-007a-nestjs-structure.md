@@ -36,8 +36,8 @@ to 6). The crate skeleton lands first so that T-007b can add its rules beside it
 
 ## Resume point
 
-`task/T-007a-nestjs-structure` is replayed onto T-006 `62dbe58` (the code main merged as T-006), has
-main merged in up to `6383f4a`, and uses the workspace `crates/gate-sdk`.
+`task/T-007a-nestjs-structure` is replayed onto T-006 (the code main merged as T-006), has
+main merged in, and uses the workspace `crates/gate-sdk`.
 
 Done, each with its page and tests: `adapter-boundary`, `advisory-lock-boundary`,
 `advisory-lock-manifest`, `asset-storage`, `automator-metadata`,
@@ -47,23 +47,22 @@ Done, each with its page and tests: `adapter-boundary`, `advisory-lock-boundary`
 Rounds (`cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`,
 the same for `gate-plugin-nestjs` and `gate-plugin-typescript` on `wasm32-wasip2`, `cargo test
 --locked`, `cargo deny --locked check`, `cargo build --release --locked`, the `wasm32-wasip2` release
-build of `gate-plugin-nestjs`, leak scan): `b6889e3` every step exit 0 (420 tests passed); `f1ea842`
-(main `40358b8`) every step exit 0 (438 passed); `139c153` (main `109c410`, the skip-list review)
-every step exit 0 (534 passed); `d615bc4` (main `6383f4a`, the gitignore matching) every step exit 0
-(623 passed). Counted acceptance of `d615bc4` (harness `6f5e924`, main's gate `6383f4a`): A 2 of 3
+build of `gate-plugin-nestjs`, leak scan): every step exit 0 in each round, with 420, then 438,
+then 534 (the skip-list review) and 623 (the gitignore matching) tests passed. Counted acceptance
+(on main's gate): A 2 of 3
 identical, C 89 of 91; the differences are the nested `coverage/` finding the anchored default brings
 (accepted, lead, 2026-11-17) and a message naming the rule by its reference id. Messages name a rule by
-its Gate id only: `field-inventory` no longer writes its reference id (lead, 2026-11-17). `02813bf` every
-step exit 0 (623 passed); its part C on harness `345ad2c`: 88 of 91 identical, one expected, and two
+its Gate id only: `field-inventory` no longer writes its reference id (lead, 2026-11-17). Every
+step exit 0 (623 passed); its part C: 88 of 91 identical, one expected, and two
 `notification-egress` messages that printed the configured `policy-label`.
 `notification-egress` has no `policy-label`: its messages name "the nestjs/notification-egress
-policy" in fixed wording, and the key is an unknown field (lead, 2026-11-17). `ca12f81` every step
-exit 0 (623 passed). Part D of `02813bf` on `345ad2c`: 330 of 601 identical; every group but
+policy" in fixed wording, and the key is an unknown field (lead, 2026-11-17). Every step
+exit 0 (623 passed). Part D: 330 of 601 identical; every group but
 repository-contract identical; there, 1811 import-direction findings for contract folders the minimal
 trees lack (the check is gone) and one accepted `infrastructure/cdk/dist` finding of declaration-files.
-`64935a5` (import-direction binds nothing in a folder without files) every step exit 0 (623 passed).
-Parts of `import-direction` alone, `64935a5` on harness `46650d7`: A 3 of 3, C 6 of 6, D 313 of 313
-identical. Parts of `notification-egress` alone, `ca12f81` on harness `76cd2da`: C 4 of 4 identical, D
+With import-direction binding nothing in a folder without files, every step exit 0 (623 passed).
+Parts of `import-direction` alone: A 3 of 3, C 6 of 6, D 313 of 313
+identical. Parts of `notification-egress` alone: C 4 of 4 identical, D
 has no case. Merged into main 2026-11-18; the merge gates (fmt, clippy native and `wasm32-wasip2`,
 test, deny, release builds) exit 0 with 623 tests passed, leak scan exit 0.
 Review round: `Layout::source_prefix` and `layout::folder_prefix` join layout folders (`""` is the
@@ -99,8 +98,8 @@ and field-inventory entries without a tracked decision index are configuration f
 import-direction source directory without files binds nothing and reports nothing, as in the
 reference (lead, 2026-11-17). controller-owners and field-inventory rows are typed
 kebab-case structs (messages keep their camelCase words). Shell patterns compile fallibly once per run.
-Acceptance pairs this plugin (SDK `d4cc59b`) with a host built from `d4cc59b` and the harness's
-`--ci-main-shape --drop-core-entries`: main's host changed the `git` range record after `d4cc59b`.
+Acceptance pairs this plugin with a host built from the same SDK commit and the harness's
+`--ci-main-shape --drop-core-entries`: main's host changed the `git` range record after it.
 
 - `plugins/nestjs` (package `gate-plugin-nestjs`, lib `nestjs`, component `nestjs.wasm`).
 - `layout.rs`: `PluginOptions { layout }`, read with `PluginOptions::read(run)` from

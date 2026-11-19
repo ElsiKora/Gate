@@ -14,7 +14,7 @@ source = "ElsiKora/Gate:git@0.1.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
-activation = "0123456789abcdef0123456789abcdef01234567"  # the commit the policy starts after
+activation = "<the output of git rev-parse HEAD>"  # the commit the policy starts after
 release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 ```
 
@@ -73,7 +73,7 @@ source = "ElsiKora/Gate:git@0.1.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
-activation = "0123456789abcdef0123456789abcdef01234567"  # the commit the policy starts after
+activation = "<the output of git rev-parse HEAD>"  # the commit the policy starts after
 release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 [rules]

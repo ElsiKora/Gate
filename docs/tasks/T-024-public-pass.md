@@ -34,7 +34,7 @@ current core and plugins.
 
 ## Resume point
 
-2026-11-18T21:01:06+00:00: parts 1, 2 and 4 in 393f4b5; part 3 in the next commit.
+2026-11-18T21:01:06+00:00: parts 1, 2 and 4; part 3 in the next commit.
 README.md and the guides were checked by
 reading the code (crates/gate-host/src/config/file.rs, crates/gate/src/main.rs, the SDK, gate-test and each
 plugin's rules), not by running the examples. Left to T-019: every line that declares the git plugin or

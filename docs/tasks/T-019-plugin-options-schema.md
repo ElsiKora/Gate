@@ -6,7 +6,7 @@
 | Release | v0.1.0 |
 | Writer | "Gate 002" |
 | Reviewer | a separate review session |
-| Depends on | T-014 (rebased on `task/T-014` at `30c5e2c`, main `4161ad2`) |
+| Depends on | T-014 (rebased on `task/T-014`, main) |
 | Touches | `wit/gate.wit`, `crates/gate-sdk/src/{plugin,bindings,lib}.rs`, `crates/gate-runtime/src/runtime.rs`, the plugin load path in `crates/gate-host/src/plugins.rs`, `crates/gate-host/src/workspace.rs`, every plugin's `lib.rs` and the settings types of `git`, `ledger` and `nestjs`, the probe, their tests, docs/architecture.md §4 and §7 |
 
 ## Goal
@@ -19,7 +19,7 @@ runs.
 
 ## Why
 
-On main `f73e09c` (lead, docs/plan.md "From the first consumer's move"): the interface declares
+On main (lead, docs/plan.md "From the first consumer's move"): the interface declares
 schemas per rule and per generator but none for a plugin's own options. A missing `[plugins.git]
 options main` surfaces only when a git rule runs, as an environment error from the plugin. The
 interface is not public yet (v0.1.0), so it changes now, with no compatibility path.
@@ -72,7 +72,7 @@ commit.
   first error reported.
 - docs/guide/writing-a-plugin.md: the `plugin!` example and its text carry the `options` field.
 
-Review round (lead, 2026-11-18, review of `38c1d2d`: merge after fixes), rebased on `task/T-014`:
+Review round (lead, 2026-11-18, review: merge after fixes), rebased on `task/T-014`:
 
 1. `schema()` compiles every options schema, the plugin's and each rule's, with
    `jsonschema::validator_for` when the component loads. A schema that is not JSON Schema (`{"type":
@@ -88,7 +88,7 @@ Review round (lead, 2026-11-18, review of `38c1d2d`: merge after fixes), rebased
    configuration error. Architecture §7 and the `sync-state` paragraph say both, and each has a test.
 5. Tests: an options schema that is empty, not JSON or not JSON Schema fails to load; the
    missing-git-option test asserts empty stdout; the unit test covers a root entry.
-6. Docs, on main `4161ad2`'s public-pass text (lead: take main's text, re-apply the git options):
+6. Docs, on main's public-pass text (lead: take main's text, re-apply the git options):
    every guide and README example that declares git carries `main`, `activation` and
    `release-subject` in `[plugins.git.options]` and turns on `git/no-ci-skip` instead of the rule
    ids the plugin does not have. configuration.md says the options are validated at load. One such
