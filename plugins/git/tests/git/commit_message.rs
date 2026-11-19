@@ -389,8 +389,33 @@ fn a_header_pattern_with_its_own_ignores_gives_the_policy_s_verdicts() {
     // The header pattern alone decides the header, a breaking `!` included.
     assert!(passes_policy("feat(a)!: add x"));
     assert!(!passes_policy("feat(a_b)!: add x"));
-    // The pattern is JavaScript's: `\w` is ASCII.
-    assert!(!passes_policy("féat: add x"));
+}
+
+#[test]
+fn a_header_pattern_reads_word_characters_as_ascii() {
+    // Only an ASCII `\w` refuses the scope `é`; a Unicode one would read it as a word.
+    let word_scope =
+        r#"{"header-pattern": "^(?<type>\\w+)(?:\\((?<scope>\\w+)\\))?: (?<subject>.+)$"}"#;
+    let ascii = aspects(Some("feat(e): add the thing"), word_scope);
+    assert!(!ascii.contains(&"type-empty".to_owned()), "{ascii:?}");
+    let accented = aspects(Some("feat(\u{e9}): add the thing"), word_scope);
+    assert!(accented.contains(&"type-empty".to_owned()), "{accented:?}");
+}
+
+#[test]
+fn an_ignore_is_searched_in_the_whole_message_and_its_caret_anchors_at_the_start() {
+    let message = "wip x\n\nWIP";
+    let checked = aspects(Some(message), "{}");
+    assert!(checked.contains(&"type-empty".to_owned()), "{checked:?}");
+    // `WIP` in the body skips the message: the whole message is searched.
+    assert_eq!(
+        aspects(Some(message), r#"{"ignores": ["WIP"]}"#),
+        Vec::<String>::new()
+    );
+    // `^` anchors at the start of the message, not at each line.
+    let start = r#"{"ignores": ["^WIP"]}"#;
+    assert_eq!(aspects(Some("WIP x"), start), Vec::<String>::new());
+    assert_eq!(aspects(Some(message), start), checked);
 }
 
 #[test]
@@ -426,12 +451,13 @@ fn a_header_pattern_or_an_ignore_that_cannot_work_fails_closed() {
         (
             r#"{"header-pattern": "("}"#,
             "git/commit-message header-pattern \"(\" is not a valid regular expression; write a \
-             JavaScript regular expression with the named groups type, scope and subject",
+             JavaScript regular expression without lookaround or backreferences, with the named \
+             groups type, scope and subject",
         ),
         (
             r#"{"header-pattern": "^(?<kind>\\w+): (?<subject>.+)$"}"#,
             "git/commit-message header-pattern \"^(?<kind>\\\\w+): (?<subject>.+)$\" has no group \
-             named type; write a JavaScript regular expression with the named groups type",
+             named type; write a JavaScript regular expression without lookaround",
         ),
         (
             r#"{"header-pattern": "^(\\w+): (.+)$"}"#,
@@ -439,7 +465,16 @@ fn a_header_pattern_or_an_ignore_that_cannot_work_fails_closed() {
         ),
         (
             r#"{"ignores": ["["]}"#,
-            "git/commit-message ignores \"[\" is not a valid regular expression",
+            "git/commit-message ignores \"[\" has a [ whose class is not closed, which the rule \
+             does not read",
+        ),
+        (
+            r#"{"header-pattern": "^(?<type>\\w+)(?=:): (?<subject>.+)$"}"#,
+            "has a lookaround (?=, (?!, (?<= or (?<!, which the rule does not read",
+        ),
+        (
+            r#"{"ignores": ["(a)\\1"]}"#,
+            "has the backreference or octal escape \\1",
         ),
     ] {
         let error = repo

@@ -14,7 +14,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
 use regex::Regex;
 
-use crate::branch_name::ascii_classes;
+use crate::javascript::{ANY, translate};
 use crate::settings::pattern;
 
 /// The rule.
@@ -200,15 +200,7 @@ impl Patterns {
         let ignores = options
             .ignores
             .iter()
-            .map(|text| {
-                Regex::new(&javascript(text)).map_err(|error| {
-                    Error::new(format!(
-                        "git/commit-message ignores {text:?} is not a valid regular expression; \
-                         write a JavaScript regular expression the messages to skip match, such \
-                         as \"^Merge \": {error}"
-                    ))
-                })
-            })
+            .map(|text| javascript("ignores", text, WRITE_IGNORE))
             .collect::<Result<Vec<_>>>()?;
         let breaking = if options.header_pattern.is_some() {
             None
@@ -239,60 +231,47 @@ impl Patterns {
     }
 }
 
-/// `.` of JavaScript, which matches no line terminator.
-const ANY: &str = r"[^\n\r\u{2028}\u{2029}]";
-
 /// What to write in `header-pattern`.
-const WRITE_HEADER: &str = "write a JavaScript regular expression with the named groups type, \
-                            scope and subject, such as \
-                            ^(?<type>\\w+)(?:\\((?<scope>[a-z0-9-]+)\\))?!?: (?<subject>.+)$";
+const WRITE_HEADER: &str = "write a JavaScript regular expression without lookaround or \
+                            backreferences, with the named groups type, scope and subject, such \
+                            as ^(?<type>\\w+)(?:\\((?<scope>[a-z0-9-]+)\\))?!?: (?<subject>.+)$";
+
+/// What to write in `ignores`.
+const WRITE_IGNORE: &str = "write a JavaScript regular expression without lookaround or \
+                            backreferences that the messages to skip match, such as \"^Merge \"";
+
+/// `text`, the value of `option`, read as JavaScript reads it and compiled.
+///
+/// # Errors
+/// When it holds a construct the translation does not read, or does not compile, naming the
+/// option, the construct and what to write.
+fn javascript(option: &str, text: &str, write: &str) -> Result<Regex> {
+    let translated = translate(text).map_err(|construct| {
+        Error::new(format!(
+            "git/commit-message {option} {text:?} has {construct}, which the rule does not read; \
+             {write}"
+        ))
+    })?;
+    Regex::new(&translated).map_err(|error| {
+        Error::new(format!(
+            "git/commit-message {option} {text:?} is not a valid regular expression; {write}: \
+             {error}"
+        ))
+    })
+}
 
 /// `header-pattern`, which must compile and name a `type` group.
 ///
 /// # Errors
 /// When it does not compile or has no `type` group, naming the option and what to write.
 fn header_pattern(text: &str) -> Result<Regex> {
-    let header = Regex::new(&javascript(text)).map_err(|error| {
-        Error::new(format!(
-            "git/commit-message header-pattern {text:?} is not a valid regular expression; \
-             {WRITE_HEADER}: {error}"
-        ))
-    })?;
+    let header = javascript("header-pattern", text, WRITE_HEADER)?;
     if !header.capture_names().flatten().any(|name| name == "type") {
         return Err(Error::new(format!(
             "git/commit-message header-pattern {text:?} has no group named type; {WRITE_HEADER}"
         )));
     }
     Ok(header)
-}
-
-/// `text`, a JavaScript regular expression without flags, as JavaScript reads it: `.` matches no
-/// line terminator, and `\w`, `\d`, `\b` and their negations are ASCII.
-fn javascript(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    let mut in_class = false;
-    while let Some(character) = chars.next() {
-        match character {
-            '\\' => {
-                out.push(character);
-                if let Some(escaped) = chars.next() {
-                    out.push(escaped);
-                }
-            }
-            '[' if !in_class => {
-                in_class = true;
-                out.push(character);
-            }
-            ']' if in_class => {
-                in_class = false;
-                out.push(character);
-            }
-            '.' if !in_class => out.push_str(ANY),
-            _ => out.push(character),
-        }
-    }
-    ascii_classes(&out)
 }
 
 /// Whitespace as JavaScript's `\s` and `trim` know it.
@@ -1017,15 +996,19 @@ mod tests {
 
     #[test]
     fn a_pattern_is_read_as_javascript_reads_it() {
-        // `.` outside a class matches no line terminator; `\w` is ASCII; escapes stay.
-        assert_eq!(
-            javascript(r"^a.b[.]\.\w$"),
-            r"^a[^\n\r\u{2028}\u{2029}]b[.]\.[0-9A-Za-z_]$"
-        );
+        // `.` matches no line terminator and `\w` is ASCII; `\A` is a letter, not an assertion.
         let header = header_pattern(r"^(?<type>\w+): (?<subject>.+)$").expect("compiles");
         assert!(header.is_match("feat: add x"));
         assert!(!header.is_match("feat: add\u{2028}x"));
         assert!(!header.is_match("f\u{e9}at: add x"));
+        let letters = javascript("ignores", r"^\Awip\z", WRITE_IGNORE).expect("compiles");
+        assert!(letters.is_match("Awipz"));
+        assert!(!letters.is_match("wip"));
+        let refused = javascript("ignores", "^(?=wip)", WRITE_IGNORE).expect_err("refused");
+        assert!(
+            refused.to_string().contains("ignores \"^(?=wip)\" has a lookaround"),
+            "{refused}"
+        );
     }
 
     fn parsed(message: &str) -> Parsed {

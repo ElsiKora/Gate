@@ -107,11 +107,43 @@ UTF-16 code units: a character outside the Basic Multilingual Plane, such as an 
 | `ignores` | list of strings | `[]` | Regular expressions of messages that are not checked, besides the default ignores. |
 | `default-ignores` | boolean | `true` | Whether commitlint's default ignores apply. |
 
-`header-pattern` and `ignores` are JavaScript regular expressions without flags, as the reference
-reads them: `\w`, `\d` and `\b` are ASCII, and `.` matches no line terminator. An ignore is searched
-in the whole message as the hook gives it, comment lines included; anchor it with `^` to match the
-start. A header the pattern does not match names no type, so `type-empty` fails. A `header-pattern`
-that does not compile, or has no `type` group, is an error that names the option and fails the run.
+### Regular expressions
+
+`header-pattern` and `ignores` are read as JavaScript reads a regular expression without flags,
+which is how the reference reads them. The rule reads this subset of that syntax:
+
+- Characters, `.`, `^`, `$`, `|`, the quantifiers `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}`, each
+  with a lazy `?`, the groups `(...)`, `(?:...)` and `(?<name>...)`, and classes `[...]` and
+  `[^...]` with ranges.
+- The escapes `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `\b`, `\B`, `\n`, `\r`, `\t`, `\v`, `\f`, `\0`,
+  `\xHH`, `\uHHHH` (a surrogate pair included) and `\cA` to `\cZ`. `\w`, `\d` and `\b` are ASCII,
+  `\s` is JavaScript's white space, and `.` matches no line terminator.
+- Any other escaped character is that character: `\.`, `\<`, `\A`, `\z` and `\pL` match `.`, `<`,
+  `A`, `z` and `pL`. Inside a class every character is literal, so `[[:alpha:]]`, `&&`, `--` and
+  `~~` are characters there, as in JavaScript, and a `{` that does not make a quantifier is a `{`.
+- Not read, and an error that names the construct and the option: lookaround (`(?=`, `(?!`,
+  `(?<=`, `(?<!`), backreferences (`\1`, `\k<name>`), octal escapes, other `(?` groups such as
+  inline flags, the empty classes `[]` and `[^]`, and a lone surrogate.
+- A character outside the Basic Multilingual Plane, such as an emoji, is one character to `.` and
+  to a class, where JavaScript without the `u` flag sees two.
+
+commitlint's `headerPattern` names its groups by position, through `headerCorrespondence`; here
+the groups are named. The conventional preset's pattern and the form this option takes:
+
+```text
+commitlint:     ^(\w*)(?:\((.*)\))?!?: (.*)$   with headerCorrespondence type, scope, subject
+header-pattern: ^(?<type>\w*)(?:\((?<scope>.*)\))?!?: (?<subject>.*)$
+```
+
+A header the pattern does not match names no type, so `type-empty` fails. A pattern with no
+`subject` group names no subject, so `subject-empty` fails on every message, as in commitlint. A
+`header-pattern` that does not compile, or has no `type` group, is an error that names the option
+and fails the run.
+
+commitlint's `ignores` are functions of the message. Here each one is a regular expression, which
+is this rule's mapping of them: it is searched in the whole message as the hook gives it, body and
+comment lines included, so `WIP` skips `feat: x` with `WIP` in its body. `^` anchors at the start
+of the message only, not at each line: `^WIP` skips `WIP: x` but not a body line `WIP`.
 
 A policy written as one header expression, with its own messages to skip:
 

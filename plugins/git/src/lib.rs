@@ -11,6 +11,7 @@ mod branch_name;
 mod commit_message;
 mod forms;
 mod history;
+mod javascript;
 mod main_history;
 mod no_ci_skip;
 mod settings;
