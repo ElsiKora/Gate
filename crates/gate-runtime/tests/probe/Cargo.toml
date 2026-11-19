@@ -18,6 +18,9 @@ describe-spins = []
 # Builds instead a plugin `writer` with the `write` generator and no rule: a plugin a check with
 # `--rule` leaves out, which a `sync-state` fallback still needs.
 writer = []
+# Builds instead a plugin `other` with a project-scope rule that declares `READS_MESSAGE`, which
+# the core refuses: the message belongs to the repository.
+message-in-project = []
 
 [dependencies]
 gate-sdk.workspace = true

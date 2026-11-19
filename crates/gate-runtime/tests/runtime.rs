@@ -123,6 +123,9 @@ impl History for OneCommit {
             ],
         })
     }
+    fn message(&self) -> Result<Option<String>, HostError> {
+        Ok(Some("feat(core): add the thing\n".to_owned()))
+    }
 }
 
 /// [`OneCommit`] whose `head` takes as long as the field says, as git on a cold cache may.
@@ -940,5 +943,42 @@ fn a_file_added_under_an_extra_read_is_under_a_listed_prefix() {
             .iter()
             .any(|prefix| "docs/ledger/b.md".starts_with(prefix.as_str())),
         "the added file is under a recorded prefix, so the cached result is re-run"
+    );
+}
+
+#[test]
+fn a_rule_that_reads_the_message_without_declaring_it_gets_the_error_naming_reads_message() {
+    let runtime = runtime(Config::default());
+    let plugin = load(&runtime);
+    let outcome = runtime
+        .check(&call(
+            &plugin,
+            "message-undeclared",
+            "",
+            tree(),
+            Grant::repository(),
+        ))
+        .expect("the call runs");
+    let said = messages(&outcome);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("does not declare READS_MESSAGE") && !said[0].contains("add the thing"),
+        "the SDK refuses the message to a rule that does not declare it: {said:?}"
+    );
+}
+
+#[test]
+fn a_project_scope_rule_that_declares_the_message_does_not_load() {
+    let runtime = runtime(Config::default());
+    let component = probe_with("message-in-project");
+    let error = runtime
+        .load("other", &component)
+        .expect_err("the message belongs to the repository");
+    assert_eq!(error.kind(), ErrorKind::Plugin, "{error}");
+    assert!(
+        error.to_string().contains("project-message")
+            && error.to_string().contains("reads-message")
+            && error.to_string().contains("repository-scope"),
+        "{error}"
     );
 }

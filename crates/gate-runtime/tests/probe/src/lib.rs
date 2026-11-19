@@ -194,6 +194,25 @@ impl Rule for History {
     }
 }
 
+/// Declares `reads-history` and not the message, asks git for the commit message, and reports
+/// what the SDK answered, debug-printed: the message, or the error that the rule does not declare
+/// it.
+#[derive(Debug, Default)]
+pub struct MessageUndeclared;
+
+impl Rule for MessageUndeclared {
+    type Options = gate_sdk::serde_json::Value;
+    const NAME: &'static str = "message-undeclared";
+    const TITLE: &'static str = "Reads the commit message without declaring it";
+    const READS_HISTORY: bool = true;
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        let answer = format!("{:?}", run.git()?.message());
+        run.report().finding("", None, answer);
+        Ok(())
+    }
+}
+
 /// Declares `reads-history` and reports what git answers for each question of its options, with
 /// every revision resolved first; `raw_tree` goes to `git.tree` as it is.
 #[derive(Debug, Default)]
@@ -621,16 +640,45 @@ gate_sdk::plugin! {
     presets: [],
 }
 
+/// A project-scope rule that declares it reads the commit message, which belongs to the
+/// repository.
+#[cfg(feature = "message-in-project")]
+#[derive(Debug, Default)]
+pub struct ProjectMessage;
+
+#[cfg(feature = "message-in-project")]
+impl Rule for ProjectMessage {
+    type Options = gate_sdk::serde_json::Value;
+    const NAME: &'static str = "project-message";
+    const TITLE: &'static str = "Reads the commit message in a project";
+    const READS_MESSAGE: bool = true;
+
+    fn check(&self, _: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "message-in-project")]
+gate_sdk::plugin! {
+    name: "other",
+    version: env!("CARGO_PKG_VERSION"),
+    options: gate_sdk::NoOptions,
+    rules: [ProjectMessage],
+    generators: [],
+    presets: [],
+}
+
 #[cfg(not(any(
     feature = "describe-traps",
     feature = "describe-spins",
-    feature = "writer"
+    feature = "writer",
+    feature = "message-in-project"
 )))]
 gate_sdk::plugin! {
     name: "probe",
     version: env!("CARGO_PKG_VERSION"),
     options: ProbeOptions,
-    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects],
+    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects, MessageUndeclared],
     generators: [Write, Toml],
     presets: [
         gate_sdk::Preset {
