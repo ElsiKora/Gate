@@ -247,7 +247,7 @@ fn the_options_are_checked() {
         ),
         (
             r#"{"template": ":type/:name", "subject": {"name": "["}}"#,
-            "subject.name \"[\" is not a valid regular expression",
+            "subject.name \"[\" has a [ whose class is not closed",
         ),
         (
             r#"{"template": "-/-"}"#,
@@ -266,6 +266,7 @@ fn the_options_are_checked() {
             .check("branch-name", SETTINGS, options)
             .expect_err(options);
         assert!(error.message().contains(expected), "{options}: {error}");
+        assert!(error.is_config(), "a configuration error: {options}");
     }
 }
 
@@ -347,4 +348,85 @@ fn word_and_digit_classes_are_ascii_as_in_the_reference() {
     );
     assert_eq!(verdict("feature/äb-12", pattern, false).len(), 1);
     assert_eq!(verdict("feature/ab-١٢", pattern, false).len(), 1);
+}
+
+/// Whether `branch`, checked out outside a hook, passes `pattern` with no length limits.
+fn passes(pattern: &str, branch: &str) -> bool {
+    let options = gate_sdk::serde_json::json!({
+        "pattern": pattern,
+        "min-length": 0,
+        "max-length": 0,
+    });
+    verdict(branch, &options.to_string(), false).is_empty()
+}
+
+// Each case below is regex-crate syntax that JavaScript reads as characters; a pattern means what
+// git-branch-lint means by it.
+
+#[test]
+fn angle_bracket_escapes_are_characters_not_word_boundaries() {
+    assert!(passes(r"^\<a\>$", "<a>"));
+    assert!(!passes(r"^\<a\>$", "a"));
+}
+
+#[test]
+fn backslash_a_and_z_escapes_are_letters_not_assertions() {
+    assert!(passes(r"^\Afeat\z$", "Afeatz"));
+    assert!(!passes(r"^\Afeat\z$", "feat"));
+}
+
+#[test]
+fn backslash_p_escapes_are_letters_not_unicode_classes() {
+    assert!(passes(r"^feat/\pL$", "feat/pL"));
+    assert!(!passes(r"^feat/\pL$", "feat/a"));
+}
+
+#[test]
+fn x_escapes_without_two_hex_digits_are_the_letter_x() {
+    // `{2}` after it is then a quantifier of `x`.
+    assert!(passes(r"^feat/\x{2}$", "feat/xx"));
+    assert!(!passes(r"^feat/\x{2}$", "feat/\u{2}"));
+}
+
+#[test]
+fn a_brace_that_makes_no_quantifier_is_a_character() {
+    assert!(passes(r"^feat/a{,2}$", "feat/a{,2}"));
+    assert!(!passes(r"^feat/a{,2}$", "feat/a"));
+}
+
+#[test]
+fn a_posix_class_is_characters_of_a_class() {
+    assert!(passes(r"^feat/[[:alpha:]]$", "feat/:]"));
+    assert!(!passes(r"^feat/[[:alpha:]]$", "feat/b"));
+}
+
+#[test]
+fn a_nested_bracket_is_a_character_of_the_class() {
+    assert!(passes(r"^feat/[[a]]$", "feat/[]"));
+    assert!(!passes(r"^feat/[[a]]$", "feat/a"));
+}
+
+#[test]
+fn a_double_ampersand_in_a_class_is_characters_not_an_intersection() {
+    assert!(passes(r"^feat/[a&&b]$", "feat/&"));
+    assert!(passes(r"^feat/[a&&b]$", "feat/a"));
+}
+
+#[test]
+fn a_double_tilde_in_a_class_is_characters_not_a_symmetric_difference() {
+    assert!(passes(r"^feat/[a~~b]$", "feat/~"));
+}
+
+#[test]
+fn a_double_dash_in_a_class_is_a_range_not_a_difference() {
+    assert!(passes(r"^feat/[%--]$", "feat/+"));
+    assert!(!passes(r"^feat/[%--]$", "feat/a"));
+}
+
+#[test]
+fn dot_and_space_are_javascripts() {
+    // `.` matches no line terminator; `\s` takes U+FEFF and not U+0085.
+    assert!(!passes(r"^feat/.$", "feat/\u{2028}"));
+    assert!(passes(r"^feat/\s$", "feat/\u{feff}"));
+    assert!(!passes(r"^feat/\s$", "feat/\u{85}"));
 }

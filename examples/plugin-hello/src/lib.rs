@@ -31,7 +31,7 @@ impl Rule for Marker {
     fn check(&self, run: &mut Run<'_, MarkerOptions>) -> gate_sdk::Result<()> {
         let marker = run.options().marker.clone();
         if marker.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "hello/marker: the option marker is empty, so every line would match; set a marker or turn the rule off",
             ));
         }

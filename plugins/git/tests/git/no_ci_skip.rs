@@ -91,6 +91,7 @@ fn the_patterns_are_options() {
             .contains("directive-pattern \"(\" is not a valid regular expression"),
         "{error}"
     );
+    assert!(error.is_config(), "a configuration error: {error}");
 }
 
 #[test]

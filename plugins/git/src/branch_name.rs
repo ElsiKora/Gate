@@ -9,6 +9,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
 use regex::Regex;
 
+use crate::javascript::translate;
 use crate::settings::Settings;
 
 /// The rule.
@@ -162,7 +163,7 @@ impl<'o> Policy<'o> {
     fn new(options: &'o Options) -> Result<Self> {
         let (shortest, longest) = (options.min_length, options.max_length);
         if shortest > 0 && longest > 0 && shortest > longest {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "git/branch-name min-length {shortest} is above max-length {longest}; write the \
                  shortest name's length in min-length and the longest one's in max-length"
             )));
@@ -183,7 +184,7 @@ impl<'o> Policy<'o> {
             }
             (None, Some(text)) => Matcher::Pattern(reference("pattern", text)?),
             _ => {
-                return Err(Error::new(
+                return Err(Error::config(
                     "git/branch-name takes exactly one of template and pattern; write a template \
                      such as \":type/:ticket-:name\", or a regular expression in pattern",
                 ));
@@ -283,7 +284,7 @@ fn expressions(template: &str, types: &[String], subject: &Subject) -> Result<Ve
         }
     }
     if seen.is_empty() {
-        return Err(Error::new(format!(
+        return Err(Error::config(format!(
             "git/branch-name template {template:?} has nothing to match; write a template such as \
              \":type/:ticket-:name\""
         )));
@@ -414,67 +415,22 @@ mod tests {
     }
 }
 
-/// A regular expression of git-branch-lint's policy, read as JavaScript reads one without the `u`
-/// flag: `\w`, `\d`, `\b` and their negations are ASCII, so `[\w-]+` does not take `é`.
+/// A regular expression of git-branch-lint's policy, read as JavaScript reads one without flags
+/// (see [`translate`]): `\w`, `\d` and `\b` are ASCII, so `[\w-]+` does not take `é`.
 ///
 /// # Errors
-/// When it does not compile, naming the key and the text as written.
+/// When it holds a construct the translation does not read, or does not compile, naming the key
+/// and the text as written.
 fn reference(key: &str, text: &str) -> Result<Regex> {
-    Regex::new(&ascii_classes(text)).map_err(|error| {
-        Error::new(format!(
+    let translated = translate(text).map_err(|construct| {
+        Error::config(format!(
+            "{key} {text:?} has {construct}, which git/branch-name does not read; write a \
+             JavaScript regular expression without lookaround or backreferences"
+        ))
+    })?;
+    Regex::new(&translated).map_err(|error| {
+        Error::config(format!(
             "{key} {text:?} is not a valid regular expression: {error}"
         ))
     })
-}
-
-/// `text` with `\w`, `\d`, `\W`, `\D` as ASCII classes and `\b`, `\B` as ASCII boundaries; every
-/// other escape as written. Inside a class, `\w` and `\d` become their ranges.
-pub(crate) fn ascii_classes(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    let mut in_class = false;
-    while let Some(character) = chars.next() {
-        match character {
-            '\\' => match chars.next() {
-                Some('w') if in_class => out.push_str("0-9A-Za-z_"),
-                Some('w') => out.push_str("[0-9A-Za-z_]"),
-                Some('d') if in_class => out.push_str("0-9"),
-                Some('d') => out.push_str("[0-9]"),
-                Some('W') => out.push_str("[^0-9A-Za-z_]"),
-                Some('D') => out.push_str("[^0-9]"),
-                Some('b') if !in_class => out.push_str(r"(?-u:\b)"),
-                Some('B') if !in_class => out.push_str(r"(?-u:\B)"),
-                Some(other) => {
-                    out.push('\\');
-                    out.push(other);
-                }
-                None => out.push('\\'),
-            },
-            '[' if !in_class => {
-                in_class = true;
-                out.push(character);
-            }
-            ']' if in_class => {
-                in_class = false;
-                out.push(character);
-            }
-            _ => out.push(character),
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod classes {
-    use super::ascii_classes;
-
-    #[test]
-    fn the_word_digit_and_boundary_classes_are_ascii() {
-        assert_eq!(ascii_classes(r"[\w-]+"), "[0-9A-Za-z_-]+");
-        assert_eq!(ascii_classes(r"\d+\W"), "[0-9]+[^0-9A-Za-z_]");
-        assert_eq!(ascii_classes(r"\bx\B"), r"(?-u:\b)x(?-u:\B)");
-        assert_eq!(ascii_classes(r"[^\d\W]"), "[^0-9[^0-9A-Za-z_]]");
-        // Escaped backslashes and other escapes stay as written.
-        assert_eq!(ascii_classes(r"\\w\.\s"), r"\\w\.\s");
-    }
 }

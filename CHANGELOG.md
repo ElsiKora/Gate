@@ -26,6 +26,13 @@ and the release to pin.
   of the rule, or of the aspect, wins over them.
 - **host:** a check with `--commit-message` says so in its summary: `gate check (tree, commit
   message)`.
+- **plugin interface:** `check` and `generate` fail with a `plugin-error`, `configuration` or
+  `environment`, in place of a string. A `configuration` error ends the run as a configuration
+  error (exit 2, `configuration error`), as a wrong `gate.toml` key does; an `environment` error
+  stays an environment error.
+- **sdk:** `Error::config` is a configuration error beside `Error::new`, an environment failure.
+  Options that do not match a rule's or generator's options type, and `[plugins]` options or
+  `[languages]` settings that do not match, are configuration errors.
 
 ### Bug Fixes
 

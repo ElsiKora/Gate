@@ -247,13 +247,13 @@ const WRITE_IGNORE: &str = "write a JavaScript regular expression without lookar
 /// option, the construct and what to write.
 fn javascript(option: &str, text: &str, write: &str) -> Result<Regex> {
     let translated = translate(text).map_err(|construct| {
-        Error::new(format!(
+        Error::config(format!(
             "git/commit-message {option} {text:?} has {construct}, which the rule does not read; \
              {write}"
         ))
     })?;
     Regex::new(&translated).map_err(|error| {
-        Error::new(format!(
+        Error::config(format!(
             "git/commit-message {option} {text:?} is not a valid regular expression; {write}: \
              {error}"
         ))
@@ -267,7 +267,7 @@ fn javascript(option: &str, text: &str, write: &str) -> Result<Regex> {
 fn header_pattern(text: &str) -> Result<Regex> {
     let header = javascript("header-pattern", text, WRITE_HEADER)?;
     if !header.capture_names().flatten().any(|name| name == "type") {
-        return Err(Error::new(format!(
+        return Err(Error::config(format!(
             "git/commit-message header-pattern {text:?} has no group named type; {WRITE_HEADER}"
         )));
     }

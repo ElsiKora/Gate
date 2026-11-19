@@ -194,9 +194,11 @@ Rules:
   `repository` scope rule runs once and sees the whole repository. A configuration may grant a plugin
   extra read paths outside its project (`reads = [...]`), for example a ledger that cites records of a
   sibling project; anything else returns `none`.
-- `Err` from `check` is an environment failure (the run fails, the message names the plugin, and,
-  for a project below the repository root, the project and that its paths are relative to its root,
-  since the core does not rewrite the plugin's text); a violation is a finding.
+- `Err` from `check` or `generate` is a `plugin-error`: `configuration` when the options or settings
+  the call was given cannot be used, which fails the run as a configuration error, and `environment`
+  otherwise, which fails it as an environment error. The message names the plugin and, for a project
+  below the repository root, the project and that its paths are relative to its root, since the
+  core does not rewrite the plugin's text. A violation is a finding.
 - The SDK (`gate-sdk`, Rust) wraps the interface: a `Tree` with `paths()`, `under()`, `text()`,
   `bytes()`; a `Git`; a `Report` with `finding(aspect, location, message)` (the level is configuration,
   never the plugin's); typed options with

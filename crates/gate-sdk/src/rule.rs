@@ -206,7 +206,7 @@ impl<'h, O> Run<'h, O> {
     /// When they do not match `T`, naming the key.
     pub fn plugin_options<T: DeserializeOwned>(&self) -> Result<T> {
         T::deserialize(self.plugin_options)
-            .map_err(|error| Error::new(format!("the [plugins] options do not match: {error}")))
+            .map_err(|error| Error::config(format!("the [plugins] options do not match: {error}")))
     }
 
     /// The `[languages.<id>]` settings, when the configuration has them.
@@ -218,7 +218,7 @@ impl<'h, O> Run<'h, O> {
             .get(id)
             .map(|value| {
                 T::deserialize(value).map_err(|error| {
-                    Error::new(format!(
+                    Error::config(format!(
                         "the [languages.{id}] settings do not match: {error}"
                     ))
                 })

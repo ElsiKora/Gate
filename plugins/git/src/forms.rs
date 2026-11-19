@@ -42,7 +42,7 @@ pub fn default_forms() -> Vec<Form> {
 /// When the list is empty or a form is refused by [`compile`].
 pub(crate) fn compile_all(forms: &[Form], release: Option<&Regex>) -> Result<Vec<Compiled>> {
     if forms.is_empty() {
-        return Err(Error::new(
+        return Err(Error::config(
             "[plugins.git] options forms is empty; list the forms a commit on main may have, or \
              leave forms out for the default merge, release and direct forms",
         ));
@@ -195,7 +195,7 @@ pub(crate) fn compile(at: &str, form: &Form, release: Option<&Regex>) -> Result<
     let checks = form.checks.clone().unwrap_or_else(|| allowed.to_vec());
     if let Some(check) = checks.iter().find(|check| !allowed.contains(check)) {
         let names: Vec<&str> = allowed.iter().map(|check| check.name()).collect();
-        return Err(Error::new(format!(
+        return Err(Error::config(format!(
             "{at} has the check {}, which a {} form does not run; a {} form runs {}",
             check.name(),
             kind.aspect(),
@@ -205,13 +205,13 @@ pub(crate) fn compile(at: &str, form: &Form, release: Option<&Regex>) -> Result<
     }
     let subject = match (kind, form.subject.as_deref()) {
         (Kind::Release, Some(_)) => {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "{at} has a subject; a release form matches the release commits by \
                  [plugins.git] options release-subject: remove subject"
             )));
         }
         (Kind::Release, None) if release.is_none() => {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[plugins.git] options has no release-subject; {at} matches the release commits \
                  by it: set it, or remove the release form"
             )));
@@ -225,7 +225,7 @@ pub(crate) fn compile(at: &str, form: &Form, release: Option<&Regex>) -> Result<
             .as_ref()
             .is_none_or(|subject| subject.captures_len() < 2)
     {
-        return Err(Error::new(format!(
+        return Err(Error::config(format!(
             "{at} runs the branch check, which reads the branch name from capture 1 of its \
              subject; give the form a subject that captures the branch name in group 1, or \
              remove branch from its checks"
@@ -235,7 +235,7 @@ pub(crate) fn compile(at: &str, form: &Form, release: Option<&Regex>) -> Result<
         .into_iter()
         .find(|check| runs(*check) && form.parents != Some(2))
     {
-        return Err(Error::new(format!(
+        return Err(Error::config(format!(
             "{at} runs the {} check, which compares a merge's two parents; set parents = 2, or \
              remove {} from its checks",
             check.name(),
@@ -243,7 +243,7 @@ pub(crate) fn compile(at: &str, form: &Form, release: Option<&Regex>) -> Result<
         )));
     }
     if runs(Check::Files) && form.parents != Some(1) {
-        return Err(Error::new(format!(
+        return Err(Error::config(format!(
             "{at} runs the files check, which compares the commit with its one parent; set \
              parents = 1, or remove files from its checks"
         )));

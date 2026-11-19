@@ -86,28 +86,62 @@ pub use self::tree::Tree;
 /// options with the versions the SDK was built with.
 pub use {schemars, serde, serde_json};
 
-/// An environment failure: the call fails, and the host names the plugin and this message. A
-/// violation is never an error; it is a [`Finding`].
+/// Why a rule or generator failed: the call fails, and the host names the plugin and this
+/// message. [`Error::config`] is an error in the configuration the call was given, which fails the
+/// run as a configuration error; [`Error::new`] is an environment failure. A violation is never an
+/// error; it is a [`Finding`].
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Error(String);
+pub struct Error {
+    configuration: bool,
+    message: String,
+}
 
 impl Error {
-    /// An error with a message that says what is wrong and what to do.
+    /// An environment failure: a read, a parse or a git call that failed, with a message that says
+    /// what is wrong and what to do.
     #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
+        Self {
+            configuration: false,
+            message: message.into(),
+        }
+    }
+
+    /// A configuration error: an option or setting the call was given cannot be used. The message
+    /// names the option and says what to write instead.
+    #[must_use]
+    pub fn config(message: impl Into<String>) -> Self {
+        Self {
+            configuration: true,
+            message: message.into(),
+        }
+    }
+
+    /// Whether this is a configuration error ([`Error::config`]).
+    #[must_use]
+    pub fn is_config(&self) -> bool {
+        self.configuration
     }
 
     /// The message.
     #[must_use]
     pub fn message(&self) -> &str {
-        &self.0
+        &self.message
+    }
+
+    /// The same kind of error with another message, for a caller that adds context.
+    #[must_use]
+    pub fn with_message(self, message: impl Into<String>) -> Self {
+        Self {
+            configuration: self.configuration,
+            message: message.into(),
+        }
     }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&self.message)
     }
 }
 

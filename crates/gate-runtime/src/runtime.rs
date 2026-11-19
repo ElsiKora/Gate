@@ -577,8 +577,7 @@ impl Runtime {
                 self.invoke(plugin, &label, access, |bindings, store| {
                     bindings.call_check(store, &request)
                 })?;
-            let findings =
-                answer.map_err(|message| Error::new(&plugin.name, ErrorKind::Reported, message))?;
+            let findings = answer.map_err(|error| answered(&plugin.name, error))?;
             for finding in findings {
                 let finding = finding_from(&plugin.name, &call.grant, finding)?;
                 ran_rule(&plugin.name, &ran, &finding)?;
@@ -684,8 +683,7 @@ impl Runtime {
             self.invoke(plugin, &label, access, |bindings, store| {
                 bindings.call_generate(store, name, &project, options)
             })?;
-        let output =
-            answer.map_err(|message| Error::new(&plugin.name, ErrorKind::Reported, message))?;
+        let output = answer.map_err(|error| answered(&plugin.name, error))?;
         let output = GenerateOutput {
             files: output
                 .files
@@ -823,6 +821,16 @@ impl Runtime {
 /// The epoch ticks that cover `time`, at least one.
 fn ticks(time: Duration) -> u64 {
     u64::try_from(time.as_nanos().div_ceil(TICK.as_nanos()).max(1)).unwrap_or(u64::MAX)
+}
+
+/// The error a plugin answered, of its kind.
+fn answered(plugin: &str, error: wit::PluginError) -> Error {
+    match error {
+        wit::PluginError::Configuration(message) => {
+            Error::new(plugin, ErrorKind::Configuration, message)
+        }
+        wit::PluginError::Environment(message) => Error::new(plugin, ErrorKind::Reported, message),
+    }
 }
 
 fn trap(plugin: &str, error: &wasmtime::Error) -> Error {

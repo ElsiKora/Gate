@@ -231,6 +231,7 @@ fn the_settings_are_required_and_checked() {
             missing.message().contains("missing field `main`"),
             "{missing}"
         );
+        assert!(missing.is_config(), "a configuration error: {missing}");
         if rule == "branch-name" {
             continue;
         }
@@ -243,6 +244,7 @@ fn the_settings_are_required_and_checked() {
             error.message().contains("is not a full commit id"),
             "{error}"
         );
+        assert!(error.is_config(), "a configuration error: {error}");
 
         let unknown = settings(&root).replace("\"main\"", "\"mainline\"");
         let error = repo.check(rule, &unknown, "{}").expect_err("unknown key");
@@ -250,6 +252,7 @@ fn the_settings_are_required_and_checked() {
             error.message().contains("unknown field `mainline`"),
             "{error}"
         );
+        assert!(error.is_config(), "a configuration error: {error}");
 
         let generated =
             settings(&root).replace("\"main\"", "\"generated\": [\".agents/**\"], \"main\"");
@@ -260,6 +263,7 @@ fn the_settings_are_required_and_checked() {
             error.message().contains("unknown field `generated`"),
             "{error}"
         );
+        assert!(error.is_config(), "a configuration error: {error}");
 
         let elsewhere = "b".repeat(40);
         let error = repo
@@ -269,6 +273,7 @@ fn the_settings_are_required_and_checked() {
             error.message().contains("is not an ancestor of main"),
             "{error}"
         );
+        assert!(!error.is_config(), "an environment error: {error}");
 
         let groupless = settings(&root).replace(r"(\\d+\\.\\d+\\.\\d+)", r"\\d+\\.\\d+\\.\\d+");
         assert_ne!(groupless, settings(&root));
@@ -276,6 +281,7 @@ fn the_settings_are_required_and_checked() {
             .check(rule, &groupless, "{}")
             .expect_err("no capture group");
         assert!(error.message().contains("has no capture group"), "{error}");
+        assert!(error.is_config(), "a configuration error: {error}");
 
         let inverted = settings(&root).replace("[8, 30]", "[30, 8]");
         let error = repo
@@ -287,6 +293,7 @@ fn the_settings_are_required_and_checked() {
                 .contains("has its minimum above its maximum"),
             "{error}"
         );
+        assert!(error.is_config(), "a configuration error: {error}");
 
         let nowhere = settings(&root).replace("refs/heads/main", "refs/heads/trunk");
         let error = repo.check(rule, &nowhere, "{}").expect_err("no main");
@@ -294,6 +301,7 @@ fn the_settings_are_required_and_checked() {
             error.message().contains("none of the main references"),
             "{error}"
         );
+        assert!(!error.is_config(), "an environment error: {error}");
     }
 
     let partial = format!(
@@ -309,6 +317,7 @@ fn the_settings_are_required_and_checked() {
         ),
         "{error}"
     );
+    assert!(error.is_config(), "a configuration error: {error}");
 
     // Forms that read nothing else: only `activation` is missing.
     let main_only = r#"{"main": ["refs/heads/main"], "forms": [{"kind": "direct", "checks": []}]}"#;
@@ -322,6 +331,7 @@ fn the_settings_are_required_and_checked() {
             )),
             "{error}"
         );
+        assert!(error.is_config(), "a configuration error: {error}");
     }
 
     // The default forms have a release form, which reads `release-subject`.
@@ -336,5 +346,6 @@ fn the_settings_are_required_and_checked() {
             ),
             "{error}"
         );
+        assert!(error.is_config(), "a configuration error: {error}");
     }
 }

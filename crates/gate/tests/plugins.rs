@@ -2630,6 +2630,54 @@ fn a_message_past_the_read_set_limit_is_recorded_by_its_digest() {
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
 }
 
+#[test]
+fn a_rules_bad_option_is_a_configuration_error_and_a_missing_plugin_an_environment_error() {
+    // The hello plugin: its marker passes the schema and is refused by the rule.
+    let repo = Repo::pinned(r#"{ marker = "" }"#);
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:") && message.contains("marker is empty"),
+        "{message}"
+    );
+
+    // The git plugin: a header-pattern that does not compile.
+    let git = GitOptions::new();
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&file, "feat(core): add the thing\n").expect("message");
+    let at = file.display().to_string();
+    let output = git.check(
+        "",
+        r#""git/commit-message" = { level = "error", options = { header-pattern = "(" } }"#,
+        &["--commit-message", &at],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("header-pattern \"(\" is not a valid regular expression"),
+        "{message}"
+    );
+
+    // A plugin file that is not there stays an environment error.
+    let missing = outside.path().join("git.wasm");
+    let output = git.repo.gate(&[
+        "check",
+        "--plugin",
+        &format!("git={}", missing.display()),
+        "--commit-message",
+        &at,
+    ]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: environment error:") && message.contains("cannot read"),
+        "{message}"
+    );
+}
+
 /// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the
 /// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
 fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {
