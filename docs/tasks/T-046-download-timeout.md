@@ -104,6 +104,26 @@ short.
   all exit 0 in the gates on the pushed commit.
 - Do not edit docs/plan.md; the lead keeps it.
 
+## Proof
+
+Lane round on 7ea1399 (ticket 247, 2026-11-19, 21:32 to 21:48 UTC, load average about 41 at the start),
+in T-046's own target directory:
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --locked --workspace --all-targets -- -D warnings` | 0 |
+| test | `cargo test --locked --workspace --no-fail-fast` | 0 (1018 passed, 0 failed) |
+| deny | `cargo deny --locked check` | 0 |
+| build | `cargo build --release --locked` | 0 |
+
+The five new tests ran and passed: the three bounds of `distribution` in `gate-host` (stalled body, no
+answer, no TLS) and the slow server that is not cut, and the launcher's
+`the_launcher_fails_closed_when_the_core_download_stops_sending`. Earlier rounds: ticket 223 withdrawn
+before it started (it would have built the tree before the review fixes); ticket 235 on 5e412d6
+stopped at clippy (`too_many_lines`), fixed in 83ea0c4; 3e2f4d9 and 7ea1399 read the branch against
+the lints that stopped other rounds.
+
 ## Resume point
 
 2026-11-19: 1e96a8e reviewed; the four review points fixed: the connect message keeps the proxy
@@ -117,3 +137,5 @@ lane rule. `download_into` now streams every 200 answer through one closure. Rea
 that stopped other rounds: the timeout closure's `bound` beside `bounds` (`similar_names`) and the test
 server's two-arm `match` on the stall (`single_match_else`) changed, and the new test's empty-`tmp`
 assertion compares with `assert_eq!` (`assert_is_empty`). Next: the round again.
+
+2026-11-19: ticket 247 on 7ea1399 green in all five steps (Proof above). Next: the lead's review and merge.
