@@ -97,8 +97,8 @@ Each shared plugin keeps its own changelog next to its code.
   `"<plugin>/*"` family) that sets a level, or a level in `levels`, below its default must name the
   decision that accepted it with `decision = "<record>"`. The default is the preset's level of that
   aspect, else of the rule; a rule no preset names needs no decision at any level. `off` is below
-  every level. The check runs when the plugins
-  load and fails with exit 2. `[exception-policy]` is now an unknown table: rename it.
+  every level. The check runs when the plugins load and fails with exit 2. `[exception-policy]` is
+  now an unknown table: rename it.
 
 ### Features
 
