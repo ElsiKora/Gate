@@ -466,7 +466,11 @@ impl Loaded {
                 if rules.is_empty() {
                     continue;
                 }
-                let grant = grant(root.as_deref(), settings, name);
+                let options_files: Vec<&str> = rules
+                    .iter()
+                    .filter_map(|rule| rule.run.options_file.as_deref())
+                    .collect();
+                let grant = grant(root.as_deref(), settings, name, &options_files);
                 let request = gate_sdk::CheckRequest {
                     project: root.clone().unwrap_or_default(),
                     norms: norms(settings),
@@ -551,13 +555,21 @@ fn reported(
     }))
 }
 
-/// What `plugin`'s calls in a scope may read: the project's `root` (`None`: the repository) and the
-/// extra paths the scope's declaration of the plugin reads.
-fn grant(root: Option<&str>, settings: &Settings, plugin: &PluginName) -> Grant {
+/// What `plugin`'s calls in a scope may read: the project's `root` (`None`: the repository), the
+/// extra paths the scope's declaration of the plugin reads, and `options_files`, the repository
+/// paths of the option files of the rules the call runs: each file alone, not its directory, so a
+/// rule can read the file its options came from wherever it lies (a root profile's, outside the
+/// project).
+fn grant(
+    root: Option<&str>,
+    settings: &Settings,
+    plugin: &PluginName,
+    options_files: &[&str],
+) -> Grant {
     let Some(root) = root else {
         return Grant::repository();
     };
-    let reads: Vec<String> = settings
+    let mut reads: Vec<String> = settings
         .plugins
         .get(plugin)
         .map(|declared| {
@@ -569,6 +581,7 @@ fn grant(root: Option<&str>, settings: &Settings, plugin: &PluginName) -> Grant 
                 .collect()
         })
         .unwrap_or_default();
+    reads.extend(options_files.iter().map(|file| (*file).to_owned()));
     Grant::new(root, &reads)
 }
 
@@ -691,7 +704,7 @@ impl<'w> PluginGenerators<'w> {
         let settings = project
             .and_then(|project| self.workspace.settings(project))
             .unwrap_or_else(|| self.workspace.repository());
-        grant(root, settings, name)
+        grant(root, settings, name, &[])
     }
 }
 

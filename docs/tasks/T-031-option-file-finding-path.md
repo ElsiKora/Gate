@@ -7,7 +7,7 @@
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
 | Depends on | the v0.1.0 root |
-| Touches | the host's mapping of finding locations into the repository, its tests |
+| Touches | `crates/gate-runtime/src/runtime.rs` (the check request), `crates/gate-host/src/plugins.rs` (a call's read grant), the WIT and SDK docs of `options-file`, the probe plugin, `crates/gate/tests/plugins.rs` |
 
 ## Goal
 
@@ -22,6 +22,10 @@ tree, in two findings of `nestjs/controller-owners` and `nestjs/field-inventory`
 1. Find where an option file's path, already repository-relative, is mapped from the project again.
 2. Tests: a nested project whose rule reports on its option file names the path once, in the text, JSON
    and SARIF reports; the same at the repository root.
+3. The WIT promises a rule can read its option file (lead, 2026-11-19): the host adds each rule's
+   own option file to its call's read grant, the file alone and not its directory, so an option file
+   of a root `[[profiles]]` entry, outside the project, is readable too. Test: such a file, read by
+   a rule of a nested project and reported at its repository path.
 
 ## Cause and change
 
@@ -31,7 +35,8 @@ plugin as `options-file`. A rule addresses every path relative to its scope's ro
 reported at that path was mapped from the project root again, and reading it through the tree
 missed the file. The runtime now gives the plugin the option file relative to the call's grant
 (`Grant::to_plugin`), as every other path: the finding is mapped back once, and the rule can read the
-file. The WIT and the SDK's `RuleRun` say so.
+file. The WIT and the SDK's `RuleRun` say so. The host adds the option files of the rules a call
+runs to that call's grant, each file alone (`grant` in `crates/gate-host/src/plugins.rs`).
 
 Tests (`crates/gate/tests/plugins.rs`), through the probe's `read` rule, whose new `at_options_file`
 reports a finding at its option file with what reading it answers:
@@ -43,6 +48,11 @@ reports a finding at its option file with what reading it answers:
 - `a_finding_in_the_option_file_of_a_single_project_repository_names_its_path`: the same at the
   repository root. The root's scope root is empty, so this case was right before the change too; the
   test keeps it right.
+- `a_rule_reads_a_root_profiles_option_file_and_reports_at_its_repository_path`: the root's
+  `[[profiles]]` gives a rule of `apps/one` the option file `gate/options/probe/read.json`; the rule
+  reads it as `../../gate/options/probe/read.json`, cannot read its neighbour `other.json` (the file
+  is granted, not its directory), and its finding names `gate/options/probe/read.json`. It fails
+  before either change.
 
 ## Done when
 
@@ -54,6 +64,6 @@ reports a finding at its option file with what reading it answers:
 
 ## Resume point
 
-2026-11-19: branch `task/T-031-option-file-finding-path` from main `2b248bd`. Change and tests
-written; next: the gates on the pushed commit, with the nested test run once on the runtime before
-the change.
+2026-11-19: branch `task/T-031-option-file-finding-path` on main `59fb163`, the first public release.
+Change, tests and the option-file grant written; next: the gates, with the tests run once on the
+runtime before the change and once on the host before the grant, then the push and the review.

@@ -1426,6 +1426,47 @@ fn a_finding_in_a_nested_projects_option_file_names_its_path_once() {
 }
 
 #[test]
+fn a_rule_reads_a_root_profiles_option_file_and_reports_at_its_repository_path() {
+    // The root's profile gives a rule of `apps/one` an option file outside the project, and the
+    // plugin declares no extra reads: the call may read that file, and only it.
+    let repo = probe_repo(
+        r#""probe/read" = { level = "error", options-file = "gate/options/probe/read.json" }"#,
+    );
+    repo.write(
+        "gate/options/probe/read.json",
+        "{ \"at_options_file\": true, \"paths\": [\"../../gate/options/probe/other.json\"] }\n",
+    );
+    repo.write("gate/options/probe/other.json", "{}\n");
+    repo.commit("an option file from the root's profile");
+
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        [
+            "../../gate/options/probe/other.json: none",
+            "options file ../../gate/options/probe/read.json: { \"at_options_file\": true, \"paths\": [\"../../gate/options/probe/other.json\"] }",
+        ]
+    );
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&text(&output.stdout)).expect("a JSON report");
+    let at_file: Vec<&str> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|finding| {
+            finding["message"]
+                .as_str()
+                .is_some_and(|message| message.starts_with("options file "))
+        })
+        .filter_map(|finding| finding["location"]["path"].as_str())
+        .collect();
+    assert_eq!(at_file, ["gate/options/probe/read.json"]);
+}
+
+#[test]
 fn a_finding_in_the_option_file_of_a_single_project_repository_names_its_path() {
     let repo = Repo::empty();
     let source = "acme/rules:probe@0.1.0";
