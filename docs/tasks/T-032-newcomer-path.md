@@ -7,7 +7,7 @@
 | Writer | "Gate 004: public presentation" |
 | Reviewer | a separate review session (the workflow change); the lead reads the documents |
 | Depends on | the v0.1.0 root |
-| Touches | `README.md`, `docs/guide/**`, `docs/plan.md`, `docs/tasks/**`, `.github/workflows/release.yml`, `.github/workflows/release-plugin.yml` |
+| Touches | `README.md`, `docs/guide/**`, `docs/architecture.md`, `plugins/git/rules/main-history.md`, `docs/plan.md`, `docs/tasks/**`, `.github/workflows/release.yml`, `.github/workflows/release-plugin.yml` |
 
 ## Goal
 
@@ -19,8 +19,9 @@ never does.
 
 ## Scope
 
-1. The README's and getting-started's example configuration: `activation` holds the output of
-   `git rev-parse HEAD`, and the text says so instead of offering a placeholder commit.
+1. The example configurations of the README, the guides, `docs/architecture.md` and
+   `plugins/git/rules/main-history.md`: `activation` holds the output of `git rev-parse HEAD`, and
+   the text says so instead of offering a placeholder commit.
 2. The commands after the example configuration track the files they need (`git add`) before
    `lock`, `sync` and `check`.
 3. The install steps run in the repository root and remove the downloaded archive, `SHA256SUMS`
@@ -52,8 +53,6 @@ Not in scope: `gate init`'s suggested rule and the commit-msg check (T-029).
 - Gate reads the working-tree content of a tracked file, so an edit to `gate.toml` needs no new
   `git add` before `lock` or `check`; but the pre-commit hook checks the staged files, so every file
   Gate writes or the reader edits is added again before the commit.
-- The example configurations of the rule pages (`plugins/git/rules/main-history.md`) and of
-  `docs/architecture.md` keep their placeholder commit: they are not steps to paste.
 - T-029 changes the README's and getting-started's git rule and hook lines; this task leaves them
   to it and rebases onto main after it merges, then the stranger run is repeated on that tip.
 

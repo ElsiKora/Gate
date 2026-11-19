@@ -126,7 +126,7 @@ source = "ElsiKora/Gate:git@0.1.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
-activation = "0123456789abcdef0123456789abcdef01234567"
+activation = "<the output of git rev-parse HEAD>"  # the commit the policy starts after
 release-subject = '^chore\(release\): (\d+\.\d+\.\d+) \[skip ci\]$'
 branch-pattern = '^(feat|fix|docs|chore)/[a-z0-9-]+$'
 branch-length = [5, 60]
@@ -137,6 +137,9 @@ dependabot = ["package.json", "package-lock.json"]
 "git/main-history" = "error"
 ```
 
+Write the commit the git rules start after in place of `<the output of git rev-parse HEAD>`: for a
+new policy, the output of `git rev-parse HEAD`. A commit before it is never checked.
+
 A subject-based policy: every commit on main has a Conventional Commits subject or is a revert, and
 merges keep a `Merge ...` subject. No check beyond the form runs and there is no release form, so
 only `main`, `activation` and `forms` are needed; `git/no-ci-skip` then exempts no commit:
@@ -144,7 +147,7 @@ only `main`, `activation` and `forms` are needed; `git/no-ci-skip` then exempts 
 ```toml
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
-activation = "0123456789abcdef0123456789abcdef01234567"
+activation = "<the output of git rev-parse HEAD>"  # the commit the policy starts after
 
 [[plugins.git.options.forms]]
 kind = "merge"

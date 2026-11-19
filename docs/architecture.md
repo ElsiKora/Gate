@@ -256,7 +256,7 @@ ignore = ["samples/**"]
 
 [plugins.git]
 source = "ElsiKora/Gate:git@0.1.0"
-options = { main = ["refs/remotes/origin/main"], activation = "0123456789abcdef0123456789abcdef01234567", release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$' }
+options = { main = ["refs/remotes/origin/main"], activation = "<the output of git rev-parse HEAD>", release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$' }
 
 [plugins.markdown]
 source = "ElsiKora/Gate:markdown@0.1.0"
@@ -276,6 +276,9 @@ workflow = ".github/workflows/gate.yml"
 jobs.gate = { name = "Gate", run = ["check --changed --base origin/main"] }
 aggregate = "required"  # one more job: needs every job, fails unless each succeeded or was skipped
 ```
+
+`activation` is the commit the git rules start after: for a new policy, the output of
+`git rev-parse HEAD`.
 
 Project (`apps/server/gate.toml`):
 
