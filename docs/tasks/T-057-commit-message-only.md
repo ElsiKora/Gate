@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead; code after T-047 |
+| Status | design approved by the lead; tests and the change pushed, gates wait for T-047 |
 | Release | v0.3.0 (it changes what an existing `commit-msg` hook checks) |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
@@ -89,7 +89,15 @@ Each test fails before its change. They use synthetic plugins and trees.
 
 ## Resume point
 
-Branched from main `73d33e7`. The lead approved the design: item 1 is `READS_MESSAGE` and
-`gate:plugin@0.3.0`, and items 2 to 6 stand as written. The `CHANGELOG.md` entries are under
-Unreleased, Changed. Nothing is implemented. Next, after T-047: the tests, each failing first,
-then the interface, the host, the `git` rules and the two guide pages.
+2026-11-19T19:42:27+00:00:
+- Branched from main `73d33e7`, then rebased onto the T-047 tip `1fb98c0`, because the load set
+  of item 3 is T-047's. It is rebased again onto main when T-047 merges.
+- The lead approved the design: item 1 is `READS_MESSAGE` and `gate:plugin@0.3.0`, and items 2
+  to 6 stand as written. The `CHANGELOG.md` entries are under Unreleased, Changed.
+- `e77337c` holds the tests, written before the change.
+- `6ffb35b` holds the change: the interface, the SDK, the runtime gates and the project-scope
+  refusal, the host's message-only selection, the usage error, the `git` rules and the documents.
+- Nothing is compiled yet. The round runs on the lane only after T-047's gates are green, so a
+  T-047 fault does not cost two rounds. The round runs the tests on `e77337c` first, where each is
+  expected to fail, then the gates on the tip.
+- Next: the round, then the consumer's cold `commit-msg` row, before and after.
