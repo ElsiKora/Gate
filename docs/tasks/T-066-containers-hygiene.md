@@ -2,20 +2,20 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead's decision; no code |
+| Status | design approved by the lead at `c557d16` with the decisions below (2026-11-19); code after T-056 is green |
 | Release | v0.3.0 (it adds `tree.size` to the plugin interface, which v0.3.0 moves to `gate:plugin@0.3.0`, and gives `nestjs/raw-config-access` aspects, which re-keys its findings) |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | a separate review session |
 | Depends on | the `gate:plugin@0.3.0` bump (T-057 or T-059, whichever merges first) |
-| Touches | `wit/gate.wit` (`tree.size`), `crates/gate-sdk` (`Tree::size`), `crates/gate-host` (the tree host call and its read record), a new `plugins/docker` (two rules), a new `plugins/repository` (two rules), `plugins/nestjs` (`raw-config-access`: aspects and options), `Cargo.toml` (two workspace members), `docs/guide/plugins.md`, `CHANGELOG.md` |
+| Touches | `wit/gate.wit` (`tree.size`), `crates/gate-sdk` (`Tree::size`), `crates/gate-host` (the tree host call and its read record), a new `plugins/docker` (two rules), a new `plugins/repository` (two rules), `languages/typescript` (the shared environment coverage), `plugins/nestjs` (`raw-config-access`: aspects and options), `Cargo.toml` (two workspace members), `docs/guide/plugins.md`, `CHANGELOG.md` |
 
 ## Goal
 
 Every image, every compose file and every repository follows one standard, and a gate holds it:
 
-- An image is built from a base pinned by digest, in stages, runs as a user that is not root, says how
-  to check its health, ignores what must never enter a build context, and takes no secret through a
-  build argument or an environment variable.
+- An image is built from a base pinned by digest, in stages, runs as a user that is not root, carries
+  the OCI labels and no other, ignores what must never enter a build context, and takes no secret
+  through a build argument or an environment variable. Its health check is the orchestrator's.
 - A compose file has one name form, its services one name form, its images are pinned, and no secret is
   written into it.
 - No repository tracks an environment file, a private key, a credential file, a token or a large binary.
@@ -44,8 +44,9 @@ What the survey found, in short (the full table is kept outside this repository)
 | Base image | three of five Dockerfiles name a tag only; two pin a digest. Three registries are in use. | `pinned` |
 | Stages | four of five are multi-stage; the test harness has one stage. | `stages` |
 | User | the two service images run as root in every target; two others set `USER node`. | `user` |
-| Health | no image has a `HEALTHCHECK`. | `healthcheck` (open item 1) |
-| Ignore file | two `.dockerignore` at the root, two `Dockerfile.dockerignore` beside their Dockerfile, one Dockerfile with none beside it. | `ignore` (open item 2) |
+| Health | no image has a `HEALTHCHECK`. | `healthcheck` (decision 1) |
+| Ignore file | two `.dockerignore` at the root, two `Dockerfile.dockerignore` beside their Dockerfile, one Dockerfile with none beside it. | `ignore` (decision 2) |
+| Labels | every image sets `org.opencontainers.image.revision`; the release id is under a label namespace of each product's own. | `labels` (decision 3) |
 | Build secrets | none in `ARG` or `ENV`: all three images that need one use a BuildKit secret mount. | `secret` |
 | Compose file names | `docker-compose.<purpose>.yml` and `docker-compose.<scenario>.<purpose>.yml`, purpose `e2e` or `development`. No other form. | `name` |
 | Compose services | the single-database files name services `app-<purpose>-<role>`; the scenario files do not. | `service` |
@@ -73,18 +74,24 @@ What the survey found, in short (the full table is kept outside this repository)
    from (`FROM <stage>`) or copies from (`COPY --from=<stage>`). Its effective user, its own last `USER`
    or the one it inherits from its stage chain, is set and is not `root` or `0`. Every runtime stage
    counts, including one that only prints an error: anyone can build it.
-4. **A runtime stage says how to check its health**: a `HEALTHCHECK CMD`, its own or inherited.
-   `HEALTHCHECK NONE` is reported like a missing one.
-5. **The build context ignores what must never enter it.** Each Dockerfile has its own ignore file,
-   `<Dockerfile>.dockerignore` beside it. BuildKit, the default builder since Docker Engine 23.0, reads
-   it whatever the build context is, so the ignore file is right even when the context is not the
-   Dockerfile's directory. The file either starts as an allow-list (`**` as its first pattern) or
-   excludes each pattern of `must-ignore`.
+4. **No `HEALTHCHECK`** (decision 1). The health check is the orchestrator's: ECS takes a container's
+   check from its task definition, and the `cdk` plugin (T-064) requires one for every service
+   container. A check in the image would be a second place for the same job. Any `HEALTHCHECK`
+   instruction, `NONE` included, is reported.
+5. **The build context ignores what must never enter it** (decision 2). Each Dockerfile has its own
+   ignore file, `<name>.dockerignore` beside it. BuildKit, the default builder since Docker Engine 23.0,
+   reads it whatever the build context is, and the form scales to several Dockerfiles in one
+   repository. A `.dockerignore` anywhere is reported. The file either starts as an allow-list (`**` as
+   its first pattern) or excludes each pattern of `must-ignore`.
 6. **No secret is a build argument or an environment variable.** An `ARG` or `ENV` whose name contains
    one of `secret-names` is reported, with or without a value: both end up in the image's history.
    Secrets reach a step through `RUN --mount=type=secret`, as every image read for this design already
    does.
-7. **One name per job:** an image's file is `Dockerfile`, one per directory. `Dockerfile.<x>`,
+7. **The labels are the OCI ones** (decision 3). Each runtime stage sets, itself or through its stage
+   chain, `org.opencontainers.image.source`, `org.opencontainers.image.revision` and
+   `org.opencontainers.image.version`. A label of any other name is reported: the release id is
+   `org.opencontainers.image.version`, not a product's own label.
+8. **One name per job:** an image's file is `Dockerfile`, one per directory. `Dockerfile.<x>`,
    `<x>.Dockerfile` and `dockerfile` are reported, and so is a `.dockerignore`, whose job the file
    beside the Dockerfile has.
 
@@ -103,12 +110,16 @@ What the survey found, in short (the full table is kept outside this repository)
 4. **Images are pinned**: `image:` is `<image>@sha256:<64 hex>`, or a required variable
    (`${NAME:?...}`), whose value the caller pins. A plain `${NAME}`, or a default that is not pinned
    (`${NAME:-postgres:17}`), is reported. A service built from a Dockerfile has its pin there.
-5. **No secret is written in**: an `environment` entry whose name contains one of `secret-names` and
-   whose value is a literal, or a `${NAME:-literal}` default, is reported. A `${NAME}` value, a name
-   ending in one of `reference-suffixes` (`_FILE`, `_PATH`: the value is a path) and compose `secrets:`
-   pass.
+5. **No secret is written in, except in an end-to-end file** (decision 4). An `environment` entry
+   whose name contains one of `secret-names` and whose value is a literal, or a `${NAME:-literal}`
+   default, is reported. A `${NAME}` value, a name ending in one of `reference-suffixes` (`_FILE`,
+   `_PATH`: the value is a path) and compose `secrets:` pass. In a `*.e2e.yml` file a literal passes:
+   such a file starts local, throwaway dependencies, and their credentials protect nothing. This is part
+   of the rule's definition, written on its page, not an exception.
 6. **A published port is on the loopback address**: `127.0.0.1:` or `[::1]:` before the host port.
    Every file read already does this; the rule keeps it so.
+7. **A service others wait for declares its health** (decision 1): a service that another service's
+   `depends_on` names with `condition: service_healthy` has a `healthcheck`.
 
 ### Repository hygiene
 
@@ -125,12 +136,15 @@ What the survey found, in short (the full table is kept outside this repository)
    more), npm tokens (`npm_` and 36), Slack tokens (`xoxa-`, `xoxb-`, `xoxp-`, `xoxr-`, `xoxs-`).
 5. **No credential in an `.npmrc`**: an `_authToken`, `_auth` or `_password` line with a literal value.
    `${NAME}` passes.
-6. **No large file**: a binary file (a NUL byte in its first 8,000 bytes, as git decides) over
-   `max-binary-bytes`, and any file over `max-text-bytes`.
+6. **No large file** (decision 5): a tracked file over 1 MiB is `large`, and over 5 MiB `huge`. The
+   page sets them at `warning` and `error` in its example; the level is the configuration's. A project
+   declares a large file it needs in `extra` as `{ path, job }`, and it is not reported. Whether a large
+   file moves to Git LFS or to storage is the project's call.
 
 ### Environment coverage
 
-A service's `.env.example` lists exactly the variables the service reads:
+A project's `.env.example` lists exactly the variables the project reads, for a service and a
+frontend alike, with one implementation:
 
 - each key a read names has a line;
 - each line names a key some read names;
@@ -145,8 +159,8 @@ Two rules, one per file kind, with aspects:
 
 | Rule | Aspects |
 | --- | --- |
-| `docker/dockerfile` | `name`, `pinned`, `stages`, `user`, `healthcheck`, `ignore`, `secret` |
-| `docker/compose` | `name`, `pinned`, `secret`, `service`, `container-name`, `port` |
+| `docker/dockerfile` | `name`, `pinned`, `stages`, `user`, `healthcheck`, `labels`, `ignore`, `secret` |
+| `docker/compose` | `name`, `pinned`, `secret`, `service`, `container-name`, `port`, `healthcheck` |
 
 ### Hygiene: a new `repository` plugin, language-free, repository scope (recommended)
 
@@ -155,7 +169,7 @@ Two rules:
 | Rule | Aspects |
 | --- | --- |
 | `repository/tracked-secrets` | `env-file`, `key-file`, `private-key`, `token`, `npmrc` |
-| `repository/large-files` | `binary`, `text` |
+| `repository/large-files` | `large`, `huge`, `extra-missing` |
 
 **Why a plugin of its own, and not `git`.** Every `git` rule is about history or git's own data (the
 commit message, the branch, main's first-parent line, a CI-skip directive), and most read history.
@@ -172,7 +186,24 @@ tip and a key in history. The pre-commit hook checks each commit's index, so a r
 hooks catches it at the commit. A history aspect (`reads-history`, the pushed range) would belong to
 `git`; it is a follow-up, not part of this task.
 
-### Environment coverage: `nestjs/raw-config-access` gains aspects (recommended)
+### Environment coverage: one implementation in `gate-typescript`, called by `nestjs/raw-config-access` and the frontend's rule
+
+The comparison of `.env.example` with the reads is one module of the TypeScript language library,
+`gate_typescript::env`. Each rule finds its own reads and hands them over: `raw-config-access` the keys
+of its raw configuration getters and of `process.env`, the frontend plugin's environment rule (T-068)
+the keys its configuration module declares. The module parses the example file (`KEY=value` and
+`export KEY=value` lines, comments and blank lines skipped), compares, and reports through the rule's
+`Report` under the same aspect names and the same options in both rules:
+
+```rust
+pub struct EnvRead { pub key: Option<String>, pub path: String, pub span: Span, pub expression: String }
+pub struct ExternalKey { pub key: String, pub reader: String }
+pub fn check_example(report: &mut Report, example_path: &str, example: Option<&str>, reads: &[EnvRead], external: &[ExternalKey]);
+```
+
+A read whose key is `None` is one the rule cannot name (`dynamic`).
+
+### `nestjs/raw-config-access` gains aspects
 
 `raw-config-access` already knows the raw configuration services (`raw-imports`), follows every name
 that reaches them, and knows the configuration boundary (`approved-*`). Its page already gives the
@@ -226,11 +257,13 @@ finding, how to fix it), no preset that sets a level.
 | Rule | Option | Type | Default |
 | --- | --- | --- | --- |
 | `docker/dockerfile` | `must-ignore` | list of patterns | `[".git", ".env", ".env.*", "*.env", "*.pem", "*.key"]` |
+| `docker/dockerfile` | `labels` | list of names | `["org.opencontainers.image.source", "org.opencontainers.image.revision", "org.opencontainers.image.version"]` |
 | `docker/compose` | `purposes` | list of strings | `["development", "e2e"]` |
 | `docker/compose` | `reference-suffixes` | list of strings | `["_FILE", "_PATH"]` |
 | `repository/tracked-secrets` | `env-examples` | list of file names | `[".env.example"]` |
-| `repository/large-files` | `max-binary-bytes` | integer | `1048576` (1 MiB) |
-| `repository/large-files` | `max-text-bytes` | integer | `2097152` (2 MiB) |
+| `repository/large-files` | `large-bytes` | integer | `1048576` (1 MiB) |
+| `repository/large-files` | `huge-bytes` | integer | `5242880` (5 MiB) |
+| `repository/large-files` | `extra` | list of `{ path, job }` | `[]`: the large files the project needs, each with its job |
 
 **A secret is never printed.** The SDK has no call that puts a file's text into a finding. For
 `tracked-secrets` and the two `secret` aspects, the message names the path, the line and the kind
@@ -240,9 +273,10 @@ target is `<path>:<line>`, so an exception can name a test fixture that holds a 
 
 ## 4. The interface: `tree.size`
 
-`repository/large-files` needs every tracked file's size. Through `tree.read` alone it would read the
-whole tree on every full run, between 43 and 75 MiB in the repositories read, and its read set would
-hold every file, so any change would invalidate its cached result. `gate:plugin@0.3.0` gets:
+`repository/large-files` needs every tracked file's size and nothing else. Through `tree.read` alone it
+would read the whole tree on every full run, between 43 and 75 MiB in the repositories read, and its
+read set would hold every file, so any change would invalidate its cached result. `gate:plugin@0.3.0`
+gets:
 
 ```wit
 interface tree {
@@ -252,9 +286,10 @@ interface tree {
 ```
 
 The host takes the size from the snapshot's index entry or tree object, without reading the content,
-and records `(path, size)` in the read set. The rule then reads only the files over
-`max-binary-bytes`, to tell binary from text. `tracked-secrets` still reads every text file, which is
-its job. On a hook run, the result cache keeps that cost to the changed files.
+and records `(path, size)` in the read set. `large-files` reads no content at all. `tracked-secrets`
+still reads every text file, which is its job. On a hook run, the result cache keeps that cost to the
+changed files. The other `gate:plugin@0.3.0` additions (seeds, generator plugin options, rule decisions)
+touch the same lines of `wit/gate.wit`; whichever branch merges later rebases.
 
 ## 5. Tests
 
@@ -270,11 +305,14 @@ one.
 - `user`: a runtime stage without `USER`, with `USER root` and with `USER 0` is reported. A stage that
   inherits `USER node` from its base stage passes. A build stage without `USER` passes. Two runtime
   targets, one without a user, give exactly one finding.
-- `healthcheck`: no `HEALTHCHECK`, and `HEALTHCHECK NONE`, are reported; an inherited `HEALTHCHECK CMD`
-  passes.
+- `healthcheck`: `HEALTHCHECK CMD ...` and `HEALTHCHECK NONE` are each reported; a Dockerfile without
+  one passes.
+- `labels`: a runtime stage without `org.opencontainers.image.version` is reported, naming it; one
+  that inherits the three labels from its base stage passes; `LABEL org.example.release-id=...` is
+  reported.
 - `ignore`: no `Dockerfile.dockerignore` beside the file is reported. An allow-list file (`**` first)
-  passes. A file missing `.env` is reported, naming the missing pattern. A `.dockerignore` is reported
-  under `name`.
+  passes. A file missing `.env` is reported, naming the missing pattern. A `.dockerignore`, at the root
+  or beside a Dockerfile, is reported under `name`.
 - `secret`: `ARG NPM_TOKEN`, `ENV DB_PASSWORD=x` and `ARG api_key` are reported. `ARG RELEASE_ID` and
   `RUN --mount=type=secret,id=npm_token` pass. The finding's message, help, target and key never contain
   the value `x`.
@@ -290,8 +328,11 @@ one.
 - `pinned`: `postgres:17.7-alpine`, `${IMAGE}` and `${IMAGE:-postgres:17}` are reported. A digest and
   `${IMAGE:?set the image}` pass. A service with only `build:` passes.
 - `secret`: a literal `POSTGRES_PASSWORD`, in map form and in list form, and `${PASSWORD:-literal}` are
-  reported. `${PASSWORD}`, `POSTGRES_PASSWORD_FILE: /run/secrets/x` and `secrets:` pass. No output
-  contains the literal.
+  reported in `docker-compose.development.yml`. `${PASSWORD}`, `POSTGRES_PASSWORD_FILE:
+  /run/secrets/x` and `secrets:` pass. The same literal in `docker-compose.e2e.yml` and in
+  `docker-compose.load.e2e.yml` passes. No output contains the literal.
+- `healthcheck`: a service named by another's `depends_on` with `condition: service_healthy` and no
+  `healthcheck` is reported; with one it passes; `condition: service_started` needs none.
 - `port`: `"5432:5432"` and `"0.0.0.0:5432:5432"` are reported; `"127.0.0.1::5432"` and
   `"[::1]:5432:5432"` pass.
 - A file that is not valid YAML stops the run with the parser's message.
@@ -310,15 +351,24 @@ one.
 
 **`repository/large-files`:**
 
-- A binary file of `max-binary-bytes + 1` bytes is reported, and one of exactly `max-binary-bytes`
-  passes.
-- A text file over `max-binary-bytes` and under `max-text-bytes` passes, and one over `max-text-bytes`
-  is reported.
-- Only the files over `max-binary-bytes` are read: the plugin's read record lists no smaller file.
+- A file of `large-bytes + 1` bytes is `large`, and one of exactly `large-bytes` passes.
+- A file of `huge-bytes + 1` bytes is `huge` only, not also `large`.
+- A file declared in `extra` passes at any size; a declared path that is not tracked is
+  `extra-missing`; an `extra` entry without a `job` is a configuration error.
+- The rule reads no content: its read record holds sizes only.
 
 **`tree.size` (host):** the size of a tracked path at the working copy, at the index and at a commit; an
 untracked or ungranted path gives none; a changed size invalidates the cached result, and a changed
 content of the same size does not invalidate it for a rule that read only the size.
+
+**`gate_typescript::env` (unit tests of the shared module):**
+
+- The parser takes `KEY=value`, `export KEY=value`, `KEY=` and quoted values, and skips comments and
+  blank lines; a line that is none of these is reported at its line as `example` syntax, without its
+  text.
+- `undeclared`, `unread`, `dynamic` and `example-missing` each from a hand-built list of reads, each
+  with a passing twin; `external-keys` makes a key read.
+- No finding's message, help, target or key holds a value of the example file.
 
 **`nestjs/raw-config-access`:**
 
@@ -336,34 +386,40 @@ content of the same size does not invalidate it for a rule that read only the si
 one `.env.example`, a planted fake key and a 2 MiB PNG. `gate check` exits 1 with exactly the planted
 findings. With the plants removed, it exits 0.
 
-## Open, for the owner
+## Decisions (the lead, 2026-11-19)
 
-1. **`HEALTHCHECK` in the image, or only in the orchestrator?** No image read has one. A container
-   orchestrator may define its own check in its task definition and ignore the image's. Recommended:
-   in the image, so `docker run` and compose see the same check, and the orchestrator's definition runs
-   the same command. Either way the `healthcheck` aspect exists; a project that decides otherwise sets
-   it `off` and names its decision (T-048).
-2. **The ignore file beside the Dockerfile** (`Dockerfile.dockerignore`) for every image, including one
-   at the root. Two repositories read keep a root `.dockerignore` today, and would rename it.
-3. **One release label.** The images carry the same job under three label namespaces, one per product.
-   `org.opencontainers.image.version` is the standard name. Not a rule in this task; it would be a
-   `labels` aspect of `docker/dockerfile`.
-4. **End-to-end passwords.** Two end-to-end compose files hold a literal throwaway password, and one
-   holds a literal key pair for a local stand-in. The monorepo generates its passwords per run and
-   interpolates them. Recommended: no exception for `e2e`. The other files follow the monorepo, or
-   carry an exception with a reason.
-5. **The large-file limits**: 1 MiB binary and 2 MiB text. At these limits, one repository's 6.3 MiB
-   image and two repositories' 4 MiB JSON corpus are reported.
+1. **Health checks live in the orchestrator, not the image.** ECS takes the container's check from the
+   task definition, so the `cdk` plugin (T-064) gets an aspect: every service container declares one.
+   A compose service that others wait for with `service_healthy` declares a `healthcheck`. A
+   `HEALTHCHECK` in a Dockerfile is a finding: one place per job.
+2. **The ignore file sits beside its Dockerfile** (`<name>.dockerignore`). The form scales to several
+   Dockerfiles in one repository. A `.dockerignore` is a finding.
+3. **Labels are the OCI ones**, `org.opencontainers.image.source`, `.revision` and `.version`. No label
+   of another name.
+4. **Literal credentials are allowed only in `*.e2e.yml`**, for the local throwaway dependencies those
+   files start. It is part of the rule's definition, on its page, not an exception. Everywhere else
+   they are a finding.
+5. **Large files**: `large` above 1 MiB, `huge` above 5 MiB, at `warning` and `error` in the page's
+   example. A project declares a large file it needs in `extra` as `{ path, job }`. Whether it moves to
+   Git LFS or to storage is the project's call.
+6. **Environment coverage is one implementation**, in `gate-typescript`, called by
+   `nestjs/raw-config-access` and by the frontend plugin's environment rule (T-068), under the same
+   aspect names and options.
 
 ## Done when
 
-- The lead decides on the recommendations (the `repository` plugin, aspects on `raw-config-access`,
-  `tree.size`) and the owner on the five open items. Then the code goes on the tip that carries
-  `gate:plugin@0.3.0`, followed by one lane round on the pushed tip: fmt, clippy, test
-  (`--workspace --no-fail-fast`), deny and the release build exit 0, and the leak scan prints nothing.
+- The code, on a branch from `main` once T-056 is green, then one lane round on the pushed tip: fmt,
+  clippy, test (`--workspace --no-fail-fast`), deny and the release build exit 0, and the leak scan
+  prints nothing.
 - Each new rule has its page, and `docs/guide/plugins.md` lists the two plugins.
 
 ## Resume point
 
+2026-11-19: the lead approved the design at `c557d16` and decided the five open items and the shared
+environment module (section "Decisions"). The `cdk` writer (T-064) and the frontend writer (T-068) were
+told their parts. Next: the code, on a branch from `main` once T-056 is green.
+
+Earlier:
+
 2026-11-19: design written from `main` at `ec66737`, after a read-only survey of three repositories
-(the divergence table is kept outside this repository). Waiting for the lead's decision before any code.
+(the divergence table is kept outside this repository).
