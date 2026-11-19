@@ -2609,6 +2609,27 @@ fn a_warm_result_cache_reruns_the_rule_for_another_message_or_hook_state() {
     assert!(said.contains("git/branch-name"), "{said}");
 }
 
+#[test]
+fn a_message_past_the_read_set_limit_is_recorded_by_its_digest() {
+    let git = GitOptions::new();
+    // Under `git commit --verbose` the message file holds the diff below the scissors line; this
+    // one is larger than the 64 MiB of strings a call's read set may hold.
+    let line = "+ a line of the staged diff\n";
+    let message = format!(
+        "feat(core): add the thing\n# ------------------------ >8 ------------------------\n{}",
+        line.repeat((65 << 20) / line.len() + 1)
+    );
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&file, message).expect("message");
+    let output = git.check(
+        "",
+        "\"git/commit-message\" = \"error\"",
+        &["--commit-message", &file.display().to_string()],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+}
+
 /// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the
 /// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
 fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {
