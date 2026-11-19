@@ -2806,7 +2806,10 @@ mod tests {
             .insert_answer(temporary, SYNC_STATE, &key)
             .expect("insert");
         crate::cache::used_days_ago(&file, 40);
-        assert_eq!(crate::cache::older_than_30(&cache), [file.clone()]);
+        assert_eq!(
+            crate::cache::older_than_30(&cache),
+            std::slice::from_ref(&file)
+        );
 
         let (tag, state) = stored(&cache, &key).expect("read").expect("stored");
         assert_eq!((tag, state.produced), (1, vec!["produced".to_owned()]));

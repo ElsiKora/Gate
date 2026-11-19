@@ -453,7 +453,7 @@ mod tests {
         let _loaded = Answers::load(&cache);
         assert_eq!(
             super::super::older_than_30(&cache),
-            [content.clone()],
+            std::slice::from_ref(&content),
             "the run loaded the answer file"
         );
         assert_eq!(blob(&cache, &id), Some(b"content\n".to_vec()));
