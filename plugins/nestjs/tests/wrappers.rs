@@ -397,13 +397,20 @@ fn own_parameters_are_named_and_reassigned_or_defaulted_ones_and_locals_are_not(
             .collect::<Vec<_>>()
     );
 
-    // An exception names the construction by its scope form.
-    let exception =
-        named("ShelfFinder.findListed parameters baseUrl", "baseUrl").expect("a scope form");
-    assert!(
-        !located_targets("{}", &[exception.as_str()], &[(path, text)])
-            .iter()
-            .any(|(_, line, _)| *line == Some(5))
+    // The scope form stays as it is when a line is added above it; the line form moves.
+    let moved = text.replacen('\n', "\n// A line added above.\n", 1);
+    let found = located_targets("{}", &[], &[(path, &moved)]);
+    assert_eq!(
+        found[0],
+        at(
+            "raw-nest-exception",
+            6,
+            named("ShelfFinder.findListed parameters baseUrl", "baseUrl").as_deref()
+        )
+    );
+    assert_eq!(
+        found[1],
+        at("raw-nest-exception", 11, lined(11, "limit").as_deref())
     );
 }
 

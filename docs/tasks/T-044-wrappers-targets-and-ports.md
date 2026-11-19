@@ -43,6 +43,8 @@ Not in scope: any other aspect of the rule; nestjs speed work (T-037 runs in par
 
 ## Resume point
 
-2026-11-19T17:34:26+00:00: both changes, their tests, the rule page and the CHANGELOG are committed;
-not compiled yet. Next: one lane round (fmt, clippy, test, deny) and each change taken out with its
-tests run (each must fail).
+2026-11-19T19:01:32+00:00: round 208 on 0576b2b: fmt 0, clippy 0, deny 0, test 101 with one failure, an
+assertion of the new own-parameter test that expected an exception to drop the finding; the
+plugin reports it with its target and the host matches the exception, so the assertion was wrong.
+It now checks that the scope form stays put when a line is added above and the line form moves.
+All three mutations failed as they must. Next: one lane round on the fix.
