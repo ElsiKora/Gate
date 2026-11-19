@@ -528,6 +528,7 @@ fn compile(runtime: &Runtime, component: &Fetched) -> std::result::Result<Compil
     let Fetched {
         name,
         source,
+        sha256: _,
         from,
         bytes,
     } = component;

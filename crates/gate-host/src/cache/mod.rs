@@ -978,13 +978,13 @@ mod tests {
     fn prune_keeps_the_declarations_of_pinned_plugins_only() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let cache = Cache::at(directory.path());
-        std::fs::write(directory.path().join(CACHE_TAG), CACHE_TAG_CONTENTS).expect("tag");
+        fs::write(directory.path().join(CACHE_TAG), CACHE_TAG_CONTENTS).expect("tag");
         let pinned = Sha256Sum::parse(&"b".repeat(64)).expect("checksum");
         let unpinned = Sha256Sum::parse(&"d".repeat(64)).expect("checksum");
         for plugin in [&pinned, &unpinned] {
             let path = cache.declaration(plugin, "entry");
-            std::fs::create_dir_all(path.parent().expect("parent")).expect("directories");
-            std::fs::write(path, "{}").expect("entry");
+            fs::create_dir_all(path.parent().expect("parent")).expect("directories");
+            fs::write(path, "{}").expect("entry");
         }
 
         let entries = cache
