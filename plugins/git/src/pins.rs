@@ -278,7 +278,7 @@ fn unpin(value: &mut Value) {
     if let Some(fields) = value.as_table_mut() {
         fields.remove("url");
         fields.remove("sha256");
-        for inner in fields.values_mut() {
+        for (_, inner) in fields.iter_mut() {
             unpin(inner);
         }
     }

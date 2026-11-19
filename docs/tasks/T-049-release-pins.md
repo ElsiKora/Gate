@@ -101,3 +101,7 @@ unchanged key, the core's included; a second key beside the old, a second versio
 added under `release-all-pins`; a `source` in options, `[gate] version` alone, white space and
 comments) and the added or deleted file, in the unit test and end to end. Rule page and changelog.
 rustfmt --edition 2024 --check on the changed `.rs` files: exit 0.
+2026-11-19: lane ticket 239 on `8d1f6cb` (the fix round, with two bindings renamed for
+`clippy::similar_names`): fmt 0, clippy 101 on E0599, `toml::map::Map` has no `values_mut`; the
+round stopped after clippy. `unpin` walks the table with `iter_mut` instead. rustfmt --edition 2024
+--check on `pins.rs`: exit 0.
