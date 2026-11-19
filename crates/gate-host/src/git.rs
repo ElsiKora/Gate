@@ -162,10 +162,16 @@ impl Git {
                 second,
             ])
             .output()?;
-        // Exit 0 prints the merged tree first; exit 1 is a conflict.
-        match output.status.code() {
-            Some(0) => Ok(decode(output.stdout)?.lines().next().map(str::to_owned)),
-            Some(1) => Ok(None),
+        // Exit 0 prints the merged tree first. Exit 1 is a conflict when it prints the tree too;
+        // git also exits 1, printing nothing, when an argument names no commit.
+        let tree = decode(output.stdout)?
+            .lines()
+            .next()
+            .filter(|tree| is_object_id(tree))
+            .map(str::to_owned);
+        match (output.status.code(), tree) {
+            (Some(0), Some(tree)) => Ok(Some(tree)),
+            (Some(1), Some(_)) => Ok(None),
             _ => Err(Error::environment(format!(
                 "git merge-tree {first} {second} failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
@@ -234,6 +240,41 @@ impl Git {
             .ok_or_else(|| Error::environment("git cat-file has no standard output"))?;
 
         Ok(CatFile {
+            child,
+            stdin: Some(stdin),
+            stdout: BufReader::new(stdout),
+        })
+    }
+
+    /// Starts a `git merge-tree --stdin --write-tree` process, which answers every merge of a run
+    /// as [`Git::merge_tree`] does, without a git process per merge.
+    ///
+    /// # Errors
+    /// Fails when git cannot start.
+    pub fn merges(&self) -> Result<Merges> {
+        let mut child = self
+            .command()
+            .args([
+                "merge-tree",
+                "--stdin",
+                "--write-tree",
+                "--no-messages",
+                "--name-only",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::environment("git merge-tree has no standard input"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::environment("git merge-tree has no standard output"))?;
+
+        Ok(Merges {
             child,
             stdin: Some(stdin),
             stdout: BufReader::new(stdout),
@@ -374,6 +415,62 @@ impl Drop for CatFile {
     fn drop(&mut self) {
         drop(self.stdin.take());
         // The reader exits when its input closes; its status carries nothing to report.
+        let _status = self.child.wait();
+    }
+}
+
+/// A persistent `git merge-tree --stdin`: one process for the merges of a run.
+#[derive(Debug)]
+pub struct Merges {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stdout: BufReader<ChildStdout>,
+}
+
+impl Merges {
+    /// The tree of git's merge of the commits `first` and `second`, or `None` when the merge
+    /// conflicts: the answer of [`Git::merge_tree`]. Both are full commit ids.
+    ///
+    /// # Errors
+    /// Fails when the process has stopped (git stops at an argument that names no commit) or its
+    /// answer does not parse; [`Git::merge_tree`] then says what is wrong.
+    pub fn merge(&mut self, first: &str, second: &str) -> Result<Option<String>> {
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| Error::environment("git merge-tree is closed"))?;
+        writeln!(stdin, "{first} {second}")?;
+        stdin.flush()?;
+
+        // `<clean: 1, conflict: 0>\0<tree>\0`, then a NUL-ended conflicted path each, then `\0`.
+        let status = self.field()?;
+        let tree = decode(self.field()?)?;
+        while !self.field()?.is_empty() {}
+        match status.as_slice() {
+            b"1" => Ok(Some(tree)),
+            b"0" => Ok(None),
+            _ => Err(Error::environment(format!(
+                "unexpected git merge-tree status {:?}",
+                String::from_utf8_lossy(&status)
+            ))),
+        }
+    }
+
+    /// The next NUL-ended field of the answer, without its NUL.
+    fn field(&mut self) -> Result<Vec<u8>> {
+        let mut field = Vec::new();
+        self.stdout.read_until(0, &mut field)?;
+        if field.pop() != Some(0) {
+            return Err(Error::environment("git merge-tree stopped"));
+        }
+        Ok(field)
+    }
+}
+
+impl Drop for Merges {
+    fn drop(&mut self) {
+        drop(self.stdin.take());
+        // The process exits when its input closes; its status carries nothing to report.
         let _status = self.child.wait();
     }
 }

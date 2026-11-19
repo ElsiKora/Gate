@@ -134,3 +134,47 @@ fn trees_files_and_ancestry_answer_as_git_does() {
         "a directory is not a file"
     );
 }
+
+#[test]
+fn merges_through_one_process_answer_as_a_git_process_per_merge() {
+    let repo = Repo::new();
+    repo.write("f", "base\n");
+    let base = repo.commit("base");
+    repo.git(&["checkout", "-q", "-b", "side"]);
+    repo.write("f", "side\n");
+    let side = repo.commit("side");
+    repo.git(&["checkout", "-q", "-b", "other", &base]);
+    repo.write("g", "other\n");
+    let other = repo.commit("other");
+    repo.git(&["checkout", "-q", "-b", "main-line", &base]);
+    repo.write("f", "main\n");
+    let main = repo.commit("main");
+    let blob = repo.git(&["rev-parse", "HEAD:f"]).trim().to_owned();
+
+    let git = Git::discover(repo.path()).expect("git");
+    let mut merges = git.merges().expect("merge-tree");
+    // A conflict between two clean merges: each answer ends where the next begins.
+    for (first, second) in [
+        (&main, &other),
+        (&main, &side),
+        (&side, &other),
+        (&main, &side),
+    ] {
+        let alone = git.merge_tree(first, second).expect("git merge-tree");
+        assert_eq!(
+            merges.merge(first, second).expect("batch"),
+            alone,
+            "{first} {second}"
+        );
+    }
+    assert!(git.merge_tree(&main, &side).expect("conflict").is_none());
+    assert!(git.merge_tree(&main, &other).expect("clean").is_some());
+
+    // An id that names no commit fails both ways; the batch stops and says so.
+    assert!(git.merge_tree(&main, &blob).is_err());
+    assert!(merges.merge(&main, &blob).is_err());
+    assert!(
+        merges.merge(&main, &other).is_err(),
+        "a stopped batch answers nothing"
+    );
+}

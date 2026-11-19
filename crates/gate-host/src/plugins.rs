@@ -27,7 +27,7 @@ use crate::config::{
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
 use crate::findings::{Finding, Findings, Level, Location, RuleFilter, RulesRan, Span};
-use crate::git::{Git, Objects};
+use crate::git::{Git, Merges, Objects};
 use crate::lock::{Lock, Wanted};
 use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
@@ -495,6 +495,7 @@ impl Loaded {
             states: Mutex::new(BTreeMap::new()),
             counted: SyncStateCount::default(),
             objects: Mutex::new(None),
+            merges: Mutex::new(Batch::Unstarted),
             answers: OnceLock::new(),
             facts: OnceLock::new(),
         });
@@ -1193,6 +1194,20 @@ struct GitHistory {
     /// The one `git cat-file --batch` reader that answers `tree`, `changed-paths`, `read-at` and
     /// `is-ancestor`, started on first use.
     objects: Mutex<Option<Objects>>,
+    /// The one `git merge-tree --stdin` that answers `merge-tree`, started on first use.
+    merges: Mutex<Batch<Merges>>,
+}
+
+/// A long-lived git process of a run.
+#[derive(Debug, Default)]
+enum Batch<T> {
+    /// Not asked yet.
+    #[default]
+    Unstarted,
+    /// Running.
+    Running(T),
+    /// Failed where a git process per question answered: this git cannot run it.
+    Unusable,
 }
 
 /// The `sync-state` answer of one commit in a run.
@@ -1317,9 +1332,7 @@ impl History for GitHistory {
         // git's merge may differ between versions: the version is part of the question.
         let version = self.facts()?.version.clone();
         let answer = self.remembered("merge-tree", &[first, second, &version], true, || {
-            Ok(Answer::Tree(
-                self.git.merge_tree(first, second).map_err(host)?,
-            ))
+            Ok(Answer::Tree(self.merge(first, second)?))
         })?;
         match answer {
             Answer::Tree(tree) => Ok(tree),
@@ -1534,6 +1547,28 @@ impl GitHistory {
                 .store(&Cache::from_env()?)?;
         }
         Ok(())
+    }
+
+    /// git's merge of `first` and `second`: through the run's `git merge-tree --stdin` when both
+    /// are full ids, else, or when it fails, by a git process of its own, which says what is wrong.
+    fn merge(&self, first: &str, second: &str) -> std::result::Result<Option<String>, HostError> {
+        let ids = crate::git::is_object_id(first) && crate::git::is_object_id(second);
+        let mut slot = self.merges.lock().unwrap_or_else(PoisonError::into_inner);
+        if ids && matches!(*slot, Batch::Unstarted) {
+            *slot = self.git.merges().map_or(Batch::Unusable, Batch::Running);
+        }
+        if let Batch::Running(merges) = &mut *slot {
+            if let Ok(answer) = merges.merge(first, second) {
+                return Ok(answer);
+            }
+            *slot = Batch::Unstarted;
+        } else {
+            return self.git.merge_tree(first, second).map_err(host);
+        }
+        let answer = self.git.merge_tree(first, second).map_err(host)?;
+        // git answered this question by itself: the batch failed for no reason of the question.
+        *slot = Batch::Unusable;
+        Ok(answer)
     }
 
     /// Asks the run's object reader, starting it on first use; after a failure the next question

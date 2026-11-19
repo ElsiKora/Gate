@@ -105,5 +105,14 @@
   this task's touch list leaves out: put to the lead.
 - Wall times on this machine are about five times CPU time (18 cores, load average about 100);
   compare CPU.
-- Open: per-rule time needs the plugin to say where a rule starts (an interface question, put to the
-  lead); the 12 `sync-state` answers at about 4 s each; `merge-tree` is one git process per merge.
+- 2026-11-19T01:41:53+00:00: rebased onto `fix/fuel-default` 5b5ca2c (fuel 10^12, `SYNC_STATE_VERSION` 4);
+  the tree differs from the old tip by that branch's changes only. Lane tickets 147 and 148 withdrawn
+  and requeued behind the fuel fix as 151 (measure) and 152 (the five gates). The lead moved
+  nestjs's own cost to T-030; this task keeps the host. The nestjs rules one at a time are in the
+  shared notes for T-030.
+- `merge-tree` of two full ids goes through one `git merge-tree --stdin` per run; when that fails and
+  a git process of its own answers the question, the run stops using it. Found while testing it:
+  `git merge-tree` exits 1, printing nothing, for an argument that names no commit, which the host
+  answered as a conflict and stored; it is an error now.
+- Open: per-rule time and fuel need the plugin to say where a rule starts (an interface question,
+  put to the lead); the 12 `sync-state` answers at about 4 s each.
