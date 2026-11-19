@@ -806,6 +806,9 @@ impl Loaded {
         filter: &RuleFilter,
         findings: &mut Findings,
     ) -> Result<Ran> {
+        // A run with the commit message being written checks only that message: the rules that
+        // declare reads-message. The tree is the other hooks' and CI's to check.
+        let message_run = run_git.message.is_some();
         let snapshot = workspace.shared_snapshot();
         let tree_paths: Vec<String> = snapshot.paths().map(str::to_owned).collect();
         let changed_paths: Option<Vec<String>> = changes
@@ -843,6 +846,12 @@ impl Loaded {
                 };
                 let mut rules = enabled_rules(plugin.info(), name, settings, workspace, project)?;
                 rules.retain(|rule| filter.allows(&rule.id.to_string()));
+                if message_run {
+                    rules.retain(|rule| {
+                        self.rule(name, &rule.run.name)
+                            .is_some_and(|info| info.reads_message)
+                    });
+                }
                 if rules.is_empty() {
                     continue;
                 }

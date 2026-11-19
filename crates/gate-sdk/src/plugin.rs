@@ -330,8 +330,9 @@ fn run_rule<R: Rule<S>, S: CallState>(
     let what = format!("rule {}", R::NAME);
     let mut run = Run {
         call: shared.call,
-        git: if R::READS_HISTORY {
-            host.git().map(Git::new)
+        git: if R::READS_HISTORY || R::READS_MESSAGE {
+            host.git()
+                .map(|git| Git::new(git).reading_message(R::READS_MESSAGE))
         } else {
             None
         },

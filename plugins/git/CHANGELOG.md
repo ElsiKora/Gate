@@ -61,6 +61,14 @@ Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1
   added or deleted included, is a `release` finding (`#beyond-pin`, `#version`, `#unreadable`); the
   files are compared as parsed TOML. ([cb25331](https://github.com/ElsiKora/Gate/commit/cb2533134f222346d45a34eeced04f36d830bff0))
 
+### Changed
+
+- Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
+- `git/commit-message` and `git/no-ci-skip` declare `READS_MESSAGE`, so a
+  `gate check --commit-message` run runs them; `git/branch-name` and `git/main-history` do not,
+  and run in the other hooks and CI. `git/commit-message` reads only the message and no longer
+  declares `READS_HISTORY`.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.1.0...plugin-git-v0.2.0) (2026-11-19)
 
 ### Added

@@ -435,6 +435,8 @@ impl Runtime {
         let access = Access {
             tree: Arc::new(Empty),
             history: None,
+            reads_history: false,
+            reads_message: false,
             grant: Grant::repository(),
         };
         let (info, _, _, _, _) = self.invoke(&plugin, "describe", access, |bindings, store| {
@@ -470,6 +472,21 @@ impl Runtime {
                 ));
             }
         }
+        if let Some(rule) = plugin
+            .info
+            .rules
+            .iter()
+            .find(|rule| rule.reads_message && rule.scope == Scope::Project)
+        {
+            return Err(Error::new(
+                name,
+                ErrorKind::Load,
+                format!(
+                    "rule {:?} declares reads-message but is a project-scope rule; the commit message belongs to the repository, so a rule that reads it is repository-scope; report it to the plugin's authors",
+                    rule.name
+                ),
+            ));
+        }
         for generator in &plugin.info.generators {
             for glob in &generator.owns {
                 let wrong = if !is_relative_glob(glob) {
@@ -494,8 +511,9 @@ impl Runtime {
         Ok(plugin)
     }
 
-    /// Runs one `check` call. Rules that declare `reads-history` run in a call of their own that is
-    /// granted git; the others run in a call without it.
+    /// Runs one `check` call. Rules that declare `reads-history` or `reads-message` run in a call
+    /// of their own that is granted git, its history for the first and the commit message for the
+    /// second; the others run in a call without it.
     ///
     /// # Errors
     /// A rule the plugin does not declare, a history rule in a run without history, a trap, fuel
@@ -526,7 +544,7 @@ impl Runtime {
                         ),
                     )
                 })?;
-            if info.reads_history {
+            if info.reads_history || info.reads_message {
                 &mut history
             } else {
                 &mut snapshot
@@ -560,6 +578,8 @@ impl Runtime {
             let access = Access {
                 tree: Arc::clone(&call.tree),
                 history: git,
+                reads_history: ran.iter().any(|info| info.reads_history),
+                reads_message: ran.iter().any(|info| info.reads_message),
                 grant: call.grant.clone(),
             };
             let label = format!(
@@ -677,6 +697,8 @@ impl Runtime {
         let access = Access {
             tree,
             history: None,
+            reads_history: false,
+            reads_message: false,
             grant: grant.clone(),
         };
         let label = format!("generate {name}");
@@ -876,6 +898,7 @@ fn info_from(info: wit::PluginInfo) -> PluginInfo {
                     wit::Scope::Repository => Scope::Repository,
                 },
                 reads_history: rule.reads_history,
+                reads_message: rule.reads_message,
                 languages: rule.languages,
                 options_schema: rule.options_schema,
             })

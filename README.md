@@ -292,7 +292,7 @@ Then commit the files you added:
 git commit -m "chore(gate): add gate"
 ```
 
-The `commit-msg` hook checks the message being written, before the commit exists: its form
+The `commit-msg` hook checks only the message being written, before the commit exists: its form
 `<type>(<scope>): <subject>` (`git/commit-message`, where a scope is required by default; the
 [rule page](plugins/git/rules/commit-message.md) explains how to change that) and no CI-skip
 directive (`git/no-ci-skip`).

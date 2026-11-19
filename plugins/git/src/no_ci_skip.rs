@@ -73,6 +73,7 @@ impl Rule for NoCiSkip {
         "No commit since activation carries a CI-skip directive except the release commit";
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
+    const READS_MESSAGE: bool = true;
     const NEEDS: &'static [Need] = &[settings::ACTIVATION, settings::RELEASE_SUBJECT];
 
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
@@ -82,7 +83,7 @@ impl Rule for NoCiSkip {
         let directive = pattern("directive-pattern", &run.options().directive_pattern)?;
         let trailer = pattern("trailer-pattern", &run.options().trailer_pattern)?;
         // The message being written (the commit-msg hook), which no history holds yet.
-        if let Some(message) = run.git()?.message() {
+        if let Some(message) = run.git()?.message()? {
             let message = above_scissors(&message);
             let release_form = forms.iter().any(|form| form.kind == Kind::Release);
             let exempt = release_form

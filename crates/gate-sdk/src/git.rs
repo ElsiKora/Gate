@@ -1,4 +1,5 @@
-//! Git history, for rules that declare [`crate::Rule::READS_HISTORY`].
+//! Git history, for rules that declare [`crate::Rule::READS_HISTORY`], and the commit message
+//! being written, for rules that declare [`crate::Rule::READS_MESSAGE`].
 
 use crate::host::GitHost;
 
@@ -77,6 +78,8 @@ pub struct SyncState {
 #[derive(Clone, Copy)]
 pub struct Git<'h> {
     host: &'h dyn GitHost,
+    /// Whether the rule declares [`crate::Rule::READS_MESSAGE`].
+    message: bool,
 }
 
 impl std::fmt::Debug for Git<'_> {
@@ -89,7 +92,17 @@ impl<'h> Git<'h> {
     /// Git over a host.
     #[must_use]
     pub fn new(host: &'h dyn GitHost) -> Self {
-        Self { host }
+        Self {
+            host,
+            message: false,
+        }
+    }
+
+    /// This git, answering [`Git::message`] when `message` is true: the rule declares
+    /// [`crate::Rule::READS_MESSAGE`].
+    #[must_use]
+    pub fn reading_message(self, message: bool) -> Self {
+        Self { message, ..self }
     }
 
     /// The commit the snapshot stands on; `None` in a repository without commits.
@@ -179,9 +192,16 @@ impl<'h> Git<'h> {
     /// scissors line included. `None` for a run without `--commit-message`; a rule about the
     /// message then checks nothing. A rule that removes comments does so itself: git's
     /// `core.commentChar` is not known to the plugin.
-    #[must_use]
-    pub fn message(&self) -> Option<String> {
-        self.host.message()
+    ///
+    /// # Errors
+    /// When the rule does not declare [`crate::Rule::READS_MESSAGE`].
+    pub fn message(&self) -> crate::Result<Option<String>> {
+        if !self.message {
+            return Err(crate::Error::new(
+                "this rule reads the commit message but does not declare READS_MESSAGE = true",
+            ));
+        }
+        Ok(self.host.message())
     }
 
     /// Whether a git hook started the run: the generated hooks pass `gate check --hook`, and a run

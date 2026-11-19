@@ -9,7 +9,7 @@ mod repo;
 use repo::{Repo, settings};
 
 #[test]
-fn the_rules_read_history_over_the_repository() {
+fn the_rules_read_history_or_the_message_over_the_repository() {
     let info = gate_sdk::describe(&git::PLUGIN);
     let names: Vec<&str> = info.rules.iter().map(|rule| rule.name.as_str()).collect();
     assert_eq!(
@@ -21,8 +21,20 @@ fn the_rules_read_history_over_the_repository() {
             "commit-message"
         ]
     );
+    let reads = |name: &str| {
+        let rule = info
+            .rules
+            .iter()
+            .find(|rule| rule.name == name)
+            .expect("declared");
+        (rule.reads_history, rule.reads_message)
+    };
+    // A --commit-message run runs exactly the rules that read the message.
+    assert_eq!(reads("main-history"), (true, false));
+    assert_eq!(reads("no-ci-skip"), (true, true));
+    assert_eq!(reads("branch-name"), (true, false));
+    assert_eq!(reads("commit-message"), (false, true));
     for rule in &info.rules {
-        assert!(rule.reads_history, "{}", rule.name);
         assert_eq!(rule.scope, gate_sdk::Scope::Repository);
         let schema: serde_json::Value =
             serde_json::from_str(&rule.options_schema).expect("the schema is JSON");

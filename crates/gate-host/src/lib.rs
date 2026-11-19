@@ -599,15 +599,18 @@ fn over_budget(elapsed: Duration, budget: Duration, fails: bool) -> Finding {
     }
 }
 
-/// What the run checked, for the summary: the tree, the change or the revision, then `, commit
-/// message` when the run checked the message being written (`--commit-message`).
+/// What the run checked, for the summary: the tree, the change or the revision; or `commit
+/// message` when the run checked only the message being written (`--commit-message`).
 fn mode(
     source: &Source,
     changes: Option<&ChangeSet>,
     request: &ChangeRequest,
     message: bool,
 ) -> String {
-    let checked = match (request, changes) {
+    if message {
+        return "commit message".to_owned();
+    }
+    match (request, changes) {
         (ChangeRequest::Push { .. } | ChangeRequest::Staged, Some(set)) => set.description.clone(),
         (ChangeRequest::Since(_), Some(set)) => match source {
             Source::WorkTree => set.description.clone(),
@@ -617,11 +620,6 @@ fn mode(
             Source::Commit(revision) => format!("rev {}", short(revision)),
             other => other.to_string(),
         },
-    };
-    if message {
-        format!("{checked}, commit message")
-    } else {
-        checked
     }
 }
 

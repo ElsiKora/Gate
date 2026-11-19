@@ -13,7 +13,7 @@ merged into main's history. Which name the rule checks depends on the run:
 - **A run under `--push`** (the pre-push hook): the branch each pushed ref updates. `git push origin
   HEAD:bad` checks `bad`, whatever branch is checked out. A pushed ref outside `refs/heads/` (a tag)
   updates no branch, and is not checked.
-- **Any other run** (`gate check`, the pre-commit and commit-msg hooks, `--rev`): the checked-out
+- **Any other run** (`gate check`, the pre-commit hook, `--rev`): the checked-out
   branch, as the host reports it.
 - **A detached `HEAD`** (a CI checkout of a commit or of a pull request's merge): no branch is
   checked out, and the rule checks nothing.
@@ -102,7 +102,7 @@ error git/branch-name commit 3f2a9c1d0b7e5a4c8d6f1e2b3a4c5d6e7f8a9b0c
   help: rename the branch: git branch -m <new-name>, then push it under the new name
 ```
 
-Committing on `main` (the commit-msg hook runs `check --hook`):
+Committing on `main` (the pre-commit hook runs `check --staged --hook`):
 
 ```text
 error git/branch-name commit 3f2a9c1d0b7e5a4c8d6f1e2b3a4c5d6e7f8a9b0c

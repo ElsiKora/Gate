@@ -48,7 +48,8 @@
 //!
 //! What a rule may see is decided by the host, not by the plugin: [`Tree`] lists and reads only the
 //! tracked files the call is granted, [`Git`] answers only for rules that declare
-//! [`Rule::READS_HISTORY`], and nothing else exists (no file system, network, clock or
+//! [`Rule::READS_HISTORY`], and [`Git::message`] only for rules that declare
+//! [`Rule::READS_MESSAGE`], and nothing else exists (no file system, network, clock or
 //! environment). The level, norm and exceptions of a finding come from configuration.
 //!
 //! Work the rules of one call would each do again on the same tree, such as parsing its files,

@@ -50,6 +50,11 @@ const TABLE_ELEMENT_BYTES: usize = 8;
 pub(crate) struct Access {
     pub(crate) tree: Arc<dyn Tree>,
     pub(crate) history: Option<Arc<dyn History>>,
+    /// Whether a rule of the call declares `reads-history`: only then does git answer, except
+    /// `message`.
+    pub(crate) reads_history: bool,
+    /// Whether a rule of the call declares `reads-message`: only then does `git.message` answer.
+    pub(crate) reads_message: bool,
     pub(crate) grant: Grant,
 }
 
@@ -180,11 +185,15 @@ impl State {
     }
 
     fn history(&self, function: &str) -> wasmtime::Result<Arc<dyn History>> {
-        self.access.history.clone().ok_or_else(|| {
-            wasmtime::format_err!(
-                "the plugin called git.{function}, but no rule of this call declares reads-history"
-            )
-        })
+        self.access
+            .history
+            .clone()
+            .filter(|_| self.access.reads_history)
+            .ok_or_else(|| {
+                wasmtime::format_err!(
+                    "the plugin called git.{function}, but no rule of this call declares reads-history"
+                )
+            })
     }
 
     fn record(&mut self, query: GitQuery, depends_on: Vec<String>) -> wasmtime::Result<()> {
@@ -648,7 +657,16 @@ impl wit_git::Host for State {
     }
 
     fn message(&mut self) -> wasmtime::Result<Option<String>> {
-        let history = self.history("message")?;
+        let history = self
+            .access
+            .history
+            .clone()
+            .filter(|_| self.access.reads_message)
+            .ok_or_else(|| {
+                wasmtime::format_err!(
+                    "the plugin called git.message, but no rule of this call declares reads-message"
+                )
+            })?;
         let message = self
             .host_call("git.message", || history.message())
             .map_err(host)?;

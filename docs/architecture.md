@@ -120,6 +120,7 @@ interface types {
   record rule-info {
     name: string, title: string, aspects: list<string>, scope: scope,
     reads-history: bool,      // needs commits, not only the snapshot
+    reads-message: bool,      // reads the commit message being written; repository scope only
     languages: list<string>,  // e.g. ["typescript"]; empty for language-free rules
     options-schema: string,   // JSON Schema of the rule's options; its "x-gate-needs" lists the
                               // [plugins.<name>] options the rule reads that the plugin's schema leaves optional
@@ -160,7 +161,8 @@ interface tree {      // the snapshot, read-only, tracked files only
   changed: func() -> option<list<string>>;                 // the change set, when the run has one
 }
 
-interface git {       // granted only to rules that declare reads-history
+interface git {       // granted only to rules that declare reads-history; message only to
+                      // rules that declare reads-message
   record commit { id: string, parents: list<string>, message: string, author-date: string }
                                                            // message is the raw full message; the SDK
                                                            // derives subject and body from it
@@ -404,6 +406,10 @@ all = ["lint", "unit"]
   paths select the projects that contain them and the workspace projects that depend on those (from the
   package manager's workspace graph). Repository-scope rules run when any path changed. The report
   says which projects ran and which were skipped and why.
+- **The commit message**: a `check --commit-message <file>` run checks only the message being
+  written. It runs the enabled rules that declare `reads-message`, which are repository-scope, and
+  no tree selector (`--staged`, `--changed`, `--push`, `--rev`) is allowed beside it. Only those
+  rules get `git.message`.
 - **History**: rules that declare `reads-history` get the `git` interface; in `--rev` and `--push`
   modes the host passes the range under review. The branch it gives is `$GATE_BRANCH` when set (CI,
   where a pull request's checkout is a detached `HEAD`), else the branch `HEAD` is on, read from the
