@@ -17,7 +17,7 @@ use wasmtime_wasi::{
 
 use crate::grant::Grant;
 use crate::host::{History, HostError, Tree};
-use crate::read_set::{GitQuery, ReadSet, range_ids, sync_state_digest};
+use crate::read_set::{GitQuery, ReadSet, message_digest, range_ids, sync_state_digest};
 use crate::runtime::HostTime;
 
 wasmtime::component::bindgen!({
@@ -636,7 +636,7 @@ impl wit_git::Host for State {
         let message = self
             .host_call("git.message", || history.message())
             .map_err(host)?;
-        self.record(GitQuery::Message, message.iter().cloned().collect())?;
+        self.record(GitQuery::Message, message_digest(message.as_deref()))?;
         Ok(message)
     }
 
