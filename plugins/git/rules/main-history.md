@@ -41,7 +41,9 @@ The checks:
 - **`release`: `files`.** It may change only `release-files`. Its `package-lock.json` may change only
   the top-level and root-package `version` fields, and its `package.json` only `version`, which must
   be the version capture 1 of `release-subject` names. When either file it changes does not read as
-  JSON on one side (absent, not UTF-8 or not JSON), the commit is reported. Needs `parents = 1`.
+  JSON on one side (absent, not UTF-8 or not JSON), the commit is reported. With `release-plugin`,
+  it may also move that plugin's pin in Gate's own files (see "Releasing a plugin" below). Needs
+  `parents = 1`.
 - **`direct`: `files`.** Needs `parents = 1`. For each file the commit changes:
   1. one `documentation` matches is allowed, except a change to the Enforcement/Status line of a
      rule in a rule file under `rules-directory`, and a rule file there that is not UTF-8 text,
@@ -120,6 +122,8 @@ The rule's own options:
 | --- | --- | --- | --- |
 | `dependabot-prefix` | string | `"dependabot/"` | The branch prefix of Dependabot's branches. |
 | `release-files` | array of string | `["package.json", "package-lock.json", "CHANGELOG.md"]` | The files a release commit may change. |
+| `release-plugin` | string | unset | The plugin whose pin a release commit moves, `<owner>/<repo>:<plugin>`. |
+| `release-all-pins` | boolean | `false` | Whether that release commit may also move the core's pin and every other plugin's. |
 | `rules-directory` | string | `"docs/agents/rules"` | Where the agent rule files are. |
 
 The default policy:
@@ -168,6 +172,44 @@ checks = []
 [rules]
 "git/main-history" = "error"
 ```
+
+### Releasing a plugin
+
+A repository that releases a Gate plugin of its own and pins it in its own `gate.toml` and
+`gate.lock` moves the pin in the release commit. `release-plugin` names the plugin by its source
+without the version, and the release commit may then change:
+
+- each `gate.toml` (the root's or a project's) only in the `source` of an entry that names the
+  plugin, moved to the version capture 1 of `release-subject` names;
+- the root `gate.lock` only in the plugin's entries: `[plugins."<source>@<old>"]` gives way to
+  `[plugins."<source>@<version>"]` with its `url` and `sha256`.
+
+Any other change to either file, such as the core's pin or another plugin's, is reported as
+`<file>#beyond-pin`; a pin moved to another version than the release's as `<file>#version`; a file
+that does not read as TOML at the parent or at the commit as `<file>#unreadable`. The files are
+compared as parsed TOML, as `package.json` is compared as JSON, so a change of layout or comments
+alone is not seen. They are read at the parent and at the commit through the host's git interface.
+
+A plugin interface change moves every pin at once: the core's and every plugin's must move
+together, or main fails to load them. `release-all-pins = true` lets that release commit also move
+the core (`[gate] version` and `gate.lock`'s `[core]`) and each other plugin's pin, the version in
+its `source` and its lock entry's `url` and `sha256`. Nothing else is admitted with it: options,
+rules, and a plugin added or removed stay `#beyond-pin`. It needs `release-plugin`.
+
+`release-plugin` admits `gate.toml` and `gate.lock` limited to the pins, so naming either in
+`release-files` as well is an error, as is `release-all-pins` without `release-plugin` or a
+`release-plugin` that is not `<owner>/<repo>:<plugin>`; each fails the run as a configuration
+error. Merge and direct commits are judged as before: a direct commit that moves a pin changes a
+code path.
+
+```toml
+[rules]
+"git/main-history" = { level = "error", options = { release-files = ["CHANGELOG.md"], release-plugin = "acme/rules:product" } }
+```
+
+With it, the release commit `chore(release): 1.2.0` may change `source = "acme/rules:product@1.1.0"`
+to `@1.2.0` and the plugin's entry in `gate.lock`; one that also moves `ElsiKora/Gate:git` is
+reported, unless `release-all-pins = true`.
 
 ## Example finding
 

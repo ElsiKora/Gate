@@ -15,6 +15,7 @@ use regex::Regex;
 
 use crate::forms::{Check, Compiled, Kind, form_of, place, subject};
 use crate::history::{Commit, History, release_version};
+use crate::pins::{self, Pins, Problem};
 use crate::settings::{self, Settings, globs, pattern, required};
 
 /// The rule.
@@ -35,6 +36,14 @@ pub struct Options {
     pub dependabot_prefix: String,
     /// The files a release commit may change.
     pub release_files: Vec<String>,
+    /// The plugin a release moves the pin of, its source without the version
+    /// (`<owner>/<repo>:<plugin>`): a release commit may change each `gate.toml` only in that
+    /// plugin's `source`, moved to the release's version, and the root `gate.lock` only in that
+    /// plugin's entries.
+    pub release_plugin: Option<String>,
+    /// Whether that release commit may also move every other pin: the core's (`[gate] version`
+    /// and `gate.lock`'s `[core]`) and each other plugin's. Needs `release-plugin`.
+    pub release_all_pins: bool,
     /// The directory of the agent rule files whose Enforcement/Status lines a direct commit may
     /// not change.
     pub rules_directory: String,
@@ -47,6 +56,8 @@ impl Default for Options {
             release_files: ["package.json", "package-lock.json", "CHANGELOG.md"]
                 .map(str::to_owned)
                 .to_vec(),
+            release_plugin: None,
+            release_all_pins: false,
             rules_directory: "docs/agents/rules".to_owned(),
         }
     }
@@ -67,6 +78,8 @@ struct Policy<'r> {
     branches: Option<Branches>,
     /// Empty when no direct form runs the files check.
     documentation: GlobSet,
+    /// The pins a release commit may move, when `release-plugin` is set.
+    pins: Option<Pins>,
     options: &'r Options,
 }
 
@@ -175,9 +188,14 @@ impl<'r> Policy<'r> {
     ///
     /// # Errors
     /// When a form is not coherent (a check its kind does not run, a check without what it reads,
-    /// a release form with a subject), a pattern or glob does not compile, or a key the forms read
-    /// is absent from `[plugins.git] options`.
+    /// a release form with a subject), a pattern or glob does not compile, a key the forms read
+    /// is absent from `[plugins.git] options`, or the release pins are not coherent.
     fn new(git: Git<'r>, settings: &Settings, options: &'r Options) -> Result<Self> {
+        let pins = Pins::new(
+            options.release_plugin.as_deref(),
+            options.release_all_pins,
+            &options.release_files,
+        )?;
         let release = settings.release()?;
         let forms = settings.forms(release.as_ref())?;
         let mut branches = None;
@@ -219,6 +237,7 @@ impl<'r> Policy<'r> {
             release,
             branches,
             documentation: documentation.unwrap_or_else(GlobSet::empty),
+            pins,
             options,
         })
     }
@@ -355,9 +374,10 @@ impl<'r> Policy<'r> {
         let mut found = Vec::new();
         let changed = self.git.changed_paths(parent, &commit.id);
 
+        let pinned = |file: &str| self.pins.is_some() && pins::is_pin_file(file);
         for file in changed
             .iter()
-            .filter(|file| !self.options.release_files.contains(file))
+            .filter(|file| !self.options.release_files.contains(file) && !pinned(file))
         {
             found.push((
                 "release",
@@ -365,6 +385,7 @@ impl<'r> Policy<'r> {
                 format!("{file}#release-files"),
             ));
         }
+        found.extend(self.pin_findings(commit, parent, version, &changed));
 
         if changed.iter().any(|file| file == "package-lock.json") {
             let lock = |id: &str| -> Option<Value> {
@@ -445,6 +466,33 @@ impl<'r> Policy<'r> {
             }
         }
 
+        found
+    }
+
+    /// The findings of the pin files among `changed` of the release commit `commit` of
+    /// `version`, when `release-plugin` is set.
+    fn pin_findings(
+        &self,
+        commit: &Commit,
+        parent: &str,
+        version: &str,
+        changed: &[String],
+    ) -> Found {
+        let Some(pins) = &self.pins else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        for file in changed.iter().filter(|file| pins::is_pin_file(file)) {
+            let problems = pins.judge(
+                file,
+                self.git.read_at(parent, file).as_deref(),
+                self.git.read_at(&commit.id, file).as_deref(),
+                version,
+            );
+            for problem in problems {
+                found.push(pin_finding(pins, commit.short(), file, version, problem));
+            }
+        }
         found
     }
 
@@ -545,6 +593,41 @@ impl<'r> Policy<'r> {
             .ok()
             .flatten()
             .and_then(|text| serde_json::from_str(&text).ok())
+    }
+}
+
+/// The finding of `problem` in the pin file `file` of the release commit `short` of `version`.
+fn pin_finding(
+    pins: &Pins,
+    short: &str,
+    file: &str,
+    version: &str,
+    problem: Problem,
+) -> (&'static str, String, String) {
+    let plugin = pins.plugin();
+    match problem {
+        Problem::Beyond => {
+            let pinned = if pins.all() {
+                "its pins".to_owned()
+            } else {
+                format!("the pin of {plugin}")
+            };
+            (
+                "release",
+                format!("release commit {short} changes {file} beyond {pinned}"),
+                format!("{file}#beyond-pin"),
+            )
+        }
+        Problem::Version(moved) => (
+            "release",
+            format!("release commit {short} moves {plugin} to {moved} in {file}, not {version}"),
+            format!("{file}#version"),
+        ),
+        Problem::Unreadable => (
+            "release",
+            format!("release commit {short} has an unreadable {file}"),
+            format!("{file}#unreadable"),
+        ),
     }
 }
 

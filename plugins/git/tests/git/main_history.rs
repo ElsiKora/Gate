@@ -801,3 +801,222 @@ fn a_merge_whose_subject_captures_no_branch_is_reported_by_the_branch_check() {
         )]
     );
 }
+
+const PIN_CONFIG: &str = r#"[gate]
+version = "0.2.0"
+
+[plugins.product]
+source = "acme/rules:product@1.1.0"
+options = { strict = true }
+
+[plugins.git]
+source = "ElsiKora/Gate:git@0.2.0"
+"#;
+
+const PIN_LOCK: &str = r#"[core]
+version = "0.2.0"
+
+[core.targets.x86_64-unknown-linux-musl]
+url = "https://example.test/v0.2.0/gate.tar.gz"
+sha256 = "aa"
+
+[plugins."acme/rules:product@1.1.0"]
+url = "https://example.test/product-v1.1.0/product.wasm"
+sha256 = "bb"
+
+[plugins."ElsiKora/Gate:git@0.2.0"]
+url = "https://example.test/git-v0.2.0/git.wasm"
+sha256 = "cc"
+"#;
+
+/// The pin files with `product` moved to 1.2.0.
+fn moved_pins() -> (String, String) {
+    (
+        PIN_CONFIG.replace("product@1.1.0", "product@1.2.0"),
+        PIN_LOCK
+            .replace("product@1.1.0", "product@1.2.0")
+            .replace("product-v1.1.0", "product-v1.2.0")
+            .replace("\"bb\"", "\"dd\""),
+    )
+}
+
+const RELEASE_PLUGIN: &str =
+    r#"{"release-files": ["CHANGELOG.md"], "release-plugin": "acme/rules:product"}"#;
+const RELEASE_ALL_PINS: &str = r#"{"release-files": ["CHANGELOG.md"], "release-plugin": "acme/rules:product", "release-all-pins": true}"#;
+
+/// The findings of one commit on a main line whose files hold the pins, with `options`.
+fn pinned(message: &str, changes: &[(&str, Option<&str>)], options: &str) -> Vec<String> {
+    let mut repo = Repo::default();
+    let root = repo.commit(
+        &[],
+        "init",
+        &[
+            ("gate.toml", Some(PIN_CONFIG)),
+            ("apps/web/gate.toml", Some(PIN_CONFIG)),
+            ("gate.lock", Some(PIN_LOCK)),
+            ("CHANGELOG.md", Some("# Changes\n")),
+        ],
+    );
+    let activation = repo.commit(&[&root], "activate the policy", &[("docs/a.md", Some("a"))]);
+    let tip = repo.commit(&[&activation], message, changes);
+    repo.set_ref("refs/remotes/origin/main", &tip);
+    let found = repo
+        .check("main-history", &settings(&activation), options)
+        .expect("runs");
+    lines(&found)
+        .into_iter()
+        .map(|line| line.replace(&tip, "TIP").replace(short(&tip), "TIP"))
+        .collect()
+}
+
+const RELEASE: &str = "chore(release): 1.2.0 [skip ci]";
+
+#[test]
+fn a_release_may_move_its_plugin_s_pin_and_nothing_else_in_each_pin_file() {
+    let (config, lock) = moved_pins();
+    let everything = [
+        ("gate.toml", Some(config.as_str())),
+        ("apps/web/gate.toml", Some(config.as_str())),
+        ("gate.lock", Some(lock.as_str())),
+        ("CHANGELOG.md", Some("# Changes\n\n## 1.2.0\n")),
+    ];
+    assert_eq!(
+        pinned(RELEASE, &everything, RELEASE_PLUGIN),
+        Vec::<String>::new()
+    );
+
+    let options = config.replace("strict = true", "strict = false");
+    assert_eq!(
+        pinned(RELEASE, &[("gate.toml", Some(&options))], RELEASE_PLUGIN),
+        [
+            "release commit:TIP release commit TIP changes gate.toml beyond the pin of acme/rules:product"
+        ]
+    );
+    let lock_more = lock.replace("\"cc\"", "\"ff\"");
+    assert_eq!(
+        pinned(RELEASE, &[("gate.lock", Some(&lock_more))], RELEASE_PLUGIN),
+        [
+            "release commit:TIP release commit TIP changes gate.lock beyond the pin of acme/rules:product"
+        ]
+    );
+    let wrong = PIN_CONFIG.replace("product@1.1.0", "product@1.9.9");
+    assert_eq!(
+        pinned(
+            RELEASE,
+            &[("apps/web/gate.toml", Some(&wrong))],
+            RELEASE_PLUGIN
+        ),
+        [
+            "release commit:TIP release commit TIP moves acme/rules:product to 1.9.9 in apps/web/gate.toml, not 1.2.0"
+        ]
+    );
+    assert_eq!(
+        pinned(RELEASE, &[("gate.lock", Some("[core"))], RELEASE_PLUGIN),
+        ["release commit:TIP release commit TIP has an unreadable gate.lock"]
+    );
+    // Without release-plugin the pin files are not release files.
+    assert_eq!(
+        pinned(
+            RELEASE,
+            &[("gate.toml", Some(&config))],
+            r#"{"release-files": ["CHANGELOG.md"]}"#
+        ),
+        ["release commit:TIP release commit TIP changes gate.toml"]
+    );
+}
+
+#[test]
+fn another_plugin_s_pin_or_the_core_moves_only_with_release_all_pins() {
+    let (config, lock) = moved_pins();
+    let second = config.replace("git@0.2.0", "git@0.3.0");
+    let second_lock = lock
+        .replace("git@0.2.0", "git@0.3.0")
+        .replace("git-v0.2.0", "git-v0.3.0")
+        .replace("\"cc\"", "\"ff\"");
+    let second_plugin = [
+        ("gate.toml", Some(second.as_str())),
+        ("gate.lock", Some(second_lock.as_str())),
+    ];
+    let beyond = |file: &str| {
+        format!(
+            "release commit:TIP release commit TIP changes {file} beyond the pin of acme/rules:product"
+        )
+    };
+    assert_eq!(
+        pinned(RELEASE, &second_plugin, RELEASE_PLUGIN),
+        [beyond("gate.lock"), beyond("gate.toml")]
+    );
+    assert_eq!(
+        pinned(RELEASE, &second_plugin, RELEASE_ALL_PINS),
+        Vec::<String>::new()
+    );
+
+    let core = second.replace("version = \"0.2.0\"", "version = \"0.3.0\"");
+    let core_lock = second_lock
+        .replace("version = \"0.2.0\"", "version = \"0.3.0\"")
+        .replace("v0.2.0/gate", "v0.3.0/gate")
+        .replace("\"aa\"", "\"ee\"");
+    let interface = [
+        ("gate.toml", Some(core.as_str())),
+        ("gate.lock", Some(core_lock.as_str())),
+    ];
+    assert_eq!(
+        pinned(RELEASE, &interface, RELEASE_PLUGIN),
+        [beyond("gate.lock"), beyond("gate.toml")]
+    );
+    assert_eq!(
+        pinned(RELEASE, &interface, RELEASE_ALL_PINS),
+        Vec::<String>::new()
+    );
+
+    // Options, rules and a plugin added or removed stay outside the pins.
+    let removed = config.replace("[plugins.git]\nsource = \"ElsiKora/Gate:git@0.2.0\"\n", "");
+    assert_eq!(
+        pinned(RELEASE, &[("gate.toml", Some(&removed))], RELEASE_ALL_PINS),
+        ["release commit:TIP release commit TIP changes gate.toml beyond its pins"]
+    );
+}
+
+#[test]
+fn a_pin_moved_outside_a_release_is_judged_as_its_form_judges_it() {
+    let (config, _) = moved_pins();
+    assert_eq!(
+        pinned(
+            "fix: move the pin",
+            &[("gate.toml", Some(&config))],
+            RELEASE_ALL_PINS
+        ),
+        [
+            "direct commit:TIP direct commit TIP changes code path gate.toml; code reaches main through a branch merge"
+        ]
+    );
+}
+
+#[test]
+fn release_pins_that_cannot_work_are_configuration_errors() {
+    let mut repo = Repo::default();
+    let root = repo.commit(&[], "init", &[("gate.toml", Some(PIN_CONFIG))]);
+    repo.set_ref("refs/remotes/origin/main", &root);
+    for (options, expected) in [
+        (
+            r#"{"release-all-pins": true}"#,
+            "git/main-history release-all-pins needs release-plugin",
+        ),
+        (
+            r#"{"release-plugin": "acme/rules:product@1.2.0"}"#,
+            "git/main-history release-plugin \"acme/rules:product@1.2.0\" is not a plugin source \
+             without its version; write <owner>/<repo>:<plugin>",
+        ),
+        (
+            r#"{"release-plugin": "acme/rules:product", "release-files": ["CHANGELOG.md", "gate.lock"]}"#,
+            "git/main-history release-files names gate.lock, which release-plugin admits limited \
+             to its pins; remove gate.lock from release-files",
+        ),
+    ] {
+        let error = repo
+            .check("main-history", &settings(&root), options)
+            .expect_err(options);
+        assert!(error.message().contains(expected), "{options}: {error}");
+        assert!(error.is_config(), "a configuration error: {options}");
+    }
+}

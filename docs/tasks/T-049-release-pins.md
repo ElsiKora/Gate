@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved; code after T-042 merges |
+| Status | in progress |
 | Release | v0.2.1 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
@@ -13,8 +13,8 @@
 
 A repository that releases a Gate plugin of its own pins that plugin in its own `gate.toml` and
 `gate.lock`, and its release commit moves the pin to the new version. Today `release-files` admits a
-file whole, and only `package.json` and `package-lock.json` are limited to their version fields, so a
-release commit that also changes another plugin's pin, or the core's, passes. With this task the
+file whole, and only `package.json` and `package-lock.json` are limited to their version fields, so
+a release commit that also changes another plugin's pin, or the core's, passes. With this task the
 release commit may change the pin of that one plugin and nothing else in Gate's pin files; the other
 pins (the core's and every other plugin's) may move with it only when the repository says so.
 
@@ -74,3 +74,15 @@ the design, sent to the lead before any code.
 2026-11-19: the lead approved the design with `release-all-pins` (every pin, not only the core) in
 place of `release-core`; the moved pin names the release's version; one plugin. Code starts after
 T-042 is green and merged.
+2026-11-19: at the lead's word, coded before T-042 merges (to be rebased onto main after it).
+`plugins/git/src/pins.rs` compares the pin files as parsed TOML: each `source` naming the plugin
+(and with `release-all-pins` every plugin) loses its version, the lock's entries are re-keyed by the
+plugin without its version and lose `url` and `sha256`, `release-all-pins` drops `[gate] version`
+and `[core]`; then the two sides must be equal, and each moved pin of the plugin must name the
+release's version. `git/main-history` admits `gate.toml` (any) and the root `gate.lock` through
+`release-plugin`, checks the options at load (configuration errors), and reports `#beyond-pin`,
+`#version` and `#unreadable` under `release`. The git plugin depends on the workspace `toml`
+(`Cargo.lock`: one line, the dependency of `gate-plugin-git`). Tests: a unit test of the
+comparison and four end-to-end tests (each pin file passing and failing, the wrong version, an
+unreadable lock, a second plugin and the core with and without `release-all-pins`, a plugin
+removed, the same change in a direct commit, three configuration errors). Rule page and changelog.

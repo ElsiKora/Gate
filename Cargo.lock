@@ -880,6 +880,7 @@ dependencies = [
  "jsonschema",
  "regex",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

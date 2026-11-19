@@ -14,6 +14,7 @@ mod history;
 mod javascript;
 mod main_history;
 mod no_ci_skip;
+mod pins;
 mod settings;
 
 pub use self::branch_name::{BranchName, Options as BranchNameOptions};

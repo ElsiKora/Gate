@@ -13,6 +13,12 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   matches is a finding of the new aspect `prohibited-trailers` that names it, an ignored message
   included. The same text in the body passes. A pattern that does not compile, or an empty one, is
   a configuration error (exit 2). Empty by default.
+- `git/main-history` takes `release-plugin`, the source of a plugin the repository releases,
+  without its version: a release commit may then move that plugin's pin, the version in its
+  `source` in each `gate.toml` and its entry in `gate.lock`, to the release's version, and nothing
+  else in those files. `release-all-pins = true` also lets it move the core's pin and every other
+  plugin's, as a plugin interface change needs. Anything else is a `release` finding
+  (`#beyond-pin`, `#version`, `#unreadable`); the files are compared as parsed TOML.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.1.0...plugin-git-v0.2.0) (2026-11-19)
 
