@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | v0.2.0 (documents only; no version moves) |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead reads the documents |
@@ -38,9 +38,24 @@ their branches merged. A reader who cited them reported merged work as open.
 
 ## Proof
 
-To be written.
+The evidence is `git log --first-parent origin/main` at `4c55ca6`, and for each merge `git
+merge-base --is-ancestor <merge>^2 v0.2.0`: the branches merged from T-026 (`60651a1`) to T-035
+(`89c42c7`, the commit of the `v0.2.0` tag and of the seven plugin tags) are in the tag; T-045,
+T-032's proof and T-054 merged after it. Work not merged is read from each pushed branch's own task
+file (`git show origin/task/<branch>:docs/tasks/<file>`), at the tips the plan names.
+
+Checks on the result, run in the worktree:
+
+| Check | Command | Result |
+| --- | --- | --- |
+| every merge the plan and the task files cite is a first-parent commit of `main` | `git log --first-parent --format=%h origin/main`, each cited sha looked up in it | 18 cited, 0 missing |
+| every branch tip cited for a merged task is in `main` | `git merge-base --is-ancestor <tip> origin/main` | 16 of 16 |
+| no task file but this one still says in progress, in review or planned | `grep -l '^\| Status \| \(in progress\|in review\|planned\)' docs/tasks/*.md` | `README.md` (the format) and this file |
+| the leak scan | `leak-scan.sh <worktree>` | prints nothing |
+
+Not in the plan: T-028, which has no task file on `main` or on a pushed branch, and T-052, which
+only T-048's release line names.
 
 ## Resume point
 
-2026-11-19T17:52:34+00:00: task file written from `main` at `4c55ca6`. Next: the task files' Status
-and Resume point, then the plan.
+2026-11-19T17:55:43+00:00: the task files and the plan are pushed. Next: the lead's read.

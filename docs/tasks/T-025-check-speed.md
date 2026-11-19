@@ -51,10 +51,10 @@ tip `15fac7c`, the result cache, batched git objects, stored git answers, fuel i
 at `b13c5bd` (branch `task/T-025-check-speed-v0.2.0`, tip `f93bd4f`, the rest of the speed-up). Goal
 2 is not met: a full cold check is not yet shown to be no slower than the reference tool. What holds
 a cold run over that bound is the core compiling every configured plugin, which moves to T-047
-(T-037's measurement on its branch). The other open items of the last entry under "Earlier" are not assigned to a
-task yet: per-rule time and fuel need the plugin to say where a rule starts, the `sync-state`
-answers at about 4 s each, `gate cache prune` never removing `git/blobs/`, and the blob contents a
-run reads staying in memory for the whole run.
+(T-037's measurement on its branch). The other open items of the last entry under "Earlier" are not
+assigned to a task yet: per-rule time and fuel need the plugin to say where a rule starts, the
+`sync-state` answers at about 4 s each, `gate cache prune` never removing `git/blobs/`, and the blob
+contents a run reads staying in memory for the whole run.
 
 Earlier:
 

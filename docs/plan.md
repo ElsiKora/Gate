@@ -10,7 +10,9 @@ reference for every ported rule is the reference implementation, outside this re
 | --- | --- | --- | --- |
 | `v0.1.0-rc.1` | 2026-11-18 | core, runtime, SDK, launcher; plugins `typescript`, `nestjs`, `git`, `ci`, `markdown`, `agents`, `ledger`; dry run of the first consumer's move | first consumer, on a private candidate |
 | `v0.1.0` | 2026-11-18 | the same, fixed by the dry run; guides; public repository from a clean root | first consumer in CI |
-| `v0.2.0` | 2026-11-19 | product plugins ported 1:1 (outside this repository), the other two consumers' moves accepted, review of the release-1 design rows | second and third consumers, at their leads' time |
+| `v0.2.0` | 2026-11-19, released (tag 17:01Z) | plugin interface `gate:plugin@0.2.0` and every plugin at 0.2.0; `git` branch and commit format at parity with the house linters; the result cache hit by a warm run; stable fingerprints and `gate baseline prune`; option errors as configuration errors; a call state shared by the rules of one call; wasmtime 50.0.2 (CHANGELOG.md, 0.2.0) | second and third consumers, at their leads' time |
+| `v0.2.1` | not set | from the `v0.2.0` tag: T-037, T-042, T-043, T-044, T-047, T-049 | the consumers on 0.2.0 |
+| `v0.3.0` | not set | breaking changes: T-048 (a configuration table renamed), T-053 (`--sha256` removed) | not set |
 
 ## Tasks
 
@@ -27,8 +29,8 @@ reference for every ported rule is the reference implementation, outside this re
 | T-008 | rc.1 | Plugins `git`, `ci`, `markdown`, `agents` | done (no unexpected difference on main's gate; `rule-enforcement` partial until every plugin loads) | T-003 |
 | T-009 | rc.1 | Plugin `ledger` | done (C 33 identical, 6 wait for nestjs on main; D 46/46; reviewed, fix round) | T-003 |
 | T-010 | rc.1 | Acceptance against the reference implementation (outside the repository); first consumer dry run | done (first consumer green on rc.1: list, sync --check and check exit 0) | T-002 |
-| T-011 | v0.1.0 | Public presentation: README, licence, changelog, contributing, guides | merged; second pass after T-002, T-003 | none |
-| T-012 | v0.2.0 | Product plugins ported 1:1 (outside the repository) | planned | T-007 |
+| T-011 | v0.1.0 | Public presentation: README, licence, changelog, contributing, guides | done (merged before the public root) | none |
+| T-012 | v0.2.0 | Product plugins ported 1:1 (outside the repository) | outside this repository; no task file here | T-007 |
 | T-013 | rc.1 | Sync-drift and sync fixes from the T-003 fix-round review; `gate sync --plugin` | done (reviewed, fix round, verified) | T-003 |
 | T-015 | rc.1 | sync-state answers no drift under the fallback (history from before Gate is judged by path) | done (reviewed) | T-013 |
 | T-014 | v0.1.0 | Host hardening: the v0.1.0 items of "Open after rc.1" (load-failure kinds, deadline and fuel, `--rev`, prune, `gate/sync#` findings) | done (reviewed, one fix round) | T-013 |
@@ -40,20 +42,48 @@ reference for every ported rule is the reference implementation, outside this re
 | T-021 | v0.1.0 | Ledger count generators and repository-root citations | done (reviewed, one fix round) | none |
 | T-022 | v0.1.0 | Hook arguments for steps, tools per step, release notes | done (reviewed, one fix round) | none |
 | T-023 | v0.1.0 | The launcher finds a private asset in pretty-printed release JSON | done | none |
-| T-024 | v0.1.0 | Public pass: no old tool, no converter; wording checked against the code at the fresh root | done (second part reviewed) | none |
-| T-025 | v0.2.0 | A full check is fast cold and the result cache makes a warm run cheap | in progress | none |
-| T-026 | v0.2.0 | `typescript/barrel-imports` | in progress (reviewed, fix round passes the plugin's gates) | none |
+| T-024 | v0.1.0 | Public pass: no old tool, no converter; wording checked against the code at the fresh root | done (second part reviewed; merged before the public root) | none |
+| T-025 | v0.2.0 | A full check is fast cold and the result cache makes a warm run cheap | done for v0.2.0 (merged at `264264f` and `b13c5bd`); the cold bound is open and moves to T-047 | none |
+| T-026 | v0.2.0 | `typescript/barrel-imports` | done (merged at `60651a1`) | none |
 | T-027 | v0.1.0 | Version 0.1.0 and its changelog | done | T-024 |
-| T-029 | v0.2.0 | `git`: branch names and commit messages as ElsiKora's public linters check them | in progress | none |
+| T-029 | v0.2.0 | `git`: branch names and commit messages as ElsiKora's public linters check them | done (merged at `e66abc8`) | none |
+| T-030 | v0.2.0 | `nestjs` runs within the check's time bound on a large tree | done (merged at `1b7fb64`); the rules' own cost went to T-037 | none |
+| T-031 | v0.2.0 | A finding in a nested project's option file names its path once | done (merged at `b72b561`) | none |
+| T-032 | v0.2.0 | The newcomer path works as written | done (merged at `8157571`; proof on the released v0.2.0 merged at `105ca02`) | none |
+| T-033 | v0.2.0 | The generated checkout keeps no credentials | done (merged at `cc8ee5f`) | none |
+| T-034 | v0.2.0 | Stable finding fingerprints and a baseline that only shrinks | done (merged at `1583d85`) | T-029 |
+| T-035 | v0.2.0 | Version 0.2.0 and its changelog | done (merged at `89c42c7`, the `v0.2.0` tag) | T-025, T-030, T-031, T-032, T-034, T-036 |
+| T-036 | v0.2.0 | header-pattern, ignores and default-ignores of `git/commit-message` | done (merged at `62b59fa`) | none |
+| T-037 | v0.2.1 | The `nestjs` rules' own work fits the check's bound on a large tree | done on its branch (`97ca064`), not merged; the rest of the cold bound is T-047 | T-030 |
+| T-038 | v0.2.0 | A rule's option error is a configuration error | done (merged at `8aca931`) | T-036 |
+| T-039 | v0.2.0 | The release branch compiles again | done (merged at `ef099bc`) | none |
+| T-040 | v0.2.0 | wasmtime 50.0.2, for eight security advisories | done (merged at `b3b2fe3`) | none |
+| T-041 | v0.2.0 | The error-logging page says what the rule accepts | done (merged at `b6322aa`) | none |
+| T-042 | v0.2.1 | prohibited-trailers of `git/commit-message` | in progress (branch at `2dc41a1`) | none |
+| T-043 | v0.2.1 | A concurrency group in the generated GitHub workflow | in progress (branch at `d35865f`) | none |
+| T-044 | v0.2.1 | `nestjs/wrappers` names own-parameter reads and adapters of interface ports | in progress (branch at `0576b2b`) | none |
+| T-045 | v0.2.0 | The documents show the first commit | done (merged at `2ae4d79`, after the tag; documents only) | none |
+| T-046 | the lead sets it | A download that stops sending fails within a bound | open (task file on its branch at `104a644`) | none |
+| T-047 | v0.2.1 | The cold compile cost: a cold run compiles every configured plugin, although `--rule` selects one | open (no task file yet; named by T-025 and T-037) | T-025, T-037 |
+| T-048 | v0.3.0 | A rule set below its default names its decision | in progress (design approved; branch at `1129031`) | T-043 |
+| T-049 | v0.2.1 | A release of `git/main-history` that moves a plugin's pin | design approved; code after T-042 merges (branch at `1739c25`) | T-042 |
+| T-050 | v0.2.0 | The plan and the task files say what v0.2.0 merged | in review | none |
+| T-051 | v0.2.0 | Hooks written by hand, in the configuration guide | planned | none |
+| T-053 | v0.3.0 | Pin a local build under its future URL, and check exactly that file | design approved; code after T-044 merges (branch at `5379eed`) | T-044 |
+| T-054 | the lead sets it | The 0.1.0-to-0.2.0 baseline upgrade, written down | done (merged at `4c55ca6`, after the tag; documents only) | none |
 
 ## Open after rc.1
 
 From the reviews of T-003 and T-005, kept out of rc.1 on purpose:
 
-- Listing cost: `paths()` scans the snapshot per call and `Tree::contains` lists per probe (v0.2.0).
-- The plugin read record as a result-cache key: plugin sha256, rules, options, change set (v0.2.0).
-- `gate cache prune --older-than | --max-size` (v0.2.0); the changelog in release notes (v0.1.0).
-- Commit answers other than sync-drift persist in the cache (v0.2.0).
+- Listing cost: `paths()` scans the snapshot per call and `Tree::contains` lists per probe (open:
+  not in v0.2.0; `Tree::contains` in the SDK still lists per probe).
+- The plugin read record as a result-cache key: plugin sha256, rules, options, change set (done:
+  the key in CHANGELOG 0.1.0; a warm run hits it since T-025, v0.2.0).
+- `gate cache prune --older-than | --max-size` (open: not in v0.2.0); the changelog in release notes
+  (done, v0.1.0).
+- Commit answers other than sync-drift persist in the cache (done, T-025, v0.2.0; the commit message
+  and the hook state are asked again each run, T-039).
 
 From the first consumer's move (2026-11-18):
 
@@ -84,9 +114,10 @@ From the second consumer's requirements (2026-11-18):
 
 - `typescript`: a name that its folder's barrel does not export is imported only from inside that
   folder; kind children stay importable within their owner; test roots are outside unless configured
-  exempt (v0.2.0, T-026).
+  exempt (done, T-026, v0.2.0).
 - A full `gate check` with every plugin, cold cache, is no slower than the reference tool on the same
-  tree; `--timings` and `--budget` stay (release criterion of each move; T-025). Measured on its
+  tree; `--timings` and `--budget` stay (release criterion of each move; T-025, open: the cold
+  bound moves to T-047). Measured on its
   converted tree with rc.1, cold, `gate check --rule '<plugin>/*' --timings`: git over 90 s, nestjs
   38.3 s, ledger 12.0 s, typescript 5.2 s, the others under 2 s; all together 507 s, against 6.99 s.
 - `nestjs`: a table whose owner declares a judge routine is filtered by the judge's columns only through
@@ -108,10 +139,15 @@ From the second consumer's requirements (2026-11-18):
 
 ## RESUME POINT
 
-2026-11-18 23:30 UTC: T-001 to T-024 and T-027 merged; main carries version 0.1.0 (merge of
-release/v0.1.0). Its gates: the full round (release build, shellcheck,
-actionlint), the short round (fmt, clippy, wasm32 clippy, deny, leak scan) and the
-targeted round (fmt, clippy, the plugins tests 40 of 40, leak scan), all exit 0. Next: the
-fresh public root, the v0.1.0 tags one at a time, the first consumer's lock on v0.1.0. In progress for
-v0.2.0: T-025 (speed), T-026 (barrel imports), T-029 (branch and commit format), the product plugins
-outside the repository (T-012) and their acceptances. The task table above is the state.
+2026-11-19T17:55:18+00:00: `v0.2.0` is released: the tag `v0.2.0` is `main`'s merge `89c42c7`
+(T-035), and the seven plugin tags at 0.2.0 point at the same commit. Every task in the table above whose
+status says merged rests on the merge commit it names on `main`; T-001 to T-024 and T-027 merged
+before the public root (`59fb163`, `v0.1.0`). After the tag, `main` took documents only: T-045
+(`2ae4d79`), T-032's proof on the released v0.2.0 (`105ca02`) and T-054 (`4c55ca6`).
+
+In flight for `v0.2.1`, from the `v0.2.0` tag: T-037 (done on its branch, not merged), T-042, T-043
+and T-044 (in progress), T-049 (after T-042), and T-047, the cold cost of compiling every configured
+plugin, which T-025 and T-037 leave open and which has no task file yet. T-046 is open and its
+release is not set. For `v0.3.0`: T-048 and T-053, both breaking. Still open from the lists above:
+the listing cost of `Tree::contains`, `gate cache prune --older-than | --max-size`, and the second
+consumer's cold bound (T-047). The task table above is the state.
