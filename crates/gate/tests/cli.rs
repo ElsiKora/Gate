@@ -1080,6 +1080,52 @@ fn a_core_rule_norm_is_printed_with_its_finding() {
     assert!(text.contains("\n  norm: DEC-2\n"), "{text}");
 }
 
+#[test]
+fn every_generated_checkout_keeps_no_credentials() {
+    let repo = with_root(&format!(
+        "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check\"]\n\n[ci.github.jobs.shallow]\nname = \"Shallow\"\nfetch-depth = 5\nrun = [\"check\"]\n"
+    ));
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+
+    // Each checkout, with or without a fetch depth, says persist-credentials: false.
+    let checkouts = workflow
+        .matches(&format!("      - uses: actions/checkout@{ACTION}\n"))
+        .count();
+    assert_eq!(checkouts, 3, "changes, lint and shallow: {workflow}");
+    assert_eq!(
+        workflow
+            .matches("\n          persist-credentials: false\n")
+            .count(),
+        checkouts,
+        "{workflow}"
+    );
+    assert!(
+        job(&workflow, "shallow").contains(&format!(
+            "      - uses: actions/checkout@{ACTION}\n        with:\n          fetch-depth: 5\n          persist-credentials: false\n"
+        )),
+        "{}",
+        job(&workflow, "shallow")
+    );
+    repo.commit("workflow");
+
+    // A workflow an earlier core wrote, whose checkouts kept the credentials, is drift.
+    let earlier = workflow
+        .replace("        with:\n          persist-credentials: false\n", "")
+        .replace("          persist-credentials: false\n", "");
+    assert_ne!(earlier, workflow);
+    repo.write(".github/workflows/gate.yml", &earlier);
+    repo.commit("a workflow from an earlier core");
+    let output = repo.gate(&["sync", "--check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("[gate/sync#ci] .github/workflows/gate.yml"),
+        "{}",
+        stdout(&output)
+    );
+}
+
 const ACTION: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// The text of one job of a workflow, from its id line to the next job.
@@ -1153,7 +1199,7 @@ history = ["policy"]
     let static_job = &job(&workflow, "static");
     assert!(
         static_job.contains(&format!(
-            "\n    steps:\n      - uses: actions/checkout@{ACTION}\n      - name: Node\n        uses: actions/setup-node@{ACTION}\n      - name: Install\n        run: npm ci\n        working-directory: apps/server\n      - name: Tools\n        run: make\n        working-directory: tools/gen\n      - name: gate run static\n        run: bin/gate run static\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Upload\n        if: always() && hashFiles('reports/**') != ''\n        uses: actions/upload-artifact@{ACTION}\n        with:\n          path: reports/\n      - name: Summary\n        if: always()\n        run: cat summary.txt\n        working-directory: apps/server\n"
+            "\n    steps:\n      - uses: actions/checkout@{ACTION}\n        with:\n          persist-credentials: false\n      - name: Node\n        uses: actions/setup-node@{ACTION}\n      - name: Install\n        run: npm ci\n        working-directory: apps/server\n      - name: Tools\n        run: make\n        working-directory: tools/gen\n      - name: gate run static\n        run: bin/gate run static\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Upload\n        if: always() && hashFiles('reports/**') != ''\n        uses: actions/upload-artifact@{ACTION}\n        with:\n          path: reports/\n      - name: Summary\n        if: always()\n        run: cat summary.txt\n        working-directory: apps/server\n"
         )),
         "no fetch-depth without history; the job's directory for its run steps, not for actions or gate commands; after steps after the gate commands: {static_job}"
     );
