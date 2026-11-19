@@ -4271,12 +4271,12 @@ fn a_plugin_declared_with_two_sources_fails_a_run_that_does_not_run_it() {
 }
 
 #[test]
-fn an_exception_whose_plugin_is_not_declared_where_its_file_applies_fails_a_run_that_does_not_run_it()
- {
+fn an_exception_naming_a_rule_its_plugin_does_not_declare_fails_a_run_that_does_not_run_the_plugin()
+{
     let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
     repo.write(
-        "apps/hello/gate.exceptions.toml",
-        "[[exception]]\nrule = \"typescript/barrel-imports\"\ntarget = \"src/main.rs\"\nreason = \"a test of the exception's scope\"\n",
+        "apps/spare/gate.exceptions.toml",
+        "[[exception]]\nrule = \"typescript/barrel-imprts\"\ntarget = \"src/index.ts\"\nreason = \"a test of an exception's rule\"\n",
     );
     with_spare(&repo, "");
     let plugin = typescript_plugin();
@@ -4284,7 +4284,7 @@ fn an_exception_whose_plugin_is_not_declared_where_its_file_applies_fails_a_run_
     assert_config_error(
         &repo,
         &["check", "--rule", "hello/*", "--plugin", &plugin],
-        "plugin typescript is not declared where this file applies",
+        "[[exception]] rule \"typescript/barrel-imprts\": plugin typescript has no rule barrel-imprts",
     );
 }
 

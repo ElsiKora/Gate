@@ -32,8 +32,9 @@ The review of `a6870b6` showed that the first design narrowed validation along w
 plugin that a run did not load lost every check that reads what it declares, not only its option
 schema: its `[generate]` names (the T-017 error, which must fire for every command), its `[rules]`
 ids, aspects and scope placement, rule options and exceptions, and `check_needs`. Two checks that
-need no plugin were skipped too: one plugin declared with two sources, and an exception whose
-plugin is not declared where its file applies. Every later check of that kind (T-048's decision
+need no plugin were skipped too: one plugin declared with two sources (in the review's list, also
+an exception whose plugin is not declared where its file applies; that one never was: the
+configuration load refuses it in `load_exceptions`, for every command). Every later check of that kind (T-048's decision
 check) would also pass silently in `--rule` and `--staged` runs.
 
 The lead changed the design: **validation is never narrowed; only execution is.**
@@ -146,7 +147,7 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
   `check --staged` that does not select the project declaring that plugin.
 - A `[rules]` id that names no rule of plugin `b` fails `check --rule 'a/*'`.
 - Plugin `b` declared with two sources fails `check --rule 'a/*'`.
-- An exception whose plugin is not declared where its file applies fails `check --rule 'a/*'`.
+- An exception that names a rule plugin `b` does not declare fails `check --rule 'a/*'`.
 - A `--rule b/<typo>` key fails a `check --staged` that does not run `b`, and a key that names a
   rule `b` declares passes it. This one passes on `a6870b6` too, whose `needed` loaded the plugin
   a key names; it guards the removal of that branch.
@@ -223,7 +224,7 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
 
 ## Resume point
 
-2026-11-19T20:21:46+00:00:
+2026-11-19T22:32:41+00:00:
 - First design: `ba462ff` (tests), `a491f40` (the change), `93749ae` (guards and section 9),
   `9bb5b36` (the trade test's fixture), `a6870b6` (clippy).
 - Lane ticket 224 ran the tests on `ba462ff`: the two load tests failed as expected (exit 101); the
@@ -238,8 +239,8 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
   interface and the core version. Every entry is written when its plugin loads and read only by
   that core. A missing or unreadable entry loads the plugin. `Loaded` keeps a declaration for every
   declared plugin and compiles only the plugins the run runs. The checks that need no plugin (one
-  source per plugin, a pin per plugin, an exception's plugin declared where its file applies) run
-  for every declared plugin. `gate cache prune` removes the declarations of plugins no lock pins.
+  source per plugin, a pin per plugin) run for every declared plugin; an exception's plugin
+  declared where its file applies is checked when the configuration loads, as before. `gate cache prune` removes the declarations of plugins no lock pins.
 - Overlap with T-056 (`gate cache prune`, Gate 004), decided by the lead: whichever branch merges
   second puts `declarations/` into T-056's derived class, like `results/<plugin sha256>/`. An
   unpinned plugin's directory goes; a pinned one's entries are bounded by `--older-than` and
@@ -252,5 +253,16 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
   `prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download`.
 - Measures, as the lead set them: after `gate sync` with the module cache emptied, plus one row
   for a first run on an empty cache, so the one-time cost is on record.
-- Next: one round on the lane. It runs the new tests on `7e904e4`, each expected to fail but the
+- Rounds of the redesign:
+  - Lane ticket 242 ran the new tests on `7e904e4`: the six that must fail exited 101 and the two
+    guards exited 0. Its gates stopped at clippy (E0027, `unused_qualifications`), fixed in
+    `bb7fc5d`.
+  - Lane ticket 251 ran the gates on `20d1122`. fmt, clippy, deny and build exited 0. The tests
+    were 1025 passed, 1 failed: the exception test. It expected the exception-scope message, but
+    `load_exceptions` refuses that case at configuration load, for every command and on `a6870b6`
+    too, so it never tested a skipped check. It now names a rule `typescript` does not declare,
+    which `a6870b6` did skip. The reordered check in `workspace.rs` repeated the load check and is
+    back as it was.
+- Next: one round. It runs the rewritten exception test on the pre-change tree, where it is
+  expected to fail, then the gates. It runs the new tests on `7e904e4`, each expected to fail but the
   two guards, then the gates on the tip.

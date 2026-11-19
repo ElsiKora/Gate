@@ -387,9 +387,7 @@ impl Workspace {
     }
 
     /// [`Workspace::validate`] without the rules and exceptions of the plugins in `skipped`, whose
-    /// declarations are unknown (their component did not load). An exception of such a plugin is
-    /// still checked for the one thing that needs no declaration: that its plugin is declared
-    /// where its file applies.
+    /// declarations are unknown (their component did not load).
     ///
     /// # Errors
     /// As [`Workspace::validate`].
@@ -450,6 +448,9 @@ impl Workspace {
                 .and_then(|name| self.settings.get(name))
                 .unwrap_or(repository);
             let rule = &exception.rule.rule;
+            if skipped.iter().any(|name| name.as_str() == rule.plugin()) {
+                continue;
+            }
             let place = format!(
                 "{}:{}: [[exception]] rule \"{}\"",
                 exception.file, exception.line, exception.rule
@@ -460,10 +461,6 @@ impl Workspace {
                     rule.plugin()
                 )));
             };
-            // Whether the plugin is declared needs no plugin; what it declares does.
-            if skipped.contains(name) {
-                continue;
-            }
             let Some(found) = declaration(name, &spec.value.source, rule.rule()) else {
                 return Err(Error::config(format!(
                     "{place}: plugin {} has no rule {}; run gate list to see the configured rules",
