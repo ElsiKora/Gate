@@ -6,7 +6,7 @@
 | Release | v0.3.0 (it renames a configuration table; with T-052) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | `main` at `4c55ca6`; rebased onto main after T-043 merges |
+| Depends on | `main` at `9b18b32` (T-043 merged); merges after the v0.2.1 tag |
 | Touches | `crates/gate-host/src/config` (the rule entry, the policy table, settings), `crates/gate-host/src/workspace.rs` (the exception check), `crates/gate-host/src/plugins.rs` (the load-time check beside `Rule::NEEDS`), tests, docs, `CHANGELOG.md` |
 
 ## Goal
@@ -75,5 +75,6 @@ configuration); the CHANGELOG entry under Breaking says the table is renamed and
 
 ## Resume point
 
-2026-11-19: review fix round (the lead's ruling on rules no preset names, fixes 2 to 5) written over
-`7c2b723`; next: one lane round on the pushed tip, after the T-043 round.
+2026-11-19: review fix round (the lead's ruling on rules no preset names, fixes 2 to 5) rebased onto
+`main` at `9b18b32`, with the 0.3.0 entries in their own CHANGELOG section; next: one lane round on
+the pushed tip.
