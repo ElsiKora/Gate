@@ -421,6 +421,61 @@ and, in `pre-push`, the pushed refs on their standard input (`--stdin`). `budget
 the hooks to `.githooks/` and sets `core.hooksPath` once per clone; every worktree of the clone shares
 it. `gate doctor` says when a clone has not run `gate sync`. Root file only.
 
+### Hooks Written by Hand
+
+A repository whose hooks already run through another manager, Husky for example, leaves `[hooks]`
+out and calls the launcher from its own hook files. The two do not mix: with `[hooks]`, `gate sync`
+points `core.hooksPath` at `.githooks`, away from the manager's directory; without it, `gate sync`
+leaves `core.hooksPath` alone and `gate doctor` does not ask for it. The lines below are the ones
+`gate sync` writes for `commit-msg = ["check --commit-message"]` and `pre-push = ["check --push"]`,
+so a hand-written hook behaves as the generated one does.
+
+`commit-msg` (in Husky, `.husky/commit-msg`):
+
+```sh
+#!/bin/sh
+set -e
+bin/gate check --commit-message "$1" --hook
+```
+
+git passes the hook the file that holds the message being written as `$1`; `--commit-message`
+checks that message with the rules that read it, such as `git/commit-message`, besides the tree.
+
+`pre-push` (in Husky, `.husky/pre-push`):
+
+```sh
+#!/bin/sh
+set -e
+refs=$(cat)
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_sha" ] || continue
+  [ "$local_sha" != 0000000000000000000000000000000000000000 ] || continue
+  bin/gate check --push "$remote_sha..$local_sha" --target-ref "$remote_ref" --hook </dev/null
+done <<EOF
+$refs
+EOF
+```
+
+git writes one line per pushed ref on the hook's standard input: the local ref, its object id, the
+remote ref and the remote's object id. The hook reads them all first and checks each ref on its own:
+
+- `--push "$remote_sha..$local_sha"` checks the commits the push adds to that ref.
+- `--target-ref "$remote_ref"` names the full remote ref the push updates, such as
+  `refs/heads/feature/ab-12-login`. `git/branch-name` checks that name, so `git push origin
+  HEAD:wip` checks `wip`, whatever branch is checked out.
+- A local object id of zeros is a deleted ref: nothing is pushed, so the hook skips it. A remote
+  object id of zeros is a new branch: the range is passed as it is, and the core takes a base of
+  zeros as a new branch, where every path counts as changed.
+- `</dev/null` keeps each check off the loop's standard input, which holds the refs still to check.
+
+`--hook` says that a git hook started the run. Rules that apply only while a developer works read
+it: `git/branch-name` refuses a name in its `prohibited` list (by default `main`, `master` and
+`release`) only in a hook run, so a commit or a push from a working copy on `main` is refused,
+while a plain `gate check` and a CI job, which check `main` out, pass. `set -e` makes the hook exit
+with the first failing check's code, so git stops the commit or the push. `[hooks] budget = 10`
+corresponds to `--budget 10` before `--hook`, and `pre-commit = ["check --staged"]` to
+`bin/gate check --staged --hook`.
+
 ## `[ci.github]`
 
 ```toml

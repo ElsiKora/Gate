@@ -41,5 +41,6 @@ To be written.
 
 ## Resume point
 
-2026-11-19T17:57:13+00:00: task file written from `main` at `4c55ca6`. `git diff v0.2.0 4c55ca6 -- crates plugins` is
-empty, so the released v0.2.0 binary is `main`'s code. Next: the guide's text, then the proof.
+2026-11-19T17:57:13+00:00: task file written from `main` at `4c55ca6`. `git diff v0.2.0 4c55ca6 --
+crates plugins` is empty, so the released v0.2.0 binary is `main`'s code. Next: the guide's text,
+then the proof.
