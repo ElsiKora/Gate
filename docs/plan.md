@@ -69,7 +69,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-049 | v0.2.1 | A release of `git/main-history` that moves a plugin's pin | design approved; code after T-042 merges (branch at `1739c25`) | T-042 |
 | T-050 | v0.2.1 | The plan and the task files say what v0.2.0 merged | in review | none |
 | T-051 | v0.2.1 | Hooks written by hand, in the configuration guide | in progress (branch at `922aed5`) | none |
-| T-052 | v0.3.0 | not written yet; T-048's release line names it beside T-048 | open (no task file yet; writer Gate 001, after T-048) | T-048 |
+| T-052 | v0.3.0 | Two check-time thresholds, a warning and a failure, replace `--budget-fails` | open (no task file yet; writer Gate 001, after T-048) | T-048 |
 | T-053 | v0.3.0 | Pin a local build under its future URL, and check exactly that file | design approved; code after T-044 merges (branch at `5379eed`) | T-044 |
 | T-054 | v0.2.1 | The 0.1.0-to-0.2.0 baseline upgrade, written down | done (merged at `4c55ca6`, after the tag; documents only) | none |
 
