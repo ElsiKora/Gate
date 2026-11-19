@@ -226,9 +226,15 @@ core does not change.
 
 - A rule's id is `<plugin>/<rule>`, lowercase kebab: `nestjs/barrel-exports`, `git/no-ci-skip`,
   `ledger/record-status`. A rule may report several aspects (`nestjs/field-inventory#hidden`).
-- A finding: rule id, aspect, level, message, location (path, line and column span), help, the norm
-  it enforces (from configuration), and a fingerprint (rule, aspect, path, message digest) for
-  baselines and SARIF.
+- A finding: rule id, aspect, level, message, location (path, line and column span), help, an
+  optional key, the norm it enforces (from configuration), and a fingerprint for baselines and SARIF
+  (`partialFingerprints."gate/v1"`).
+- The key is the plugin's short, stable identity of what the finding is about within its rule,
+  aspect and path (`ProviderEntity.name`, a controller's class name); it must not change when the
+  message's wording does. The fingerprint is a digest of (rule, aspect, path, key) when the finding
+  has a key, otherwise of (rule, aspect, path, message), so a keyed message can be reworded, or name
+  a path differently, without breaking a baseline. A plugin gives a key whenever its message embeds a
+  path or a value from the options.
 - Levels: `error` fails the gate, `warning` reports, `note` informs; `off` disables. The level is
   configuration, never the plugin's choice.
 - Norms: a repository maps a rule or an aspect to its own written rule (`norm = "RULE-IMP-001"`); the
@@ -627,7 +633,8 @@ The first readers raised these points; each is settled:
   question. Option data that exempts something is written as an exception, not as data.
 - **Baselines.** `gate baseline write` stores the fingerprints of today's findings in
   `gate/baseline.json`; findings in it are not reported, entries that match nothing are, so a baseline
-  only shrinks.
+  only shrinks. `gate baseline prune` removes those entries and never adds one, so a fix shrinks the
+  baseline without accepting a new finding; `write` is for the first baseline.
 
 **Cache and speed**
 - Compiled modules are keyed by (plugin sha256, wasmtime version, target triple). `gate cache prune

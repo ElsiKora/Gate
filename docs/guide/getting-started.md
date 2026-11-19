@@ -131,7 +131,8 @@ nothing is itself reported, so the list only shrinks. See [configuration.md](con
 
 On a repository with many findings, adopt a rule first with a baseline: `bin/gate baseline write`
 stores today's findings in `gate/baseline.json`, which you commit. They are no longer reported; new ones
-are, and an entry that no longer matches is reported too, so the baseline only shrinks.
+are, and an entry that no longer matches is reported too, so the baseline only shrinks. As you fix
+findings, `bin/gate baseline prune` removes their entries and never adds one.
 
 ## 5. Wire the Hooks
 

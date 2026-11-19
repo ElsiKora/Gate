@@ -61,6 +61,7 @@ impl<'i> Codes<'i> {
             line: Some(field.line),
             message,
             target: Some(format!("{}:{key}", key.path)),
+            key: Some(key.to_string()),
         };
         let mut findings = Vec::new();
 
@@ -71,6 +72,7 @@ impl<'i> Codes<'i> {
                 line: entry_line,
                 message: format!("entry {key} is a CODE of an entity and needs a role"),
                 target: Some(format!("{}:{key}", key.path)),
+                key: Some(format!("{key}#role")),
             }),
             (Origin::Dto, Some(role)) => findings.push(Finding {
                 aspect: "classification",
@@ -81,6 +83,7 @@ impl<'i> Codes<'i> {
                     role.label()
                 ),
                 target: Some(format!("{}:{key}", key.path)),
+                key: Some(format!("{key}#role")),
             }),
             _ => {}
         }

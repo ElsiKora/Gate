@@ -34,6 +34,11 @@ interface types {
     /// `src/user.entity.ts:UserEntity.parent`); exceptions match it.
     target: option<string>,
     help: option<string>,
+    /// A short, stable identity of what the finding is about within its rule, aspect and path (for
+    /// example `ProviderEntity.name`, or a controller's class name). It must not change when the
+    /// message's wording does: with a key, a finding's fingerprint (baselines, SARIF) is its rule,
+    /// aspect, path and key; without one, its rule, aspect, path and message.
+    key: option<string>,
   }
 
   /// A rule a plugin declares.

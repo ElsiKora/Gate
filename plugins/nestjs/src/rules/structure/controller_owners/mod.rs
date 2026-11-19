@@ -138,8 +138,8 @@ impl Rule for ControllerOwners {
             .map_err(|failure| project::error(&failure))?;
         let mut findings = Findings::default();
 
-        contract::validate(&contracts, &external, |message| {
-            findings.push("registry-contract", registry.as_str(), None, message);
+        contract::validate(&contracts, &external, |key, message| {
+            findings.push_keyed("registry-contract", registry.as_str(), None, key, message);
         });
 
         let mut by_path: BTreeMap<&str, Contract<'_>> = BTreeMap::new();
@@ -172,10 +172,11 @@ impl Rule for ControllerOwners {
                         .id
                         .as_ref()
                         .map_or("<anonymous>", |id| id.name.as_str());
-                    findings.push(
+                    findings.push_keyed(
                         "registration",
                         source.path.as_str(),
                         Some(line),
+                        name,
                         format!(
                             "{}:{line} {name} is an unregistered controller semantic owner",
                             source.path
@@ -196,10 +197,11 @@ impl Rule for ControllerOwners {
                 .collect();
 
             let ([only], 1) = (matching.as_slice(), controllers.len()) else {
-                findings.push(
+                findings.push_keyed(
                     "registration",
                     source.path.as_str(),
                     None,
+                    format!("{}#declared", contract.controller_name().text()),
                     format!(
                         "{} must declare exactly one registered controller {}",
                         source.path,
@@ -241,10 +243,11 @@ fn stale(
             .string()
             .is_some_and(|path| discovered.contains(path) || sources.unparsed(path))
         {
-            findings.push(
+            findings.push_keyed(
                 "registration",
                 registry,
                 None,
+                format!("{}#stale", path.text()),
                 format!(
                     "{} is a stale semantic-owner registry row for {}",
                     path.text(),
@@ -351,21 +354,28 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         let service_entity_path = contract.service_entity_path();
         let distinct = service_entity_name != contract.entity_name()
             || service_entity_path != contract.entity_path();
-        let mut error = |aspect: &'static str, message: String| {
-            self.findings
-                .push(aspect, path.as_str(), Some(line), message);
+        let mut error = |aspect: &'static str, check: &str, message: String| {
+            self.findings.push_keyed(
+                aspect,
+                path.as_str(),
+                Some(line),
+                format!("{name}#{check}"),
+                message,
+            );
         };
 
         if contract.plain() {
             if nest_controller.is_none() || api_controller.is_some() {
                 error(
                     "api-metadata",
+                    "plain",
                     format!("{label} must be one exact plain Nest controller"),
                 );
             }
         } else if api_controller.is_none() || nest_controller.is_some() {
             error(
                 "api-metadata",
+                "api-controller",
                 format!("{label} must be one exact ApiController"),
             );
         }
@@ -409,6 +419,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
                 if !same_path(identity.as_ref(), service_path) {
                     error(
                         "service-owner",
+                        "service-path",
                         format!(
                             "{label} resolves primary service to {}; expected {}",
                             identity
@@ -422,6 +433,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
                 if source.text(service.pattern.span()) != names.service_member {
                     error(
                         "service-owner",
+                        "service-member",
                         format!(
                             "{label} primary controller service member must be named {}",
                             names.service_member
@@ -431,6 +443,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
             } else {
                 error(
                     "service-owner",
+                    "service-injection",
                     format!(
                         "{label} must inject primary service {} exactly once; expected {}",
                         service_name.text(),
@@ -441,6 +454,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         } else {
             error(
                 "service-owner",
+                "constructor",
                 format!("{label} must declare exactly one constructor"),
             );
         }
@@ -457,9 +471,14 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         let Some(call) = api_controller.filter(|_| !contract.plain()) else {
             return;
         };
-        let mut error = |aspect: &'static str, message: String| {
-            self.findings
-                .push(aspect, path.as_str(), Some(line), message);
+        let mut error = |aspect: &'static str, check: &str, message: String| {
+            self.findings.push_keyed(
+                aspect,
+                path.as_str(),
+                Some(line),
+                format!("{name}#{check}"),
+                message,
+            );
         };
         let Some([entity_type]) = call
             .type_arguments
@@ -468,6 +487,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         else {
             error(
                 "api-metadata",
+                "entity-generic",
                 format!("{label} ApiController must bind exactly one entity generic"),
             );
             return;
@@ -481,6 +501,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         {
             error(
                 "api-metadata",
+                "entity",
                 format!(
                     "{label} binds ApiController entity {}; expected {} from {}, received {}",
                     controller_entity
@@ -518,6 +539,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         {
             error(
                 "api-metadata",
+                "base",
                 format!(
                     "{label} must implement IApiControllerBase<{}> exactly once",
                     service_entity_name.text()
@@ -540,9 +562,14 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
             );
         }
 
-        let mut error = |aspect: &'static str, message: String| {
-            self.findings
-                .push(aspect, path.as_str(), Some(line), message);
+        let mut error = |aspect: &'static str, check: &str, message: String| {
+            self.findings.push_keyed(
+                aspect,
+                path.as_str(),
+                Some(line),
+                format!("{name}#{check}"),
+                message,
+            );
         };
 
         if let Some(Configured::Entity(entity)) =
@@ -555,6 +582,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
             {
                 error(
                     "api-metadata",
+                    "config-type",
                     format!(
                         "{label} config type must be IApiControllerProperties<{}>",
                         contract.entity_name().text()
@@ -585,6 +613,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
             {
                 error(
                     "api-metadata",
+                    "config-entity",
                     format!(
                         "{label} config entity must be {}",
                         contract.entity_name().text()
@@ -596,6 +625,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
             {
                 error(
                     "api-metadata",
+                    "config-name",
                     format!(
                         "{label} config name must be {}",
                         Js::of(Some(&expected)).json()
@@ -605,6 +635,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         } else {
             error(
                 "api-metadata",
+                "config",
                 format!("{label} ApiController configuration must resolve to one object literal"),
             );
         }
@@ -631,6 +662,7 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         distinct: bool,
     ) {
         let contract = self.contract;
+        let name = contract.controller_name().text();
         let service_name = contract.primary_service_name();
         let service_entity_name = contract.service_entity_name();
         let service_entity_path = contract.service_entity_path();
@@ -654,10 +686,11 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
                 find_class(&service.file, name).map(|class| (service, class))
             });
         let Some((service, class)) = class else {
-            self.findings.push(
+            self.findings.push_keyed(
                 "service-owner",
                 path.as_str(),
                 Some(line),
+                format!("{name}#service-class"),
                 format!(
                     "{label} primary service {} must resolve to one source class",
                     service_name.text()
@@ -668,10 +701,11 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
         let entities = service_entities(service, class, &self.names.automator);
 
         if entities.is_empty() {
-            self.findings.push(
+            self.findings.push_keyed(
                 "service-owner",
                 path.as_str(),
                 Some(line),
+                format!("{name}#service-entities"),
                 format!(
                     "{label} primary service {} must bind {} through ApiServiceBase or ApiService",
                     service_name.text(),
@@ -688,10 +722,11 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
             if !same_name(owner.as_ref(), service_entity_name)
                 || !same_path(owner.as_ref(), service_entity_path)
             {
-                self.findings.push(
+                self.findings.push_keyed(
                     "service-owner",
                     service.path.as_str(),
                     Some(service_line),
+                    format!("{}#{owner_kind}-entity", service_name.text()),
                     format!(
                         "{}:{service_line} {} {owner_kind} entity is {}; expected {} from {}, received {}",
                         service.path,
@@ -714,10 +749,11 @@ impl<'a> Owned<'_, '_, 'a, '_, '_> {
                     controller_entity.path != owner.path || controller_entity.name != owner.name
                 })
             {
-                self.findings.push(
+                self.findings.push_keyed(
                     "service-owner",
                     path.as_str(),
                     Some(line),
+                    format!("{name}#service-entity-owner"),
                     format!(
                         "{label} and primary service {} resolve {} from different source owners",
                         service_name.text(),

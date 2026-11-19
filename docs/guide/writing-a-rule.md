@@ -195,7 +195,7 @@ for commit in git.log(&format!("{base}..{}", range.head)) {
 ## 7. Findings
 
 A finding is reported with `run.report().finding(aspect, location, message)`, plus an optional
-`.target(..)` and `.help(..)`. There is no level in the call: the level comes from the repository's
+`.target(..)`, `.help(..)` and `.key(..)`. There is no level in the call: the level comes from the repository's
 configuration alone.
 
 - **Message**: one sentence that says what is wrong, without the rule id or the level (the report adds
@@ -207,13 +207,18 @@ configuration alone.
 - **Target**: what the finding is about, in a grammar the rule's page documents
   (`src/main.rs:3`); the repository's exceptions match it.
 - **Help**: what to do about it, with an example.
+- **Key**: a short, stable identity of what the finding is about within its rule, aspect and path
+  (`ProviderEntity.name`, a controller's class name). It must not change when the message's wording
+  does. Set one whenever the message embeds a path or a value from the options.
 - **Aspect**: a rule that checks several distinct things names each one (`hidden`, `nullable`), shown
   as `<rule>#hidden` in reports. A repository can then set a level or a norm per aspect, with `levels`
   and `norms` in the rule's entry. Declare the aspects in `const ASPECTS`; pass `""` when the rule has a
   single aspect.
 
 The core orders findings by path, line, column, rule, aspect and message, and fingerprints them by rule,
-aspect, path and message. Keep messages stable: a message that embeds a count or an iteration order
+aspect, path and key, or by rule, aspect, path and message when the finding has no key. Baselines and
+SARIF match the fingerprint, so a finding without a key that is reworded is a new finding to every
+repository that baselined it. Keep messages stable: a message that embeds a count or an iteration order
 changes the fingerprint.
 
 ## 8. Errors

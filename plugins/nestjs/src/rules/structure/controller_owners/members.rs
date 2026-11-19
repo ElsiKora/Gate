@@ -44,10 +44,11 @@ pub(super) fn route_handlers(
         }
 
         let line = source.file.line(member_start(element));
-        findings.push(
+        findings.push_keyed(
             "route-handler-only",
             source.path.as_str(),
             Some(line),
+            format!("{class_name}.{}", member_name(source, element)),
             format!(
                 "{}:{line} {class_name}.{} is not a route-decorated controller handler; move helper logic to its semantic owner",
                 source.path,
@@ -226,10 +227,11 @@ pub(super) fn owned_contracts<'a>(
 
             if !name.starts_with(&prefix) {
                 let line = source.file.line(member_start(element));
-                findings.push(
+                findings.push_keyed(
                     "owned-contract-prefix",
                     source.path.as_str(),
                     Some(line),
+                    format!("{role}.{}:{name}", member_name(source, element)),
                     format!(
                         "{}:{line} {role}.{} exposes owned contract {name}; expected the {prefix} semantic-owner prefix",
                         source.path,
@@ -311,11 +313,16 @@ pub(super) fn custom_service_boundary<'s, 'a>(
     names: &Names,
     findings: &mut Findings,
 ) {
-    let mut error = |message: String| {
-        findings.push(
+    let controller_name = class
+        .id
+        .as_ref()
+        .map_or("<anonymous>", |id| id.name.as_str());
+    let mut error = |check: &str, message: String| {
+        findings.push_keyed(
             "custom-service-entity",
             source.path.as_str(),
             Some(line),
+            format!("{controller_name}#{check}"),
             message,
         );
     };
@@ -342,24 +349,31 @@ pub(super) fn custom_service_boundary<'s, 'a>(
     });
 
     if !disabled {
-        error(format!(
-            "{label} a distinct primary service entity requires all six generated routes explicitly disabled"
-        ));
+        error(
+            "routes",
+            format!(
+                "{label} a distinct primary service entity requires all six generated routes explicitly disabled"
+            ),
+        );
     }
 
     if controller
         .as_ref()
         .is_none_or(|controller| controller.contains_key("relations"))
     {
-        error(format!(
-            "{label} a distinct primary service entity requires explicit metadata without relation loading"
-        ));
+        error(
+            "relations",
+            format!(
+                "{label} a distinct primary service entity requires explicit metadata without relation loading"
+            ),
+        );
     }
 
     if class.heritage.is_some() {
-        error(format!(
-            "{label} a distinct primary service entity cannot inherit controller behavior"
-        ));
+        error(
+            "heritage",
+            format!("{label} a distinct primary service entity cannot inherit controller behavior"),
+        );
     }
 
     let first = class.body.body.iter().find_map(|element| match element {
@@ -371,9 +385,10 @@ pub(super) fn custom_service_boundary<'s, 'a>(
     if first.is_none_or(|first| {
         first.value.params.items.len() + usize::from(first.value.params.rest.is_some()) != 1
     }) {
-        error(format!(
-            "{label} a distinct primary service entity requires one service dependency"
-        ));
+        error(
+            "dependency",
+            format!("{label} a distinct primary service entity requires one service dependency"),
+        );
     }
 
     for element in &class.body.body {
@@ -397,9 +412,12 @@ pub(super) fn custom_service_boundary<'s, 'a>(
             });
 
         if route.is_none_or(|route| route.contains_key("relations")) {
-            error(format!(
-                "{label} a distinct primary service entity requires explicit ApiRouteCustom metadata without relation loading"
-            ));
+            error(
+                "route-relations",
+                format!(
+                    "{label} a distinct primary service entity requires explicit ApiRouteCustom metadata without relation loading"
+                ),
+            );
         }
     }
 }

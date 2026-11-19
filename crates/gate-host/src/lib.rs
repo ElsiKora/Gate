@@ -245,7 +245,8 @@ pub struct BaselineWritten {
 }
 
 /// Runs a full check of the working tree and writes the fingerprints of its findings (after
-/// exceptions, without the core's own) to `gate/baseline.json`.
+/// exceptions, without the core's own) to `gate/baseline.json`, replacing it: for the first
+/// baseline. Once findings are fixed, [`prune_baseline`] drops their entries and adds none.
 ///
 /// # Errors
 /// Fails like [`check`], and when the file cannot be written.
@@ -280,6 +281,72 @@ pub fn write_baseline(start: &Path) -> Result<BaselineWritten> {
 
     Ok(BaselineWritten {
         baseline,
+        path,
+        tracked,
+    })
+}
+
+/// What `gate baseline prune` did.
+#[derive(Debug)]
+pub struct BaselinePruned {
+    /// The entries it removed: those that matched no finding although their rule ran.
+    pub removed: Vec<BaselineEntry>,
+    /// The entries it kept.
+    pub kept: usize,
+    /// The findings no entry accepts, which `gate check` reports; prune does not add them.
+    pub unaccepted: usize,
+    /// The file, on disk.
+    pub path: PathBuf,
+    /// Whether git tracks the file (gate reads only tracked files).
+    pub tracked: bool,
+}
+
+/// Runs a full check of the working tree and removes from `gate/baseline.json` the entries that
+/// match none of its findings although their rule ran: those `gate check` reports as stale. It never
+/// adds an entry, so a new finding stays reported. The file is rewritten only when an entry goes.
+///
+/// # Errors
+/// Fails like [`check`], when the baseline does not load, and when the file cannot be written.
+pub fn prune_baseline(start: &Path) -> Result<BaselinePruned> {
+    let request = CheckRequest {
+        source: Some(Source::WorkTree),
+        ..CheckRequest::default()
+    };
+    let run = run(start, &request)?;
+    let findings = run.findings.finish(
+        run.workspace.exceptions(),
+        &Baseline::default(),
+        &run.ran.per_scope,
+    );
+    let (pruned, removed) = run
+        .workspace
+        .baseline()
+        .pruned(&findings, &run.ran.per_scope);
+    let unaccepted = pruned
+        .accept(&findings)
+        .findings
+        .iter()
+        .zip(&findings)
+        .filter(|(accepted, finding)| !**accepted && !baseline::is_core(&finding.rule))
+        .count();
+    let root = run.workspace.snapshot().git().root().to_path_buf();
+    let path = root.join(BASELINE_FILE);
+    if !removed.is_empty() {
+        std::fs::write(&path, pruned.to_json()?).map_err(|error| {
+            Error::environment(format!("cannot write {}: {error}", path.display()))
+        })?;
+    }
+    let tracked = !run
+        .workspace
+        .snapshot()
+        .git()
+        .paths(&["ls-files", "-z", "--", BASELINE_FILE])?
+        .is_empty();
+
+    Ok(BaselinePruned {
+        removed,
+        kept: pruned.len(),
+        unaccepted,
         path,
         tracked,
     })
@@ -509,6 +576,7 @@ fn over_budget(elapsed: Duration, budget: Duration, fails: bool) -> Finding {
         help: Some("find the slow plugin with --timings, or raise --budget".to_owned()),
         norm: None,
         project: None,
+        key: None,
     }
 }
 

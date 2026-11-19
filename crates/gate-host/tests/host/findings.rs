@@ -369,6 +369,59 @@ fn the_baseline_hides_one_finding_per_entry_and_reports_stale_entries() {
 }
 
 #[test]
+fn pruning_drops_exactly_the_entries_check_reports_stale() {
+    // Two equal entries, of which one finding remains; an entry of a fixed finding; an entry of a
+    // project whose rule did not run.
+    let old = finding("layers/relation", "", Level::Error, "apps/x.ts", 3, "old");
+    let mut gone = finding("layers/relation", "", Level::Error, "apps/y.ts", 1, "fixed");
+    gone.project = Some("client".to_owned());
+    let mut elsewhere = finding("layers/relation", "", Level::Error, "apps/z.ts", 1, "other");
+    elsewhere.project = Some("docs".to_owned());
+    let baseline = Baseline::from_findings(&[old.clone(), old.clone(), gone, elsewhere]);
+    let new = finding("layers/relation", "", Level::Error, "apps/n.ts", 1, "new");
+
+    let (pruned, removed) = baseline.pruned(&[old.clone(), new.clone()], &ran_all());
+    let removed: Vec<&str> = removed.iter().map(|entry| entry.message.as_str()).collect();
+    assert_eq!(removed, ["old", "fixed"]);
+    let kept: Vec<&str> = pruned
+        .entries()
+        .iter()
+        .map(|entry| entry.message.as_str())
+        .collect();
+    assert_eq!(
+        kept,
+        ["old", "other"],
+        "the entry of a rule that did not run stays"
+    );
+
+    // What check reports with the pruned baseline: the new finding only, nothing stale.
+    let mut sink = Findings::new();
+    sink.extend([old, new.clone()]);
+    assert_eq!(sink.finish(&[], &pruned, &ran_all()), [new]);
+}
+
+#[test]
+fn a_key_replaces_the_message_in_the_fingerprint() {
+    let mut first = finding("layers/relation", "", Level::Error, "apps/x.ts", 3, "first");
+    let mut second = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/x.ts",
+        9,
+        "second",
+    );
+    assert_ne!(first.fingerprint(), second.fingerprint());
+    first.key = Some("User.parent".to_owned());
+    second.key = Some("User.parent".to_owned());
+    assert_eq!(first.fingerprint(), second.fingerprint());
+    let baseline = Baseline::from_findings(&[first]);
+    let mut sink = Findings::new();
+    sink.push(second);
+    assert!(sink.finish(&[], &baseline, &ran_all()).is_empty());
+}
+
+#[test]
 fn the_baseline_never_holds_the_cores_own_findings() {
     let unmatched = exception("layers/relation", "gone.ts");
     let core = Findings::new().finish(&[unmatched], &Baseline::default(), &ran_all());

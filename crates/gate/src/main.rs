@@ -212,8 +212,12 @@ struct SchemaArgs {
 
 #[derive(Debug, Subcommand)]
 enum BaselineCommand {
-    /// Run a full check of the working tree and store its findings in gate/baseline.json.
+    /// Run a full check of the working tree and store all its findings in gate/baseline.json,
+    /// replacing it: for the first baseline. Once findings are fixed, use prune, which adds none.
     Write,
+    /// Run a full check of the working tree and remove from gate/baseline.json the entries that
+    /// match no finding; it never adds one, so a new finding stays reported.
+    Prune,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -274,6 +278,7 @@ fn main() -> ExitCode {
         Command::Explain { rule } => explain(&rule),
         Command::Schema(arguments) => schema(&arguments),
         Command::Baseline(BaselineCommand::Write) => baseline_write(),
+        Command::Baseline(BaselineCommand::Prune) => baseline_prune(),
         Command::Sync(arguments) => sync(&arguments),
         Command::Run(arguments) => run(&arguments),
         Command::Doctor => doctor(),
@@ -507,6 +512,47 @@ fn baseline_write() -> Result<u8, Error> {
     if !written.tracked {
         text.push_str("gate reads tracked files only; run git add ");
         text.push_str(gate_host::BASELINE_FILE);
+        text.push('\n');
+    }
+    write_out(&text)?;
+    Ok(0)
+}
+
+fn baseline_prune() -> Result<u8, Error> {
+    let pruned = gate_host::prune_baseline(Path::new("."))?;
+    let file = gate_host::BASELINE_FILE;
+    let mut text = String::new();
+    for entry in &pruned.removed {
+        let _ = writeln!(
+            text,
+            "removed {} at {}: {}",
+            entry.rule_with_aspect(),
+            entry.path.as_deref().unwrap_or("(no path)"),
+            entry.message
+        );
+    }
+    let removed = pruned.removed.len();
+    let kept = pruned.kept;
+    if removed == 0 {
+        let _ = writeln!(text, "{file}: nothing to prune; {kept} kept");
+    } else {
+        let _ = writeln!(text, "pruned {file}: {removed} removed, {kept} kept");
+    }
+    if pruned.unaccepted > 0 {
+        let noun = if pruned.unaccepted == 1 {
+            "finding is not in the baseline and stays"
+        } else {
+            "findings are not in the baseline and stay"
+        };
+        let _ = writeln!(
+            text,
+            "{} {noun} reported; prune adds none",
+            pruned.unaccepted
+        );
+    }
+    if removed > 0 && !pruned.tracked {
+        text.push_str("gate reads tracked files only; run git add ");
+        text.push_str(file);
         text.push('\n');
     }
     write_out(&text)?;

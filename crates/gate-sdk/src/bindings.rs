@@ -225,6 +225,7 @@ fn finding(finding: crate::Finding) -> wit::Finding {
         location: finding.location.map(location),
         target: finding.target,
         help: finding.help,
+        key: finding.key,
     }
 }
 
