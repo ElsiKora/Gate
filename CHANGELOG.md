@@ -39,6 +39,14 @@ and the release to pin.
 
 - **gate:** `gate init` suggests only rules that exist, with the options they need, so uncommenting
   every suggestion checks clean; it suggested `git/commit-subject`, which does not exist.
+- **runtime (security):** wasmtime and wasmtime-wasi 50.0.2, for RUSTSEC-2026-0566 (unbounded
+  host memory growth through empty writes to `AsyncWriteStream`), RUSTSEC-2026-0567 and
+  RUSTSEC-2026-0570 (aborts in builds without the `threads` or `gc` feature), RUSTSEC-2026-0568 (a
+  stale GC heap base pointer lets a guest abort the host), RUSTSEC-2026-0569 (a panic in
+  `Caller::get_module_export`), RUSTSEC-2026-0571 (unbounded heap use through empty HTTP/2 body
+  writes in wasmtime-wasi-http), RUSTSEC-2026-0572 (a panic when a component cancels a stream or
+  future copy on the wrong end) and RUSTSEC-2026-0573 (an abort when a GC heap's reservation is not
+  a multiple of the page size).
 
 # 0.1.0
 
