@@ -406,20 +406,24 @@ all = ["lint", "unit"]
   defaults were measured on, the default fuel (10^12) runs out first, at about 355 s of the 600 s;
   on a machine more than 1.7 times slower, the deadline can come first, and that failure may pass.
 - **History is immutable, so its answers are cached for good.** The host answers `git` calls natively.
-  `tree`, `changed-paths` (a diff of two trees, walked object by object), `read-at` and `is-ancestor`
-  (a walk of the commit graph by generation, left to git in a shallow clone or past 200 000 commits)
-  go through one `git cat-file --batch` reader per run, not one git process per question;
-  `merge-tree` runs git once per question. `sync-state` answers are stored in the persistent cache by
-  commit id. A call's findings are stored with the read set that proves them (see the result cache
-  above): answers that depend on refs (`head`, `branch`, `range`, `resolve`, `log` of a range with a
-  ref) are recorded there by the commit ids they returned, so a moved ref re-runs the call, and an
-  unchanged history re-runs nothing.
+  `tree`, `changed-paths` (a diff of two trees, read one level at a time), `read-at` and
+  `is-ancestor` (a walk of the commit graph by generation, the ancestry loaded with one `git
+  rev-list`, left to git past 200 000 commits) go through one `git cat-file --batch` reader per run,
+  not one git process per question; `merge-tree` runs git once per question. Each answer about full
+  commit ids (`tree`, `changed-paths`, `merge-tree` with git's version, `is-ancestor` outside a
+  shallow clone) is asked once per run and stored: a run writes what it learned to one file under
+  `git/answers/`, every later run reads them back, and the files are merged into one when they pass
+  sixteen. `sync-state` answers are stored by commit id. A call's findings are stored with the read
+  set that proves them (see the result cache above): answers that depend on refs (`head`, `branch`,
+  `range`, `resolve`, `log` of a range with a ref) are recorded there by the commit ids they
+  returned, so a moved ref re-runs the call, and the re-run asks git only about the new commits.
 - The cache lives outside the repository (`$GATE_CACHE_DIR`, default the user cache directory),
   content-addressed, shared by every worktree, filled by atomic rename, safe under concurrent first use,
   and needs no network once filled.
 - `--timings` prints the time of each phase, of each plugin call and whether it ran or came from the
-  cache, the host's share of a call by kind of host call (`git.sync-state`, `tree.read`), and how
-  many `sync-state` answers the run computed and read from the cache;
+  cache, the host's share of a call by kind of host call (`git.sync-state`, `tree.read`), how
+  many `sync-state` answers the run computed and read from the cache, and how many git questions
+  about commit ids it asked git and answered from stored answers;
   `--budget <seconds>` warns when a run exceeds it and `--budget-fails` makes that an error (the
   generated CI jobs pass it, hooks do not); `--fail-fast` stops at the first error.
 - `--rule <id>` (repeatable, `<plugin>/*` allowed) narrows a run to those rules; exceptions and

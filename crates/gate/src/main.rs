@@ -404,6 +404,13 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
                 states.computed, states.stored
             );
         }
+        let answers = checked.git_answers;
+        if answers.asked + answers.stored > 0 {
+            eprintln!(
+                "timings: git answers: {} asked, {} from the cache",
+                answers.asked, answers.stored
+            );
+        }
     }
 
     write_out(&checked.report.render(format)?)?;

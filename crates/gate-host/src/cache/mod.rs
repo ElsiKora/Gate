@@ -30,6 +30,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::error::{Error, Result};
 
+pub(crate) mod answers;
 pub(crate) mod results;
 
 /// The variable that names the cache directory.

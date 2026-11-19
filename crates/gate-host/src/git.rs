@@ -959,6 +959,6 @@ fn diff_level(
 }
 
 /// Whether `name` is a full object id, which names the same object for good.
-fn is_object_id(name: &str) -> bool {
+pub(crate) fn is_object_id(name: &str) -> bool {
     matches!(name.len(), 40 | 64) && name.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

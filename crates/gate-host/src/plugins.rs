@@ -18,6 +18,7 @@ use gate_sdk::{Commit, CommitRange, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::cache::answers::{Answer, Answers, Question};
 use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
@@ -77,6 +78,7 @@ pub(crate) struct Ran {
     pub(crate) per_scope: RulesRan,
     pub(crate) reads: Vec<PluginReads>,
     pub(crate) sync_states: SyncStates,
+    pub(crate) git_answers: GitAnswers,
 }
 
 /// The `sync-state` answers of a run: how many it computed, and how many it read from the cache.
@@ -84,6 +86,14 @@ pub(crate) struct Ran {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SyncStates {
     pub computed: usize,
+    pub stored: usize,
+}
+
+/// The git questions of a run about full commit ids (`tree`, `changed-paths`, `merge-tree`,
+/// `is-ancestor`): how many it asked git, and how many an earlier run's stored answers answered.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GitAnswers {
+    pub asked: usize,
     pub stored: usize,
 }
 
@@ -485,6 +495,8 @@ impl Loaded {
             states: Mutex::new(BTreeMap::new()),
             counted: SyncStateCount::default(),
             objects: Mutex::new(None),
+            answers: OnceLock::new(),
+            facts: OnceLock::new(),
         });
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
@@ -558,10 +570,8 @@ impl Loaded {
                 time: outcome.time,
             });
         }
-        ran.sync_states = SyncStates {
-            computed: git_history.counted.computed.load(Ordering::Relaxed),
-            stored: git_history.counted.stored.load(Ordering::Relaxed),
-        };
+        git_history.store_answers()?;
+        (ran.sync_states, ran.git_answers) = git_history.counted.read();
         Ok(ran)
     }
 
@@ -1174,6 +1184,12 @@ struct GitHistory {
     states: Mutex<BTreeMap<String, Arc<StateSlot>>>,
     /// How many `sync-state` answers this run computed, and how many it read from the cache.
     counted: SyncStateCount,
+    /// The stored answers to questions about full commit ids, read on first use; `None` inside
+    /// when the cache is not available.
+    answers: OnceLock<Option<Mutex<Answers>>>,
+    /// What the answers depend on beyond the commits: git's version, and whether the clone is
+    /// shallow.
+    facts: OnceLock<std::result::Result<Facts, HostError>>,
     /// The one `git cat-file --batch` reader that answers `tree`, `changed-paths`, `read-at` and
     /// `is-ancestor`, started on first use.
     objects: Mutex<Option<Objects>>,
@@ -1187,6 +1203,24 @@ type StateSlot = OnceLock<std::result::Result<SyncState, HostError>>;
 struct SyncStateCount {
     computed: AtomicUsize,
     stored: AtomicUsize,
+    /// Questions about full commit ids asked of git, and answered by stored answers.
+    asked: AtomicUsize,
+    answered: AtomicUsize,
+}
+
+impl SyncStateCount {
+    fn read(&self) -> (SyncStates, GitAnswers) {
+        (
+            SyncStates {
+                computed: self.computed.load(Ordering::Relaxed),
+                stored: self.stored.load(Ordering::Relaxed),
+            },
+            GitAnswers {
+                asked: self.asked.load(Ordering::Relaxed),
+                stored: self.answered.load(Ordering::Relaxed),
+            },
+        )
+    }
 }
 
 /// The run's configuration as `sync-state` uses it, computed once per run.
@@ -1259,8 +1293,20 @@ impl History for GitHistory {
     }
 
     fn tree(&self, commit: &str) -> std::result::Result<String, HostError> {
-        self.objects(|objects| objects.tree(commit))?
-            .ok_or_else(|| HostError::new(format!("{commit:?} names no commit, so it has no tree")))
+        let answer = self.remembered("tree", &[commit], true, || {
+            Ok(Answer::Tree(Some(
+                self.objects(|objects| objects.tree(commit))?
+                    .ok_or_else(|| {
+                        HostError::new(format!("{commit:?} names no commit, so it has no tree"))
+                    })?,
+            )))
+        })?;
+        match answer {
+            Answer::Tree(Some(tree)) => Ok(tree),
+            _ => Err(HostError::new(format!(
+                "{commit:?} names no commit, so it has no tree"
+            ))),
+        }
     }
 
     fn merge_tree(
@@ -1268,7 +1314,17 @@ impl History for GitHistory {
         first: &str,
         second: &str,
     ) -> std::result::Result<Option<String>, HostError> {
-        self.git.merge_tree(first, second).map_err(host)
+        // git's merge may differ between versions: the version is part of the question.
+        let version = self.facts()?.version.clone();
+        let answer = self.remembered("merge-tree", &[first, second, &version], true, || {
+            Ok(Answer::Tree(
+                self.git.merge_tree(first, second).map_err(host)?,
+            ))
+        })?;
+        match answer {
+            Answer::Tree(tree) => Ok(tree),
+            _ => Err(HostError::new("a stored merge-tree answer is not a tree")),
+        }
     }
 
     fn revisions(&self, range: &str) -> std::result::Result<Vec<String>, HostError> {
@@ -1324,7 +1380,17 @@ impl History for GitHistory {
         parent: &str,
         commit: &str,
     ) -> std::result::Result<Vec<String>, HostError> {
-        self.objects(|objects| objects.changed_paths(parent, commit))
+        let answer = self.remembered("changed-paths", &[parent, commit], true, || {
+            Ok(Answer::Paths(self.objects(|objects| {
+                objects.changed_paths(parent, commit)
+            })?))
+        })?;
+        match answer {
+            Answer::Paths(paths) => Ok(paths),
+            _ => Err(HostError::new(
+                "a stored changed-paths answer is not a path list",
+            )),
+        }
     }
 
     fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
@@ -1336,7 +1402,19 @@ impl History for GitHistory {
         ancestor: &str,
         descendant: &str,
     ) -> std::result::Result<bool, HostError> {
-        self.objects(|objects| objects.is_ancestor(ancestor, descendant))
+        // A shallow clone hides ancestors: its answers are not kept for another clone.
+        let lasting = !self.facts()?.shallow;
+        let answer = self.remembered("is-ancestor", &[ancestor, descendant], lasting, || {
+            Ok(Answer::Holds(self.objects(|objects| {
+                objects.is_ancestor(ancestor, descendant)
+            })?))
+        })?;
+        match answer {
+            Answer::Holds(holds) => Ok(holds),
+            _ => Err(HostError::new(
+                "a stored is-ancestor answer is not a yes or no",
+            )),
+        }
     }
 
     fn sync_state(&self, commit: &str) -> std::result::Result<SyncState, HostError> {
@@ -1384,7 +1462,80 @@ struct Computed {
     lasting: bool,
 }
 
+/// What git answers depend on beyond the commits they are about.
+#[derive(Clone, Debug)]
+struct Facts {
+    /// `git --version`.
+    version: String,
+    /// Whether the clone is shallow.
+    shallow: bool,
+}
+
 impl GitHistory {
+    fn facts(&self) -> std::result::Result<&Facts, HostError> {
+        self.facts
+            .get_or_init(|| {
+                let version = self.git.output(&["--version"]).map_err(host)?;
+                let shallow = self
+                    .git
+                    .try_text(&["rev-parse", "--is-shallow-repository"])
+                    .map_err(host)?;
+                Ok(Facts {
+                    version: String::from_utf8_lossy(&version).trim().to_owned(),
+                    shallow: shallow.as_deref() != Some("false"),
+                })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// The answer to a question about the full commit ids `of`: stored by an earlier run, or
+    /// asked now and kept. A question about anything else (a ref, an abbreviated id), or one that
+    /// is not `lasting`, is asked and not kept.
+    fn remembered(
+        &self,
+        kind: &'static str,
+        of: &[&str],
+        lasting: bool,
+        ask: impl FnOnce() -> std::result::Result<Answer, HostError>,
+    ) -> std::result::Result<Answer, HostError> {
+        let commits = if kind == "merge-tree" { &of[..2] } else { of };
+        if !lasting || !commits.iter().all(|id| crate::git::is_object_id(id)) {
+            return ask();
+        }
+        let question: Question = (kind, of.iter().map(|id| (*id).to_owned()).collect());
+        let Some(answers) = self.answers.get_or_init(|| {
+            Cache::from_env()
+                .ok()
+                .map(|cache| Mutex::new(Answers::load(&cache)))
+        }) else {
+            return ask();
+        };
+        // Held while git answers: each question is asked once per run, whichever call asks first.
+        let mut answers = answers.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((answer, first_use)) = answers.get(&question) {
+            if first_use {
+                self.counted.answered.fetch_add(1, Ordering::Relaxed);
+            }
+            return Ok(answer);
+        }
+        self.counted.asked.fetch_add(1, Ordering::Relaxed);
+        let answer = ask()?;
+        answers.learn(question, answer.clone());
+        Ok(answer)
+    }
+
+    /// Stores the answers this run learned.
+    fn store_answers(&self) -> Result<()> {
+        if let Some(Some(answers)) = self.answers.get() {
+            answers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .store(&Cache::from_env()?)?;
+        }
+        Ok(())
+    }
+
     /// Asks the run's object reader, starting it on first use; after a failure the next question
     /// starts a fresh reader, as the protocol may be out of step.
     fn objects<T>(

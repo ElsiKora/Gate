@@ -57,7 +57,7 @@ pub use findings::{
 };
 pub use git::Git;
 pub use lock::{LOCK_FILE, Lock, Pin, Wanted};
-pub use plugins::{JsonSchemaValidator, PluginGenerators, PluginReads, SyncStates};
+pub use plugins::{GitAnswers, JsonSchemaValidator, PluginGenerators, PluginReads, SyncStates};
 pub use projects::{Origin, Project, Projects};
 pub use report::{EXIT_CLEAN, EXIT_ERRORS, EXIT_FAILURE, Format, Report, SelectionFormat};
 pub use snapshot::{BlobId, Snapshot, Source};
@@ -172,6 +172,8 @@ pub struct Checked {
     pub reads: Vec<PluginReads>,
     /// The `sync-state` answers the run computed and read from the cache.
     pub sync_states: SyncStates,
+    /// The git questions about commit ids the run asked git and answered from stored answers.
+    pub git_answers: GitAnswers,
 }
 
 /// Runs `gate check` on the repository that contains `start`.
@@ -221,6 +223,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
         timings,
         reads: run.ran.reads,
         sync_states: run.ran.sync_states,
+        git_answers: run.ran.git_answers,
     })
 }
 

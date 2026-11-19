@@ -2136,6 +2136,54 @@ fn a_moved_ref_reruns_only_the_calls_whose_read_set_holds_a_ref_answer() {
     assert!(messages.contains(&"log: 2".to_owned()), "{messages:?}");
 }
 
+/// The calls that ran, and the `git answers` line of `--timings`.
+fn probe_git_answers(repo: &Repo) -> (Vec<String>, Option<String>) {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--timings"]);
+    let stderr = text(&output.stderr);
+    let mut ran: Vec<String> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("timings: call probe "))
+        .filter_map(|call| call.split_once(": ran ").map(|(scope, _)| scope.to_owned()))
+        .collect();
+    ran.sort();
+    let answers = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("timings: git answers: "))
+        .map(str::to_owned);
+    (ran, answers)
+}
+
+#[test]
+fn after_main_moves_a_history_call_asks_git_only_about_the_new_commits() {
+    let repo = probe_repo_for(
+        "apps/*",
+        r#""probe/git" = { level = "error", options = { changed_paths = [["HEAD~2", "HEAD~1"], ["HEAD~1", "HEAD"]], is_ancestor = [["HEAD~1", "HEAD"]] } }"#,
+    );
+    for message in ["first", "second", "third"] {
+        repo.write("apps/one/a.txt", &format!("{message}\n"));
+        repo.commit(message);
+    }
+
+    // Two calls ask the same three questions: git answers each once, nothing is stored yet.
+    let (ran, answers) = probe_git_answers(&repo);
+    assert_eq!(ran, ["one", "two"]);
+    assert_eq!(answers.as_deref(), Some("3 asked, 0 from the cache"));
+
+    // Main moves by one commit: the calls run again; the pair of old commits is answered from
+    // the cache, git is asked about the new commit only.
+    repo.write("apps/one/a.txt", "fourth\n");
+    repo.commit("fourth");
+    let (ran, answers) = probe_git_answers(&repo);
+    assert_eq!(ran, ["one", "two"]);
+    assert_eq!(answers.as_deref(), Some("2 asked, 1 from the cache"));
+
+    // Nothing moved: no call runs, no question is asked.
+    let (ran, answers) = probe_git_answers(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+    assert_eq!(answers, None);
+}
+
 #[test]
 fn a_cold_history_run_computes_one_sync_state_per_commit_for_every_call_and_rule() {
     let repo = probe_repo_for(
