@@ -64,6 +64,26 @@ Kept as environment errors: `plugins/git/src/history.rs:76` (no main reference e
 the full history may fix either; the SDK's `are not JSON` and `has no rule` (what the core sent,
 not what the user wrote).
 
+Step two (ci, agents, markdown, typescript):
+
+- `plugins/ci/src/workflows.rs:71` (`workflows` not a glob).
+- `plugins/agents/src/rule_file_size.rs:53` (`warn-lines` above `max-lines`),
+  `plugins/agents/src/agents_block.rs:139` (`entry` not a plain path),
+  `plugins/agents/src/instruction_references.rs:85` (`command-pattern` without a group).
+- `plugins/markdown/src/frontmatter.rs:65` (`required-keys` empty),
+  `plugins/markdown/src/required_sections.rs:118` (a `sections` path pattern that does not
+  compile).
+- `plugins/typescript/src/barrel_imports.rs:77` (`barrel-name` not a file name), 146 and 155
+  (globs), `plugins/typescript/src/parse.rs:58` (`extensions` naming one oxc does not parse).
+
+Kept as environment errors in step two: a file that is not UTF-8, YAML or JavaScript
+(`plugins/ci/src/workflows.rs:84` and 89, `plugins/agents/src/load.rs:135`,
+`plugins/markdown/src/pages.rs:50`, `plugins/typescript/src/parse.rs:82` and 84), the language
+library's read and resolve failures passed through (`plugins/typescript/src/barrel_imports.rs:275`,
+283, 426), and `plugins/ci/src/actions_pinned.rs:33` (built-in patterns, a bug). The language
+library's own `Error` has no kind, so `languages/typescript/src/lib.rs:182` (a configured
+`tsconfig` that is not tracked) stays an environment error until that type carries one.
+
 ## Done when
 
 - fmt, clippy, test (`--no-fail-fast`), deny and build exit 0 in one lane round on the pushed tip.
@@ -79,3 +99,5 @@ swept; `git/branch-name` on `javascript.rs` with `ascii_classes` gone, eleven pe
 line on its page; the end-to-end test of hello's and git's bad options (exit 2, `configuration
 error`) and a missing `--plugin` file (`environment error`). Waiting for T-036's ticket 187 before
 a round.
+2026-11-19: step two for ci, agents, markdown and typescript written (sites above), with a
+`Changed` entry in each plugin's changelog; nestjs and ledger wait for the lead's split.

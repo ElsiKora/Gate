@@ -68,7 +68,7 @@ pub(crate) fn load(tree: &Tree<'_>, options: &Options) -> Result<Vec<Workflow>> 
         .literal_separator(true)
         .build()
         .map_err(|error| {
-            Error::new(format!(
+            Error::config(format!(
                 "workflows is not a valid glob ({error}); write one such as \
                  \".github/workflows/*.{{yml,yaml}}\""
             ))

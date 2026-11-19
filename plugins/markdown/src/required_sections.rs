@@ -116,7 +116,7 @@ fn compiled(entries: &[Sections]) -> gate_sdk::Result<Vec<(Regex, &[String])>> {
                 .and_then(|_| Regex::new(&format!("^(?:{})$", entry.path)))
                 .map(|pattern| (pattern, entry.sections.as_slice()))
                 .map_err(|error| {
-                    gate_sdk::Error::new(format!(
+                    gate_sdk::Error::config(format!(
                         "sections has an invalid path pattern {:?}: {error}; write a Rust regular \
                          expression that matches a page's whole path",
                         entry.path

@@ -55,7 +55,7 @@ impl Rule for Parse {
             .iter()
             .find(|extension| !SOURCE_EXTENSIONS.contains(&extension.as_str()))
         {
-            return Err(gate_sdk::Error::new(format!(
+            return Err(gate_sdk::Error::config(format!(
                 "extensions names `{unknown}`, which oxc does not parse; use only {}",
                 SOURCE_EXTENSIONS.join(", ")
             )));
