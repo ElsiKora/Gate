@@ -210,5 +210,12 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
   declared plugin and compiles only the plugins the run runs. The checks that need no plugin (one
   source per plugin, a pin per plugin, an exception's plugin declared where its file applies) run
   for every declared plugin. `gate cache prune` removes the declarations of plugins no lock pins.
+- Overlap with T-056 (`gate cache prune`, Gate 004), decided by the lead: whichever branch merges
+  second puts `declarations/` into T-056's derived class, like `results/<plugin sha256>/`. An
+  unpinned plugin's directory goes; a pinned one's entries are bounded by `--older-than` and
+  `--max-size`; `declarations::read` sets the entry's last use. The interim rule in
+  `Cache::unreferenced` and its unit test then go.
+- Measures, as the lead set them: after `gate sync` with the module cache emptied, plus one row
+  for a first run on an empty cache, so the one-time cost is on record.
 - Next: one round on the lane. It runs the new tests on `7e904e4`, each expected to fail but the
   two guards, then the gates on the tip.
