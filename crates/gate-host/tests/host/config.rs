@@ -804,18 +804,15 @@ fn step_glob_without_files() {
 
 /// A root with `[hooks] budget = <hooks>`, or a job with `budget = <job>`.
 fn budget_root(hooks: Option<&str>, job: Option<&str>) -> String {
-    let mut rest = String::new();
-    if let Some(budget) = hooks {
-        rest.push_str(&format!(
-            "\n[hooks]\nbudget = {budget}\npre-commit = [\"check --staged\"]\n"
-        ));
-    }
-    if let Some(budget) = job {
-        rest.push_str(&format!(
+    let hooks = hooks.map_or_else(String::new, |budget| {
+        format!("\n[hooks]\nbudget = {budget}\npre-commit = [\"check --staged\"]\n")
+    });
+    let job = job.map_or_else(String::new, |budget| {
+        format!(
             "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@0123456789abcdef0123456789abcdef01234567\"\n\n[ci.github.jobs.gate]\nname = \"Gate\"\nrun = [\"check\"]\nbudget = {budget}\n"
-        ));
-    }
-    root_with(&rest)
+        )
+    });
+    root_with(&format!("{hooks}{job}"))
 }
 
 #[test]
