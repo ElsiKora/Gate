@@ -100,8 +100,11 @@ short.
 
 ## Resume point
 
-2026-11-19: branch `task/T-046-download-timeout` on main `105ca02`. Task file written from the
-reproduction above and the fetch paths traced; scope approved by the lead, launcher included. No
-code yet: the lead first decides whether `gate baseline prune`'s 0.1.0-to-0.2.0 gap (54 of 361
-entries not re-keyed) goes before it. Next: the core's per-read bound and message, the launcher's
-flags, then the tests.
+2026-11-19: branch `task/T-046-download-timeout` on main `105ca02`. Written: `Bounds` in the fetch
+module (30 s to resolve and connect, 30 s per read through ureq's `timeout_per_read`, the 15-minute
+global bound kept), one timeout message from `call()` and from the body reader; the launcher's
+`fetch` wrapper (curl `--connect-timeout 30 --speed-limit 1 --speed-time 30`) for all three curl
+calls and wget `--timeout=30 --tries=1`, each failure saying to try again; the fixture route
+`Route::stalled`; host tests for a stall in the body, a server that never answers and a slow server
+within the bound; the launcher test for a core download that stops; architecture section 12 and the
+changelog. Next: one lane round (fmt, clippy, test, deny, build), then review.

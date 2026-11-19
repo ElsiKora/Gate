@@ -2,12 +2,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gate_host::ErrorKind;
 use gate_host::cache::{CACHE_TAG, Cache, Sha256Sum};
 use gate_host::config::{PluginName, PluginSource, SettingOrigin};
-use gate_host::fetch::{Endpoint, FetchConfig, Fetcher, Secret};
+use gate_host::fetch::{Bounds, Endpoint, FetchConfig, Fetcher, Secret};
 use gate_host::lock::{self, CorePin, Declaration, Lock, Pin, TARGETS, Wanted};
 
 use crate::http::{Route, Server, release_json, sha256};
@@ -84,6 +84,78 @@ fn a_pinned_download_is_verified_cached_and_then_needs_no_network() {
         "no temporary file is left"
     );
     assert!(cache.tagged(), "the first fill writes {CACHE_TAG}");
+}
+
+/// A one-second read bound, so a stalled server fails the test in seconds, not in 30.
+const SHORT: Bounds = Bounds {
+    connect: Duration::from_secs(5),
+    read: Duration::from_secs(1),
+};
+
+/// Fetches `route` at `/git.wasm` within [`SHORT`], and checks that it failed in time with the
+/// one timeout error, leaving nothing in the cache.
+fn fails_within_the_bound(route: Route, body: &[u8]) {
+    let server = Server::start();
+    server.route("/git.wasm", route);
+    let cache_dir = tempfile::tempdir().expect("cache");
+    let cache = Cache::at(cache_dir.path());
+    let pin = Pin {
+        url: server.url("/git.wasm"),
+        sha256: sum(&sha256(body)),
+    };
+
+    let started = Instant::now();
+    let error = Fetcher::bounded(config(&server, None), cache.clone(), SHORT)
+        .fetch("git.wasm", &pin)
+        .expect_err("a server that stops sending");
+    let waited = started.elapsed();
+
+    assert!(waited < Duration::from_secs(10), "failed after {waited:?}");
+    assert_eq!(error.kind(), ErrorKind::Environment);
+    let message = error.message();
+    assert!(
+        message.contains(&format!("cannot download git.wasm from {}", pin.url))
+            && message.ends_with("no data for 1 s; try again"),
+        "{message}"
+    );
+    assert_eq!(cache.get(&pin.sha256).expect("read"), None);
+    assert!(
+        files(&cache_dir.path().join("tmp")).is_empty(),
+        "no temporary file is left"
+    );
+}
+
+#[test]
+fn a_download_that_stops_sending_fails_within_its_read_bound() {
+    let body = vec![7_u8; 256 * 1024];
+    fails_within_the_bound(
+        Route::ok(body.clone()).stalled(1024, Duration::from_secs(30)),
+        &body,
+    );
+}
+
+#[test]
+fn a_server_that_never_answers_fails_within_its_read_bound() {
+    fails_within_the_bound(Route::ok(PLUGIN).delayed(Duration::from_secs(30)), PLUGIN);
+}
+
+#[test]
+fn a_slow_server_that_answers_within_the_bound_is_not_cut() {
+    let server = Server::start();
+    server.route(
+        "/git.wasm",
+        Route::ok(PLUGIN).delayed(Duration::from_millis(300)),
+    );
+    let cache_dir = tempfile::tempdir().expect("cache");
+    let cache = Cache::at(cache_dir.path());
+    let pin = Pin {
+        url: server.url("/git.wasm"),
+        sha256: sum(&sha256(PLUGIN)),
+    };
+    let path = Fetcher::bounded(config(&server, None), cache, SHORT)
+        .fetch("git.wasm", &pin)
+        .expect("a server that answers within the bound");
+    assert_eq!(std::fs::read(&path).expect("read"), PLUGIN);
 }
 
 #[test]

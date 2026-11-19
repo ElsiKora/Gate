@@ -7,7 +7,7 @@ mod http;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use http::{Route, Server, release_json, sha256};
 
@@ -368,6 +368,55 @@ fn init_writes_the_launcher_and_lock_and_the_launcher_runs_the_pinned_core() {
         text(&output.stdout).starts_with("kept bin/gate\n"),
         "a second init keeps the launcher and the lock: {}",
         text(&output.stdout)
+    );
+}
+
+#[test]
+fn the_launcher_fails_closed_when_the_core_download_stops_sending() {
+    let Some(target) = host_target() else {
+        return;
+    };
+    let server = Server::start();
+    let archive = core_archive();
+    // Half the archive, then silence for longer than the launcher's 30 s bound.
+    server.route(
+        "/core.tar.gz",
+        Route::ok(archive.clone()).stalled(archive.len() / 2, Duration::from_secs(120)),
+    );
+    let repo = Repo::new();
+    repo.write("bin/gate", include_str!("../src/launcher.sh"));
+    repo.write(
+        "gate.lock",
+        &format!(
+            "[core]\nversion = \"{VERSION}\"\n\n[core.targets.{target}]\nurl = \"{}\"\nsha256 = \"{}\"\n",
+            server.url("/core.tar.gz"),
+            sha256(&archive)
+        ),
+    );
+    let cache = tempfile::tempdir().expect("cache");
+
+    let started = Instant::now();
+    let output = repo
+        .launcher(cache.path(), &["check"])
+        .output()
+        .expect("launcher");
+    let waited = started.elapsed();
+
+    assert!(waited < Duration::from_secs(60), "failed after {waited:?}");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(text(&output.stdout), "");
+    let message = text(&output.stderr);
+    assert!(
+        message.contains(&format!(
+            "cannot download gate-{target}.tar.gz from {}; try again",
+            server.url("/core.tar.gz")
+        )),
+        "{message}"
+    );
+    assert_eq!(
+        files(cache.path()),
+        vec![PathBuf::from("CACHEDIR.TAG")],
+        "no core installed"
     );
 }
 
