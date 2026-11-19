@@ -256,13 +256,19 @@ fn fetch_components(
             let fetcher = fetcher
                 .as_ref()
                 .ok_or_else(|| Error::environment("the plugin fetcher is unavailable"))?;
-            let path = fetcher.fetch(&source.asset(), pin).map_err(|error| {
-                let message = format!("plugin {name} = {source}: {}", error.message());
-                match error.kind() {
-                    crate::error::ErrorKind::Config => Error::config(message),
-                    crate::error::ErrorKind::Environment => Error::environment(message),
-                }
-            })?;
+            let unpublished = format!(
+                "if the asset is not published yet, publish it, or admit the build on this machine with gate lock --set {name}={} --file <the built .wasm>",
+                pin.url
+            );
+            let path = fetcher
+                .fetch_advised(&source.asset(), pin, &unpublished)
+                .map_err(|error| {
+                    let message = format!("plugin {name} = {source}: {}", error.message());
+                    match error.kind() {
+                        crate::error::ErrorKind::Config => Error::config(message),
+                        crate::error::ErrorKind::Environment => Error::environment(message),
+                    }
+                })?;
             let bytes = std::fs::read(&path).map_err(|error| {
                 Error::environment(format!("cannot read {}: {error}", path.display()))
             })?;

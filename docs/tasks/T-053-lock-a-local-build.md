@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved; code after T-044 is merged |
+| Status | in progress |
 | Release | v0.3.0 (breaking: `--sha256` is removed) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
@@ -66,7 +66,6 @@ file is a component of the named plugin (`gate check` does that when it loads it
 
 ## Resume point
 
-2026-11-19T17:49:05+00:00: the lead approved the design as written: `--file` replaces `--sha256` with no
-alias, and `check --plugin` stays a one-run override not compared with the pin. Ships in v0.3.0.
-Code starts after T-044's lane round is green and merged; then rustfmt natively, a lane round and
-a review.
+2026-11-19T18:07:00+00:00: `--file`, `Cache::admit`, the download advice, the tests, the docs and the
+CHANGELOG (Breaking) are committed; not compiled yet. Next: one lane round (fmt, clippy, test,
+deny) and each change taken out with its tests run (each must fail), then a review.

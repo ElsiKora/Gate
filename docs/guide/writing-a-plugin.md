@@ -263,8 +263,10 @@ gives the job its toolchain and target.
 When a repository keeps its own plugin next to the code it checks, the pin moves in the release commit
 itself. The release job:
 
-1. builds the plugin with `scripts/build-component.sh` and computes its sha256;
-2. runs `bin/gate lock --set todo=<release asset URL> --sha256 <sha256>`;
+1. builds the plugin with `scripts/build-component.sh`;
+2. runs `bin/gate lock --set todo=<release asset URL> --file <the built todo.wasm>`, which pins the
+   build's sha256 and puts the build in the cache, so `bin/gate check` runs exactly that file before
+   the asset is published;
 3. commits `gate.lock` as the release commit and tags it `plugin-todo-v<version>`;
 4. uploads the same file as the tag's asset.
 

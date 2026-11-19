@@ -59,12 +59,14 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct LockArgs {
-    /// Pin one plugin to a release asset URL without downloading it: <name>=<url>. Needs --sha256.
-    #[arg(long, value_name = "NAME=URL", requires = "sha256")]
+    /// Pin one plugin to its release asset URL before the asset is published: <name>=<url>. Needs
+    /// --file.
+    #[arg(long, value_name = "NAME=URL", requires = "file")]
     set: Option<String>,
-    /// The sha256 of the asset --set pins.
-    #[arg(long, value_name = "HASH", requires = "set")]
-    sha256: Option<String>,
+    /// The built plugin --set pins: gate.lock gets its sha256 and the cache gets the file, so gate
+    /// check runs exactly it.
+    #[arg(long, value_name = "PATH", requires = "set")]
+    file: Option<PathBuf>,
     /// Refused: an override is for one gate check run and never enters gate.lock.
     #[arg(long = "plugin", value_name = "NAME=PATH", hide = true)]
     plugins: Vec<String>,
@@ -287,7 +289,7 @@ fn main() -> ExitCode {
         Command::Init => distribution::init().and_then(|text| print(&text)),
         Command::Lock(arguments) => distribution::lock(&distribution::LockRequest {
             set: arguments.set,
-            sha256: arguments.sha256,
+            file: arguments.file,
             overrides: arguments.plugins,
         })
         .and_then(|text| print(&text)),

@@ -54,6 +54,13 @@ const MAX_REDIRECTS: usize = 10;
 /// The most a download may be: far above any plugin or core archive.
 const MAX_DOWNLOAD: u64 = 1024 * 1024 * 1024;
 
+/// The message of a download that does not hash to its `gate.lock` pin.
+fn lock_mismatch(asset: &str, url: &str, expected: &Sha256Sum, actual: &Sha256Sum) -> String {
+    format!(
+        "checksum mismatch for {asset} from {url}: gate.lock pins sha256 {expected}, the download has sha256 {actual}; nothing entered the cache. Do not use the download; if the release was replaced on purpose, pin it again with gate lock"
+    )
+}
+
 /// Checks that gate fetches `url`: `https`, or plain `http` to this machine only (`127.0.0.1`,
 /// `[::1]`, `localhost`), with no user information, quote, backslash, space or control
 /// character.
@@ -313,6 +320,27 @@ impl Fetcher {
         Ok(path)
     }
 
+    /// [`Fetcher::fetch`], with `unavailable` added to the message when the download fails before
+    /// its bytes are checked, as it does for an asset that is not published yet. A checksum
+    /// mismatch keeps its own message: the asset exists and is another file.
+    ///
+    /// # Errors
+    /// Fails like [`Fetcher::fetch`].
+    pub fn fetch_advised(&self, asset: &str, pin: &Pin, unavailable: &str) -> Result<PathBuf> {
+        if let Some(path) = self.cache.get(&pin.sha256)? {
+            return Ok(path);
+        }
+        let url = &pin.url;
+        let (_, path) = self.download_checked(
+            asset,
+            url,
+            Some(&pin.sha256),
+            Some(unavailable),
+            |expected, actual| lock_mismatch(asset, url, expected, actual),
+        )?;
+        Ok(path)
+    }
+
     /// [`Fetcher::fetch`] for a pin that `pinned_by` (such as `gate.toml [tools.fmt]`) holds, not
     /// `gate.lock`: a mismatch says to pin the new sha256 there.
     ///
@@ -323,7 +351,7 @@ impl Fetcher {
             return Ok(path);
         }
         let url = &pin.url;
-        let (_, path) = self.download_checked(asset, url, Some(&pin.sha256), |expected, actual| {
+        let (_, path) = self.download_checked(asset, url, Some(&pin.sha256), None, |expected, actual| {
             format!(
                 "checksum mismatch for {asset} from {url}: {pinned_by} pins sha256 {expected}, the download has sha256 {actual}; nothing entered the cache. Do not use the download; if the release was replaced on purpose, pin the new sha256 in {pinned_by}"
             )
@@ -342,23 +370,35 @@ impl Fetcher {
         url: &str,
         expected: Option<&Sha256Sum>,
     ) -> Result<(Sha256Sum, PathBuf)> {
-        self.download_checked(asset, url, expected, |expected, actual| {
-            format!(
-                "checksum mismatch for {asset} from {url}: gate.lock pins sha256 {expected}, the download has sha256 {actual}; nothing entered the cache. Do not use the download; if the release was replaced on purpose, pin it again with gate lock"
-            )
+        self.download_checked(asset, url, expected, None, |expected, actual| {
+            lock_mismatch(asset, url, expected, actual)
         })
     }
 
+    /// Downloads `url` into the cache; with `expected`, bytes that hash otherwise fail with
+    /// `mismatch`. `unavailable`, when given, is added to the message of a download that fails.
     fn download_checked(
         &self,
         asset: &str,
         url: &str,
         expected: Option<&Sha256Sum>,
+        unavailable: Option<&str>,
         mismatch: impl FnOnce(&Sha256Sum, &Sha256Sum) -> String,
     ) -> Result<(Sha256Sum, PathBuf)> {
         check_url(url).map_err(|message| Error::environment(format!("{asset}: {message}")))?;
         let mut temporary = self.cache.temporary()?;
-        let actual = self.download_into(asset, url, &mut temporary)?;
+        let actual = self
+            .download_into(asset, url, &mut temporary)
+            .map_err(|error| match unavailable {
+                Some(advice) => {
+                    let message = format!("{}; {advice}", error.message());
+                    match error.kind() {
+                        crate::error::ErrorKind::Config => Error::config(message),
+                        crate::error::ErrorKind::Environment => Error::environment(message),
+                    }
+                }
+                None => error,
+            })?;
         if let Some(expected) = expected
             && expected != &actual
         {

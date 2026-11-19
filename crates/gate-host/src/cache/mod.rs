@@ -21,7 +21,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, Read as _};
+use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -310,6 +310,39 @@ impl Cache {
     pub fn insert(&self, temporary: Temporary, sha256: &Sha256Sum) -> Result<PathBuf> {
         let target = self.blob(sha256);
         Self::place(temporary, target)
+    }
+
+    /// Admits the file at `path` as the entry named by the sha256 of the bytes it copies, which it
+    /// returns: a build pinned before its release asset is published is then found as a verified
+    /// download is. The bytes are hashed as they are copied, so the entry always matches its name.
+    ///
+    /// # Errors
+    /// Fails when the file cannot be read or the entry cannot be written.
+    pub fn admit(&self, path: &Path) -> Result<Sha256Sum> {
+        let unreadable = |error: io::Error| {
+            Error::environment(format!("cannot read {}: {error}", path.display()))
+        };
+        let mut source = File::open(path).map_err(unreadable)?;
+        let mut temporary = self.temporary()?;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let read = source.read(&mut buffer).map_err(unreadable)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            let written = temporary.file().write_all(&buffer[..read]);
+            written.map_err(|error| {
+                Error::environment(format!(
+                    "cannot write {}: {error}; check that the cache directory is writable or set {CACHE_DIR_VARIABLE}",
+                    temporary.path().display()
+                ))
+            })?;
+        }
+        let sha256 = Sha256Sum::from_digest(&hasher.finalize());
+        self.insert(temporary, &sha256)?;
+        Ok(sha256)
     }
 
     /// The file of the answer of kind `kind` (such as `sync-state`) under `key`, in [`Cache::git`].

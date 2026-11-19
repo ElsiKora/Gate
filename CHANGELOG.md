@@ -10,6 +10,19 @@ Each shared plugin keeps its own changelog next to its code.
 
 ## Unreleased
 
+### Breaking
+
+- **lock:** `gate lock --set <name>=<url> --file <path>` replaces `--sha256 <hash>`, with no alias.
+  The pin takes the sha256 of the file and the file enters the blob cache, so `gate check` runs
+  exactly the build a release job is about to publish, before its asset exists. A release job that
+  passed `--sha256` passes the built file with `--file` instead.
+
+### Features
+
+- **plugins:** a pinned plugin whose blob is not in the cache and whose download fails names the
+  plugin and says what to do: publish the asset, or admit the build with
+  `gate lock --set <name>=<url> --file <path>`.
+
 ### Documentation
 
 - **docs:** upgrading a baseline written by 0.1.0. A finding of a project below the repository root
