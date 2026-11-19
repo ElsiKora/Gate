@@ -453,6 +453,13 @@ fn print_timings(checked: &gate_host::Checked) {
             answers.asked, answers.stored
         );
     }
+    let generated = checked.generated;
+    if generated.ran + generated.stored > 0 {
+        eprintln!(
+            "timings: generators: {} ran, {} from the cache",
+            generated.ran, generated.stored
+        );
+    }
 }
 
 /// One plugin call of `--timings`: whether it ran or came from the result cache, its time, the
@@ -583,6 +590,9 @@ fn sync(arguments: &SyncArgs) -> Result<u8, Error> {
     let generators = gate_host::PluginGenerators::load(&workspace, &arguments.plugins)?;
     let outputs = sync::plan(&workspace, &generators)?;
     let owned = sync::owned(&workspace, &generators)?;
+    if let Some(warning) = generators.cache_warning() {
+        eprintln!("gate: warning: {warning}");
+    }
     // What the generators reported fails the run as a rule at level error does.
     let mut reported = generators.take_findings();
     gate_host::attach_core_norms(&mut reported, workspace.repository());

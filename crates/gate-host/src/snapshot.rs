@@ -50,6 +50,20 @@ impl fmt::Display for BlobId {
     }
 }
 
+/// A commit's listing, by the revision asked: the commit it names and its paths' blob ids.
+type Listing = (String, Arc<BTreeMap<String, BlobId>>);
+
+/// What the snapshots of one run's commits share: the listing of each commit, the content of each
+/// blob read, by its id, and one `git cat-file` reader. A blob's content never changes, so a file
+/// that several commits hold is read once.
+#[derive(Debug, Default)]
+pub(crate) struct Shared {
+    /// By revision as asked: the commit it names and its listing.
+    listings: Mutex<HashMap<String, Listing>>,
+    contents: Mutex<HashMap<BlobId, Arc<[u8]>>>,
+    reader: Mutex<Option<CatFile>>,
+}
+
 /// An immutable set of tracked paths, their blob ids, and their contents read on demand.
 ///
 /// A snapshot is `Send + Sync`: reads from several threads share one git object reader and one
@@ -58,8 +72,10 @@ pub struct Snapshot {
     git: Git,
     source: Source,
     commit: Option<String>,
-    entries: BTreeMap<String, BlobId>,
-    reader: Mutex<Option<CatFile>>,
+    entries: Arc<BTreeMap<String, BlobId>>,
+    /// The reader and the contents of the index or a commit, by blob id.
+    shared: Arc<Shared>,
+    /// The contents of working-tree files, by path.
     contents: Mutex<HashMap<String, Arc<[u8]>>>,
     /// The paths asked for while recording, tracked or not; `None` once taken.
     asked: Mutex<Option<BTreeSet<String>>>,
@@ -86,16 +102,34 @@ impl Snapshot {
     /// Fails when git cannot list the files, the revision names no commit, or the index has an
     /// unmerged entry and the source is the index.
     pub fn open(git: &Git, source: Source) -> Result<Self> {
+        Self::open_shared(git, source, &Arc::default())
+    }
+
+    /// [`Snapshot::open`] sharing `shared` with the run's other snapshots: a commit listed before
+    /// is not listed again, and a blob read before is not read again.
+    ///
+    /// # Errors
+    /// As [`Snapshot::open`].
+    pub(crate) fn open_shared(git: &Git, source: Source, shared: &Arc<Shared>) -> Result<Self> {
         let (entries, commit) = match &source {
-            Source::WorkTree => (work_tree_entries(git)?, git.head()?),
-            Source::Index => (index_entries(git)?, git.head()?),
+            Source::WorkTree => (Arc::new(work_tree_entries(git)?), git.head()?),
+            Source::Index => (Arc::new(index_entries(git)?), git.head()?),
             Source::Commit(revision) => {
-                let commit = git.resolve_commit(revision)?.ok_or_else(|| {
-                    Error::environment(format!(
-                        "--rev {revision} names no commit; pass a commit id, branch or tag"
-                    ))
-                })?;
-                (commit_entries(git, &commit)?, Some(commit))
+                let listed = lock(&shared.listings).get(revision).cloned();
+                let (commit, entries) = if let Some(listed) = listed {
+                    listed
+                } else {
+                    let commit = git.resolve_commit(revision)?.ok_or_else(|| {
+                        Error::environment(format!(
+                            "--rev {revision} names no commit; pass a commit id, branch or tag"
+                        ))
+                    })?;
+                    let entries = Arc::new(commit_entries(git, &commit)?);
+                    lock(&shared.listings)
+                        .insert(revision.clone(), (commit.clone(), Arc::clone(&entries)));
+                    (commit, entries)
+                };
+                (entries, Some(commit))
             }
         };
 
@@ -104,7 +138,7 @@ impl Snapshot {
             source,
             commit,
             entries,
-            reader: Mutex::new(None),
+            shared: Arc::clone(shared),
             contents: Mutex::new(HashMap::new()),
             asked: Mutex::new(Some(BTreeSet::new())),
         })
@@ -180,33 +214,35 @@ impl Snapshot {
             return Ok(None);
         };
 
-        if let Some(cached) = lock(&self.contents).get(path) {
-            return Ok(Some(Arc::clone(cached)));
+        if matches!(self.source, Source::WorkTree) {
+            if let Some(cached) = lock(&self.contents).get(path) {
+                return Ok(Some(Arc::clone(cached)));
+            }
+            let contents: Arc<[u8]> = Arc::from(read_work_tree(&self.git, path)?);
+            lock(&self.contents).insert(path.to_owned(), Arc::clone(&contents));
+            return Ok(Some(contents));
         }
 
-        let contents: Arc<[u8]> = match self.source {
-            Source::WorkTree => Arc::from(read_work_tree(&self.git, path)?),
-            Source::Index | Source::Commit(_) => {
-                let mut reader = lock(&self.reader);
-
-                if reader.is_none() {
-                    *reader = Some(self.git.cat_file()?);
-                }
-
-                let bytes = reader
-                    .as_mut()
-                    .ok_or_else(|| Error::environment("git cat-file is unavailable"))?
-                    .read(blob.as_str())?
-                    .ok_or_else(|| {
-                        Error::environment(format!(
-                            "git has no object {blob} for {path}; the repository is damaged, run git fsck"
-                        ))
-                    })?;
-                Arc::from(bytes)
+        if let Some(cached) = lock(&self.shared.contents).get(blob) {
+            return Ok(Some(Arc::clone(cached)));
+        }
+        let bytes = {
+            let mut reader = lock(&self.shared.reader);
+            if reader.is_none() {
+                *reader = Some(self.git.cat_file()?);
             }
+            reader
+                .as_mut()
+                .ok_or_else(|| Error::environment("git cat-file is unavailable"))?
+                .read(blob.as_str())?
+                .ok_or_else(|| {
+                    Error::environment(format!(
+                        "git has no object {blob} for {path}; the repository is damaged, run git fsck"
+                    ))
+                })?
         };
-
-        lock(&self.contents).insert(path.to_owned(), Arc::clone(&contents));
+        let contents: Arc<[u8]> = Arc::from(bytes);
+        lock(&self.shared.contents).insert(blob.clone(), Arc::clone(&contents));
         Ok(Some(contents))
     }
 

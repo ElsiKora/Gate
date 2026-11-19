@@ -6,6 +6,9 @@
 //! the digest of its content, and reads every file there on its first question. When the files
 //! pass [`MERGE_AT`], a run writes them all to one file and removes the ones it read. A file that
 //! cannot be read or does not parse is skipped: its questions are asked again.
+//!
+//! A `read-at` answer is the id of the blob a path names at a commit; the blob's content is stored
+//! once by its id under `git/blobs/`, so a later run reads it without git.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
@@ -35,6 +38,8 @@ pub(crate) enum Answer {
     Tree(Option<String>),
     /// `is-ancestor`.
     Holds(bool),
+    /// `read-at`: the id of the blob the path names (`None` when it names nothing).
+    Blob(Option<String>),
 }
 
 /// The answers known to a run: read from the cache, and learned in the run.
@@ -149,6 +154,7 @@ fn line(question: &Question, answer: &Answer) -> String {
         Answer::Paths(paths) => json!({ "paths": paths }),
         Answer::Tree(tree) => json!({ "tree": tree }),
         Answer::Holds(holds) => json!({ "holds": holds }),
+        Answer::Blob(blob) => json!({ "blob": blob }),
     };
     json!({ "kind": question.0, "of": question.1, "answer": value }).to_string()
 }
@@ -185,16 +191,84 @@ fn parse(bytes: &[u8]) -> Option<Vec<(Question, Answer)>> {
                     Value::String(tree) => Some(tree.clone()),
                     _ => return None,
                 })
+            } else if let Some(blob) = answer.get("blob") {
+                Answer::Blob(match blob {
+                    Value::Null => None,
+                    Value::String(blob) => Some(blob.clone()),
+                    _ => return None,
+                })
             } else {
                 Answer::Holds(answer.get("holds")?.as_bool()?)
             };
-            Some(((kind, of), answer))
+            well_formed(kind, &of, &answer).then_some(((kind, of), answer))
         })
         .collect()
 }
 
+/// Whether `answer` is the kind of answer a `kind` question about `of` gets, every argument that
+/// names an object a full id, and a blob a full id: a line written otherwise was not written by
+/// this core, and its file is skipped.
+fn well_formed(kind: &str, of: &[String], answer: &Answer) -> bool {
+    let id = |text: &String| crate::git::is_object_id(text);
+    match (kind, of, answer) {
+        ("changed-paths", [parent, commit], Answer::Paths(_)) => id(parent) && id(commit),
+        ("tree", [commit], Answer::Tree(tree)) => id(commit) && tree.as_ref().is_none_or(id),
+        ("merge-tree", [first, second, _version], Answer::Tree(tree)) => {
+            id(first) && id(second) && tree.as_ref().is_none_or(id)
+        }
+        ("is-ancestor", [ancestor, descendant], Answer::Holds(_)) => id(ancestor) && id(descendant),
+        ("read-at", [commit, _path], Answer::Blob(blob)) => {
+            id(commit) && blob.as_ref().is_none_or(id)
+        }
+        _ => false,
+    }
+}
+
 /// The kinds of question stored.
-pub(crate) const KINDS: [&str; 4] = ["changed-paths", "tree", "merge-tree", "is-ancestor"];
+pub(crate) const KINDS: [&str; 5] = [
+    "changed-paths",
+    "tree",
+    "merge-tree",
+    "is-ancestor",
+    "read-at",
+];
+
+/// Where the content of the blob `id` is stored.
+fn blob_file(cache: &Cache, id: &str) -> PathBuf {
+    cache.answer(
+        "blobs",
+        &Sha256Sum::from_digest(&Sha256::digest(id.as_bytes())),
+    )
+}
+
+/// The content of the blob `id` an earlier run stored; `None` when none is, or it cannot be read.
+pub(crate) fn blob(cache: &Cache, id: &str) -> Option<Vec<u8>> {
+    std::fs::read(blob_file(cache, id)).ok()
+}
+
+/// Stores the content of the blob `id`, unless a run stored it already.
+///
+/// # Errors
+/// Fails when the cache cannot be written.
+pub(crate) fn store_blob(cache: &Cache, id: &str, content: &[u8]) -> Result<()> {
+    let file = blob_file(cache, id);
+    if file.exists() {
+        return Ok(());
+    }
+    let mut temporary = cache.temporary()?;
+    temporary.file().write_all(content).map_err(|error| {
+        Error::environment(format!(
+            "cannot write {}: {error}",
+            temporary.path().display()
+        ))
+    })?;
+    cache.insert_answer(
+        temporary,
+        "blobs",
+        &Sha256Sum::from_digest(&Sha256::digest(id.as_bytes())),
+    )?;
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -212,12 +286,27 @@ mod tests {
                 Answer::Tree(Some("d".repeat(40))),
             ),
             (
-                ("merge-tree", vec!["e".repeat(40), "f".repeat(40)]),
+                (
+                    "merge-tree",
+                    vec![
+                        "e".repeat(40),
+                        "f".repeat(40),
+                        "git version 2.50.1".to_owned(),
+                    ],
+                ),
                 Answer::Tree(None),
             ),
             (
                 ("is-ancestor", vec!["1".repeat(40), "2".repeat(40)]),
                 Answer::Holds(false),
+            ),
+            (
+                ("read-at", vec!["3".repeat(40), "docs/a b.md".to_owned()]),
+                Answer::Blob(Some("4".repeat(40))),
+            ),
+            (
+                ("read-at", vec!["3".repeat(40), "absent".to_owned()]),
+                Answer::Blob(None),
             ),
         ];
         let text: Vec<String> = answers
@@ -226,6 +315,27 @@ mod tests {
             .collect();
         let parsed = parse(text.join("\n").as_bytes()).expect("parses");
         assert_eq!(parsed, answers.to_vec());
+
+        // A line of the wrong shape for its kind makes its file a miss.
+        let commit = "5".repeat(40);
+        let blob = |id: Value| json!({ "blob": id });
+        for (kind, of, answer) in [
+            ("read-at", json!([commit, "a.md"]), json!({ "holds": true })),
+            ("read-at", json!([commit]), blob(Value::Null)),
+            ("read-at", json!([commit, "a.md", "b"]), blob(Value::Null)),
+            ("read-at", json!(["HEAD", "a.md"]), blob(Value::Null)),
+            ("read-at", json!([commit, "a.md"]), blob(json!("abc"))),
+            ("tree", json!([commit]), blob(Value::Null)),
+            (
+                "is-ancestor",
+                json!([commit, commit]),
+                json!({ "paths": [] }),
+            ),
+        ] {
+            let wrong = json!({ "kind": kind, "of": of, "answer": answer });
+            let file = format!("{}\n{wrong}\n", text[0]);
+            assert_eq!(parse(file.as_bytes()), None, "{wrong}");
+        }
         assert_eq!(
             parse(b"{\"kind\": \"tree\"}\n"),
             None,

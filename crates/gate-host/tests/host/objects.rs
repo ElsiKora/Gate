@@ -127,7 +127,10 @@ fn trees_files_and_ancestry_answer_as_git_does() {
     }
 
     assert_eq!(
-        objects.read_at(&merge, "side.md").expect("read"),
+        objects
+            .read_at(&merge, "side.md")
+            .expect("read")
+            .map(|(_, content)| content),
         Some(b"s".to_vec())
     );
     assert_eq!(objects.read_at(&merge, "absent.md").expect("read"), None);

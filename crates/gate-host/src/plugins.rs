@@ -6,6 +6,7 @@
 //! repository paths only.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -90,6 +91,16 @@ struct Looked {
     stale: Option<String>,
 }
 
+/// A file at `commit` that its tree names and git cannot read, for `why`: a partial clone could
+/// not fetch it. No answer is stored, so a later run with the remote reachable reads it.
+fn unfetched(commit: &str, path: &str, why: &str) -> HostError {
+    HostError::new(format!(
+        "git cannot read {path:?} at commit {commit}, though its tree names the file ({why}): a \
+         partial clone could not fetch it; run git fetch, or run gate where the remote is \
+         reachable"
+    ))
+}
+
 /// An answer [`GitHistory::remembered`] may keep.
 fn kept(answer: Answer) -> (Answer, bool) {
     (answer, true)
@@ -103,6 +114,7 @@ pub(crate) struct Ran {
     pub(crate) reads: Vec<PluginReads>,
     pub(crate) sync_states: SyncStates,
     pub(crate) git_answers: GitAnswers,
+    pub(crate) generated: Generated,
     /// What the first cache write that failed said, when one did.
     pub(crate) cache_warning: Option<String>,
 }
@@ -132,6 +144,31 @@ impl CacheWrites {
     fn take(&self) -> Option<String> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
+}
+
+/// The generator runs of a command: how many ran, how many the result cache answered, and the
+/// cache writes that failed.
+#[derive(Debug, Default)]
+struct Generations {
+    ran: AtomicUsize,
+    stored: AtomicUsize,
+    writes: CacheWrites,
+}
+
+impl Generations {
+    fn read(&self) -> Generated {
+        Generated {
+            ran: self.ran.load(Ordering::Relaxed),
+            stored: self.stored.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// The generator runs of a command: how many ran, and how many the result cache answered.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Generated {
+    pub ran: usize,
+    pub stored: usize,
 }
 
 /// The `sync-state` answers of a run: how many it computed, and how many it read from the cache.
@@ -566,7 +603,7 @@ impl Loaded {
     /// # Errors
     /// Fails when a call fails: a trap, a limit, an environment failure the plugin reports.
     pub(crate) fn run(
-        &self,
+        self: &Arc<Self>,
         workspace: &Workspace,
         selection: &Selection,
         changes: Option<&ChangeSet>,
@@ -588,7 +625,7 @@ impl Loaded {
             &snapshot,
             workspace,
             run_git,
-            Arc::clone(&self.overrides),
+            Arc::clone(self),
         ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
@@ -868,6 +905,8 @@ pub struct PluginGenerators<'w> {
     passing: std::sync::atomic::AtomicBool,
     /// What the generators reported while they ran, as `gate/sync#<generator>` findings.
     findings: Mutex<Vec<Finding>>,
+    /// How many generators ran and how many the result cache answered.
+    generations: Arc<Generations>,
 }
 
 impl std::fmt::Debug for PluginGenerators<'_> {
@@ -899,18 +938,38 @@ impl<'w> PluginGenerators<'w> {
             overrides: lines,
             passing: std::sync::atomic::AtomicBool::new(false),
             findings: Mutex::new(Vec::new()),
+            generations: Arc::default(),
         })
     }
 
-    /// The generators of `workspace` from plugins already loaded and checked against it.
-    fn with_loaded(workspace: &'w Workspace, loaded: Option<Arc<Loaded>>) -> Self {
+    /// The generators of `workspace` from plugins already loaded and checked against it, counted
+    /// in `generations`.
+    fn with_loaded(
+        workspace: &'w Workspace,
+        loaded: Option<Arc<Loaded>>,
+        generations: Arc<Generations>,
+    ) -> Self {
         Self {
             workspace,
             loaded,
             overrides: Vec::new(),
             passing: std::sync::atomic::AtomicBool::new(false),
             findings: Mutex::new(Vec::new()),
+            generations,
         }
+    }
+
+    /// How many generators ran so far, and how many the result cache answered.
+    #[must_use]
+    pub fn generated(&self) -> Generated {
+        self.generations.read()
+    }
+
+    /// What the first cache write that failed said, when one did: the outputs are complete, but
+    /// the next run cannot reuse them.
+    #[must_use]
+    pub fn cache_warning(&self) -> Option<String> {
+        self.generations.writes.take()
     }
 
     /// One line per `--plugin` build this run uses: name, path and sha256.
@@ -990,23 +1049,52 @@ impl Generators for PluginGenerators<'_> {
     ) -> Result<Vec<SyncFile>> {
         let (name, plugin, loaded) = self.plugin(generator)?;
         let snapshot = self.workspace.shared_snapshot();
-        let tree: Arc<dyn Tree> = Arc::new(SnapshotTree {
+        let tree = Arc::new(SnapshotTree {
             paths: snapshot.paths().map(str::to_owned).collect(),
             changed: None,
-            snapshot,
+            snapshot: Arc::clone(&snapshot),
         });
         let options = options.map_or_else(|| "{}".to_owned(), Value::to_string);
-        let (output, _, _) = loaded
-            .runtime
-            .generate(
-                plugin,
-                tree,
-                &self.grant(project, name),
-                generator.name(),
-                &options,
-            )
-            .map_err(|error| self.failed(project, &error))?;
-        let reported = output.findings.into_iter().map(|finding| Finding {
+        let grant = self.grant(project, name);
+        let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
+        let inputs = results::Inputs {
+            paths: &tree.paths,
+            blob: &blob,
+            changed: None,
+        };
+        let cache = Cache::from_env().ok();
+        let key = results::generate_key(plugin.sha256(), generator.name(), &options, &grant);
+        let stored = cache
+            .as_ref()
+            .and_then(|cache| results::load(cache, &key))
+            .filter(|stored| stored.changed_input(&inputs, None).is_none());
+        let (files, findings) = if let Some(stored) = stored {
+            self.generations.stored.fetch_add(1, Ordering::Relaxed);
+            (stored.files, stored.findings)
+        } else {
+            let (output, read_set, _) = loaded
+                .runtime
+                .generate(
+                    plugin,
+                    Arc::clone(&tree) as Arc<dyn Tree>,
+                    &grant,
+                    generator.name(),
+                    &options,
+                )
+                .map_err(|error| self.failed(project, &error))?;
+            self.generations.ran.fetch_add(1, Ordering::Relaxed);
+            if let Some(cache) = &cache {
+                let stored =
+                    results::Stored::generated(output.files, output.findings, read_set, &inputs);
+                self.generations
+                    .writes
+                    .note(results::store(cache, &key, &stored));
+                (stored.files, stored.findings)
+            } else {
+                (output.files, output.findings)
+            }
+        };
+        let reported = findings.into_iter().map(|finding| Finding {
             rule: sync::SYNC_RULE.to_owned(),
             aspect: generator.to_string(),
             level: Level::Error,
@@ -1025,8 +1113,7 @@ impl Generators for PluginGenerators<'_> {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .extend(reported);
-        Ok(output
-            .files
+        Ok(files
             .into_iter()
             .map(|file| SyncFile {
                 path: file.path,
@@ -1480,6 +1567,10 @@ struct GitHistory {
     hook: bool,
     /// The run's `--plugin` builds, used again for the generators at another commit.
     overrides: Arc<Overrides>,
+    /// The run's plugins, which also answer `sync-state` under the run's configuration.
+    run_loaded: Arc<Loaded>,
+    /// Each `--plugin` build's name and sha256, as every `sync-state` key holds them; hashed once.
+    builds: OnceLock<String>,
     /// The run's workspace: its configuration answers `sync-state` at a commit whose own
     /// configuration this core does not read.
     run_workspace: Workspace,
@@ -1504,6 +1595,13 @@ struct GitHistory {
     merges: Mutex<Batch<Merges>>,
     /// The run's cache writes that failed.
     writes: CacheWrites,
+    /// What the snapshots of the commits `sync-state` reads share: listings, blob contents, a
+    /// reader.
+    snapshots: Arc<crate::snapshot::Shared>,
+    /// The content of each blob `read-at` read from git this run, by id, stored at its end.
+    blobs: Mutex<BTreeMap<String, Vec<u8>>>,
+    /// The generators `sync-state` ran, and those the result cache answered.
+    generations: Arc<Generations>,
 }
 
 /// A long-lived git process of a run.
@@ -1726,7 +1824,66 @@ impl History for GitHistory {
     }
 
     fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
-        self.objects(|objects| objects.read_at(commit, path))
+        let mut read = None;
+        let answer = self.remembered("read-at", &[commit, path], true, || {
+            let found = self
+                .objects(|objects| objects.read_at(commit, path))
+                .map_err(|error| self.unread(commit, path, error))?;
+            if let Some((blob, content)) = found {
+                read = Some(content);
+                return Ok(kept(Answer::Blob(Some(blob))));
+            }
+            // A commit the clone lacks may come with a fetch: no file, not kept.
+            if !self.objects(|objects| objects.has_commit(commit))? {
+                return Ok((Answer::Blob(None), false));
+            }
+            // No file only when the commit's tree names none: a partial clone that cannot fetch
+            // the file has not answered.
+            if !self.objects(|objects| objects.names_a_file(commit, path))? {
+                return Ok(kept(Answer::Blob(None)));
+            }
+            Err(unfetched(commit, path, "git reads it as missing"))
+        })?;
+        let Answer::Blob(blob) = answer else {
+            return Err(HostError::new("a stored read-at answer is not a blob id"));
+        };
+        let Some(blob) = blob else {
+            return Ok(None);
+        };
+        if let Some(content) = read {
+            self.blobs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(blob, content.clone());
+            return Ok(Some(content));
+        }
+        // A stored answer: the content an earlier run stored, else git's by its id. A found file
+        // whose content neither has is no answer, never "no file".
+        if let Some(content) = Cache::from_env()
+            .ok()
+            .and_then(|cache| crate::cache::answers::blob(&cache, &blob))
+        {
+            return Ok(Some(content));
+        }
+        let content = match self.objects(|objects| objects.blob(&blob)) {
+            Ok(Some(content)) => content,
+            failed => {
+                let why = failed.err().map_or_else(
+                    || "git has no such object".to_owned(),
+                    |error| error.to_string(),
+                );
+                return Err(HostError::new(format!(
+                    "the cache says {path:?} at commit {commit} is the file {blob}, but neither \
+                     the cache nor git has its content ({why}): run git fetch, or gate cache \
+                     prune to drop the stored answers"
+                )));
+            }
+        };
+        self.blobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(blob, content.clone());
+        Ok(Some(content))
     }
 
     fn is_ancestor(
@@ -1814,7 +1971,7 @@ impl GitHistory {
         snapshot: &Snapshot,
         workspace: &Workspace,
         run_git: RunGit,
-        overrides: Arc<Overrides>,
+        run_loaded: Arc<Loaded>,
     ) -> Self {
         Self {
             git: snapshot.git().clone(),
@@ -1822,7 +1979,9 @@ impl GitHistory {
             range: run_git.range,
             message: run_git.message,
             hook: run_git.hook,
-            overrides,
+            overrides: Arc::clone(&run_loaded.overrides),
+            run_loaded,
+            builds: OnceLock::new(),
             run_workspace: workspace.clone(),
             run: OnceLock::new(),
             commit_plugins: Mutex::new(BTreeMap::new()),
@@ -1833,6 +1992,9 @@ impl GitHistory {
             writes: CacheWrites::default(),
             answers: OnceLock::new(),
             facts: OnceLock::new(),
+            blobs: Mutex::new(BTreeMap::new()),
+            snapshots: Arc::default(),
+            generations: Arc::default(),
         }
     }
 
@@ -1856,6 +2018,15 @@ impl GitHistory {
     /// The answer to a question about the full commit ids `of`: stored by an earlier run, or
     /// asked now and kept. A question about anything else (a ref, an abbreviated id), one that
     /// is not `lasting`, or one whose answer `ask` says not to keep, is asked and not kept.
+    /// The error of a reader that failed on `path` at `commit`: when the commit's tree names the
+    /// file, a partial clone could not fetch it, which [`unfetched`] says; else git's own `error`.
+    fn unread(&self, commit: &str, path: &str, error: HostError) -> HostError {
+        match self.objects(|objects| objects.names_a_file(commit, path)) {
+            Ok(true) => unfetched(commit, path, error.message()),
+            _ => error,
+        }
+    }
+
     fn remembered(
         &self,
         kind: &'static str,
@@ -1863,7 +2034,11 @@ impl GitHistory {
         lasting: bool,
         ask: impl FnOnce() -> std::result::Result<(Answer, bool), HostError>,
     ) -> std::result::Result<Answer, HostError> {
-        let commits = if kind == "merge-tree" { &of[..2] } else { of };
+        let commits = match kind {
+            "merge-tree" => &of[..2],
+            "read-at" => &of[..1],
+            _ => of,
+        };
         if !lasting || !commits.iter().all(|id| crate::git::is_object_id(id)) {
             return ask().map(|(answer, _)| answer);
         }
@@ -1896,11 +2071,22 @@ impl GitHistory {
     fn finish(&self, ran: &mut Ran) {
         self.writes.note(self.store_answers());
         (ran.sync_states, ran.git_answers) = self.counted.read();
-        ran.cache_warning = self.writes.take();
+        ran.generated = self.generations.read();
+        ran.cache_warning = self
+            .writes
+            .take()
+            .or_else(|| self.generations.writes.take());
     }
 
-    /// Stores the answers this run learned.
+    /// Stores the answers this run learned, after the blob contents they name.
     fn store_answers(&self) -> Result<()> {
+        let blobs = std::mem::take(&mut *self.blobs.lock().unwrap_or_else(PoisonError::into_inner));
+        if !blobs.is_empty() {
+            let cache = Cache::from_env()?;
+            for (blob, content) in &blobs {
+                crate::cache::answers::store_blob(&cache, blob, content)?;
+            }
+        }
         if let Some(Some(answers)) = self.answers.get() {
             answers
                 .lock()
@@ -2013,7 +2199,11 @@ impl GitHistory {
 
     /// [`GitHistory::sync_state_at`] without the cache.
     fn compute(&self, commit: &str) -> Result<Computed> {
-        let snapshot = Snapshot::open(&self.git, Source::Commit(commit.to_owned()))?;
+        let snapshot = Snapshot::open_shared(
+            &self.git,
+            Source::Commit(commit.to_owned()),
+            &self.snapshots,
+        )?;
         if snapshot.read(crate::config::FILE_NAME)?.is_none() {
             return Ok(Computed {
                 state: SyncState::default(),
@@ -2032,11 +2222,16 @@ impl GitHistory {
         }
 
         let context = self.run_context()?;
-        let workspace = self.run_workspace.with_snapshot(Snapshot::open(
+        let workspace = self.run_workspace.with_snapshot(Snapshot::open_shared(
             &self.git,
             Source::Commit(commit.to_owned()),
+            &self.snapshots,
         )?);
-        let generators = PluginGenerators::with_loaded(&workspace, context.loaded.clone());
+        let generators = PluginGenerators::with_loaded(
+            &workspace,
+            context.loaded.clone(),
+            Arc::clone(&self.generations),
+        );
         let mut computed = self.state_in(&workspace, &generators, false)?;
         computed.uses_run = true;
         // `produced` already holds every drifting path, a failing generator's run outputs too.
@@ -2067,7 +2262,8 @@ impl GitHistory {
         {
             return Ok(None);
         }
-        let generators = PluginGenerators::with_loaded(workspace, plugins.loaded);
+        let generators =
+            PluginGenerators::with_loaded(workspace, plugins.loaded, Arc::clone(&self.generations));
         match self.state_in(workspace, &generators, !plugins.unloadable.is_empty()) {
             Ok(computed) => Ok(Some(computed)),
             Err(error) if matches!(error.kind(), crate::error::ErrorKind::Config) => Ok(None),
@@ -2134,20 +2330,17 @@ impl GitHistory {
         Ok(plugins)
     }
 
-    /// The run's configuration hash and plugins, computed once.
+    /// The run's configuration hash and plugins, computed once. The plugins are the run's own,
+    /// checked against every rule of the configuration, not only those the run's filter allows.
     fn run_context(&self) -> Result<&RunContext> {
         self.run
             .get_or_init(|| {
                 let workspace = &self.run_workspace;
-                let lock =
-                    crate::lock::verify_with(workspace, &self.overrides.keys().cloned().collect())?;
-                let loaded = load(workspace, lock.as_ref(), &self.overrides)?.map(Arc::new);
-                if let Some(loaded) = &loaded {
-                    loaded.validate(workspace, &RuleFilter::new(Vec::new()))?;
-                }
+                self.run_loaded
+                    .validate(workspace, &RuleFilter::new(Vec::new()))?;
                 Ok(RunContext {
                     hash: configuration_hash(workspace)?,
-                    loaded,
+                    loaded: Some(Arc::clone(&self.run_loaded)),
                     outputs: OnceLock::new(),
                     key: OnceLock::new(),
                 })
@@ -2161,7 +2354,11 @@ impl GitHistory {
         let context = self.run_context()?;
         Ok(context.outputs.get_or_init(|| {
             let workspace = &self.run_workspace;
-            let generators = PluginGenerators::with_loaded(workspace, context.loaded.clone());
+            let generators = PluginGenerators::with_loaded(
+                workspace,
+                context.loaded.clone(),
+                Arc::clone(&self.generations),
+            );
             let mut by_entry: BTreeMap<EntryKey, BTreeSet<String>> = BTreeMap::new();
             for entry in sync::generator_entries(workspace) {
                 if let Ok(outputs) = sync::generator_outputs(&entry, &generators) {
@@ -2317,12 +2514,15 @@ impl GitHistory {
             "{SYNC_STATE}\0{SYNC_STATE_VERSION}\0{}\0{commit}\0",
             env!("CARGO_PKG_VERSION")
         ));
-        for (name, (_, bytes)) in &*self.overrides {
-            hasher.update(format!(
-                "{name}\0{}\0",
-                Sha256Sum::from_digest(&Sha256::digest(bytes)).as_str()
-            ));
-        }
+        hasher.update(self.builds.get_or_init(|| {
+            self.overrides
+                .iter()
+                .fold(String::new(), |mut builds, (name, (_, bytes))| {
+                    let sha256 = Sha256Sum::from_digest(&Sha256::digest(bytes));
+                    let _ = write!(builds, "{name}\0{}\0", sha256.as_str());
+                    builds
+                })
+        }));
         if let Some(configuration) = configuration {
             hasher.update(format!("configuration\0{}\0", configuration.as_str()));
         }

@@ -861,6 +861,242 @@ fn a_run_dependent_answer_follows_the_files_the_runs_generators_read() {
     );
 }
 
+/// One `gate check --timings` with the built probe: its findings, sorted, the calls that ran,
+/// sorted, and its standard error.
+fn probe_timings(repo: &Repo) -> (Vec<String>, Vec<String>, String) {
+    probe_timings_from(repo, &probe().0)
+}
+
+/// [`probe_timings`] with the probe component read from `wasm`.
+fn probe_timings_from(repo: &Repo, wasm: &Path) -> (Vec<String>, Vec<String>, String) {
+    let plugin = format!("probe={}", wasm.display());
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &plugin,
+        "--format",
+        "json",
+        "--timings",
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut messages: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str().map(str::to_owned))
+        .collect();
+    messages.sort();
+    let stderr = text(&output.stderr);
+    let mut ran: Vec<String> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("timings: call probe "))
+        .filter_map(|call| call.split_once(": ran ").map(|(scope, _)| scope.to_owned()))
+        .collect();
+    ran.sort();
+    (messages, ran, stderr)
+}
+
+/// The `--timings` line that starts with `prefix`, without it.
+fn timing(stderr: &str, prefix: &str) -> Option<String> {
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix))
+        .map(str::to_owned)
+}
+
+/// [`probe_timings`] with the line of the generators that ran and came from the cache.
+fn probe_generated(repo: &Repo) -> (Vec<String>, Vec<String>, Option<String>) {
+    let (messages, ran, stderr) = probe_timings(repo);
+    (messages, ran, timing(&stderr, "timings: generators: "))
+}
+
+/// How many generators ran in a run of [`probe_timings_from`], and how many came from the cache.
+fn generators_from(repo: &Repo, wasm: &Path) -> (usize, usize) {
+    let (_, _, stderr) = probe_timings_from(repo, wasm);
+    let line = timing(&stderr, "timings: generators: ").unwrap_or_else(|| panic!("{stderr}"));
+    let count = |part: &str| {
+        part.split(' ')
+            .next()
+            .and_then(|count| count.parse().ok())
+            .unwrap_or_else(|| panic!("{line}"))
+    };
+    let (ran, stored) = line.split_once(", ").unwrap_or_else(|| panic!("{line}"));
+    (count(ran), count(stored))
+}
+
+/// A repository whose generator `probe/write` writes, in `apps/one`, what `options` ask, and
+/// whose rule asks sync-state at `HEAD~1`. There the generator also writes a core file, so the
+/// answer follows the run's configuration and every run runs the run's generators on its tree.
+fn generating(options: &str) -> Repo {
+    let repo =
+        probe_repo(r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1"] } }"#);
+    let core = r#"files = { "gate.toml" = "overwritten\n" }"#;
+    repo.write(
+        "apps/one/gate.toml",
+        &writing(&format!("{options}, {core}")),
+    );
+    repo.write("apps/one/inputs/a.txt", "a\n");
+    repo.commit("the generator writes a core file: the run's configuration answers");
+    repo.write("apps/one/gate.toml", &writing(options));
+    repo.commit("the generator writes what its options name");
+    repo
+}
+
+#[test]
+fn other_generator_options_or_another_build_of_its_plugin_run_the_generator_again() {
+    let options = r#"list_under = "inputs""#;
+    let repo = generating(options);
+    let built = probe().0.clone();
+    let generators = || generators_from(&repo, &built);
+    assert_ne!(generators().0, 0, "cold");
+    assert_eq!(generators().0, 0, "warm");
+
+    // Other options: no stored output answers them.
+    let other = r#"list_under = "inputs", files = { "gen/z.md" = "z\n" }"#;
+    repo.write("apps/one/gate.toml", &writing(other));
+    assert_ne!(generators().0, 0, "other options");
+    assert_eq!(generators().0, 0, "other options, warm");
+    // The first options' output is still stored.
+    repo.write("apps/one/gate.toml", &writing(options));
+    assert_eq!(generators().0, 0, "the first options again");
+
+    // The same component with one more custom section: other bytes, another sha256.
+    let mut bytes = probe().1.clone();
+    bytes.extend_from_slice(&[0, 6, 5]);
+    bytes.extend_from_slice(b"other");
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let rebuilt = outside.path().join("probe.wasm");
+    std::fs::write(&rebuilt, &bytes).expect("write the changed component");
+    assert_ne!(generators_from(&repo, &rebuilt).0, 0, "another build");
+    assert_eq!(generators_from(&repo, &rebuilt).0, 0, "another build, warm");
+}
+
+#[test]
+fn a_file_that_appears_where_a_generator_looked_runs_it_again() {
+    let repo = generating(r#"list_under = "inputs", list = "gen.list""#);
+    let built = probe().0.clone();
+    let generators = || generators_from(&repo, &built);
+    assert_ne!(generators().0, 0, "cold");
+    assert_eq!(generators().0, 0, "warm");
+
+    // A new file under the directory the generator listed.
+    repo.write("apps/one/inputs/b.txt", "b\n");
+    repo.git(&["add", "apps/one/inputs/b.txt"]);
+    assert_ne!(generators().0, 0, "a new file under a listed directory");
+    assert_eq!(generators().0, 0, "warm again");
+
+    // The file the generator read and did not find is created.
+    repo.write("apps/one/gen.list", "gen/c.md\n");
+    repo.git(&["add", "apps/one/gen.list"]);
+    assert_ne!(generators().0, 0, "a file that was missing is created");
+    assert_eq!(generators().0, 0, "warm at last");
+}
+
+/// `gate sync --check` with the built probe: its exit code and output.
+fn sync_check(repo: &Repo) -> (Option<i32>, String) {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["sync", "--check", "--plugin", &plugin]);
+    (
+        output.status.code(),
+        format!("{}{}", text(&output.stdout), text(&output.stderr)),
+    )
+}
+
+/// Rewrites every stored generator output whose text is `from` to `to`.
+fn tamper_stored_outputs(cache: &Path, from: &str, to: &str) -> usize {
+    let mut tampered = 0;
+    let mut directories = vec![cache.join("results")];
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(&directory)
+            .expect("the stored results")
+            .map(|entry| entry.expect("a directory entry").path())
+        {
+            if entry.is_dir() {
+                directories.push(entry);
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(&entry) else {
+                continue;
+            };
+            let changed = content.replace(from, to);
+            if changed != content {
+                std::fs::write(&entry, changed).expect("rewrite a stored result");
+                tampered += 1;
+            }
+        }
+    }
+    tampered
+}
+
+#[test]
+fn sync_check_answers_from_the_stored_outputs_until_an_input_changes() {
+    let repo = probe_repo(r#""probe/git" = { level = "error", options = { read_at = [] } }"#);
+    repo.write("apps/one/gate.toml", &writing(r#"list = "gen.list""#));
+    repo.write("apps/one/gen.list", "gen/a.md\n");
+    repo.commit("the generator's input");
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("generated");
+    let (code, said) = sync_check(&repo);
+    assert_eq!(code, Some(0), "{said}");
+
+    // The stored output says otherwise than the generator: a check that reports it out of date
+    // was answered from the cache.
+    let stored = r#""text":"listed\n""#;
+    let tampered = tamper_stored_outputs(repo.cache.path(), stored, r#""text":"stored\n""#);
+    assert_eq!(tampered, 1);
+    let (code, said) = sync_check(&repo);
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("1 out of date"), "{said}");
+
+    // The file the generator reads changes, to the same outputs: it runs again.
+    repo.write("apps/one/gen.list", "gen/a.md\n\n");
+    let (code, said) = sync_check(&repo);
+    assert_eq!(code, Some(0), "{said}");
+}
+
+#[test]
+fn a_warm_run_answers_the_runs_generators_from_the_cache_until_a_file_they_read_changes() {
+    let repo =
+        probe_repo(r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1"] } }"#);
+    repo.write(
+        "apps/one/gate.toml",
+        &writing(r#"list = "gen.list", files = { "gate.toml" = "overwritten\n" }"#),
+    );
+    repo.write("apps/one/gen.list", "gen/a.md\n");
+    repo.commit("the generator writes a core file: the run's configuration answers");
+    repo.write("apps/one/gate.toml", &writing(r#"list = "gen.list""#));
+    repo.write("apps/one/gen/a.md", "listed\n");
+    repo.commit("it writes what gen.list names");
+
+    let (_, ran, generated) = probe_generated(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(generated.as_deref(), Some("1 ran, 0 from the cache"));
+
+    // Nothing changed: the call's stored result asks sync-state again, whose answer follows the
+    // run's generators; their outputs come from the cache, nothing runs.
+    let (messages, ran, generated) = probe_generated(&repo);
+    assert_eq!(
+        messages,
+        ["sync-state HEAD~1: produced gen/a.md; drift gen/a.md"]
+    );
+    assert!(ran.is_empty(), "{ran:?}");
+    assert_eq!(generated.as_deref(), Some("0 ran, 1 from the cache"));
+
+    // The file the generator reads changes: it runs again, and so does the call.
+    repo.write("apps/one/gen.list", "gen/b.md\n");
+    let (messages, ran, generated) = probe_generated(&repo);
+    assert_eq!(
+        messages,
+        ["sync-state HEAD~1: produced gen/b.md; drift gen/b.md"]
+    );
+    assert_eq!(ran, ["one"]);
+    assert_eq!(generated.as_deref(), Some("1 ran, 0 from the cache"));
+}
+
 #[test]
 fn a_commit_whose_gate_lock_does_not_match_its_gate_toml_falls_back() {
     let repo =
@@ -3129,6 +3365,242 @@ fn a_commit_the_clone_lacks_is_no_ancestor_until_a_fetch_brings_it() {
 
     let (_, _, ran, _) = probe_timed(&repo);
     assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn a_path_at_a_commit_the_clone_lacks_reads_none_until_a_fetch_brings_it() {
+    let other = Repo::empty();
+    other.write("apps/one/x.txt", "tip\n");
+    let tip = other.commit("tip");
+    let repo = probe_repo_for(
+        "apps/one",
+        &format!(
+            r#""probe/git" = {{ level = "error", options = {{ read_at = [["{tip}", "x.txt"]] }} }}"#
+        ),
+    );
+    repo.write("apps/one/a.txt", "one\n");
+    repo.commit("first");
+    let answer = |text: &str| format!("read-at {tip}:x.txt: {text}");
+
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, [answer("none")]);
+
+    // The fetch brings the commit: the call runs again, and the none is not reused from the
+    // stored git answers.
+    let source = other.path().to_str().expect("a UTF-8 path");
+    repo.git(&["fetch", "-q", source, "main"]);
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, [answer("tip")]);
+
+    let (_, ran, _) = probe_timings(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn read_at_answers_and_contents_are_stored_and_read_back_without_asking_git() {
+    let present = r#"["HEAD~1", "a.txt"]"#;
+    let absent = r#"["HEAD~1", "absent.txt"]"#;
+    let rule = |first: &str, second: &str| {
+        format!(
+            r#""probe/git" = {{ level = "error", options = {{ read_at = [{first}, {second}] }} }}"#
+        )
+    };
+    let repo = probe_repo(&rule(present, absent));
+    repo.write("apps/one/a.txt", "first\n");
+    repo.commit("first");
+    repo.write("apps/one/a.txt", "second\n");
+    repo.commit("second");
+    let config = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+    let expected = [
+        "read-at HEAD~1:a.txt: first",
+        "read-at HEAD~1:absent.txt: none",
+    ];
+    let answers = |stderr: &str| timing(stderr, "timings: git answers: ");
+
+    let (messages, _, stderr) = probe_timings(&repo);
+    assert_eq!(messages, expected);
+    assert_eq!(
+        answers(&stderr).as_deref(),
+        Some("2 asked, 0 from the cache")
+    );
+
+    // Other options: the call runs again, and asks git nothing.
+    repo.write(
+        "gate.toml",
+        &config.replace(&rule(present, absent), &rule(absent, present)),
+    );
+    let (messages, ran, stderr) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, expected);
+    assert_eq!(
+        answers(&stderr).as_deref(),
+        Some("0 asked, 2 from the cache")
+    );
+
+    // Without the stored content, the stored answer still reads the file, from git by its id.
+    std::fs::remove_dir_all(repo.cache.path().join("git").join("blobs")).expect("stored blobs");
+    std::fs::remove_dir_all(repo.cache.path().join("results")).expect("stored results");
+    let (messages, ran, stderr) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, expected);
+    assert_eq!(
+        answers(&stderr).as_deref(),
+        Some("0 asked, 2 from the cache")
+    );
+}
+
+/// A repository whose `apps/one/a.txt` is `first` at `HEAD~1` and `second` at `HEAD`, served to
+/// partial clones; the probe reads the file at `HEAD~1`, which a `blob:none` clone lacks.
+fn partial_origin() -> Repo {
+    let origin = probe_repo(
+        r#""probe/git" = { level = "error", options = { read_at = [["HEAD~1", "a.txt"]] } }"#,
+    );
+    origin.write("apps/one/a.txt", "first\n");
+    origin.commit("first");
+    origin.write("apps/one/a.txt", "second\n");
+    origin.commit("second");
+    origin.git(&["config", "uploadpack.allowFilter", "true"]);
+    origin
+}
+
+/// A `blob:none` clone of `origin`, with its own cache.
+fn partial_clone(origin: &Repo) -> Repo {
+    let clone = Repo {
+        directory: tempfile::tempdir().expect("temporary directory"),
+        cache: tempfile::tempdir().expect("temporary cache"),
+    };
+    let url = format!("file://{}", origin.path().display());
+    clone.git(&["clone", "-q", "--filter=blob:none", &url, "."]);
+    clone
+}
+
+/// Points the clone's promisor remote at `origin`, or at nothing when `origin` is `None`.
+fn reach(clone: &Repo, origin: Option<&Repo>) {
+    let url = origin.map_or_else(
+        || "file:///nonexistent/origin.git".to_owned(),
+        |origin| format!("file://{}", origin.path().display()),
+    );
+    clone.git(&["remote", "set-url", "origin", &url]);
+}
+
+/// `gate check` with the built probe in `directory`, the cache `cache` and the environment `env`.
+fn probe_output_in(directory: &Path, cache: &Path, env: &[(&str, &str)]) -> Output {
+    let plugin = format!("probe={}", probe().0.display());
+    isolated(
+        Command::new(env!("CARGO_BIN_EXE_gate"))
+            .args([
+                "check",
+                "--plugin",
+                &plugin,
+                "--format",
+                "json",
+                "--timings",
+            ])
+            .current_dir(directory)
+            .env("GATE_CACHE_DIR", cache)
+            .envs(env.iter().copied()),
+    )
+    .output()
+    .expect("gate")
+}
+
+/// Asserts that a check failed with a message that contains `advice`, and that no stored
+/// `read-at` answer in `cache` says "absent".
+fn failed_storing_no_absent(output: &Output, advice: &str, cache: &Path) {
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_ne!(output.status.code(), Some(0), "{said}");
+    assert!(said.contains(advice), "{said}");
+    assert!(!said.contains("a.txt: none"), "{said}");
+    let stored = stored_read_at(cache);
+    assert!(
+        stored.iter().all(|line| !line.contains(r#""blob":null"#)),
+        "{stored:?}"
+    );
+}
+
+/// The stored `read-at` answers in `cache`, one JSON line each.
+fn stored_read_at(cache: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut directories = vec![cache.join("git")];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.map(|entry| entry.expect("a directory entry").path()) {
+            if entry.is_dir() {
+                directories.push(entry);
+            } else if let Ok(content) = std::fs::read_to_string(&entry) {
+                lines.extend(
+                    content
+                        .lines()
+                        .filter(|line| line.contains(r#""kind":"read-at""#))
+                        .map(str::to_owned),
+                );
+            }
+        }
+    }
+    lines
+}
+
+#[test]
+fn a_partial_clone_that_cannot_fetch_a_file_stores_no_absent_answer_and_reads_it_once_it_can() {
+    let origin = partial_origin();
+    let clone = partial_clone(&origin);
+
+    // The remote is unreachable: git cannot fetch the file its tree names. The call fails and
+    // says what to do; no "absent" is stored. Git's reader stops when the fetch fails, or, without
+    // lazy fetches, reads the file as missing.
+    reach(&clone, None);
+    let cache = clone.cache.path();
+    let output = probe_output_in(clone.path(), cache, &[]);
+    failed_storing_no_absent(&output, "run git fetch", cache);
+    let output = probe_output_in(clone.path(), cache, &[("GIT_NO_LAZY_FETCH", "1")]);
+    failed_storing_no_absent(&output, "run git fetch", cache);
+
+    // The remote is back: the file is read, and its answer is stored.
+    reach(&clone, Some(&origin));
+    let (messages, ran, _) = probe_timings(&clone);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, ["read-at HEAD~1:a.txt: first"]);
+    let stored = stored_read_at(clone.cache.path());
+    assert!(
+        stored.iter().any(|line| line.contains(r#""blob":""#)),
+        "{stored:?}"
+    );
+}
+
+#[test]
+fn a_stored_file_whose_content_neither_the_cache_nor_git_has_is_an_error_not_absent() {
+    let origin = partial_origin();
+    let first = partial_clone(&origin);
+    let second = partial_clone(&origin);
+
+    // The first clone reads the file and stores its answer.
+    let (messages, _, _) = probe_timings(&first);
+    assert_eq!(messages, ["read-at HEAD~1:a.txt: first"]);
+
+    // The second clone shares the cache without the stored content, and cannot fetch the file:
+    // the stored answer cannot produce it, which is an error that says what to do.
+    let cache = first.cache.path();
+    std::fs::remove_dir_all(cache.join("git").join("blobs")).expect("stored blobs");
+    std::fs::remove_dir_all(cache.join("results")).expect("stored results");
+    reach(&second, None);
+    let output = probe_output_in(second.path(), cache, &[]);
+    failed_storing_no_absent(&output, "gate cache prune", cache);
+    let output = probe_output_in(second.path(), cache, &[("GIT_NO_LAZY_FETCH", "1")]);
+    failed_storing_no_absent(&output, "gate cache prune", cache);
+
+    // With the remote back, git fetches the file by the stored id.
+    reach(&second, Some(&origin));
+    let output = probe_output_in(second.path(), cache, &[]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stdout).contains("read-at HEAD~1:a.txt: first"),
+        "{}",
+        text(&output.stdout)
+    );
 }
 
 #[test]

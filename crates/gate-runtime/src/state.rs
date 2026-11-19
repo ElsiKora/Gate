@@ -584,7 +584,10 @@ impl wit_git::Host for State {
         let bytes = self
             .host_call("git.read-at", || history.read_at(&commit, &path))
             .map_err(host)?;
-        self.record(GitQuery::ReadAt { commit, path }, Vec::new())?;
+        self.record(
+            GitQuery::ReadAt { commit, path },
+            crate::read_set::read_record(bytes.is_some()),
+        )?;
         Ok(bytes)
     }
 
