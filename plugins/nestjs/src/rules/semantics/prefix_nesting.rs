@@ -21,7 +21,6 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
 
 use crate::layout::PluginOptions;
-use crate::shared::project;
 use crate::shared::tree as walk;
 
 /// The rule.
@@ -57,7 +56,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "prefix-nesting";
@@ -65,7 +64,8 @@ impl gate_sdk::Rule for Rule {
         "Sibling resources and same-kind files sharing a prefix are nested under it";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         let options = run.options();
 
@@ -81,8 +81,8 @@ impl gate_sdk::Rule for Rule {
             separator: options.word_separator.clone(),
         };
         let root = layout.source_root;
-        let source = project::source(run);
-        let tree = Tree::new(walk::files(&source, &root, &walk::UNSKIPPED));
+        let source = shared.source();
+        let tree = Tree::new(walk::files(source, &root, &walk::UNSKIPPED));
         let below = crate::layout::folder_prefix(&root);
 
         for (directory, entries) in &tree.directories {
@@ -109,6 +109,7 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }
 

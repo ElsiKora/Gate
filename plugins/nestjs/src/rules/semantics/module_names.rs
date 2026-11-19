@@ -20,7 +20,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
 use gate_typescript::oxc_ast::ast::{Declaration, ExportDefaultDeclarationKind, Statement};
-use gate_typescript::{Allocator, SourceFile, TypeScript};
+use gate_typescript::{SourceFile, TypeScript};
 
 use crate::shared::project;
 
@@ -154,7 +154,7 @@ impl Default for Options {
 /// One finding before it is reported: aspect, path, key, message and help.
 type Pending = (&'static str, String, Option<String>, String, String);
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "module-names";
@@ -169,83 +169,83 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::Folder;
-            let o = run.options();
-            for (index, owner) in o.semantic_owners.iter().enumerate() {
-                crate::shared::paths::check(
-                    &format!("semantic-owners[{index}].resource-path"),
-                    &owner.resource_path,
-                    Folder,
-                )?;
-            }
-            super::folders::check_all_below_root("stale-module-paths", &o.stale_module_paths)?;
-        }
-
-        let options = run.options();
-        let tree = run.tree();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let mut pending: Vec<Pending> = Vec::new();
-
-        for path in crate::shared::tree::files(&source, "", &crate::shared::tree::UNSKIPPED) {
-            if path.rsplit('/').next() != Some(options.module_file.as_str()) {
-                continue;
-            }
-
-            let Some(scope) = options
-                .layer_scopes
-                .iter()
-                .find(|scope| path.starts_with(scope.path.as_str()))
-            else {
-                continue;
-            };
-            let Some(Parsed { class: name }) = class_name(&typescript, path)? else {
-                continue;
-            };
-
-            if let Some((aspect, key, message, help)) =
-                module_finding(path, scope, name.as_deref(), options)
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
             {
-                pending.push((aspect, path.to_owned(), Some(key), message, help));
+                use crate::shared::paths::Form::Folder;
+                let o = run.options();
+                for (index, owner) in o.semantic_owners.iter().enumerate() {
+                    crate::shared::paths::check(
+                        &format!("semantic-owners[{index}].resource-path"),
+                        &owner.resource_path,
+                        Folder,
+                    )?;
+                }
+                super::folders::check_all_below_root("stale-module-paths", &o.stale_module_paths)?;
             }
-        }
 
-        for owner in &options.semantic_owners {
-            for class_file in &options.semantic_class_files {
-                let path = format!("{}/{}", owner.resource_path, class_file.file);
+            let options = run.options();
+            let tree = run.tree();
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let mut pending: Vec<Pending> = Vec::new();
 
-                if !tree.contains(&path) {
+            for path in crate::shared::tree::files(source, "", &crate::shared::tree::UNSKIPPED) {
+                if path.rsplit('/').next() != Some(options.module_file.as_str()) {
                     continue;
                 }
 
-                let Some(Parsed { class: name }) = class_name(&typescript, &path)? else {
+                let Some(scope) = options
+                    .layer_scopes
+                    .iter()
+                    .find(|scope| path.starts_with(scope.path.as_str()))
+                else {
                     continue;
                 };
-                let expected = format!("{}{}", owner.owner_stem, class_file.suffix);
-                let message = match name {
-                    Some(name) if name == expected => continue,
-                    Some(name) => {
-                        format!("{path} exports {name}; semantic owner requires {expected}")
-                    }
-                    None => format!("{path} does not export {expected}"),
+                let Some(Parsed { class: name }) = class_name(typescript, path)? else {
+                    continue;
                 };
 
-                pending.push((
-                    "semantic-owner-class",
-                    path,
-                    Some(expected.clone()),
-                    message,
-                    format!("export the class {expected} from the file"),
-                ));
+                if let Some((aspect, key, message, help)) =
+                    module_finding(path, scope, name.as_deref(), options)
+                {
+                    pending.push((aspect, path.to_owned(), Some(key), message, help));
+                }
             }
-        }
 
-        for path in &options.stale_module_paths {
-            if tree.contains(path) || !tree.under(path).is_empty() {
-                pending.push((
+            for owner in &options.semantic_owners {
+                for class_file in &options.semantic_class_files {
+                    let path = format!("{}/{}", owner.resource_path, class_file.file);
+
+                    if !tree.contains(&path) {
+                        continue;
+                    }
+
+                    let Some(Parsed { class: name }) = class_name(typescript, &path)? else {
+                        continue;
+                    };
+                    let expected = format!("{}{}", owner.owner_stem, class_file.suffix);
+                    let message = match name {
+                        Some(name) if name == expected => continue,
+                        Some(name) => {
+                            format!("{path} exports {name}; semantic owner requires {expected}")
+                        }
+                        None => format!("{path} does not export {expected}"),
+                    };
+
+                    pending.push((
+                        "semantic-owner-class",
+                        path,
+                        Some(expected.clone()),
+                        message,
+                        format!("export the class {expected} from the file"),
+                    ));
+                }
+            }
+
+            for path in &options.stale_module_paths {
+                if tree.contains(path) || !tree.under(path).is_empty() {
+                    pending.push((
                     "shortened-resource-folder",
                     path.clone(),
                     None,
@@ -254,21 +254,22 @@ impl gate_sdk::Rule for Rule {
                     ),
                     "rename the folder to the full name of the entity resource".to_owned(),
                 ));
+                }
             }
-        }
 
-        for (aspect, path, key, message, help) in pending {
-            let reported = run
-                .report()
-                .finding(aspect, Location::file(path), message)
-                .help(help);
+            for (aspect, path, key, message, help) in pending {
+                let reported = run
+                    .report()
+                    .finding(aspect, Location::file(path), message)
+                    .help(help);
 
-            if let Some(key) = key {
-                reported.key(key);
+                if let Some(key) = key {
+                    reported.key(key);
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

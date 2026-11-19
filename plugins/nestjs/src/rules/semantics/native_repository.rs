@@ -19,7 +19,6 @@ use gate_typescript::oxc_ast::ast::{
     BindingPattern, Class, ClassElement, Decorator, TSAccessibility,
 };
 use gate_typescript::syntax::constructor;
-use gate_typescript::{Allocator, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::project;
@@ -132,7 +131,7 @@ impl Service {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "native-repository";
@@ -140,7 +139,8 @@ impl gate_sdk::Rule for Rule {
         "A native service's primary repository is a protected readonly parameter property";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         let options = run.options();
         let service = Service {
@@ -153,10 +153,8 @@ impl gate_sdk::Rule for Rule {
             base: options.service_base.clone(),
         };
         let repository = options.repository_parameter.clone();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)?;
+        let typescript = shared.typescript()?;
+        let sources = Sources::new(typescript, &layout.source_root)?;
 
         for source in sources.iter() {
             for class in top_level(&source.file).filter_map(class_declaration) {
@@ -226,5 +224,6 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }

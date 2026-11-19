@@ -23,12 +23,12 @@ use std::num::NonZeroUsize;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::binder::Binder;
 use gate_typescript::oxc_ast::ast::{ClassElement, PropertyKey};
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::syntax::{computed_key_text, constructor, member_start};
 use gate_typescript::value::number_text;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::{Layout, PluginOptions};
 use crate::shared::{project, tree};
@@ -429,7 +429,7 @@ fn check_paths(options: &Options) -> gate_sdk::Result<()> {
     Ok(())
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "typeorm-relation";
@@ -438,7 +438,8 @@ impl gate_sdk::Rule for Rule {
     const ASPECTS: &'static [&'static str] = ASPECTS;
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         check_paths(run.options())?;
 
         let layout = PluginOptions::read(run)?.layout;
@@ -450,9 +451,7 @@ impl gate_sdk::Rule for Rule {
             .foreign_key_case
             .zip(label.as_deref())
             .map(|(case, label)| Spelling { case, label });
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let typescript = shared.typescript()?;
         let mut files = Vec::new();
 
         for path in
@@ -539,5 +538,6 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }

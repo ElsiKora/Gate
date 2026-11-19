@@ -11,7 +11,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use gate_sdk::{Location, Rule, Run};
 use gate_typescript::owners::{Sources, class_declaration, find_class, top_level};
-use gate_typescript::{Allocator, TypeScript};
 
 use self::inventory::{Entry, Unclassified};
 pub use self::policy::Options;
@@ -27,7 +26,7 @@ use crate::shared::tree;
 #[derive(Debug, Default)]
 pub struct AutomatorMetadata;
 
-impl Rule for AutomatorMetadata {
+impl Rule<crate::Nest> for AutomatorMetadata {
     type Options = Options;
 
     const NAME: &'static str = "automator-metadata";
@@ -45,83 +44,83 @@ impl Rule for AutomatorMetadata {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let policy = Policy::new(run.options(), &layout);
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)?;
-        let bases = entity_bases(&sources, &policy);
-        let mut entities = Vec::new();
-        let mut dtos = Vec::new();
-        let mut routes = Vec::new();
-        let mut unclassified: Vec<Unclassified> = Vec::new();
-        let mut specialized: Vec<Unclassified> = Vec::new();
-        let mut findings = Findings::default();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let policy = Policy::new(run.options(), &layout);
+            let typescript = shared.typescript()?;
+            let sources = Sources::new(typescript, &layout.source_root)?;
+            let bases = entity_bases(&sources, &policy);
+            let mut entities = Vec::new();
+            let mut dtos = Vec::new();
+            let mut routes = Vec::new();
+            let mut unclassified: Vec<Unclassified> = Vec::new();
+            let mut specialized: Vec<Unclassified> = Vec::new();
+            let mut findings = Findings::default();
 
-        let modules: BTreeSet<&str> = typescript_sources(
-            // Every folder: the listing that feeds all three inventories skips none.
-            tree::files(typescript.source(), &policy.modules_root, &tree::UNSKIPPED),
-        )
-        .into_iter()
-        .collect();
-        let paths: BTreeSet<&str> = modules
-            .iter()
-            .copied()
-            .chain(bases.keys().map(String::as_str))
+            let modules: BTreeSet<&str> = typescript_sources(
+                // Every folder: the listing that feeds all three inventories skips none.
+                tree::files(typescript.source(), &policy.modules_root, &tree::UNSKIPPED),
+            )
+            .into_iter()
             .collect();
-        let no_bases = BTreeSet::new();
+            let paths: BTreeSet<&str> = modules
+                .iter()
+                .copied()
+                .chain(bases.keys().map(String::as_str))
+                .collect();
+            let no_bases = BTreeSet::new();
 
-        for path in paths {
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
-            };
+            for path in paths {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
 
-            let source = Source::new(path, &file, &policy);
-            let file_bases = bases.get(path).unwrap_or(&no_bases);
-            inventory::entities(&source, &policy, file_bases, &mut entities);
-            inventory::specialized_entity_decorators(&source, file_bases, &mut specialized);
+                let source = Source::new(path, &file, &policy);
+                let file_bases = bases.get(path).unwrap_or(&no_bases);
+                inventory::entities(&source, &policy, file_bases, &mut entities);
+                inventory::specialized_entity_decorators(&source, file_bases, &mut specialized);
 
-            // A base outside the modules root is read for its entity properties only.
-            if modules.contains(path) {
-                inventory::dtos(&source, &policy, &mut dtos);
-                inventory::routes(&source, &policy, &mut routes, &mut unclassified);
+                // A base outside the modules root is read for its entity properties only.
+                if modules.contains(path) {
+                    inventory::dtos(&source, &policy, &mut dtos);
+                    inventory::routes(&source, &policy, &mut routes, &mut unclassified);
+                }
             }
-        }
 
-        for decorator in unclassified {
-            findings.push_keyed(
-                "controller-decorator",
-                decorator.path,
-                Some(decorator.line),
-                decorator.key,
-                decorator.message,
+            for decorator in unclassified {
+                findings.push_keyed(
+                    "controller-decorator",
+                    decorator.path,
+                    Some(decorator.line),
+                    decorator.key,
+                    decorator.message,
+                );
+            }
+
+            for decorator in specialized {
+                findings.push_keyed(
+                    "entity-property-decorator",
+                    decorator.path,
+                    Some(decorator.line),
+                    decorator.key,
+                    decorator.message,
+                );
+            }
+
+            compare("dtoProperties", &dtos, "dto-decorator", &mut findings);
+            compare(
+                "entityProperties",
+                &entities,
+                "entity-description",
+                &mut findings,
             );
-        }
-
-        for decorator in specialized {
-            findings.push_keyed(
-                "entity-property-decorator",
-                decorator.path,
-                Some(decorator.line),
-                decorator.key,
-                decorator.message,
-            );
-        }
-
-        compare("dtoProperties", &dtos, "dto-decorator", &mut findings);
-        compare(
-            "entityProperties",
-            &entities,
-            "entity-description",
-            &mut findings,
-        );
-        compare("routes", &routes, "route-contract", &mut findings);
-        owners(&routes, &mut findings);
-        findings.report(run, help);
-        stale(run, &policy, &entities, &dtos, &routes);
-        Ok(())
+            compare("routes", &routes, "route-contract", &mut findings);
+            owners(&routes, &mut findings);
+            findings.report(run, help);
+            stale(run, shared, &policy, &entities, &dtos, &routes);
+            Ok(())
+        })
     }
 }
 
@@ -261,7 +260,8 @@ fn owners(routes: &[Entry], findings: &mut Findings) {
 /// options file, or at `gate.toml` when the options are written there. The option names in the
 /// messages are those of the automator's own inventory.
 fn stale(
-    run: &mut Run<'_, Options>,
+    run: &mut Run<'_, Options, crate::Nest>,
+    shared: &project::Sources<'_>,
     policy: &Policy,
     entities: &[Entry],
     dtos: &[Entry],
@@ -312,7 +312,7 @@ fn stale(
     let file = run
         .options_file()
         .map_or_else(|| "gate.toml".to_owned(), str::to_owned);
-    let text = run.tree().text(&file).unwrap_or_default();
+    let text = shared.text(&file).unwrap_or_default();
 
     for (key, id, message) in stale {
         let quoted = format!("\"{key}\"");

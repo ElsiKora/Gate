@@ -25,8 +25,8 @@ mod facts;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::ast::Statement;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use self::facts::{Facts, InternalBase, Reader};
 use crate::layout::{Layout, PluginOptions};
@@ -173,7 +173,7 @@ pub struct Decorators {
     entity_manager: Import,
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "owner-boundaries";
@@ -188,80 +188,83 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::Folder;
-            let o = run.options();
-            crate::shared::paths::check_all("owner-roots", &o.owner_roots, Folder)?;
-            crate::shared::paths::check_all("api-owners", &o.api_owners, Folder)?;
-            crate::shared::paths::check("domain-owner", &o.domain_owner, Folder)?;
-            crate::shared::paths::check("internal-owner", &o.internal_owner, Folder)?;
-        }
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            {
+                use crate::shared::paths::Form::Folder;
+                let o = run.options();
+                crate::shared::paths::check_all("owner-roots", &o.owner_roots, Folder)?;
+                crate::shared::paths::check_all("api-owners", &o.api_owners, Folder)?;
+                crate::shared::paths::check("domain-owner", &o.domain_owner, Folder)?;
+                crate::shared::paths::check("internal-owner", &o.internal_owner, Folder)?;
+            }
 
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options().clone();
-        let decorators = Decorators::new(&options, &layout)?;
-        let boundaries = Boundaries {
-            options: &options,
-            layout: &layout,
-            entity_manager: &decorators.entity_manager.name,
-        };
-        let base = InternalBase {
-            modules: &options.internal_base.modules,
-            export: &options.internal_base.export,
-        };
-        let service = format!("/{}", options.domain_service_file);
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let mut findings = Vec::new();
-
-        for path in tree::typescript_files(&source, &layout.source_root, &tree::UNSKIPPED) {
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options().clone();
+            let decorators = Decorators::new(&options, &layout)?;
+            let boundaries = Boundaries {
+                options: &options,
+                layout: &layout,
+                entity_manager: &decorators.entity_manager.name,
             };
-            let owner = boundaries.owner(path);
+            let base = InternalBase {
+                modules: &options.internal_base.modules,
+                export: &options.internal_base.export,
+            };
+            let service = format!("/{}", options.domain_service_file);
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let mut findings = Vec::new();
 
-            if path.ends_with("/index.ts") {
-                for specifier in exported_specifiers(&file) {
-                    let target = boundaries.dependency_owner(path, &specifier);
+            for path in tree::typescript_files(source, &layout.source_root, &tree::UNSKIPPED) {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
+                let owner = boundaries.owner(path);
 
-                    if let (Some(owner), Some(target)) = (owner, target)
-                        && owner != target
-                    {
-                        findings.push(Finding::new(
-                            "owner-barrel",
-                            path,
-                            Some(specifier),
-                            format!("{path} re-exports {target} source across its owner barrel"),
-                            "re-export only the barrel's own owner",
-                        ));
+                if path.ends_with("/index.ts") {
+                    for specifier in exported_specifiers(&file) {
+                        let target = boundaries.dependency_owner(path, &specifier);
+
+                        if let (Some(owner), Some(target)) = (owner, target)
+                            && owner != target
+                        {
+                            findings.push(Finding::new(
+                                "owner-barrel",
+                                path,
+                                Some(specifier),
+                                format!(
+                                    "{path} re-exports {target} source across its owner barrel"
+                                ),
+                                "re-export only the barrel's own owner",
+                            ));
+                        }
                     }
+                }
+
+                let facts = Reader::new(&file, &base, &decorators)
+                    .facts(below(path, &options.domain_owner) && path.ends_with(&service));
+
+                boundaries.file(path, owner, &facts, &mut findings);
+            }
+
+            for finding in findings {
+                let reported = run
+                    .report()
+                    .finding(
+                        finding.aspect,
+                        Location::file(finding.path),
+                        finding.message,
+                    )
+                    .help(finding.help);
+
+                if let Some(key) = finding.key {
+                    reported.key(key);
                 }
             }
 
-            let facts = Reader::new(&file, &base, &decorators)
-                .facts(below(path, &options.domain_owner) && path.ends_with(&service));
-
-            boundaries.file(path, owner, &facts, &mut findings);
-        }
-
-        for finding in findings {
-            let reported = run
-                .report()
-                .finding(
-                    finding.aspect,
-                    Location::file(finding.path),
-                    finding.message,
-                )
-                .help(finding.help);
-
-            if let Some(key) = finding.key {
-                reported.key(key);
-            }
-        }
-
-        Ok(())
+            Ok(())
+        })
     }
 }
 

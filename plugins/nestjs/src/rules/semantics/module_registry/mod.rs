@@ -17,11 +17,11 @@ use std::collections::BTreeSet;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::binding::ImportBindings;
 use gate_typescript::oxc_ast::ast::{CallExpression, ChainElement, Class, Expression};
 use gate_typescript::oxc_ast_visit::{Visit, walk};
 use gate_typescript::value::unwrap;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::{project, tree};
@@ -82,7 +82,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "module-registry";
@@ -96,7 +96,8 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &[];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         {
             use crate::shared::paths::Form::{File, Folder};
             let o = run.options();
@@ -125,9 +126,7 @@ impl gate_sdk::Rule for Rule {
         let header = options.table_header.clone();
         let documentation_root = options.documentation_root.clone();
         let registry = Registry::new(options, &layout.source_root);
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let typescript = shared.typescript()?;
         let mut modules = BTreeSet::new();
         let paths: Vec<&str> = tree::typescript_files(
             typescript.source(),
@@ -138,16 +137,16 @@ impl gate_sdk::Rule for Rule {
         .collect();
 
         for path in paths {
-            if let Some(file) = project::parsed(&typescript, path)?
+            if let Some(file) = project::parsed(typescript, path)?
                 && declares_native_module(&file, &package, &decorator)
             {
                 modules.insert(path.to_owned());
             }
         }
 
-        let tree = run.tree();
-        let text = tree.text(&registry.path);
-        let findings = registry.findings(text.as_deref(), &modules, |page| tree.text(page));
+        let text = shared.text(&registry.path);
+        let findings =
+            registry.findings(text.as_deref(), &modules, |page| shared.text(page));
         let chapters = Chapters {
             registry: &registry.path,
             header: &header,
@@ -186,6 +185,7 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }
 

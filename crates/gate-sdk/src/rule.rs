@@ -51,8 +51,10 @@ pub struct Need {
 /// that schema validation ignores: a list of `{ "key", "when", "why" }`.
 pub const NEEDS_KEYWORD: &str = "x-gate-needs";
 
-/// One rule. The type is built with [`Default`] for every run; its options arrive typed.
-pub trait Rule: Default + 'static {
+/// One rule. The type is built with [`Default`] for every run; its options arrive typed. `S` is
+/// the state the rules of one call share ([`CallState`]); a plugin without one keeps the default
+/// `()` and writes `impl Rule for`.
+pub trait Rule<S: CallState = ()>: Default + 'static {
     /// The rule's options, read from configuration with `serde`; their JSON Schema, generated
     /// with `schemars`, is what the host validates the configuration against.
     type Options: DeserializeOwned + JsonSchema;
@@ -77,7 +79,7 @@ pub trait Rule: Default + 'static {
     /// # Errors
     /// An input the rule cannot work with (an unreadable options file, a malformed document the
     /// rule depends on), with a message that says what to do.
-    fn check(&self, run: &mut Run<'_, Self::Options>) -> Result<()>;
+    fn check(&self, run: &mut Run<'_, Self::Options, S>) -> Result<()>;
 
     /// The declaration `describe` answers.
     #[must_use]
@@ -127,35 +129,245 @@ pub(crate) fn schema<T: JsonSchema>() -> String {
     serde_json::to_string(&schemars::schema_for!(T)).unwrap_or_else(|_| "{}".to_owned())
 }
 
-/// One run of one rule over one project (or the repository).
-pub struct Run<'h, O> {
+/// What one `check` call is, alike for every rule of it: the host's tree, the project, the
+/// plugin's options and the language settings. [`CallState::own`] builds the call's state from it;
+/// a rule sees the same through its [`Run`].
+#[derive(Clone, Copy)]
+pub struct Call<'h> {
     pub(crate) host: &'h dyn Host,
-    pub(crate) git: Option<Git<'h>>,
-    pub(crate) report: Report,
-    pub(crate) options: O,
-    pub(crate) options_file: Option<String>,
-    pub(crate) exceptions: Vec<String>,
-    pub(crate) project: String,
+    pub(crate) project: &'h str,
     pub(crate) plugin_options: &'h serde_json::Value,
     pub(crate) languages: &'h serde_json::Value,
     pub(crate) norms: &'h [String],
 }
 
-impl<O: std::fmt::Debug> std::fmt::Debug for Run<'_, O> {
+impl std::fmt::Debug for Call<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Call")
+            .field("project", &self.project)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'h> Call<'h> {
+    /// The tracked files the call may read.
+    #[must_use]
+    pub fn tree(&self) -> Tree<'h> {
+        Tree::new(self.host)
+    }
+
+    /// The project's root relative to the repository; empty for the repository.
+    #[must_use]
+    pub fn project(&self) -> &'h str {
+        self.project
+    }
+
+    /// The `[plugins.<name>]` options every rule of the plugin shares, already validated by the
+    /// host against the schema of the `options` type [`crate::plugin!`] declares; `T` is that
+    /// type.
+    ///
+    /// # Errors
+    /// When they do not match `T`, naming the key.
+    pub fn plugin_options<T: DeserializeOwned>(&self) -> Result<T> {
+        T::deserialize(self.plugin_options)
+            .map_err(|error| Error::config(format!("the [plugins] options do not match: {error}")))
+    }
+
+    /// The `[languages.<id>]` settings, when the configuration has them.
+    ///
+    /// # Errors
+    /// When they do not match `T`.
+    pub fn language<T: DeserializeOwned>(&self, id: &str) -> Result<Option<T>> {
+        self.languages
+            .get(id)
+            .map(|value| {
+                T::deserialize(value).map_err(|error| {
+                    Error::config(format!(
+                        "the [languages.{id}] settings do not match: {error}"
+                    ))
+                })
+            })
+            .transpose()
+    }
+
+    /// Every norm the configuration maps, for rules about rule documents.
+    #[must_use]
+    pub fn norms(&self) -> &'h [String] {
+        self.norms
+    }
+
+    /// A diagnostic line for `--verbose`; never part of a finding.
+    pub fn log(&self, message: &str) {
+        self.host.log(message);
+    }
+}
+
+/// The state the rules of one `check` call share, which a plugin declares in [`crate::plugin!`]
+/// (`call: <type>`): work every rule would otherwise do again on the same tree, such as reading
+/// and parsing its files. The call builds the [`Self::Owner`] from the [`Call`] once, before its
+/// first rule, and the [`Self::State`] from the owner; a rule reaches the state through
+/// [`Run::with_call`]. Both are dropped when the call ends, so no call sees another's state.
+/// What the state holds must depend only on the call, never on one rule's options.
+///
+/// The state may borrow the owner, which is how a parsed file can borrow the arena it was parsed
+/// into. A plugin with nothing to share keeps the default `()`.
+///
+/// ```
+/// use std::cell::RefCell;
+/// use std::collections::HashMap;
+///
+/// use gate_sdk::{Call, CallState, Location, NoOptions, Rule, Run, Tree};
+///
+/// /// The text of each file, read once per call whichever rule asks first.
+/// pub struct Texts;
+///
+/// pub struct Read<'h> {
+///     tree: Tree<'h>,
+///     texts: RefCell<HashMap<String, Option<String>>>,
+/// }
+///
+/// impl Read<'_> {
+///     fn text(&self, path: &str) -> Option<String> {
+///         let mut texts = self.texts.borrow_mut();
+///         texts.entry(path.to_owned()).or_insert_with(|| self.tree.text(path)).clone()
+///     }
+/// }
+///
+/// impl CallState for Texts {
+///     type Owner<'h> = Read<'h>;
+///     type State<'o> = &'o Read<'o>;
+///
+///     fn own<'h>(call: &Call<'h>) -> Read<'h> {
+///         Read { tree: call.tree(), texts: RefCell::default() }
+///     }
+///
+///     fn state<'o>(owner: &'o Read<'_>) -> &'o Read<'o> {
+///         owner
+///     }
+/// }
+///
+/// #[derive(Default)]
+/// pub struct NoTabs;
+///
+/// impl Rule<Texts> for NoTabs {
+///     type Options = NoOptions;
+///     const NAME: &'static str = "no-tabs";
+///     const TITLE: &'static str = "Tracked text files are indented without tabs";
+///
+///     fn check(&self, run: &mut Run<'_, NoOptions, Texts>) -> gate_sdk::Result<()> {
+///         run.with_call(|run, read| {
+///             for path in run.tree().paths() {
+///                 if read.text(&path).is_some_and(|text| text.contains('\t')) {
+///                     run.report().finding("", Location::file(&path), "a tab is left in");
+///                 }
+///             }
+///             Ok(())
+///         })
+///     }
+/// }
+///
+/// gate_sdk::plugin! {
+///     name: "texts",
+///     version: "0.1.0",
+///     options: NoOptions,
+///     call: Texts,
+///     rules: [NoTabs],
+///     generators: [],
+///     presets: [],
+/// }
+/// ```
+pub trait CallState: 'static {
+    /// What the call owns, built from the [`Call`] before its first rule runs.
+    type Owner<'h>;
+    /// What the rules see, built from the owner and free to borrow it.
+    type State<'o>;
+
+    /// The owner of one call.
+    fn own<'h>(call: &Call<'h>) -> Self::Owner<'h>;
+
+    /// The state of one call, borrowing its owner.
+    fn state<'o>(owner: &'o Self::Owner<'_>) -> Self::State<'o>;
+}
+
+/// No state: the rules of the call share nothing but the call itself.
+impl CallState for () {
+    type Owner<'h> = ();
+    type State<'o> = ();
+
+    fn own<'h>(_: &Call<'h>) -> Self::Owner<'h> {}
+
+    fn state<'o>((): &'o Self::Owner<'_>) -> Self::State<'o> {}
+}
+
+/// The state of one call with the borrow of its owner hidden, so a [`Run`] holds it by reference
+/// and hands it to a rule inside [`Run::with_call`].
+pub(crate) trait Enter<S: CallState> {
+    fn enter(&self, body: &mut dyn for<'a, 'o> FnMut(&'a S::State<'o>));
+}
+
+/// The state of one call, as the call holds it until its last rule ends.
+pub(crate) struct Entered<'o, S: CallState>(pub(crate) S::State<'o>);
+
+impl<S: CallState> Enter<S> for Entered<'_, S> {
+    fn enter(&self, body: &mut dyn for<'a, 'o> FnMut(&'a S::State<'o>)) {
+        body(&self.0);
+    }
+}
+
+/// One run of one rule over one project (or the repository). `S` is the plugin's
+/// [`CallState`]; `()` for a plugin without one.
+pub struct Run<'h, O, S: CallState = ()> {
+    pub(crate) call: Call<'h>,
+    pub(crate) git: Option<Git<'h>>,
+    pub(crate) report: Report,
+    pub(crate) options: O,
+    pub(crate) options_file: Option<String>,
+    pub(crate) exceptions: Vec<String>,
+    pub(crate) state: &'h (dyn Enter<S> + 'h),
+}
+
+impl<O: std::fmt::Debug, S: CallState> std::fmt::Debug for Run<'_, O, S> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Run")
-            .field("project", &self.project)
+            .field("project", &self.call.project)
             .field("options", &self.options)
             .finish_non_exhaustive()
     }
 }
 
-impl<'h, O> Run<'h, O> {
+impl<'h, O, S: CallState> Run<'h, O, S> {
     /// The tracked files this run may read.
     #[must_use]
     pub fn tree(&self) -> Tree<'h> {
-        Tree::new(self.host)
+        self.call.tree()
+    }
+
+    /// What the call is, alike for every rule of it.
+    #[must_use]
+    pub fn call(&self) -> Call<'h> {
+        self.call
+    }
+
+    /// Runs `body` with this run and the state every rule of the call shares ([`CallState`]),
+    /// and answers what `body` answers. The state is borrowed only inside `body`.
+    ///
+    /// # Errors
+    /// What `body` answers.
+    pub fn with_call<T>(
+        &mut self,
+        body: impl for<'a, 'o> FnOnce(&mut Self, &'a S::State<'o>) -> Result<T>,
+    ) -> Result<T> {
+        let state = self.state;
+        let mut body = Some(body);
+        let mut answer = None;
+        state.enter(&mut |shared| {
+            if let Some(body) = body.take() {
+                answer = Some(body(self, shared));
+            }
+        });
+        answer.unwrap_or_else(|| Err(Error::new("the call's state was not entered")))
     }
 
     /// The repository's history.
@@ -195,7 +407,7 @@ impl<'h, O> Run<'h, O> {
     /// The project's root relative to the repository; empty for the repository.
     #[must_use]
     pub fn project(&self) -> &str {
-        &self.project
+        self.call.project
     }
 
     /// The `[plugins.<name>]` options every rule of the plugin shares, already validated by the
@@ -205,8 +417,7 @@ impl<'h, O> Run<'h, O> {
     /// # Errors
     /// When they do not match `T`, naming the key.
     pub fn plugin_options<T: DeserializeOwned>(&self) -> Result<T> {
-        T::deserialize(self.plugin_options)
-            .map_err(|error| Error::config(format!("the [plugins] options do not match: {error}")))
+        self.call.plugin_options()
     }
 
     /// The `[languages.<id>]` settings, when the configuration has them.
@@ -214,27 +425,18 @@ impl<'h, O> Run<'h, O> {
     /// # Errors
     /// When they do not match `T`.
     pub fn language<T: DeserializeOwned>(&self, id: &str) -> Result<Option<T>> {
-        self.languages
-            .get(id)
-            .map(|value| {
-                T::deserialize(value).map_err(|error| {
-                    Error::config(format!(
-                        "the [languages.{id}] settings do not match: {error}"
-                    ))
-                })
-            })
-            .transpose()
+        self.call.language(id)
     }
 
     /// Every norm the configuration maps, for rules about rule documents.
     #[must_use]
     pub fn norms(&self) -> &[String] {
-        self.norms
+        self.call.norms
     }
 
     /// A diagnostic line for `--verbose`; never part of a finding.
     pub fn log(&self, message: &str) {
-        self.host.log(message);
+        self.call.log(message);
     }
 }
 

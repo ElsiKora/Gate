@@ -5,7 +5,9 @@ use std::rc::Rc;
 
 use gate_typescript::oxc_ast::ast::Statement;
 use gate_typescript::oxc_span::GetSpan;
-use gate_typescript::{Allocator, MemorySource, Settings, TypeScript};
+use gate_typescript::{
+    Allocator, MemorySource, Settings, Source, TypeScript, parsed_on_this_thread,
+};
 
 const TSCONFIG: &str = r#"{
  // comments and trailing commas are allowed, as in the TypeScript compiler
@@ -433,4 +435,93 @@ fn an_error_names_paths_relative_to_the_project() {
         .expect_err("fails");
 
     assert!(!error.message().contains("/gate/project"), "{error}");
+}
+
+#[test]
+fn two_views_with_different_tsconfigs_resolve_apart_in_either_order() {
+    let source = MemorySource::new([
+        (
+            "tsconfig.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@lib/*\": [\"./first/*\"] } } }\n",
+        ),
+        (
+            "tsconfig.other.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@lib/*\": [\"./second/*\"] } } }\n",
+        ),
+        ("app.ts", "export {};\n"),
+        ("first/util.ts", "export {};\n"),
+        ("second/util.ts", "export {};\n"),
+    ]);
+    let other = Settings {
+        tsconfig: "tsconfig.other.json".to_owned(),
+        ..Settings::default()
+    };
+    let allocator = Allocator::default();
+    let default = TypeScript::new(&source, Settings::default(), &allocator);
+    let named = TypeScript::new(&source, other, &allocator);
+    let resolve =
+        |typescript: &TypeScript<'_>| typescript.resolve("app.ts", "@lib/util").expect("resolves");
+
+    // Each view keeps its own answers: the first view's answer never serves the second.
+    for _ in 0..2 {
+        assert_eq!(resolve(&default).as_deref(), Some("first/util.ts"));
+        assert_eq!(resolve(&named).as_deref(), Some("second/util.ts"));
+    }
+    assert_eq!(resolve(&named).as_deref(), Some("second/util.ts"));
+    assert_eq!(resolve(&default).as_deref(), Some("first/util.ts"));
+}
+
+/// A source that counts what a view asks it for.
+struct Counting {
+    files: MemorySource,
+    reads: std::cell::Cell<usize>,
+    reads_for_parse: std::cell::Cell<usize>,
+}
+
+impl Source for Counting {
+    fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_> {
+        self.files.paths()
+    }
+
+    fn bytes(&self, path: &str) -> gate_typescript::Result<Option<Rc<[u8]>>> {
+        self.reads.set(self.reads.get() + 1);
+        self.files.bytes(path)
+    }
+
+    fn bytes_for_parse(&self, path: &str) -> gate_typescript::Result<Option<Rc<[u8]>>> {
+        self.reads_for_parse.set(self.reads_for_parse.get() + 1);
+        self.files.bytes(path)
+    }
+
+    fn contains(&self, path: &str) -> bool {
+        self.files.contains(path)
+    }
+}
+
+#[test]
+fn a_view_reads_each_file_for_its_parse_once_and_counts_the_parse() {
+    let source = Counting {
+        files: MemorySource::new(SOURCES.iter().copied()),
+        reads: std::cell::Cell::new(0),
+        reads_for_parse: std::cell::Cell::new(0),
+    };
+    let allocator = Allocator::default();
+    let typescript = TypeScript::new(&source, Settings::default(), &allocator);
+    let before = parsed_on_this_thread();
+
+    assert!(typescript.parsed("src/app.ts").is_none());
+    let first = typescript
+        .parse("src/app.ts")
+        .expect("parses")
+        .expect("tracked");
+    let again = typescript
+        .parse("src/app.ts")
+        .expect("parses")
+        .expect("tracked");
+    let known = typescript.parsed("src/app.ts").expect("parsed before");
+
+    assert!(Rc::ptr_eq(&first, &again) && Rc::ptr_eq(&first, &known));
+    assert_eq!(parsed_on_this_thread() - before, 1);
+    assert_eq!(source.reads_for_parse.get(), 1);
+    assert_eq!(source.reads.get(), 0);
 }

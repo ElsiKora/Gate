@@ -19,11 +19,9 @@
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
-use gate_typescript::{Allocator, TypeScript};
 
 use crate::layout::{Layout, PluginOptions};
 use crate::shared::modules::{loads, normalize, relative_target};
-use crate::shared::project;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -57,7 +55,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "import-aliases";
@@ -65,7 +63,8 @@ impl gate_sdk::Rule for Rule {
     const ASPECTS: &'static [&'static str] = &["entity-enum-barrel", "owner-alias"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         {
             use crate::shared::paths::Form::Name;
             let o = run.options();
@@ -79,12 +78,10 @@ impl gate_sdk::Rule for Rule {
             layout: &layout,
             options,
         };
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let typescript = shared.typescript()?;
         let mut findings = Vec::new();
 
-        for (path, loads) in loads(&typescript, &layout.source_root, true)? {
+        for (path, loads) in loads(typescript, &layout.source_root, true)? {
             let owner = paths.owner(path);
             let entity = path.rsplit('/').nth(1) == Some(options.entity_folder.as_str());
 
@@ -134,6 +131,7 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }
 

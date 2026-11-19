@@ -42,6 +42,14 @@ and the release to pin.
   Options that do not match a rule's or generator's options type, and `[plugins]` options or
   `[languages]` settings that do not match, are configuration errors.
 
+### Changed
+
+- **sdk:** a plugin may share work among the rules of one `check` call through a state of its own,
+  `CallState`, declared with `call:` in `plugin!` and reached by a rule through `Run::with_call`;
+  the call builds it before its first rule and drops it after its last. `Rule`, `Run`,
+  `RuleEntry` and `PluginSpec` take the state as a type parameter that defaults to `()`, so a
+  plugin without one compiles unchanged. `Call` is what one call is, alike for every rule of it.
+
 ### Bug Fixes
 
 - **gate:** `gate init` suggests only rules that exist, with the options they need, so uncommenting

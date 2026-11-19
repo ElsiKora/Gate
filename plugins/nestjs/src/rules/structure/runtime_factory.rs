@@ -5,10 +5,10 @@ use crate::shared::paths::{self, Form};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Rule, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::binding::ImportBindings;
 use gate_typescript::oxc_ast::ast::CallExpression;
 use gate_typescript::oxc_ast_visit::{Visit, walk};
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::project;
@@ -69,7 +69,7 @@ impl Options {
     }
 }
 
-impl Rule for RuntimeFactory {
+impl Rule<crate::Nest> for RuntimeFactory {
     type Options = Options;
 
     const NAME: &'static str = "runtime-factory";
@@ -77,60 +77,59 @@ impl Rule for RuntimeFactory {
         "Runtime start files construct Nest only through their role's NestFactory methods";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let contracts = run.options().contracts.clone();
-        let class = run.options().factory_class.clone();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            run.options().check_paths()?;
+            let contracts = run.options().contracts.clone();
+            let class = run.options().factory_class.clone();
+            let typescript = shared.typescript()?;
 
-        for contract in &contracts {
-            let path = contract.file.as_str();
+            for contract in &contracts {
+                let path = contract.file.as_str();
 
-            if !run.tree().contains(path) {
-                run.report()
-                    .finding(
-                        "",
-                        Location::file(path),
-                        format!("{path} is required for the native {class} role contract"),
-                    )
-                    .help("restore the start file or remove its contract")
-                    .key("required");
-                continue;
-            }
-
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
-            };
-            let calls = factory_calls(&file, &layout.nest_core_package, &class);
-            let mut listed: Vec<&str> = Vec::new();
-
-            for method in &contract.methods {
-                if listed.contains(&method.as_str()) {
-                    continue;
-                }
-                listed.push(method);
-
-                if !calls.iter().any(|(called, _)| called == method) {
+                if !run.tree().contains(path) {
                     run.report()
                         .finding(
                             "",
                             Location::file(path),
-                            format!("{path} must call native {class}.{method}"),
+                            format!("{path} is required for the native {class} role contract"),
                         )
-                        .help(format!(
-                            "construct the application with {class}.{method}, as the role's \
-                             contract says"
-                        ))
-                        .key(format!("{method}#missing"));
+                        .help("restore the start file or remove its contract")
+                        .key("required");
+                    continue;
                 }
-            }
 
-            for (method, line) in &calls {
-                if !contract.methods.contains(method) {
-                    run.report()
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
+                let calls = factory_calls(&file, &layout.nest_core_package, &class);
+                let mut listed: Vec<&str> = Vec::new();
+
+                for method in &contract.methods {
+                    if listed.contains(&method.as_str()) {
+                        continue;
+                    }
+                    listed.push(method);
+
+                    if !calls.iter().any(|(called, _)| called == method) {
+                        run.report()
+                            .finding(
+                                "",
+                                Location::file(path),
+                                format!("{path} must call native {class}.{method}"),
+                            )
+                            .help(format!(
+                                "construct the application with {class}.{method}, as the role's \
+                             contract says"
+                            ))
+                            .key(format!("{method}#missing"));
+                    }
+                }
+
+                for (method, line) in &calls {
+                    if !contract.methods.contains(method) {
+                        run.report()
                         .finding(
                             "",
                             Location::line(path, usize::try_from(*line).unwrap_or(usize::MAX)),
@@ -142,11 +141,12 @@ impl Rule for RuntimeFactory {
                             "use only the role's {class} methods, or add {method} to its contract"
                         ))
                         .key(format!("{method}#unlisted"));
+                    }
                 }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

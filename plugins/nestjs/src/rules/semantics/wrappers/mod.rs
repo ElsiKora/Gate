@@ -21,6 +21,7 @@ use std::rc::Rc;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Report, Result, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
     ArrowFunctionBody, ArrowFunctionExpression, BindingPattern, CallExpression, Class, Decorator,
@@ -30,7 +31,6 @@ use gate_typescript::oxc_ast::ast::{
 use gate_typescript::oxc_span::{GetSpan, Span};
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::value::unwrap;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use self::exception::{factory_message, nest_exception};
 use self::packages::Packages;
@@ -223,7 +223,7 @@ pub struct Config {
     factory_package: String,
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "wrappers";
@@ -236,68 +236,72 @@ impl gate_sdk::Rule for Rule {
         "throw-only-error",
     ];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
-        {
-            use crate::shared::paths::Form::File;
-            let o = run.options();
-            if let Some(file) = &o.package_exports_file {
-                crate::shared::paths::check("package-exports-file", file, File)?;
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> Result<()> {
+        run.with_call(|run, shared| {
+            {
+                use crate::shared::paths::Form::File;
+                let o = run.options();
+                if let Some(file) = &o.package_exports_file {
+                    crate::shared::paths::check("package-exports-file", file, File)?;
+                }
             }
-        }
 
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options().clone();
-        let factory_package = super::package::resolve(
-            "message-factory.package",
-            options.message_factory.package.as_deref(),
-            &layout.automator_package,
-        )?;
-        let packages = packages(run, &options, &factory_package)?;
-        let config = Config {
-            options,
-            factory_package,
-        };
-        let exemptions = Exemptions::new(run.exceptions());
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let provenance = Provenance::new(&typescript, &packages, &layout.source_root);
-        let paths = syntax::typescript_sources(tree::files(
-            typescript.source(),
-            &layout.source_root,
-            &tree::UNSKIPPED,
-        ));
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options().clone();
+            let factory_package = super::package::resolve(
+                "message-factory.package",
+                options.message_factory.package.as_deref(),
+                &layout.automator_package,
+            )?;
+            let packages = packages(shared, &options, &factory_package)?;
+            let config = Config {
+                options,
+                factory_package,
+            };
+            let exemptions = Exemptions::new(run.exceptions());
+            let typescript = shared.typescript()?;
+            let provenance = Provenance::new(typescript, &packages, &layout.source_root);
+            let paths = syntax::typescript_sources(tree::files(
+                typescript.source(),
+                &layout.source_root,
+                &tree::UNSKIPPED,
+            ));
 
-        for path in paths {
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
-            };
-            let constructions = Constructions {
-                config: &config,
-                provenance: &provenance,
-                exemptions: &exemptions,
-                file: &file,
-            };
-            FileCheck {
-                file: &file,
-                constructions: &constructions,
-                comments: file
-                    .program()
-                    .comments
-                    .iter()
-                    .map(|comment| (comment.span.start as usize, comment.span.end as usize))
-                    .collect(),
+            for path in paths {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
+                let constructions = Constructions {
+                    config: &config,
+                    provenance: &provenance,
+                    exemptions: &exemptions,
+                    file: &file,
+                };
+                FileCheck {
+                    file: &file,
+                    constructions: &constructions,
+                    comments: file
+                        .program()
+                        .comments
+                        .iter()
+                        .map(|comment| (comment.span.start as usize, comment.span.end as usize))
+                        .collect(),
+                }
+                .run(run.report())?;
             }
-            .run(run.report())?;
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 
 /// The known packages: the table of `package-exports-file`, or without it the exception packages
 /// and the message factory's package, each exporting every name.
-fn packages(run: &Run<'_, Options>, options: &Options, factory_package: &str) -> Result<Packages> {
+fn packages(
+    shared: &project::Sources<'_>,
+    options: &Options,
+    factory_package: &str,
+) -> Result<Packages> {
     let Some(path) = options.package_exports_file.as_deref() else {
         return Ok(Packages::open(
             options
@@ -308,7 +312,7 @@ fn packages(run: &Run<'_, Options>, options: &Options, factory_package: &str) ->
         ));
     };
 
-    let text = run.tree().text(path).ok_or_else(|| {
+    let text = shared.text(path).ok_or_else(|| {
         gate_sdk::Error::config(format!(
             "the package-exports-file {path} is not a tracked text file; generate and commit it, or remove the option"
         ))

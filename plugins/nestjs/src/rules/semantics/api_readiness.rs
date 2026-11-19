@@ -16,6 +16,7 @@ use std::collections::HashSet;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
     Argument, ArrowFunctionBody, ArrowFunctionExpression, BindingPattern, CallExpression,
@@ -27,7 +28,6 @@ use gate_typescript::oxc_semantic::AstNodes;
 use gate_typescript::oxc_span::{GetSpan, Span};
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::oxc_syntax::scope::ScopeFlags;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::shared::project;
 
@@ -116,7 +116,7 @@ impl Default for Calls {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "api-readiness";
@@ -125,7 +125,8 @@ impl gate_sdk::Rule for Rule {
     const ASPECTS: &'static [&'static str] = &["readiness-owner", "startup-order"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         {
             use crate::shared::paths::Form::File;
             let o = run.options();
@@ -158,9 +159,7 @@ impl gate_sdk::Rule for Rule {
         let start = run.options().startup_file.clone();
         let entrypoint = run.options().entrypoint.clone();
         let names = Names::new(run.options());
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let typescript = shared.typescript()?;
 
         let Some(file) = typescript.parse(&start)? else {
             run.report()
@@ -218,6 +217,7 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }
 

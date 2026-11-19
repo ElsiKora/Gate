@@ -13,7 +13,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
 
 use crate::layout::{Layout, PluginOptions};
-use crate::shared::{project, tree};
+use crate::shared::tree;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -41,7 +41,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "repeated-segment";
@@ -49,32 +49,34 @@ impl gate_sdk::Rule for Rule {
         "A file name does not repeat a folder segment its path already represents";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let structure = Structure::new(&layout, run.options().ignored_stems.clone());
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let structure = Structure::new(&layout, run.options().ignored_stems.clone());
 
-        let paths: Vec<String> =
-            tree::files(&project::source(run), &layout.source_root, &tree::UNSKIPPED)
-                .map(str::to_owned)
-                .collect();
+            let paths: Vec<String> =
+                tree::files(shared.source(), &layout.source_root, &tree::UNSKIPPED)
+                    .map(str::to_owned)
+                    .collect();
 
-        for path in paths {
-            if let Some(segment) = structure.repeated_segment(&path) {
-                run.report()
-                    .finding(
-                        "",
-                        Location::file(path.as_str()),
-                        format!(
-                            "{path} repeats parent folder segment \"{segment}\" in its filename"
-                        ),
-                    )
-                    .help(format!(
-                        "drop \"{segment}\" from the file name; the folder already says it"
-                    ));
+            for path in paths {
+                if let Some(segment) = structure.repeated_segment(&path) {
+                    run.report()
+                        .finding(
+                            "",
+                            Location::file(path.as_str()),
+                            format!(
+                                "{path} repeats parent folder segment \"{segment}\" in its filename"
+                            ),
+                        )
+                        .help(format!(
+                            "drop \"{segment}\" from the file name; the folder already says it"
+                        ));
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

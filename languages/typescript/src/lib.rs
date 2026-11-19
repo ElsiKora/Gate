@@ -26,7 +26,7 @@ pub mod source;
 pub mod syntax;
 pub mod value;
 
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -59,6 +59,8 @@ pub struct TypeScript<'a> {
     /// The resolver of the configured tsconfig; resolution follows only its bundler-mode rules,
     /// so no other tsconfig is offered.
     resolver: OnceCell<Resolver>,
+    /// The answers already given, by importer and specifier.
+    resolved: RefCell<HashMap<(String, String), Option<String>>>,
 }
 
 impl std::fmt::Debug for TypeScript<'_> {
@@ -90,6 +92,7 @@ impl<'a> TypeScript<'a> {
                 .collect(),
             parsed: RefCell::new(HashMap::new()),
             resolver: OnceCell::new(),
+            resolved: RefCell::new(HashMap::new()),
         }
     }
 
@@ -141,7 +144,7 @@ impl<'a> TypeScript<'a> {
             return Ok(cached.clone());
         }
 
-        let parsed = match self.source.bytes(path)? {
+        let parsed = match self.source.bytes_for_parse(path)? {
             None => None,
             Some(bytes) => Some(Rc::new(if let Ok(text) = std::str::from_utf8(&bytes) {
                 self.parse_text(path, text)?
@@ -156,10 +159,20 @@ impl<'a> TypeScript<'a> {
                 file
             })),
         };
+        if parsed.is_some() {
+            PARSED_ON_THREAD.with(|count| count.set(count.get() + 1));
+        }
         self.parsed
             .borrow_mut()
             .insert(path.to_owned(), parsed.clone());
         Ok(parsed)
+    }
+
+    /// The file [`Self::parse`] already parsed, without parsing it: `None` for a file not parsed
+    /// yet, or not tracked.
+    #[must_use]
+    pub fn parsed(&self, path: &str) -> Option<Rc<SourceFile<'a>>> {
+        self.parsed.borrow().get(path).cloned().flatten()
     }
 
     fn parse_text(&self, path: &str, text: &str) -> Result<SourceFile<'a>> {
@@ -175,6 +188,10 @@ impl<'a> TypeScript<'a> {
     /// Fails when the tsconfig or a `package.json` on the way cannot be read, or when a
     /// configured non-default tsconfig is not tracked.
     pub fn resolve(&self, importer: &str, specifier: &str) -> Result<Option<String>> {
+        let key = (importer.to_owned(), specifier.to_owned());
+        if let Some(known) = self.resolved.borrow().get(&key) {
+            return Ok(known.clone());
+        }
         if self.resolver.get().is_none() {
             if self.settings.tsconfig != Settings::default().tsconfig
                 && !self.source.contains(&self.settings.tsconfig)
@@ -192,11 +209,26 @@ impl<'a> TypeScript<'a> {
             let _ = self.resolver.set(Resolver::new(self.source, tsconfig)?);
         }
 
-        self.resolver
+        let resolved = self
+            .resolver
             .get()
             .ok_or_else(|| Error::new("the module resolver is unavailable"))?
-            .resolve(importer, specifier)
+            .resolve(importer, specifier)?;
+        self.resolved.borrow_mut().insert(key, resolved.clone());
+        Ok(resolved)
     }
+}
+
+thread_local! {
+    static PARSED_ON_THREAD: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many files the views of this thread have parsed so far, each counted once per parse and
+/// not per answer from a view's cache. A test counts the parses of one call as the difference
+/// before and after it.
+#[must_use]
+pub fn parsed_on_this_thread() -> usize {
+    PARSED_ON_THREAD.with(Cell::get)
 }
 
 /// Parses `text` as one TypeScript expression into `allocator`, as a policy target that names a

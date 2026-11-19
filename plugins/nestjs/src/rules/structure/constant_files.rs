@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::binder::{Binder, Meaning};
 use gate_typescript::owners::{call_expression, export_name, unwrap};
 use gate_typescript::oxc_ast::AstKind;
@@ -19,7 +20,6 @@ use gate_typescript::oxc_ast::ast::{
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::syntax::statement_start;
 use gate_typescript::value::string_like;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::{project, report, tree};
@@ -58,7 +58,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for ConstantFiles {
+impl Rule<crate::Nest> for ConstantFiles {
     type Options = Options;
 
     const NAME: &'static str = "constant-files";
@@ -67,42 +67,46 @@ impl Rule for ConstantFiles {
     const ASPECTS: &'static [&'static str] = &["callable", "naming", "shape"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = Options {
-            file_suffixes: run.options().file_suffixes.clone(),
-            bag_suffix: run.options().bag_suffix.clone(),
-            freeze_calls: run.options().freeze_calls.clone(),
-        };
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-
-        for path in tree::typescript_files(&source, &layout.source_root, typescript.settings())
-            .filter(|path| {
-                options
-                    .file_suffixes
-                    .iter()
-                    .any(|suffix| path.ends_with(suffix.as_str()))
-            })
-        {
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let options = Options {
+                file_suffixes: run.options().file_suffixes.clone(),
+                bag_suffix: run.options().bag_suffix.clone(),
+                freeze_calls: run.options().freeze_calls.clone(),
             };
+            let source = shared.source();
+            let typescript = shared.typescript()?;
 
-            for (aspect, line, key, message) in findings(&file, &options) {
-                run.report()
-                    .finding(
-                        aspect,
-                        report::location(path, line.and_then(|line| usize::try_from(line).ok())),
-                        message,
-                    )
-                    .help(help(aspect))
-                    .key(key);
+            for path in tree::typescript_files(source, &layout.source_root, typescript.settings())
+                .filter(|path| {
+                    options
+                        .file_suffixes
+                        .iter()
+                        .any(|suffix| path.ends_with(suffix.as_str()))
+                })
+            {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
+
+                for (aspect, line, key, message) in findings(&file, &options) {
+                    run.report()
+                        .finding(
+                            aspect,
+                            report::location(
+                                path,
+                                line.and_then(|line| usize::try_from(line).ok()),
+                            ),
+                            message,
+                        )
+                        .help(help(aspect))
+                        .key(key);
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

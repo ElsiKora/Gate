@@ -51,6 +51,10 @@
 //! [`Rule::READS_HISTORY`], and nothing else exists (no file system, network, clock or
 //! environment). The level, norm and exceptions of a finding come from configuration.
 //!
+//! Work the rules of one call would each do again on the same tree, such as parsing its files,
+//! goes into the plugin's [`CallState`]: built once per call, shared by its rules through
+//! [`Run::with_call`], and dropped when the call ends.
+//!
 //! The same rule code runs natively against a fixture directory through a [`Host`] implementation,
 //! which is how `gate-test` tests rules.
 
@@ -77,8 +81,8 @@ pub use self::plugin::{
 };
 pub use self::report::{FileLocation, Finding, Location, Report, Span};
 pub use self::rule::{
-    Generate, GeneratedFile, Generator, GeneratorInfo, NEEDS_KEYWORD, Need, Rule, RuleInfo, Run,
-    Scope,
+    Call, CallState, Generate, GeneratedFile, Generator, GeneratorInfo, NEEDS_KEYWORD, Need, Rule,
+    RuleInfo, Run, Scope,
 };
 pub use self::tree::Tree;
 

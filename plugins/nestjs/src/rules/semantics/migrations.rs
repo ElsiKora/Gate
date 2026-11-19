@@ -26,7 +26,7 @@ use gate_typescript::oxc_ast::ast::{
     ImportOrExportKind, PropertyKey, Statement, TSType,
 };
 use gate_typescript::oxc_span::GetSpan;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
+use gate_typescript::{SourceFile, TypeScript};
 
 use crate::shared::{project, tree as walk};
 
@@ -83,7 +83,7 @@ struct Migration {
     path: String,
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "migrations";
@@ -99,7 +99,8 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         {
             use crate::shared::paths::Form::{File, Folder};
             let o = run.options();
@@ -125,7 +126,7 @@ impl gate_sdk::Rule for Rule {
         } else {
             generated.len() + 1
         };
-        let files: Vec<String> = walk::files(&project::source(run), &generated, &walk::UNSKIPPED)
+        let files: Vec<String> = walk::files(shared.source(), &generated, &walk::UNSKIPPED)
             .filter(|path| {
                 *path != barrel_path
                     && path[offset..]
@@ -140,9 +141,7 @@ impl gate_sdk::Rule for Rule {
             return Ok(());
         }
 
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let typescript = shared.typescript()?;
         let mut migrations: BTreeMap<u64, Vec<Migration>> = BTreeMap::new();
 
         for path in &files {
@@ -172,7 +171,7 @@ impl gate_sdk::Rule for Rule {
                     .help("give each migration its own timestamp");
             }
 
-            if let Some(source) = project::parsed(&typescript, path)? {
+            if let Some(source) = project::parsed(typescript, path)? {
                 for (line, message, help) in class_findings(&source, file, &class) {
                     run.report()
                         .finding("class", location(path, line), message)
@@ -193,11 +192,12 @@ impl gate_sdk::Rule for Rule {
             baseline(run, &generated, &ordered);
         }
 
-        barrel(run, &barrel_path, &ordered);
+        barrel(run, shared, &barrel_path, &ordered);
 
-        registry.report(run, &typescript, &ordered)?;
+        registry.report(run, typescript, &ordered)?;
 
         Ok(())
+        })
     }
 }
 
@@ -311,7 +311,7 @@ fn class_findings(
 
 /// Reports every migration but the first, and a missing baseline: one generated migration holds
 /// the complete schema.
-fn baseline(run: &mut Run<'_, Options>, generated: &str, ordered: &[Migration]) {
+fn baseline(run: &mut Run<'_, Options, crate::Nest>, generated: &str, ordered: &[Migration]) {
     let Some((first, rest)) = ordered.split_first() else {
         run.report()
             .finding(
@@ -340,7 +340,12 @@ fn baseline(run: &mut Run<'_, Options>, generated: &str, ordered: &[Migration]) 
 
 /// Reports a generated barrel that differs from one export line per migration in timestamp
 /// order.
-fn barrel(run: &mut Run<'_, Options>, path: &str, ordered: &[Migration]) {
+fn barrel(
+    run: &mut Run<'_, Options, crate::Nest>,
+    shared: &project::Sources<'_>,
+    path: &str,
+    ordered: &[Migration],
+) {
     let mut expected = String::new();
 
     for migration in ordered {
@@ -355,7 +360,7 @@ fn barrel(run: &mut Run<'_, Options>, path: &str, ordered: &[Migration]) {
 
     let help = "regenerate the barrel: one export line per migration in timestamp order";
 
-    match run.tree().bytes(path) {
+    match shared.bytes(path) {
         Some(actual) => {
             // A barrel that is not UTF-8 text cannot match the expected lines either.
             if actual != expected.as_bytes() {
@@ -391,7 +396,7 @@ impl Registry {
     /// Reports the registry: missing, or its findings when it has a syntax tree.
     fn report(
         &self,
-        run: &mut Run<'_, Options>,
+        run: &mut Run<'_, Options, crate::Nest>,
         typescript: &TypeScript<'_>,
         ordered: &[Migration],
     ) -> gate_sdk::Result<()> {

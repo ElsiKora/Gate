@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::owners::unwrap;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
@@ -18,7 +19,6 @@ use gate_typescript::oxc_ast_visit::{Visit, walk};
 use gate_typescript::oxc_span::{GetSpan, Span};
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::syntax::decorated_start;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::{Layout, PluginOptions, folder_prefix};
 use crate::shared::report::location;
@@ -58,7 +58,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for DeclarationFiles {
+impl Rule<crate::Nest> for DeclarationFiles {
     type Options = Options;
 
     const NAME: &'static str = "declaration-files";
@@ -73,46 +73,49 @@ impl Rule for DeclarationFiles {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let kinds = run.options().contract_kinds.clone();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let settings = typescript.settings();
-        let files = tree::distinct(
-            tree::typescript_files(&source, &layout.source_root, settings)
-                .chain(
-                    tree::typescript_files(&source, &layout.test_root, settings).filter(|path| {
-                        tree::is_test_support(&layout, path)
-                            || tree::is_test_scenario(&layout, path)
-                    }),
-                )
-                .chain(tree::typescript_files(&source, &layout.cdk_root, settings)),
-        );
-
-        for path in files {
-            if !tree::is_test_scenario(&layout, path) && path.ends_with("/index.ts") {
-                continue;
-            }
-
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
-            };
-
-            for (aspect, line, key, message) in findings(&file, &layout, &kinds) {
-                run.report()
-                    .finding(
-                        aspect,
-                        location(path, line.and_then(|line| usize::try_from(line).ok())),
-                        message,
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let kinds = run.options().contract_kinds.clone();
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let settings = typescript.settings();
+            let files = tree::distinct(
+                tree::typescript_files(source, &layout.source_root, settings)
+                    .chain(
+                        tree::typescript_files(source, &layout.test_root, settings).filter(
+                            |path| {
+                                tree::is_test_support(&layout, path)
+                                    || tree::is_test_scenario(&layout, path)
+                            },
+                        ),
                     )
-                    .help(help(aspect))
-                    .key(key);
-            }
-        }
+                    .chain(tree::typescript_files(source, &layout.cdk_root, settings)),
+            );
 
-        Ok(())
+            for path in files {
+                if !tree::is_test_scenario(&layout, path) && path.ends_with("/index.ts") {
+                    continue;
+                }
+
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
+
+                for (aspect, line, key, message) in findings(&file, &layout, &kinds) {
+                    run.report()
+                        .finding(
+                            aspect,
+                            location(path, line.and_then(|line| usize::try_from(line).ok())),
+                            message,
+                        )
+                        .help(help(aspect))
+                        .key(key);
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 

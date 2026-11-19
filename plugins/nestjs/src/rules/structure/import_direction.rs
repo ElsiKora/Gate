@@ -5,11 +5,9 @@ use crate::shared::paths::{self, Form};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
-use gate_typescript::{Allocator, TypeScript};
 
 use crate::layout::{Layout, PluginOptions, folder_prefix};
 use crate::shared::modules::{self, names_file, source_target, stem};
-use crate::shared::project;
 use crate::shared::report::Findings;
 
 /// The rule.
@@ -179,7 +177,7 @@ impl Options {
     }
 }
 
-impl Rule for ImportDirection {
+impl Rule<crate::Nest> for ImportDirection {
     type Options = Options;
 
     const NAME: &'static str = "import-direction";
@@ -195,20 +193,19 @@ impl Rule for ImportDirection {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         run.options().check_paths()?;
         let contracts = run.options().contracts.clone();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let typescript = shared.typescript()?;
         let mut findings = Findings::default();
 
         for contract in &contracts {
             let directory = &contract.source_directory;
 
             for (path, loads) in
-                modules::loads(&typescript, directory, contract.include_declaration_files)?
+                modules::loads(typescript, directory, contract.include_declaration_files)?
             {
                 if contract
                     .allowed_source_paths
@@ -249,6 +246,7 @@ impl Rule for ImportDirection {
             |_| "load the module through an owner the contract allows, or move the code",
         );
         Ok(())
+        })
     }
 }
 

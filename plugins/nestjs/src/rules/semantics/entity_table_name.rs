@@ -13,7 +13,7 @@ use gate_sdk::{Location, Run};
 use gate_typescript::javascript::is_space;
 
 use crate::layout::PluginOptions;
-use crate::shared::{project, tree};
+use crate::shared::tree;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -41,14 +41,15 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "entity-table-name";
     const TITLE: &'static str = "Every @Entity names its table with a double-quoted string first";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         let decorator = run.options().decorator.clone();
 
@@ -58,12 +59,12 @@ impl gate_sdk::Rule for Rule {
             ));
         }
 
-        let source = project::source(run);
+        let source = shared.source();
         let paths: Vec<&str> =
-            tree::typescript_files(&source, &layout.source_root, &tree::UNSKIPPED).collect();
+            tree::typescript_files(source, &layout.source_root, &tree::UNSKIPPED).collect();
 
         for path in paths {
-            let Some(bytes) = run.tree().bytes(path) else {
+            let Some(bytes) = shared.bytes(path) else {
                 continue;
             };
             // Node decodes a file that is not UTF-8 with replacement characters and still reads it.
@@ -86,6 +87,7 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }
 

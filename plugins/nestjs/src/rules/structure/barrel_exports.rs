@@ -10,7 +10,7 @@ use gate_sdk::{Rule, Run};
 use gate_typescript::oxc_ast::ast::{Statement, StringLiteral};
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::syntax::statement_start;
-use gate_typescript::{Allocator, Source, SourceFile, TypeScript};
+use gate_typescript::{Source, SourceFile, TypeScript};
 
 use crate::layout::{Layout, PluginOptions, folder_prefix};
 use crate::shared::paths::{self, Form};
@@ -78,7 +78,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for BarrelExports {
+impl Rule<crate::Nest> for BarrelExports {
     type Options = Options;
 
     const NAME: &'static str = "barrel-exports";
@@ -94,40 +94,41 @@ impl Rule for BarrelExports {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        options.check_paths()?;
-        let private: BTreeSet<String> = options.private_entrypoints.iter().cloned().collect();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let barrels = Barrels {
-            options,
-            layout: &layout,
-            private: &private,
-            source: &source,
-            typescript: &typescript,
-        };
-        let mut findings = Findings::default();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            options.check_paths()?;
+            let private: BTreeSet<String> = options.private_entrypoints.iter().cloned().collect();
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let barrels = Barrels {
+                options,
+                layout: &layout,
+                private: &private,
+                source,
+                typescript,
+            };
+            let mut findings = Findings::default();
 
-        for path in tree::typescript_files(&source, &layout.source_root, typescript.settings()) {
-            if path.ends_with(options.entrypoint_suffix.as_str()) && !private.contains(path) {
-                findings.push_keyed(
-                    "runtime-entrypoint",
-                    path,
-                    None,
-                    "entrypoint",
-                    format!("{path} is not an approved private runtime entrypoint"),
-                );
+            for path in tree::typescript_files(source, &layout.source_root, typescript.settings()) {
+                if path.ends_with(options.entrypoint_suffix.as_str()) && !private.contains(path) {
+                    findings.push_keyed(
+                        "runtime-entrypoint",
+                        path,
+                        None,
+                        "entrypoint",
+                        format!("{path} is not an approved private runtime entrypoint"),
+                    );
+                }
             }
-        }
 
-        barrels.folder_barrels(&mut findings)?;
-        barrels.kind_folder_barrels(&mut findings)?;
-        barrels.contents(&mut findings)?;
-        findings.report(run, help);
-        Ok(())
+            barrels.folder_barrels(&mut findings)?;
+            barrels.kind_folder_barrels(&mut findings)?;
+            barrels.contents(&mut findings)?;
+            findings.report(run, help);
+            Ok(())
+        })
     }
 }
 

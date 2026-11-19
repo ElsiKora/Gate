@@ -73,55 +73,58 @@ impl Options {
     }
 }
 
-impl Rule for PackagePins {
+impl Rule<crate::Nest> for PackagePins {
     type Options = Options;
 
     const NAME: &'static str = "package-pins";
     const TITLE: &'static str = "Listed packages are exact-pinned to their registry tarballs";
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        run.options().check_paths()?;
-        let options = run.options();
-        let (manifest_path, lockfile_path) = (options.manifest.clone(), options.lockfile.clone());
-        let artifacts = options.artifacts.clone();
-        let sections = options.alias_sections.clone();
-        let tree = run.tree();
-        let (Some(manifest), Some(lockfile)) =
-            (tree.text(&manifest_path), tree.text(&lockfile_path))
-        else {
-            let at = if tree.contains(&manifest_path) {
-                &lockfile_path
-            } else {
-                &manifest_path
-            };
-            run.report()
-                .finding(
-                    "",
-                    Location::file(at.as_str()),
-                    format!(
-                        "{manifest_path} and {lockfile_path} are required for exact safe-error \
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            run.options().check_paths()?;
+            let options = run.options();
+            let (manifest_path, lockfile_path) =
+                (options.manifest.clone(), options.lockfile.clone());
+            let artifacts = options.artifacts.clone();
+            let sections = options.alias_sections.clone();
+            let tree = run.tree();
+            let (Some(manifest), Some(lockfile)) =
+                (shared.text(&manifest_path), shared.text(&lockfile_path))
+            else {
+                let at = if tree.contains(&manifest_path) {
+                    &lockfile_path
+                } else {
+                    &manifest_path
+                };
+                run.report()
+                    .finding(
+                        "",
+                        Location::file(at.as_str()),
+                        format!(
+                            "{manifest_path} and {lockfile_path} are required for exact safe-error \
                          package pins"
-                    ),
-                )
-                .help("commit the npm manifest and its lockfile")
-                .key("required");
-            return Ok(());
-        };
-        let manifest = parse(&manifest_path, &manifest)?;
-        let lockfile = parse(&lockfile_path, &lockfile)?;
-        let files = Files {
-            manifest_path: &manifest_path,
-            lockfile_path: &lockfile_path,
-            manifest: &manifest,
-            lockfile: &lockfile,
-            sections: &sections,
-        };
+                        ),
+                    )
+                    .help("commit the npm manifest and its lockfile")
+                    .key("required");
+                return Ok(());
+            };
+            let manifest = parse(&manifest_path, &manifest)?;
+            let lockfile = parse(&lockfile_path, &lockfile)?;
+            let files = Files {
+                manifest_path: &manifest_path,
+                lockfile_path: &lockfile_path,
+                manifest: &manifest,
+                lockfile: &lockfile,
+                sections: &sections,
+            };
 
-        for artifact in &artifacts {
-            files.pins(artifact, run);
-        }
+            for artifact in &artifacts {
+                files.pins(artifact, run);
+            }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 
@@ -161,7 +164,7 @@ struct Files<'f> {
 
 impl Files<'_> {
     /// Reports each way `artifact` is not exact-pinned.
-    fn pins(&self, artifact: &Artifact, run: &mut Run<'_, Options>) {
+    fn pins(&self, artifact: &Artifact, run: &mut Run<'_, Options, crate::Nest>) {
         let name = artifact.package.as_str();
         let version = artifact.version.as_str();
         let empty = Value::Object(Map::new());

@@ -5,11 +5,9 @@ use crate::shared::paths::{self, Form};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
-use gate_typescript::{Allocator, TypeScript};
 
 use crate::layout::{PluginOptions, folder_prefix};
 use crate::shared::modules::{self, source_target};
-use crate::shared::project;
 use crate::shared::report::Findings;
 
 /// The rule.
@@ -51,7 +49,7 @@ impl Options {
     }
 }
 
-impl Rule for AdapterBoundary {
+impl Rule<crate::Nest> for AdapterBoundary {
     type Options = Options;
 
     const NAME: &'static str = "adapter-boundary";
@@ -60,7 +58,8 @@ impl Rule for AdapterBoundary {
     const ASPECTS: &'static [&'static str] = &["external-package", "inward-infrastructure"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         run.options().check_paths()?;
         let options = run.options();
@@ -71,12 +70,10 @@ impl Rule for AdapterBoundary {
         // The infrastructure folder itself, and the prefix of the paths below it.
         let folder = prefix.trim_end_matches('/').to_owned();
         let below = folder_prefix(&folder);
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let typescript = shared.typescript()?;
         let mut findings = Findings::default();
 
-        for (path, loads) in modules::loads(&typescript, &layout.source_root, true)? {
+        for (path, loads) in modules::loads(typescript, &layout.source_root, true)? {
             let inward = options
                 .inward_owner_prefixes
                 .iter()
@@ -129,5 +126,6 @@ impl Rule for AdapterBoundary {
             }
         });
         Ok(())
+        })
     }
 }

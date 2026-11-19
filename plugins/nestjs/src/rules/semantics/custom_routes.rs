@@ -10,11 +10,11 @@
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
     BindingPattern, Expression, ImportDeclarationSpecifier, Statement, TSModuleReference,
 };
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::{project, syntax, tree};
@@ -74,7 +74,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "custom-routes";
@@ -82,7 +82,8 @@ impl gate_sdk::Rule for Rule {
         "Custom HTTP handlers use ApiRouteCustom, not raw Nest route decorators";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         let options = run.options();
         let matcher = Matcher {
@@ -94,17 +95,16 @@ impl gate_sdk::Rule for Rule {
             routes: options.route_decorators.clone(),
         };
         let replacement = options.replacement.clone();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let source = shared.source();
+        let typescript = shared.typescript()?;
         let paths = syntax::typescript_sources(tree::files(
-            &source,
+            source,
             &layout.source_root,
             typescript.settings(),
         ));
 
         for path in paths {
-            let Some(file) = project::parsed(&typescript, path)? else {
+            let Some(file) = project::parsed(typescript, path)? else {
                 continue;
             };
             let mut findings = Vec::new();
@@ -131,6 +131,7 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }
 

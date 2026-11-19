@@ -5,6 +5,7 @@ use crate::git::{Commit, CommitRange, SyncState};
 use crate::host::{GitHost, Host, TreeHost};
 use crate::plugin::{self, PluginSpec};
 use crate::report::{FileLocation, Location, Span};
+use crate::rule::CallState;
 use crate::rule::{GeneratorInfo, RuleInfo, Scope};
 
 wit_bindgen::generate!({
@@ -123,7 +124,7 @@ pub fn schema<T: schemars::JsonSchema>() -> String {
 
 /// The `describe` export.
 #[must_use]
-pub fn describe(spec: &PluginSpec) -> wit::PluginInfo {
+pub fn describe<S: CallState>(spec: &PluginSpec<S>) -> wit::PluginInfo {
     let info = plugin::describe(spec);
     wit::PluginInfo {
         name: info.name,
@@ -146,8 +147,8 @@ pub fn describe(spec: &PluginSpec) -> wit::PluginInfo {
 ///
 /// # Errors
 /// The SDK's error, of its kind, which the host reports with the plugin's name.
-pub fn check(
-    spec: &PluginSpec,
+pub fn check<S: CallState>(
+    spec: &PluginSpec<S>,
     request: wit::CheckRequest,
 ) -> Result<Vec<wit::Finding>, wit::PluginError> {
     let request = plugin::CheckRequest {
@@ -175,8 +176,8 @@ pub fn check(
 ///
 /// # Errors
 /// The SDK's error, of its kind, which the host reports with the plugin's name.
-pub fn generate(
-    spec: &PluginSpec,
+pub fn generate<S: CallState>(
+    spec: &PluginSpec<S>,
     name: &str,
     project: &str,
     options: &str,
@@ -264,13 +265,16 @@ fn location(location: Location) -> wit::Location {
     })
 }
 
-/// Declares the plugin: its name, version, options, rules, generators and presets. Defines
-/// `pub static PLUGIN: gate_sdk::PluginSpec` and, when built for `wasm32`, the component's exports.
+/// Declares the plugin: its name, version, options, call state, rules, generators and presets.
+/// Defines `pub static PLUGIN: gate_sdk::PluginSpec` and, when built for `wasm32`, the component's
+/// exports.
 ///
 /// `options` is the type of the `[plugins.<name>] options` the plugin's rules share
 /// (`Deserialize + JsonSchema`); `describe` answers its schema and the host validates the
 /// configuration against it when the plugin loads. A plugin without options of its own names
-/// [`crate::NoOptions`].
+/// [`crate::NoOptions`]. `call`, which may be left out, is the plugin's [`crate::CallState`]: the
+/// state the rules of one call share, `()` when it is left out; the rules then implement
+/// `Rule<that type>`.
 ///
 /// ```ignore
 /// gate_sdk::plugin! {
@@ -292,8 +296,27 @@ macro_rules! plugin {
         generators: [$($generator:ty),* $(,)?],
         presets: [$($preset:expr),* $(,)?] $(,)?
     ) => {
+        $crate::plugin! {
+            name: $name,
+            version: $version,
+            options: $options,
+            call: (),
+            rules: [$($rule),*],
+            generators: [$($generator),*],
+            presets: [$($preset),*],
+        }
+    };
+    (
+        name: $name:expr,
+        version: $version:expr,
+        options: $options:ty,
+        call: $call:ty,
+        rules: [$($rule:ty),* $(,)?],
+        generators: [$($generator:ty),* $(,)?],
+        presets: [$($preset:expr),* $(,)?] $(,)?
+    ) => {
         /// The plugin's declaration.
-        pub static PLUGIN: $crate::PluginSpec = $crate::PluginSpec {
+        pub static PLUGIN: $crate::PluginSpec<$call> = $crate::PluginSpec {
             name: $name,
             version: $version,
             options_schema: $crate::bindings::schema::<$options>,

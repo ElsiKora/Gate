@@ -10,7 +10,6 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Rule, Run};
 use gate_typescript::oxc_ast::AstKind;
-use gate_typescript::{Allocator, TypeScript};
 
 use super::string_enums::{member_name, string_expression, unwrap_expression};
 use crate::layout::PluginOptions;
@@ -42,72 +41,70 @@ impl Default for Options {
     }
 }
 
-impl Rule for EnumValues {
+impl Rule<crate::Nest> for EnumValues {
     type Options = Options;
 
     const NAME: &'static str = "enum-values";
     const TITLE: &'static str = "String enum values follow the value pattern";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let pattern = run.options().value_pattern.clone();
-        let regex = pattern::compile("value-pattern", &pattern)?;
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let mut findings = Vec::new();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let pattern = run.options().value_pattern.clone();
+            let regex = pattern::compile("value-pattern", &pattern)?;
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let mut findings = Vec::new();
 
-        for path in tree::typescript_files(&source, &layout.source_root, typescript.settings()) {
-            if path.ends_with(".d.ts")
-                || std::path::Path::new(path)
-                    .extension()
-                    .is_none_or(|extension| extension != "ts")
-            {
-                continue;
-            }
+            for path in tree::typescript_files(source, &layout.source_root, typescript.settings()) {
+                if path.ends_with(".d.ts")
+                    || std::path::Path::new(path)
+                        .extension()
+                        .is_none_or(|extension| extension != "ts")
+                {
+                    continue;
+                }
 
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
-            };
-
-            for node in file.semantic().nodes().iter() {
-                let AstKind::TSEnumDeclaration(declaration) = node.kind() else {
+                let Some(file) = project::parsed(typescript, path)? else {
                     continue;
                 };
 
-                for member in &declaration.body.members {
-                    let Some(value) = member
-                        .initializer
-                        .as_ref()
-                        .and_then(|initializer| string_expression(unwrap_expression(initializer)))
-                    else {
+                for node in file.semantic().nodes().iter() {
+                    let AstKind::TSEnumDeclaration(declaration) = node.kind() else {
                         continue;
                     };
 
-                    if !regex.is_match(value.as_str()) {
-                        let target = format!(
-                            "{}.{}",
-                            declaration.id.name,
-                            member_name(file.source(), member)
-                        );
-                        let line =
-                            usize::try_from(file.line(member.span.start)).unwrap_or(usize::MAX);
-                        findings.push((path, line, target, value));
+                    for member in &declaration.body.members {
+                        let Some(value) = member.initializer.as_ref().and_then(|initializer| {
+                            string_expression(unwrap_expression(initializer))
+                        }) else {
+                            continue;
+                        };
+
+                        if !regex.is_match(value.as_str()) {
+                            let target = format!(
+                                "{}.{}",
+                                declaration.id.name,
+                                member_name(file.source(), member)
+                            );
+                            let line =
+                                usize::try_from(file.line(member.span.start)).unwrap_or(usize::MAX);
+                            findings.push((path, line, target, value));
+                        }
                     }
                 }
             }
-        }
 
-        // The default pattern is named by the form it spells.
-        let form = if pattern == Options::default().value_pattern {
-            "is not UPPER_SNAKE".to_owned()
-        } else {
-            format!("does not match {pattern}")
-        };
+            // The default pattern is named by the form it spells.
+            let form = if pattern == Options::default().value_pattern {
+                "is not UPPER_SNAKE".to_owned()
+            } else {
+                format!("does not match {pattern}")
+            };
 
-        for (path, line, target, value) in findings {
-            run.report()
+            for (path, line, target, value) in findings {
+                run.report()
                 .finding(
                     "",
                     Location::line(path, line),
@@ -120,8 +117,9 @@ impl Rule for EnumValues {
                 .key(target.as_str())
                 .target(target)
                 .help("rename the value to match the pattern");
-        }
+            }
 
-        Ok(())
+            Ok(())
+        })
     }
 }

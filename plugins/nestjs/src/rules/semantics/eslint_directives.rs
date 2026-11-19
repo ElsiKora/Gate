@@ -13,12 +13,12 @@ use std::collections::HashSet;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
+use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::CommentKind;
-use gate_typescript::{Allocator, SourceFile, TypeScript};
 use regex_automata::meta::Regex;
 
 use super::code_files::{Universe, js_space, js_trim, js_trim_end, js_trim_start};
-use crate::shared::{pattern, project};
+use crate::shared::pattern;
 
 /// The prefix of a directive, its separator before the reason, and the separator of rule ids.
 const PREFIX: &str = "// eslint-disable-next-line ";
@@ -68,7 +68,7 @@ impl Default for Options {
     }
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "eslint-directives";
@@ -77,59 +77,59 @@ impl gate_sdk::Rule for Rule {
         &["dead-test-code", "next-line-only", "placement", "syntax"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            use crate::shared::paths::Form::{Name, Prefix};
-            let o = run.options();
-            crate::shared::paths::check_all("roots", &o.roots, Prefix)?;
-            crate::shared::paths::check_all("ignored-test-roots", &o.ignored_test_roots, Name)?;
-            crate::shared::paths::check_all(
-                "ignored-test-segments",
-                &o.ignored_test_segments,
-                Name,
-            )?;
-        }
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            {
+                use crate::shared::paths::Form::{Name, Prefix};
+                let o = run.options();
+                crate::shared::paths::check_all("roots", &o.roots, Prefix)?;
+                crate::shared::paths::check_all("ignored-test-roots", &o.ignored_test_roots, Name)?;
+                crate::shared::paths::check_all(
+                    "ignored-test-segments",
+                    &o.ignored_test_segments,
+                    Name,
+                )?;
+            }
 
-        let options = run.options();
-        let checker = Checker {
-            options,
-            test_file: pattern::compile("ignored-test-file", &options.ignored_test_file)?,
-            rule_id: pattern::compile("rule-id-pattern", &options.rule_id_pattern)?,
-        };
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let universe = Universe {
-            roots: &options.roots,
-            extensions: &options.extensions,
-        };
-        let mut findings = Vec::new();
+            let options = run.options();
+            let checker = Checker {
+                options,
+                test_file: pattern::compile("ignored-test-file", &options.ignored_test_file)?,
+                rule_id: pattern::compile("rule-id-pattern", &options.rule_id_pattern)?,
+            };
+            let typescript = shared.typescript()?;
+            let universe = Universe {
+                roots: &options.roots,
+                extensions: &options.extensions,
+            };
+            let mut findings = Vec::new();
 
-        for (path, file) in universe.parsed(&typescript)? {
-            for comment in &file.program().comments {
-                if let Some((aspect, line, message, help)) = checker.directive(
-                    &path,
-                    &file,
-                    comment.span.start,
-                    comment.span.end,
-                    comment.kind,
-                ) {
-                    findings.push((aspect, path.clone(), line, message, help));
+            for (path, file) in universe.parsed(typescript)? {
+                for comment in &file.program().comments {
+                    if let Some((aspect, line, message, help)) = checker.directive(
+                        &path,
+                        &file,
+                        comment.span.start,
+                        comment.span.end,
+                        comment.kind,
+                    ) {
+                        findings.push((aspect, path.clone(), line, message, help));
+                    }
                 }
             }
-        }
 
-        for (aspect, path, line, message, help) in findings {
-            run.report()
-                .finding(
-                    aspect,
-                    Location::line(path, usize::try_from(line).unwrap_or(usize::MAX)),
-                    message,
-                )
-                .help(help);
-        }
+            for (aspect, path, line, message, help) in findings {
+                run.report()
+                    .finding(
+                        aspect,
+                        Location::line(path, usize::try_from(line).unwrap_or(usize::MAX)),
+                        message,
+                    )
+                    .help(help);
+            }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

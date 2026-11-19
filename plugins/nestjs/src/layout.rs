@@ -41,7 +41,7 @@ impl PluginOptions {
     /// # Errors
     /// When the table has a key the plugin does not know or a value of the wrong type, or a layout
     /// path is not in its normalized form; the error names the key.
-    pub fn read<O>(run: &Run<'_, O>) -> gate_sdk::Result<Self> {
+    pub fn read<O>(run: &Run<'_, O, crate::Nest>) -> gate_sdk::Result<Self> {
         let options = run.plugin_options::<Self>()?;
         options.layout.check_paths()?;
         Ok(options)

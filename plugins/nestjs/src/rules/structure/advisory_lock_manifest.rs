@@ -19,7 +19,7 @@ use gate_typescript::owners::{property_access, top_level};
 use gate_typescript::oxc_ast::ast::{
     Argument, ChainElement, Declaration, Expression, Statement, TSEnumMemberName,
 };
-use gate_typescript::{Allocator, SourceFile, TypeScript};
+use gate_typescript::{SourceFile, TypeScript};
 use regex_automata::meta::Regex;
 
 use crate::layout::{Layout, PluginOptions};
@@ -139,7 +139,7 @@ impl Options {
     }
 }
 
-impl Rule for AdvisoryLockManifest {
+impl Rule<crate::Nest> for AdvisoryLockManifest {
     type Options = Options;
 
     const NAME: &'static str = "advisory-lock-manifest";
@@ -148,7 +148,8 @@ impl Rule for AdvisoryLockManifest {
     const ASPECTS: &'static [&'static str] = &["manifest", "marker", "operation-enum"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         run.options().check_paths()?;
         let options = run.options();
@@ -157,7 +158,7 @@ impl Rule for AdvisoryLockManifest {
         let mut findings = Findings::default();
 
         // An enabled rule needs the registry: without it, the configuration is wrong.
-        let Some(text) = run.tree().text(&manifest_path) else {
+        let Some(text) = shared.text(&manifest_path) else {
             findings.push_keyed(
                 "manifest",
                 manifest_path.as_str(),
@@ -213,12 +214,11 @@ impl Rule for AdvisoryLockManifest {
             }
         };
 
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let source = shared.source();
+        let typescript = shared.typescript()?;
 
         operation_enum(
-            &typescript,
+            typescript,
             &operation_enum_path,
             &options.operation_enum_name,
             &operations,
@@ -227,7 +227,7 @@ impl Rule for AdvisoryLockManifest {
 
         // Markers are compared with a valid manifest only.
         if let Some(static_keys) = static_keys {
-            let files: Vec<String> = tree::files(&source, &layout.source_root, &tree::UNSKIPPED)
+            let files: Vec<String> = tree::files(source, &layout.source_root, &tree::UNSKIPPED)
                 // Every file whose name ends in `.ts`, in that exact case, in every folder.
                 .filter(|path| path.strip_suffix(".ts").is_some())
                 .map(str::to_owned)
@@ -235,7 +235,7 @@ impl Rule for AdvisoryLockManifest {
             let texts: Vec<(String, String)> = files
                 .into_iter()
                 .filter_map(|path| {
-                    let text = run.tree().text(&path)?;
+                    let text = shared.text(&path)?;
                     Some((path, text))
                 })
                 .collect();
@@ -256,6 +256,7 @@ impl Rule for AdvisoryLockManifest {
 
         findings.report(run, help);
         Ok(())
+        })
     }
 }
 

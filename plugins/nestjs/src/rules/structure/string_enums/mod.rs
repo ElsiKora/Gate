@@ -27,7 +27,7 @@ use gate_typescript::oxc_semantic::Semantic;
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::oxc_syntax::symbol::{SymbolFlags, SymbolId};
-use gate_typescript::{Allocator, Settings, SourceFile, TypeScript};
+use gate_typescript::{Settings, SourceFile};
 
 use crate::layout::{Layout, PluginOptions, folder_prefix};
 use crate::shared::report::Findings;
@@ -76,7 +76,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for StringEnums {
+impl Rule<crate::Nest> for StringEnums {
     type Options = Options;
 
     const NAME: &'static str = "string-enums";
@@ -92,32 +92,33 @@ impl Rule for StringEnums {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let test_prefix = folder_prefix(&layout.test_root);
-        let source_prefix = layout.source_prefix();
-        let mut findings = Findings::default();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let test_prefix = folder_prefix(&layout.test_root);
+            let source_prefix = layout.source_prefix();
+            let mut findings = Findings::default();
 
-        for path in files(&source, &layout, typescript.settings()) {
-            let Some(file) = project::parsed(&typescript, path)? else {
-                continue;
-            };
+            for path in files(source, &layout, typescript.settings()) {
+                let Some(file) = project::parsed(typescript, path)? else {
+                    continue;
+                };
 
-            Analysis::new(options, &file, path.starts_with(&test_prefix))
-                .report(path, &mut findings);
-            namespace::report(&file, path, &mut findings);
+                Analysis::new(options, &file, path.starts_with(&test_prefix))
+                    .report(path, &mut findings);
+                namespace::report(&file, path, &mut findings);
 
-            if path.starts_with(&source_prefix) {
-                error_string::report(&file, path, &options.shim_enum_names, &mut findings);
+                if path.starts_with(&source_prefix) {
+                    error_string::report(&file, path, &options.shim_enum_names, &mut findings);
+                }
             }
-        }
 
-        findings.report(run, help);
-        Ok(())
+            findings.report(run, help);
+            Ok(())
+        })
     }
 }
 

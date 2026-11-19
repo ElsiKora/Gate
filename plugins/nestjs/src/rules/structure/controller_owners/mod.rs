@@ -24,7 +24,6 @@ use gate_typescript::oxc_ast::ast::{
     Statement, TSType,
 };
 use gate_typescript::oxc_span::GetSpan;
-use gate_typescript::{Allocator, TypeScript};
 use regex_automata::meta::Regex;
 
 use self::contract::{Contract, Js, same_name, same_path};
@@ -91,7 +90,7 @@ pub(super) struct Names {
 #[derive(Debug, Default)]
 pub struct ControllerOwners;
 
-impl Rule for ControllerOwners {
+impl Rule<crate::Nest> for ControllerOwners {
     type Options = Options;
 
     const NAME: &'static str = "controller-owners";
@@ -108,103 +107,103 @@ impl Rule for ControllerOwners {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        let options = run.options();
-        let names = Names {
-            automator: layout.automator_package.clone(),
-            nest_common: layout.nest_common_package.clone(),
-            nest_routes: options.nest_route_decorators.clone(),
-            automator_route: pattern::compile(
-                "automator-route-pattern",
-                &options.automator_route_pattern,
-            )?,
-            generated_routes: layout.generated_routes.clone(),
-            service_member: options.service_member.clone(),
-        };
-        let external = format!(
-            "{}{}/",
-            folder_prefix(&layout.modules_root),
-            options.external_noun_plane
-        );
-        let contracts = options.controllers.clone();
-        let registry = run
-            .options_file()
-            .map_or_else(|| "gate.toml".to_owned(), str::to_owned);
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)?;
-        let mut findings = Findings::default();
-
-        contract::validate(&contracts, &external, |key, message| {
-            findings.push_keyed("registry-contract", registry.as_str(), None, key, message);
-        });
-
-        let mut by_path: BTreeMap<&str, Contract<'_>> = BTreeMap::new();
-
-        for fields in &contracts {
-            let contract = Contract::new(fields);
-
-            if let Some(path) = contract.path().string() {
-                by_path.insert(path, contract);
-            }
-        }
-
-        let mut discovered: BTreeSet<&str> = BTreeSet::new();
-
-        for source in sources.iter() {
-            let controllers: Vec<(&Statement<'_>, &Class<'_>)> = top_level(&source.file)
-                .filter_map(|statement| Some((statement, class_declaration(statement)?)))
-                .filter(|(_, class)| controller(source, class, &names))
-                .collect();
-
-            if controllers.is_empty() {
-                continue;
-            }
-
-            discovered.insert(&source.path);
-            let Some(contract) = by_path.get(source.path.as_str()).copied() else {
-                unregistered(&mut findings, source, &controllers);
-                continue;
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            let options = run.options();
+            let names = Names {
+                automator: layout.automator_package.clone(),
+                nest_common: layout.nest_common_package.clone(),
+                nest_routes: options.nest_route_decorators.clone(),
+                automator_route: pattern::compile(
+                    "automator-route-pattern",
+                    &options.automator_route_pattern,
+                )?,
+                generated_routes: layout.generated_routes.clone(),
+                service_member: options.service_member.clone(),
             };
-            let matching: Vec<_> = controllers
-                .iter()
-                .filter(|(_, class)| {
-                    class
-                        .id
-                        .as_ref()
-                        .is_some_and(|id| contract.controller_name() == Js::Str(&id.name))
-                })
-                .collect();
+            let external = format!(
+                "{}{}/",
+                folder_prefix(&layout.modules_root),
+                options.external_noun_plane
+            );
+            let contracts = options.controllers.clone();
+            let registry = run
+                .options_file()
+                .map_or_else(|| "gate.toml".to_owned(), str::to_owned);
+            let typescript = shared.typescript()?;
+            let sources = Sources::new(typescript, &layout.source_root)?;
+            let mut findings = Findings::default();
 
-            let ([only], 1) = (matching.as_slice(), controllers.len()) else {
-                findings.push_keyed(
-                    "registration",
-                    source.path.as_str(),
-                    None,
-                    format!("{}#declared", contract.controller_name().text()),
-                    format!(
-                        "{} must declare exactly one registered controller {}",
-                        source.path,
-                        contract.controller_name().text()
-                    ),
-                );
-                continue;
-            };
+            contract::validate(&contracts, &external, |key, message| {
+                findings.push_keyed("registry-contract", registry.as_str(), None, key, message);
+            });
 
-            Owned {
-                sources: &sources,
-                contract,
-                names: &names,
-                findings: &mut findings,
+            let mut by_path: BTreeMap<&str, Contract<'_>> = BTreeMap::new();
+
+            for fields in &contracts {
+                let contract = Contract::new(fields);
+
+                if let Some(path) = contract.path().string() {
+                    by_path.insert(path, contract);
+                }
             }
-            .controller(source, only.0, only.1);
-        }
 
-        stale(&contracts, &discovered, &sources, &registry, &mut findings);
-        findings.report(run, help);
-        Ok(())
+            let mut discovered: BTreeSet<&str> = BTreeSet::new();
+
+            for source in sources.iter() {
+                let controllers: Vec<(&Statement<'_>, &Class<'_>)> = top_level(&source.file)
+                    .filter_map(|statement| Some((statement, class_declaration(statement)?)))
+                    .filter(|(_, class)| controller(source, class, &names))
+                    .collect();
+
+                if controllers.is_empty() {
+                    continue;
+                }
+
+                discovered.insert(&source.path);
+                let Some(contract) = by_path.get(source.path.as_str()).copied() else {
+                    unregistered(&mut findings, source, &controllers);
+                    continue;
+                };
+                let matching: Vec<_> = controllers
+                    .iter()
+                    .filter(|(_, class)| {
+                        class
+                            .id
+                            .as_ref()
+                            .is_some_and(|id| contract.controller_name() == Js::Str(&id.name))
+                    })
+                    .collect();
+
+                let ([only], 1) = (matching.as_slice(), controllers.len()) else {
+                    findings.push_keyed(
+                        "registration",
+                        source.path.as_str(),
+                        None,
+                        format!("{}#declared", contract.controller_name().text()),
+                        format!(
+                            "{} must declare exactly one registered controller {}",
+                            source.path,
+                            contract.controller_name().text()
+                        ),
+                    );
+                    continue;
+                };
+
+                Owned {
+                    sources: &sources,
+                    contract,
+                    names: &names,
+                    findings: &mut findings,
+                }
+                .controller(source, only.0, only.1);
+            }
+
+            stale(&contracts, &discovered, &sources, &registry, &mut findings);
+            findings.report(run, help);
+            Ok(())
+        })
     }
 }
 

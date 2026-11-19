@@ -37,7 +37,6 @@ use gate_typescript::syntax::{
     class_start, constructor, decorator_identity, key_name, member_name, member_start, method_kind,
     object_literal, object_property,
 };
-use gate_typescript::{Allocator, TypeScript};
 
 use super::native_repository::Service;
 use crate::layout::PluginOptions;
@@ -131,7 +130,7 @@ struct Settings {
     options: Options,
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "native-functions";
@@ -148,7 +147,8 @@ impl gate_sdk::Rule for Rule {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         let options = run.options();
 
@@ -170,10 +170,8 @@ impl gate_sdk::Rule for Rule {
             },
             options: options.clone(),
         };
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)?;
+        let typescript = shared.typescript()?;
+        let sources = Sources::new(typescript, &layout.source_root)?;
         let report = run.report();
 
         for source in sources.iter() {
@@ -243,6 +241,7 @@ impl gate_sdk::Rule for Rule {
         }
 
         Ok(())
+        })
     }
 }
 

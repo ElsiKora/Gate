@@ -17,7 +17,7 @@ use gate_typescript::oxc_ast::ast::{
 };
 use gate_typescript::oxc_ast_visit::Visit;
 use gate_typescript::oxc_span::{GetSpan, Span};
-use gate_typescript::{Allocator, Source, SourceFile, TypeScript};
+use gate_typescript::{Source, SourceFile, TypeScript};
 use regex_automata::meta::Regex;
 
 use self::tokens::Tokens;
@@ -189,7 +189,7 @@ impl Options {
     }
 }
 
-impl Rule for AssetStorage {
+impl Rule<crate::Nest> for AssetStorage {
     type Options = Options;
 
     const NAME: &'static str = "asset-storage";
@@ -207,35 +207,36 @@ impl Rule for AssetStorage {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let layout = PluginOptions::read(run)?.layout;
-        run.options().check_paths()?;
-        let options = run.options();
-        let patterns = Patterns::new(options)?;
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let central = options.central(&layout);
-        let assets = Assets {
-            options,
-            central: &central,
-            layout: &layout,
-            patterns: &patterns,
-            source: &source,
-            typescript: &typescript,
-        };
-        let mut findings = Findings::default();
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let layout = PluginOptions::read(run)?.layout;
+            run.options().check_paths()?;
+            let options = run.options();
+            let patterns = Patterns::new(options)?;
+            let source = shared.source();
+            let typescript = shared.typescript()?;
+            let central = options.central(&layout);
+            let assets = Assets {
+                options,
+                central: &central,
+                layout: &layout,
+                patterns: &patterns,
+                source,
+                typescript,
+            };
+            let mut findings = Findings::default();
 
-        assets.persisted_image_keys(&mut findings)?;
-        assets.external_sdk_placement(&mut findings)?;
+            assets.persisted_image_keys(&mut findings)?;
+            assets.external_sdk_placement(&mut findings)?;
 
-        if source.contains(&central.anchor) {
-            assets.s3_adapter_conventions(&mut findings)?;
-            assets.central_admission_placement(&mut findings)?;
-        }
+            if source.contains(&central.anchor) {
+                assets.s3_adapter_conventions(&mut findings)?;
+                assets.central_admission_placement(&mut findings)?;
+            }
 
-        findings.report(run, help);
-        Ok(())
+            findings.report(run, help);
+            Ok(())
+        })
     }
 }
 

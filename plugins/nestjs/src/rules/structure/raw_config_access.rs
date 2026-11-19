@@ -27,7 +27,7 @@ use gate_typescript::oxc_ast::ast::{
 };
 use gate_typescript::oxc_syntax::reference::ReferenceId;
 use gate_typescript::oxc_syntax::symbol::SymbolId;
-use gate_typescript::{Allocator, Result, SourceFile, TypeScript};
+use gate_typescript::{Result, SourceFile, TypeScript};
 
 use crate::layout::PluginOptions;
 use crate::shared::{project, tree};
@@ -98,7 +98,7 @@ impl Options {
     }
 }
 
-impl Rule for RawConfigAccess {
+impl Rule<crate::Nest> for RawConfigAccess {
     type Options = Options;
 
     const NAME: &'static str = "raw-config-access";
@@ -106,7 +106,8 @@ impl Rule for RawConfigAccess {
         "Only approved configuration boundaries reach a raw configuration service";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let layout = PluginOptions::read(run)?.layout;
         run.options().check_paths()?;
 
@@ -114,13 +115,12 @@ impl Rule for RawConfigAccess {
             return Ok(());
         }
 
-        let source = project::source(run);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
+        let source = shared.source();
+        let typescript = shared.typescript()?;
         let mut sources = Vec::new();
 
-        for path in tree::typescript_files(&source, &layout.source_root, typescript.settings()) {
-            if let Some(file) = project::parsed(&typescript, path)? {
+        for path in tree::typescript_files(source, &layout.source_root, typescript.settings()) {
+            if let Some(file) = project::parsed(typescript, path)? {
                 // Symbol and reference ids are set when the semantic model is built, and the graph
                 // reads them in files it reached through another file.
                 let _ = file.semantic();
@@ -129,7 +129,7 @@ impl Rule for RawConfigAccess {
         }
 
         let options = run.options();
-        let graph = Graph::new(&typescript, &sources, &options.raw_imports);
+        let graph = Graph::new(typescript, &sources, &options.raw_imports);
         let mut reported = Vec::new();
 
         for (index, (path, _)) in sources.iter().enumerate() {
@@ -150,6 +150,7 @@ impl Rule for RawConfigAccess {
         }
 
         Ok(())
+        })
     }
 }
 

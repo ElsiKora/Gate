@@ -13,7 +13,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Run};
 
 use crate::layout::PluginOptions;
-use crate::shared::{project, tree};
+use crate::shared::tree;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -35,7 +35,7 @@ pub struct Options {
     pub retired_paths: Vec<String>,
 }
 
-impl gate_sdk::Rule for Rule {
+impl gate_sdk::Rule<crate::Nest> for Rule {
     type Options = Options;
 
     const NAME: &'static str = "owner-roots";
@@ -44,70 +44,73 @@ impl gate_sdk::Rule for Rule {
     const ASPECTS: &'static [&'static str] = &["owner-root", "shared-composition"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        {
-            let o = run.options();
-            super::folders::check_all_below_root("required-roots", &o.required_roots)?;
-            super::folders::check_all_below_root("retired-paths", &o.retired_paths)?;
-        }
-
-        let layout = PluginOptions::read(run)?.layout;
-        let source = project::source(run);
-        let sources: Vec<&str> =
-            tree::typescript_files(&source, &layout.source_root, &tree::UNSKIPPED).collect();
-        let mut findings = Vec::new();
-
-        for root in &run.options().required_roots {
-            if !sources.iter().any(|path| below(path, root)) {
-                findings.push((
-                    "owner-root",
-                    root.clone(),
-                    format!(
-                        "{root} must contain source owned by the accepted architecture boundary"
-                    ),
-                    "add the owner's source, or drop the root from required-roots",
-                ));
+    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            {
+                let o = run.options();
+                super::folders::check_all_below_root("required-roots", &o.required_roots)?;
+                super::folders::check_all_below_root("retired-paths", &o.retired_paths)?;
             }
-        }
 
-        let prefix = crate::layout::folder_prefix(&layout.modules_root);
-        let folders: BTreeSet<&str> = tree::files(&source, &layout.modules_root, &tree::UNSKIPPED)
-            .filter_map(|path| path.strip_prefix(&prefix)?.split_once('/'))
-            .map(|(folder, _)| folder)
-            .collect();
+            let layout = PluginOptions::read(run)?.layout;
+            let source = shared.source();
+            let sources: Vec<&str> =
+                tree::typescript_files(source, &layout.source_root, &tree::UNSKIPPED).collect();
+            let mut findings = Vec::new();
 
-        for folder in folders {
-            if !layout.module_planes.iter().any(|plane| plane == folder) {
-                let path = format!("{prefix}{folder}");
-                findings.push((
-                    "owner-root",
-                    path.clone(),
-                    format!("{path} is not an accepted architecture owner root"),
-                    "move the folder into one of the module planes",
-                ));
+            for root in &run.options().required_roots {
+                if !sources.iter().any(|path| below(path, root)) {
+                    findings.push((
+                        "owner-root",
+                        root.clone(),
+                        format!(
+                            "{root} must contain source owned by the accepted architecture boundary"
+                        ),
+                        "add the owner's source, or drop the root from required-roots",
+                    ));
+                }
             }
-        }
 
-        let files = run.tree();
+            let prefix = crate::layout::folder_prefix(&layout.modules_root);
+            let folders: BTreeSet<&str> =
+                tree::files(source, &layout.modules_root, &tree::UNSKIPPED)
+                    .filter_map(|path| path.strip_prefix(&prefix)?.split_once('/'))
+                    .map(|(folder, _)| folder)
+                    .collect();
 
-        for retired in &run.options().retired_paths {
-            if files.contains(retired) || !files.under(retired).is_empty() {
-                findings.push((
-                    "shared-composition",
-                    retired.clone(),
-                    format!("{retired} is a stale Nest composition owner and must be removed"),
-                    "remove the retired path",
-                ));
+            for folder in folders {
+                if !layout.module_planes.iter().any(|plane| plane == folder) {
+                    let path = format!("{prefix}{folder}");
+                    findings.push((
+                        "owner-root",
+                        path.clone(),
+                        format!("{path} is not an accepted architecture owner root"),
+                        "move the folder into one of the module planes",
+                    ));
+                }
             }
-        }
 
-        for (aspect, path, message, help) in findings {
-            run.report()
-                .finding(aspect, Location::file(path), message)
-                .help(help);
-        }
+            let files = run.tree();
 
-        Ok(())
+            for retired in &run.options().retired_paths {
+                if files.contains(retired) || !files.under(retired).is_empty() {
+                    findings.push((
+                        "shared-composition",
+                        retired.clone(),
+                        format!("{retired} is a stale Nest composition owner and must be removed"),
+                        "remove the retired path",
+                    ));
+                }
+            }
+
+            for (aspect, path, message, help) in findings {
+                run.report()
+                    .finding(aspect, Location::file(path), message)
+                    .help(help);
+            }
+
+            Ok(())
+        })
     }
 }
 
