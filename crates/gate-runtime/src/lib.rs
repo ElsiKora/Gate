@@ -21,7 +21,7 @@ pub use self::error::{Error, ErrorKind};
 pub use self::grant::{Grant, is_relative_glob};
 pub use self::host::{Blob, History, HostError, Tree};
 pub use self::read_set::{GitQuery, ReadSet};
-pub use self::runtime::{Call, CallOutcome, Config, Plugin, Runtime};
+pub use self::runtime::{Call, CallOutcome, Config, INTERFACE, Plugin, Runtime};
 
 /// The result of a runtime operation.
 pub type Result<T> = std::result::Result<T, Error>;

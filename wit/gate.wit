@@ -4,7 +4,7 @@
 /// tracked tree of its scope read-only through `tree`, git data through `git` (only for rules that
 /// declare `reads-history`), and nothing else: no files, network, clock or environment. Levels,
 /// norms and exceptions belong to the core's configuration, never to the plugin.
-package gate:plugin@0.1.0;
+package gate:plugin@0.2.0;
 
 interface types {
   /// How much a finding weighs; set by configuration, never by the plugin.
@@ -58,8 +58,8 @@ interface types {
   record generator-info { name: string, title: string, options-schema: string, owns: list<string> }
 
   /// A named set of rule settings; `rules` is JSON: rule name -> `{ "level": .., "levels": {
-  /// <aspect>: .. }, "options": .. }`, each key optional. An aspect's level here comes after the
-  /// project's level of that aspect and before the project's level of the whole rule.
+  /// <aspect>: .. }, "options": .. }`, each key optional. An aspect's level here applies only where
+  /// the project's configuration gives that rule or aspect no level.
   record preset { name: string, rules: string }
 
   /// What `describe` answers.

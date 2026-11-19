@@ -33,6 +33,10 @@ const WORKER_STACK: usize = 16 << 20;
 /// How often the engine's epoch advances: the resolution of [`Config::deadline`].
 const TICK: Duration = Duration::from_millis(10);
 
+/// The plugin interface this core loads, the package of `wit/gate.wit`. A component built against
+/// another version fails to load.
+pub const INTERFACE: &str = "gate:plugin@0.2.0";
+
 /// How the runtime runs plugins. The limits are the core's, the same for every plugin: a plugin
 /// cannot set its own. A call that hits one fails with [`ErrorKind::OutOfFuel`],
 /// [`ErrorKind::Deadline`] or [`ErrorKind::OutOfMemory`], an environment failure that names the
@@ -348,7 +352,9 @@ impl Runtime {
                 name,
                 ErrorKind::Load,
                 format!(
-                    "{name} was built for another plugin interface; rebuild it or pin a release built for gate {} ({error:#})",
+                    "{name} was built for another plugin interface; this gate {} loads plugins built for {INTERFACE} only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {}, released with this core), or rebuild it with gate-sdk {} ({error:#})",
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_VERSION"),
                     env!("CARGO_PKG_VERSION")
                 ),
             )

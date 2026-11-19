@@ -8,6 +8,30 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+# Unreleased
+
+The plugin interface is `gate:plugin@0.2.0`, and every plugin of this repository is released at
+0.2.0 with the core: pin `ElsiKora/Gate:<plugin>@0.2.0` with a 0.2.0 core. A 0.2.0 core loads only
+plugins built for 0.2.0; one built for 0.1.0 fails to load with an error that names the interface
+and the release to pin.
+
+### Features
+
+- **plugin interface:** the git interface answers the commit message being written (`message`, from
+  `gate check --commit-message`) and whether a git hook runs the check (`hook`, from `--hook`, which
+  the generated hooks pass).
+- **host:** a plugin option an enabled rule declares it reads (`Rule::NEEDS` in the SDK) and that is
+  missing from `[plugins.<name>] options` is a configuration error at load, exit 2, naming the rule.
+- **host:** a preset may set the levels of single aspects (`levels`); the project's `[rules]` level
+  of the rule, or of the aspect, wins over them.
+- **host:** a check with `--commit-message` says so in its summary: `gate check (tree, commit
+  message)`.
+
+### Bug Fixes
+
+- **gate:** `gate init` suggests only rules that exist, with the options they need, so uncommenting
+  every suggestion checks clean; it suggested `git/commit-subject`, which does not exist.
+
 # 0.1.0
 
 The first release: the core, the plugin runtime, the SDK and the launcher. The seven plugins are

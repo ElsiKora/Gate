@@ -95,10 +95,10 @@ Alternatives weighed and not taken:
 
 ## 4. Plugin interface
 
-The interface is a WIT package, `gate:plugin@0.1.0`, in [`wit/`](../wit). Sketch:
+The interface is a WIT package, `gate:plugin@0.2.0`, in [`wit/`](../wit). Sketch:
 
 ```wit
-package gate:plugin@0.1.0;
+package gate:plugin@0.2.0;
 
 interface types {
   enum level { error, warning, note }
@@ -332,9 +332,9 @@ all = ["lint", "unit"]
   workspace lists `"."` as a project.
 - **Aspects** take their own norm and level inside the rule's entry: `norms = { <aspect> = "..." }`,
   `levels = { <aspect> = "..." }`; the rule's `norm` and `level` apply to the others. A preset may
-  set aspect levels too; an aspect's level is, first found, the entry's level of the aspect, the
-  presets' level of the aspect, the entry's level, the family's, the presets' level of the rule.
-  `off` on the rule or its family turns every aspect off.
+  set aspect levels too. The project's configuration wins over a preset: an aspect's level is, first
+  found, the entry's level of the aspect, the entry's level, the family's, the presets' level of
+  the aspect, the presets' level of the rule.
 - **Exceptions** live in one file beside the `gate.toml` they belong to, `gate.exceptions.toml`:
 
   ```toml
