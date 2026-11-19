@@ -600,7 +600,7 @@ impl JsonSchema for Suite {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct DecisionPolicy {
     /// Every relaxation must name its decision record: each exception, and each rule entry whose
-    /// level, or a level in its `levels`, is below the default (the preset's level, else `error`).
+    /// level, or a level in its `levels`, is below the level a preset gives it.
     /// A plugin may check that an exception's decision exists.
     #[serde(default)]
     pub require_decision: bool,

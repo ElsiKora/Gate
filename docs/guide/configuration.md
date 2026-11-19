@@ -287,15 +287,16 @@ require-decision = true
 ```
 
 A relaxation is an `[[exception]]`, or a `[rules]` entry (a rule or a family) whose `level`, or any
-level in `levels`, is below its default. The default is the level the rule or aspect has without the
-entry: the preset's level of that aspect, else the preset's level of the rule, else `error` when no
-preset names the rule. Below means a lower level (`error` > `warning` > `note`) or `off`. A whole-rule
-`level` replaces the preset's aspect levels too, so it is compared with each one that `levels` does
-not name:
+level in `levels`, is below its default. The default is the level a preset the scope extends gives
+the rule or aspect: the preset's level of that aspect, else the preset's level of the rule. Below
+means a lower level (`error` > `warning` > `note`) or `off`. A rule no preset names has no default:
+it runs only because its entry or a family turns it on, which is stricter than not running, so it
+needs no decision at any level. A whole-rule `level` replaces the preset's aspect levels too, so it
+is compared with each one that `levels` does not name:
 
 ```toml
 [rules]
-# the default is error: a decision names the record that accepted the warning
+# a preset sets the rule to error: a decision names the record that accepted the warning
 "nestjs/barrel-exports" = { level = "warning", decision = "D-API-002" }
 "ledger/*" = { level = "off", decision = "D-LEDGER-001" }
 ```
@@ -303,8 +304,9 @@ not name:
 In the root `gate.toml` the policy covers every file, profiles included; a project's own `gate.toml`
 can set its own for its exceptions and its rule entries. A decision covers the levels of the entry
 that writes it, so a project file that lowers a rule or aspect the root left alone needs its own
-decision. The core enforces the policy as a configuration error (exit `2`) that names the file, the
-rule, the level, the default and where the default comes from: for exceptions when it loads the
+decision. The core enforces the policy as a configuration error (exit `2`) that names the key as
+written, the level, the default and the preset that sets it, and the form that adds the decision:
+for exceptions when it loads the
 configuration, for rule entries when it loads the plugins, since presets come from plugins. Without
 the policy, or with `require-decision = false`, nothing is checked and `decision` is accepted anyway.
 

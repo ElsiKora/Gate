@@ -1958,9 +1958,10 @@ fn a_preset_sets_aspect_levels_that_the_projects_own_levels_override() {
     assert_eq!(levels, [pair("aspect quiet", "warning")]);
 }
 
-/// `gate check` with the built probe in [`probe_repo`]: the profile of `apps/one` sets `rules` and
-/// extends `extends`, `project` is appended to `apps/one/gate.toml` and `root` to the root's. The
-/// exit code and the standard error.
+/// `gate check --rule probe/aspects` with the built probe in [`probe_repo`]: the profile of
+/// `apps/one` sets `rules` and extends `extends`, `project` is appended to `apps/one/gate.toml` and
+/// `root` to the root's. The decisions of every rule are checked at load; `--rule` keeps the run to
+/// one quiet rule. The exit code and the standard error.
 fn decision_check(rules: &str, extends: &str, project: &str, root: &str) -> (Option<i32>, String) {
     let repo = probe_repo(rules);
     let mut toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
@@ -1978,7 +1979,7 @@ fn decision_check(rules: &str, extends: &str, project: &str, root: &str) -> (Opt
     );
     repo.commit("levels and a decision policy");
     let plugin = format!("probe={}", probe().0.display());
-    let output = repo.gate(&["check", "--plugin", &plugin]);
+    let output = repo.gate(&["check", "--plugin", &plugin, "--rule", "probe/aspects"]);
     (output.status.code(), text(&output.stderr))
 }
 
@@ -1989,77 +1990,36 @@ fn loads((code, stderr): (Option<i32>, String)) {
     assert_ne!(code, Some(2), "{stderr}");
 }
 
-/// Asserts the run failed at load because a level below its default names no decision.
+/// Asserts the run failed at load because a level below its default names no decision, with
+/// every part in the message.
 fn refused((code, stderr): (Option<i32>, String), parts: &[&str]) {
     assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains("[decision-policy] requires a decision for that; "),
+        "{stderr}"
+    );
     for part in parts {
         assert!(stderr.contains(part), "{stderr:?} lacks {part:?}");
     }
-    assert!(
-        stderr.contains(
-            "and gate.toml [decision-policy] requires a decision for that; add decision = \"<record>\" to the entry"
-        ),
-        "{stderr}"
-    );
 }
 
 #[test]
-fn under_a_decision_policy_a_level_below_its_default_needs_a_decision() {
-    // No preset names probe/aspects: its default is error.
-    refused(
-        decision_check(r#""probe/aspects" = "warning""#, "", "", POLICY),
-        &[
-            "gate.toml:",
-            "[[profiles]] rules: probe/aspects is set to warning, below its default error (no preset sets it)",
-        ],
-    );
-    loads(decision_check(
-        r#""probe/aspects" = { level = "warning", decision = "D-1" }"#,
-        "",
-        "",
-        POLICY,
-    ));
-    loads(decision_check(
-        r#""probe/aspects" = "error""#,
-        "",
-        "",
-        POLICY,
-    ));
-    refused(
-        decision_check(
-            r#""probe/aspects" = { levels = { loud = "note" } }"#,
-            "",
-            "",
-            POLICY,
-        ),
-        &["probe/aspects#loud is set to note, below its default error (no preset sets it)"],
-    );
-    loads(decision_check(
-        r#""probe/aspects" = { levels = { loud = "note" }, decision = "D-1" }"#,
-        "",
-        "",
-        POLICY,
-    ));
-    // Off is below every default; a family below a rule's default needs a decision too.
-    refused(
-        decision_check(r#""probe/aspects" = "off""#, "", "", POLICY),
-        &["probe/aspects is set to off, below its default error"],
-    );
-    refused(
-        decision_check(r#""probe/*" = "off""#, "", "", POLICY),
-        &["is set to off, below its default error (no preset sets it)"],
-    );
-    loads(decision_check(
-        r#""probe/*" = { level = "off", decision = "D-2" }"#,
-        "",
-        "",
-        POLICY,
-    ));
+fn a_rule_no_preset_names_needs_no_decision_at_any_level() {
+    // It runs only because its entry or a family turns it on: stricter than not running.
+    for rules in [
+        r#""probe/aspects" = "warning""#,
+        r#""probe/aspects" = "off""#,
+        r#""probe/aspects" = { levels = { loud = "note" } }"#,
+        r#""probe/*" = "warning""#,
+        r#""probe/*" = "off""#,
+    ] {
+        loads(decision_check(rules, "", "", POLICY));
+    }
 }
 
 #[test]
-fn under_a_decision_policy_the_default_is_the_presets_level() {
-    // probe/quiet makes the aspect quiet a warning: warning is its default, note is below it.
+fn under_a_decision_policy_a_level_below_the_presets_needs_a_decision() {
+    // probe/quiet sets the aspect quiet to warning, and no rule level.
     loads(decision_check(
         r#""probe/aspects" = { levels = { quiet = "warning" } }"#,
         "probe/quiet",
@@ -2073,11 +2033,73 @@ fn under_a_decision_policy_the_default_is_the_presets_level() {
             "",
             POLICY,
         ),
-        &["probe/aspects#quiet is set to note, below its default warning (the preset probe/quiet)"],
+        &[
+            "error: gate.toml:",
+            "\"probe/aspects\" (levels.quiet \"note\") sets probe/aspects#quiet below its default warning (the preset probe/quiet sets probe/aspects#quiet to warning), and gate.toml [decision-policy]",
+            "add decision = \"<record>\" to the \"probe/aspects\" table",
+        ],
     );
-    // probe/lenient makes the rule a warning and its aspect loud an error. A rule-wide warning
-    // keeps the rule's default but replaces the aspect's error, so it needs a decision; naming the
-    // aspect's level beside it does not.
+    loads(decision_check(
+        r#""probe/aspects" = { levels = { quiet = "note" }, decision = "D-1" }"#,
+        "probe/quiet",
+        "",
+        POLICY,
+    ));
+    refused(
+        decision_check(r#""probe/aspects" = "note""#, "probe/quiet", "", POLICY),
+        &[
+            "\"probe/aspects\" (level \"note\") sets probe/aspects#quiet below its default warning (the preset probe/quiet sets probe/aspects#quiet to warning)",
+        ],
+    );
+    loads(decision_check(
+        r#""probe/aspects" = "error""#,
+        "probe/quiet",
+        "",
+        POLICY,
+    ));
+
+    // probe/lenient sets the rule to warning and its aspect loud to error.
+    refused(
+        decision_check(r#""probe/aspects" = "note""#, "probe/lenient", "", POLICY),
+        &[
+            "\"probe/aspects\" (level \"note\") sets probe/aspects below its default warning (the preset probe/lenient sets probe/aspects to warning)",
+        ],
+    );
+    // The string form is told the table form that holds a decision.
+    refused(
+        decision_check(r#""probe/aspects" = "off""#, "probe/lenient", "", POLICY),
+        &["write it as \"probe/aspects\" = { level = \"off\", decision = \"<record>\" }"],
+    );
+    loads(decision_check(
+        r#""probe/aspects" = { level = "off", decision = "D-1" }"#,
+        "probe/lenient",
+        "",
+        POLICY,
+    ));
+    // An aspect the preset does not name falls back to the preset's rule level.
+    loads(decision_check(
+        r#""probe/aspects" = { levels = { quiet = "warning" } }"#,
+        "probe/lenient",
+        "",
+        POLICY,
+    ));
+    refused(
+        decision_check(
+            r#""probe/aspects" = { levels = { quiet = "note" } }"#,
+            "probe/lenient",
+            "",
+            POLICY,
+        ),
+        &[
+            "sets probe/aspects#quiet below its default warning (the preset probe/lenient sets probe/aspects to warning)",
+        ],
+    );
+}
+
+#[test]
+fn a_whole_rule_level_meets_each_preset_aspect_level_it_replaces_and_a_family_is_named_as_written()
+{
+    // A rule-wide warning keeps probe/lenient's rule level but replaces its aspect loud's error.
     refused(
         decision_check(
             r#""probe/aspects" = "warning""#,
@@ -2086,7 +2108,7 @@ fn under_a_decision_policy_the_default_is_the_presets_level() {
             POLICY,
         ),
         &[
-            "probe/aspects#loud is set to warning, below its default error (the preset probe/lenient)",
+            "\"probe/aspects\" (level \"warning\") sets probe/aspects#loud below its default error (the preset probe/lenient sets probe/aspects#loud to error)",
         ],
     );
     loads(decision_check(
@@ -2096,39 +2118,85 @@ fn under_a_decision_policy_the_default_is_the_presets_level() {
         POLICY,
     ));
     refused(
-        decision_check(r#""probe/aspects" = "note""#, "probe/lenient", "", POLICY),
-        &["probe/aspects is set to note, below its default warning (the preset probe/lenient)"],
+        decision_check(r#""probe/*" = "off""#, "probe/lenient", "", POLICY),
+        &[
+            "\"probe/*\" (level \"off\") sets probe/aspects below its default warning (the preset probe/lenient sets probe/aspects to warning)",
+            "write it as \"probe/*\" = { level = \"off\", decision = \"<record>\" }",
+        ],
     );
+    loads(decision_check(
+        r#""probe/*" = { level = "off", decision = "D-2" }"#,
+        "probe/lenient",
+        "",
+        POLICY,
+    ));
 }
 
 #[test]
-fn a_decision_covers_the_levels_of_its_own_entry_and_the_policy_off_checks_nothing() {
-    // The root decided its rule-wide warning; the project's file lowers an aspect the root left
-    // alone, so it needs its own decision.
-    let decided = r#""probe/aspects" = { level = "warning", decision = "D-1" }"#;
+fn a_decision_covers_its_own_entry_and_a_project_policy_governs_its_own_file() {
+    // The root decided its rule-wide note; the project's file lowers an aspect the root's entry
+    // does not name, so it needs its own decision under the root's policy.
+    let decided = r#""probe/aspects" = { level = "note", decision = "D-1" }"#;
+    let lowered = "\n[rules]\n\"probe/aspects\" = { levels = { quiet = \"note\" } }\n";
     refused(
-        decision_check(
-            decided,
-            "",
-            "\n[rules]\n\"probe/aspects\" = { levels = { quiet = \"note\" } }\n",
-            POLICY,
-        ),
+        decision_check(decided, "probe/lenient", lowered, POLICY),
         &[
-            "apps/one/gate.toml:",
-            "probe/aspects#quiet is set to note, below its default error",
+            "error: apps/one/gate.toml:",
+            "\"probe/aspects\" (levels.quiet \"note\") sets probe/aspects#quiet below its default warning",
+            "and gate.toml [decision-policy]",
         ],
     );
     loads(decision_check(
         decided,
-        "",
+        "probe/lenient",
         "\n[rules]\n\"probe/aspects\" = { levels = { quiet = \"note\" }, decision = \"D-3\" }\n",
         POLICY,
     ));
 
-    // Without a policy, or with one that requires nothing, the same levels load.
+    // A project's own policy governs its own file, over the root's: off, it loads; on, it refuses
+    // and names itself.
+    let own =
+        |required: bool| format!("\n[decision-policy]\nrequire-decision = {required}\n{lowered}");
+    loads(decision_check(
+        decided,
+        "probe/lenient",
+        &own(false),
+        POLICY,
+    ));
+    for root in [POLICY, ""] {
+        refused(
+            decision_check(decided, "probe/lenient", &own(true), root),
+            &[
+                "error: apps/one/gate.toml:",
+                "and apps/one/gate.toml [decision-policy]",
+            ],
+        );
+    }
+    // The root's own entries stay under the root's policy, whatever the project's says.
+    refused(
+        decision_check(
+            r#""probe/aspects" = "note""#,
+            "probe/lenient",
+            &own(false),
+            POLICY,
+        ),
+        &["error: gate.toml:", "and gate.toml [decision-policy]"],
+    );
+
+    // Without a policy, or with one that requires nothing, every level loads.
     for root in ["", "\n[decision-policy]\nrequire-decision = false\n"] {
-        loads(decision_check(r#""probe/aspects" = "off""#, "", "", root));
-        loads(decision_check(r#""probe/*" = "off""#, "", "", root));
+        loads(decision_check(
+            r#""probe/aspects" = "off""#,
+            "probe/lenient",
+            "",
+            root,
+        ));
+        loads(decision_check(
+            r#""probe/*" = "off""#,
+            "probe/lenient",
+            "",
+            root,
+        ));
         loads(decision_check(
             r#""probe/aspects" = { levels = { quiet = "note" } }"#,
             "probe/quiet",
