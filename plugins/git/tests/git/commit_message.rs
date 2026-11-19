@@ -628,7 +628,7 @@ fn pushed(repo: &Repo, options: &str) -> Vec<(String, String, String, String, St
 const PUSH_GOOD: [&str; 3] = [
     "feat(core): add the thing",
     "fix(core): mend the thing",
-    "docs: say how the thing works",
+    "docs(guide): say how the thing works",
 ];
 
 #[test]
@@ -665,6 +665,13 @@ fn each_pushed_commit_that_fails_is_reported_on_that_commit() {
                 first.clone(),
                 first.clone(),
             ),
+            // The trailer ends the body, which has no full stop then.
+            (
+                "body-full-stop",
+                format!("{:?}", Some(gate_sdk::Location::commit(third.clone()))),
+                third.clone(),
+                third.clone(),
+            ),
             (
                 "prohibited-trailers",
                 format!("{:?}", Some(gate_sdk::Location::commit(third.clone()))),
@@ -680,7 +687,7 @@ fn each_pushed_commit_that_fails_is_reported_on_that_commit() {
         "{found:?}"
     );
     assert!(
-        found[1]
+        found[2]
             .4
             .starts_with(&format!("{}: the trailer", short(&third))),
         "{found:?}"
