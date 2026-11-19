@@ -224,7 +224,7 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
 
 ## Resume point
 
-2026-11-19T22:32:41+00:00:
+2026-11-19T23:38:51+00:00:
 - First design: `ba462ff` (tests), `a491f40` (the change), `93749ae` (guards and section 9),
   `9bb5b36` (the trade test's fixture), `a6870b6` (clippy).
 - Lane ticket 224 ran the tests on `ba462ff`: the two load tests failed as expected (exit 101); the
@@ -253,6 +253,17 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
   `prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download`.
 - Measures, as the lead set them: after `gate sync` with the module cache emptied, plus one row
   for a first run on an empty cache, so the one-time cost is on record.
+- Redesign rounds: ticket 242 on `7e904e4` (pre) failed the new tests as expected (exit 101) and
+  stopped at clippy on `a9f1f95` (E0027, `unused_qualifications`), fixed in `bb7fc5d`. Ticket 251
+  on `bb7fc5d` passed 1025 tests and failed the exception test, which tested a case the
+  configuration load refuses for every command; rewritten in `65e5a55`. Ticket 256 (`round5.sh`):
+  the rewritten test fails on the redesign's tests commit with the change left out (exit 101), and
+  on `65e5a55` fmt, clippy, test (1026 passed, 0 failed, 7 ignored), deny and the release build
+  exit 0; the one-gate line reads `done in 964s with exit code 0`.
+- The release binary of ticket 256 (`target/release/gate`, from `65e5a55`) has sha256
+  `3eb84b41b421a3980363a9a4dd05b0a2321bea6a9b99c55479fe20db32922425` (`shasum -a 256`); the
+  before/after measures run against it.
+- Next: the before/after table goes into the Proof with its ticket; then review.
 - Rounds of the redesign:
   - Lane ticket 242 ran the new tests on `7e904e4`: the six that must fail exited 101 and the two
     guards exited 0. Its gates stopped at clippy (E0027, `unused_qualifications`), fixed in
