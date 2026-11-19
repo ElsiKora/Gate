@@ -687,6 +687,31 @@ impl Objects {
         }
     }
 
+    /// Whether the tree of `commit` names a file at `path`, as `git ls-tree` reads the trees.
+    /// Unlike a blob that cannot be read, this is an answer: a partial clone that cannot fetch the
+    /// file still has, or fetches, the trees that name it.
+    ///
+    /// # Errors
+    /// Fails when git cannot read the trees, as a partial clone without them cannot while the
+    /// remote is unreachable.
+    pub fn names_a_file(&mut self, commit: &str, path: &str) -> Result<bool> {
+        let listed = self.git.output(&[
+            "--literal-pathspecs",
+            "ls-tree",
+            "-z",
+            "--full-tree",
+            "--end-of-options",
+            commit,
+            "--",
+            path,
+        ])?;
+        // `<mode> SP <type> SP <object> TAB <path>`: a submodule or a directory is no file.
+        Ok(listed
+            .split(|byte| *byte == 0)
+            .filter_map(|entry| entry.split(|byte| *byte == b'\t').next())
+            .any(|head| head.split(|byte| *byte == b' ').nth(1) == Some(b"blob".as_slice())))
+    }
+
     /// Whether `name` names a commit the repository has.
     ///
     /// # Errors

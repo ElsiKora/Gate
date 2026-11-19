@@ -90,6 +90,16 @@ struct Looked {
     stale: Option<String>,
 }
 
+/// A file at `commit` that its tree names and git cannot read, for `why`: a partial clone could
+/// not fetch it. No answer is stored, so a later run with the remote reachable reads it.
+fn unfetched(commit: &str, path: &str, why: &str) -> HostError {
+    HostError::new(format!(
+        "git cannot read {path:?} at commit {commit}, though its tree names the file ({why}): a \
+         partial clone could not fetch it; run git fetch, or run gate where the remote is \
+         reachable"
+    ))
+}
+
 /// An answer [`GitHistory::remembered`] may keep.
 fn kept(answer: Answer) -> (Answer, bool) {
     (answer, true)
@@ -1566,18 +1576,23 @@ impl History for GitHistory {
     fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
         let mut read = None;
         let answer = self.remembered("read-at", &[commit, path], true, || {
-            match self.objects(|objects| objects.read_at(commit, path))? {
-                Some((blob, content)) => {
-                    read = Some(content);
-                    Ok(kept(Answer::Blob(Some(blob))))
-                }
-                // No such file at a commit the clone has: kept. A commit it lacks may come
-                // with a fetch: not kept.
-                None => Ok((
-                    Answer::Blob(None),
-                    self.objects(|objects| objects.has_commit(commit))?,
-                )),
+            let found = self
+                .objects(|objects| objects.read_at(commit, path))
+                .map_err(|error| self.unread(commit, path, error))?;
+            if let Some((blob, content)) = found {
+                read = Some(content);
+                return Ok(kept(Answer::Blob(Some(blob))));
             }
+            // A commit the clone lacks may come with a fetch: no file, not kept.
+            if !self.objects(|objects| objects.has_commit(commit))? {
+                return Ok((Answer::Blob(None), false));
+            }
+            // No file only when the commit's tree names none: a partial clone that cannot fetch
+            // the file has not answered.
+            if !self.objects(|objects| objects.names_a_file(commit, path))? {
+                return Ok(kept(Answer::Blob(None)));
+            }
+            Err(unfetched(commit, path, "git reads it as missing"))
         })?;
         let Answer::Blob(blob) = answer else {
             return Err(HostError::new("a stored read-at answer is not a blob id"));
@@ -1592,24 +1607,33 @@ impl History for GitHistory {
                 .insert(blob, content.clone());
             return Ok(Some(content));
         }
-        // A stored answer: the content an earlier run stored, else git's.
+        // A stored answer: the content an earlier run stored, else git's by its id. A found file
+        // whose content neither has is no answer, never "no file".
         if let Some(content) = Cache::from_env()
             .ok()
             .and_then(|cache| crate::cache::answers::blob(&cache, &blob))
         {
             return Ok(Some(content));
         }
-        if !crate::git::is_object_id(&blob) {
-            return Err(HostError::new("a stored read-at answer names no object id"));
-        }
-        let content = self.objects(|objects| objects.blob(&blob))?;
-        if let Some(content) = &content {
-            self.blobs
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(blob, content.clone());
-        }
-        Ok(content)
+        let content = match self.objects(|objects| objects.blob(&blob)) {
+            Ok(Some(content)) => content,
+            failed => {
+                let why = failed.err().map_or_else(
+                    || "git has no such object".to_owned(),
+                    |error| error.to_string(),
+                );
+                return Err(HostError::new(format!(
+                    "the cache says {path:?} at commit {commit} is the file {blob}, but neither \
+                     the cache nor git has its content ({why}): run git fetch, or gate cache \
+                     prune to drop the stored answers"
+                )));
+            }
+        };
+        self.blobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(blob, content.clone());
+        Ok(Some(content))
     }
 
     fn is_ancestor(
@@ -1741,6 +1765,15 @@ impl GitHistory {
     /// The answer to a question about the full commit ids `of`: stored by an earlier run, or
     /// asked now and kept. A question about anything else (a ref, an abbreviated id), one that
     /// is not `lasting`, or one whose answer `ask` says not to keep, is asked and not kept.
+    /// The error of a reader that failed on `path` at `commit`: when the commit's tree names the
+    /// file, a partial clone could not fetch it, which [`unfetched`] says; else git's own `error`.
+    fn unread(&self, commit: &str, path: &str, error: HostError) -> HostError {
+        match self.objects(|objects| objects.names_a_file(commit, path)) {
+            Ok(true) => unfetched(commit, path, error.message()),
+            _ => error,
+        }
+    }
+
     fn remembered(
         &self,
         kind: &'static str,
