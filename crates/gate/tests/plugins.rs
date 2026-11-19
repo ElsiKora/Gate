@@ -2465,7 +2465,7 @@ fn doc_repo(plugin: &str, rules: &str, generate: &str) -> Repo {
 fn doc_run(repo: &Repo, plugin: &str, wasm: &Path, arguments: &[&str]) -> (Option<i32>, String) {
     let local = format!("{plugin}={}", wasm.display());
     let mut arguments = arguments.to_vec();
-    arguments.extend(["--plugin", &local]);
+    arguments.extend(["--plugin", local.as_str()]);
     let output = repo.gate(&arguments);
     (
         output.status.code(),
