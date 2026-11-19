@@ -43,3 +43,12 @@ skip can write it as options of `git/commit-message`, at parity with commitlint'
 
 2026-11-19: branch `task/T-036-commit-message-options` from `release/v0.2.0` at `264264f`; this file
 first.
+2026-11-19: written. `header-pattern` (named groups, JavaScript reading: ASCII classes, `.` without
+line terminators), `ignores` and `default-ignores` in `plugins/git/src/commit_message.rs`; the
+breaking form is still read with the conventional breaking pattern first, as commitlint's preset
+reads it, so a custom pattern's scope does not apply to `type(scope)!:` headers. Tests: the 30
+messages of a header-regex policy, a pattern that does not compile or has no `type` group, an
+ignore that does not compile, `default-ignores = false` with `fixup! x`, the JavaScript reading.
+An option error reaches the user as exit 2 labelled "environment error", as every rule's option
+error does today (branch-name, main-history): the host labels a rule's error, not the rule. No
+native cargo run; the lane round runs the gates.

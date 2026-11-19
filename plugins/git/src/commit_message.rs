@@ -11,9 +11,10 @@
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Location, Result, Rule, Run, Scope};
+use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
 use regex::Regex;
 
+use crate::branch_name::ascii_classes;
 use crate::settings::pattern;
 
 /// The rule.
@@ -47,6 +48,17 @@ pub struct Options {
     pub body_max_line_length: usize,
     /// The longest footer line; a line with a URL is never too long (`footer-max-line-length`).
     pub footer_max_line_length: usize,
+    /// The header's regular expression (`headerPattern` of the parser), with the named groups
+    /// `type`, `scope` and `subject`; unset, the conventional one. A header of the breaking form
+    /// (`type(scope)!: subject`) is read with the conventional breaking pattern first, as the
+    /// reference reads it.
+    pub header_pattern: Option<String>,
+    /// Regular expressions of messages that are not checked (`ignores`), besides the default ones.
+    pub ignores: Vec<String>,
+    /// Whether the reference's default ignores apply (`defaultIgnores`): merges, reverts,
+    /// reapplies, `amend!`, `fixup!` and `squash!` commits, and a release whose header is a
+    /// version.
+    pub default_ignores: bool,
 }
 
 impl Default for Options {
@@ -65,6 +77,9 @@ impl Default for Options {
             subject_min_length: 3,
             body_max_line_length: 100,
             footer_max_line_length: 100,
+            header_pattern: None,
+            ignores: Vec::new(),
+            default_ignores: true,
         }
     }
 }
@@ -105,7 +120,7 @@ impl Rule for CommitMessage {
     const READS_HISTORY: bool = true;
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
-        let patterns = Patterns::new()?;
+        let patterns = Patterns::new(run.options())?;
         let Some(message) = run.git()?.message() else {
             return Ok(());
         };
@@ -136,7 +151,9 @@ fn verdicts(
     }
     // `commitlint --edit` appends a line feed to the file it reads.
     let raw = format!("{message}\n");
-    if ignored(&raw, patterns) {
+    if (options.default_ignores && ignored(&raw, patterns))
+        || patterns.ignores.iter().any(|ignore| ignore.is_match(&raw))
+    {
         return None;
     }
     let parsed = Parsed::read(&raw, patterns);
@@ -154,8 +171,10 @@ type Failure = (&'static str, String, String);
 struct Patterns {
     /// `conventional-changelog-conventionalcommits`' header with `!`, tried first.
     breaking: Regex,
-    /// Its header.
+    /// Its header, or `header-pattern`.
     header: Regex,
+    /// The messages `ignores` skips.
+    ignores: Vec<Regex>,
     /// A quoted span, which a case check skips.
     quoted: Regex,
     /// A first character that has a case.
@@ -166,18 +185,37 @@ struct Patterns {
 }
 
 impl Patterns {
-    fn new() -> Result<Self> {
-        // `.` of JavaScript, which matches no line terminator.
-        let any = r"[^\n\r\u{2028}\u{2029}]";
+    fn new(options: &Options) -> Result<Self> {
+        let any = ANY;
+        let header = match &options.header_pattern {
+            Some(text) => header_pattern(text)?,
+            None => pattern(
+                "the header pattern",
+                &format!(
+                    r"^(?<type>[0-9A-Za-z_]*)(?:\((?<scope>{any}*)\))?!?: (?<subject>{any}*)$"
+                ),
+            )?,
+        };
+        let ignores = options
+            .ignores
+            .iter()
+            .map(|text| {
+                Regex::new(&javascript(text)).map_err(|error| {
+                    Error::new(format!(
+                        "git/commit-message ignores {text:?} is not a valid regular expression; \
+                         write a JavaScript regular expression the messages to skip match, such \
+                         as \"^Merge \": {error}"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         Ok(Self {
             breaking: pattern(
                 "the header pattern",
-                &format!(r"^([0-9A-Za-z_]*)(?:\(({any}*)\))?!: ({any}*)$"),
+                &format!(r"^(?<type>[0-9A-Za-z_]*)(?:\((?<scope>{any}*)\))?!: (?<subject>{any}*)$"),
             )?,
-            header: pattern(
-                "the header pattern",
-                &format!(r"^([0-9A-Za-z_]*)(?:\(({any}*)\))?!?: ({any}*)$"),
-            )?,
+            header,
+            ignores,
             quoted: pattern(
                 "the quoted-span pattern",
                 &format!("`{any}*?`|\"{any}*?\"|'{any}*?'"),
@@ -193,6 +231,62 @@ impl Patterns {
             )?,
         })
     }
+}
+
+/// `.` of JavaScript, which matches no line terminator.
+const ANY: &str = r"[^\n\r\u{2028}\u{2029}]";
+
+/// What to write in `header-pattern`.
+const WRITE_HEADER: &str = "write a JavaScript regular expression with the named groups type, \
+                            scope and subject, such as \
+                            ^(?<type>\\w+)(?:\\((?<scope>[a-z0-9-]+)\\))?!?: (?<subject>.+)$";
+
+/// `header-pattern`, which must compile and name a `type` group.
+///
+/// # Errors
+/// When it does not compile or has no `type` group, naming the option and what to write.
+fn header_pattern(text: &str) -> Result<Regex> {
+    let header = Regex::new(&javascript(text)).map_err(|error| {
+        Error::new(format!(
+            "git/commit-message header-pattern {text:?} is not a valid regular expression; \
+             {WRITE_HEADER}: {error}"
+        ))
+    })?;
+    if !header.capture_names().flatten().any(|name| name == "type") {
+        return Err(Error::new(format!(
+            "git/commit-message header-pattern {text:?} has no group named type; {WRITE_HEADER}"
+        )));
+    }
+    Ok(header)
+}
+
+/// `text`, a JavaScript regular expression without flags, as JavaScript reads it: `.` matches no
+/// line terminator, and `\w`, `\d`, `\b` and their negations are ASCII.
+fn javascript(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    let mut in_class = false;
+    while let Some(character) = chars.next() {
+        match character {
+            '\\' => {
+                out.push(character);
+                if let Some(escaped) = chars.next() {
+                    out.push(escaped);
+                }
+            }
+            '[' if !in_class => {
+                in_class = true;
+                out.push(character);
+            }
+            ']' if in_class => {
+                in_class = false;
+                out.push(character);
+            }
+            '.' if !in_class => out.push_str(ANY),
+            _ => out.push(character),
+        }
+    }
+    ascii_classes(&out)
 }
 
 /// Whitespace as JavaScript's `\s` and `trim` know it.
@@ -383,15 +477,15 @@ impl Parsed {
                 .captures(header)
                 .or_else(|| patterns.header.captures(header));
             if let Some(captures) = captures {
-                let group = |index| {
+                let group = |name| {
                     captures
-                        .get(index)
+                        .name(name)
                         .map(|found| found.as_str().to_owned())
                         .filter(|text| !text.is_empty())
                 };
-                parsed.kind = group(1);
-                parsed.scope = group(2);
-                parsed.subject = group(3);
+                parsed.kind = group("type");
+                parsed.scope = group("scope");
+                parsed.subject = group("subject");
             }
             parsed.header = Some(header.to_owned());
         }
@@ -914,8 +1008,21 @@ fn body_checks(found: &mut Failures, parsed: &Parsed, options: &Options) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_pattern_is_read_as_javascript_reads_it() {
+        // `.` outside a class matches no line terminator; `\w` is ASCII; escapes stay.
+        assert_eq!(
+            javascript(r"^a.b[.]\.\w$"),
+            r"^a[^\n\r\u{2028}\u{2029}]b[.]\.[0-9A-Za-z_]$"
+        );
+        let header = header_pattern(r"^(?<type>\w+): (?<subject>.+)$").expect("compiles");
+        assert!(header.is_match("feat: add x"));
+        assert!(!header.is_match("feat: add\u{2028}x"));
+        assert!(!header.is_match("f\u{e9}at: add x"));
+    }
+
     fn parsed(message: &str) -> Parsed {
-        let patterns = Patterns::new().expect("patterns");
+        let patterns = Patterns::new(&Options::default()).expect("patterns");
         Parsed::read(&format!("{message}\n"), &patterns)
     }
 
