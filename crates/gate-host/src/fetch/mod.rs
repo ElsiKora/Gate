@@ -826,7 +826,7 @@ fn within<B>(request: ureq::RequestBuilder<B>, deadline: Instant) -> ureq::Reque
 /// The one error of a request that ran out of time, whichever phase it was in. A connection
 /// that is not made in time carries the launcher's hint about the network and the proxy.
 fn timed_out(what: &str, url: &str, timeout: ureq::Timeout, bounds: Bounds) -> Error {
-    let seconds = |bound: Duration| bound.as_secs_f64();
+    let seconds = |limit: Duration| limit.as_secs_f64();
     let reason = match timeout {
         ureq::Timeout::Resolve | ureq::Timeout::Connect => format!(
             "no connection within {} s; check the network (and HTTPS_PROXY, if one is needed) and try again",

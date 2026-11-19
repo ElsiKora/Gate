@@ -208,15 +208,12 @@ fn answer(stream: TcpStream, routes: &Mutex<HashMap<String, Route>>, log: &Mutex
     }
     head.push_str("\r\n");
     let _ = stream.write_all(head.as_bytes());
-    match route.stall {
-        Some((sent, hold)) => {
-            let _ = stream.write_all(&route.body[..sent.min(route.body.len())]);
-            let _ = stream.flush();
-            std::thread::sleep(hold);
-        }
-        None => {
-            let _ = stream.write_all(&route.body);
-        }
+    if let Some((sent, hold)) = route.stall {
+        let _ = stream.write_all(&route.body[..sent.min(route.body.len())]);
+        let _ = stream.flush();
+        std::thread::sleep(hold);
+    } else {
+        let _ = stream.write_all(&route.body);
     }
     let _ = stream.flush();
 }
