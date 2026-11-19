@@ -115,4 +115,5 @@ lane round on the fix commit, its exit codes in a Proof section.
 the deadline and the bounds made its three `stream` calls longer); test, deny and build skipped by the
 lane rule. `download_into` now streams every 200 answer through one closure. Read against the lints
 that stopped other rounds: the timeout closure's `bound` beside `bounds` (`similar_names`) and the test
-server's two-arm `match` on the stall (`single_match_else`) changed. Next: the round again.
+server's two-arm `match` on the stall (`single_match_else`) changed, and the new test's empty-`tmp`
+assertion compares with `assert_eq!` (`assert_is_empty`). Next: the round again.

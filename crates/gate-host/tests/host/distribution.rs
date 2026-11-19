@@ -119,8 +119,9 @@ fn fails_within_the_bound(route: Route, body: &[u8]) {
         "{message}"
     );
     assert_eq!(cache.get(&pin.sha256).expect("read"), None);
-    assert!(
-        files(&cache_dir.path().join("tmp")).is_empty(),
+    assert_eq!(
+        files(&cache_dir.path().join("tmp")),
+        BTreeMap::new(),
         "no temporary file is left"
     );
 }
