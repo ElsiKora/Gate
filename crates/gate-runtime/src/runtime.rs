@@ -507,7 +507,7 @@ impl Runtime {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            let request = request_to_wit(&request);
+            let request = request_to_wit(&request, &call.grant);
             let (answer, read_set, log) =
                 self.invoke(plugin, &label, access, |bindings, store| {
                     bindings.call_check(store, &request)
@@ -812,7 +812,10 @@ fn info_from(info: wit::PluginInfo) -> PluginInfo {
     }
 }
 
-fn request_to_wit(request: &CheckRequest) -> wit::CheckRequest {
+/// The request as the plugin reads it. Its options files are repository paths in `request`, as the
+/// core read them; the plugin addresses every path relative to `grant`'s root, so it gets them that
+/// way, and a finding it reports at one is mapped back to the repository once.
+fn request_to_wit(request: &CheckRequest, grant: &Grant) -> wit::CheckRequest {
     wit::CheckRequest {
         project: request.project.clone(),
         rules: request
@@ -821,7 +824,10 @@ fn request_to_wit(request: &CheckRequest) -> wit::CheckRequest {
             .map(|rule| wit::RuleRun {
                 name: rule.name.clone(),
                 options: rule.options.clone(),
-                options_file: rule.options_file.clone(),
+                options_file: rule
+                    .options_file
+                    .as_deref()
+                    .map(|file| grant.to_plugin(file)),
                 exceptions: rule.exceptions.clone(),
             })
             .collect(),

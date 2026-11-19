@@ -74,7 +74,8 @@ interface types {
     name: string,
     /// JSON, already validated by the host against the rule's schema.
     options: string,
-    /// The tracked file the options came from, readable by the rule.
+    /// The tracked file the options came from, readable by the rule: relative to the scope's root,
+    /// as every path the plugin addresses.
     options-file: option<string>,
     /// The targets of this rule's exceptions, for rules whose result depends on them.
     exceptions: list<string>,

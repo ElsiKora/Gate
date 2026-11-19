@@ -1383,6 +1383,91 @@ fn a_rule_a_preset_enables_with_its_required_option_can_be_turned_off() {
     assert_eq!(messages, Vec::<String>::new());
 }
 
+/// `gate check` with the built probe in each report format: its exit code and output, by format.
+fn probe_check_formats(repo: &Repo) -> Vec<(&'static str, Option<i32>, String)> {
+    let plugin = format!("probe={}", probe().0.display());
+    ["text", "json", "sarif"]
+        .into_iter()
+        .map(|format| {
+            let output = repo.gate(&["check", "--plugin", &plugin, "--format", format]);
+            (format, output.status.code(), text(&output.stdout))
+        })
+        .collect()
+}
+
+#[test]
+fn a_finding_in_a_nested_projects_option_file_names_its_path_once() {
+    let repo = probe_repo("");
+    repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"gate/options/probe/read.json\" }\n",
+    );
+    repo.write(
+        "apps/one/gate/options/probe/read.json",
+        "{ \"at_options_file\": true }\n",
+    );
+    repo.commit("an option file in a nested project");
+
+    // The rule addresses its option file from the project's root and can read it.
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        ["options file gate/options/probe/read.json: { \"at_options_file\": true }"]
+    );
+    for (format, code, output) in probe_check_formats(&repo) {
+        assert_eq!(code, Some(1), "{format}: {output}");
+        assert!(
+            output.contains("apps/one/gate/options/probe/read.json"),
+            "{format}: {output}"
+        );
+        assert!(!output.contains("apps/one/apps/one"), "{format}: {output}");
+    }
+}
+
+#[test]
+fn a_finding_in_the_option_file_of_a_single_project_repository_names_its_path() {
+    let repo = Repo::empty();
+    let source = "acme/rules:probe@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[rules]\n\"probe/read\" = {{ level = \"error\", options-file = \"gate/options/probe/read.json\" }}\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/probe.wasm",
+            &"b".repeat(64),
+        ),
+    );
+    repo.write(
+        "gate/options/probe/read.json",
+        "{ \"at_options_file\": true }\n",
+    );
+    repo.commit("an option file at the root");
+
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        ["options file gate/options/probe/read.json: { \"at_options_file\": true }"]
+    );
+    for (format, code, output) in probe_check_formats(&repo) {
+        assert_eq!(code, Some(1), "{format}: {output}");
+        assert!(
+            output.contains("gate/options/probe/read.json"),
+            "{format}: {output}"
+        );
+        assert!(
+            !output.contains("gate/options/probe/gate/"),
+            "{format}: {output}"
+        );
+    }
+}
+
 #[test]
 fn a_rule_turned_off_through_its_family_needs_no_options() {
     // A preset enables probe/needs without its required option, the root gives it a norm only,

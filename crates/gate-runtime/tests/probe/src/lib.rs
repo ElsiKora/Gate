@@ -13,7 +13,8 @@ pub struct ProbeOptions {
 
 /// Reads the `paths` of its options and lists `list`, one finding per answer, and reports the
 /// plugin's `label` when it is set; reports one more finding at `at` (with aspect `aspect`) when it
-/// is set, and one at commit `commit`.
+/// is set, one at commit `commit`, and, with `at_options_file`, one at the file its options came
+/// from, whose message is what reading that file answers.
 #[derive(Debug, Default)]
 pub struct Read;
 
@@ -29,6 +30,8 @@ pub struct ReadOptions {
     aspect: String,
     #[serde(default)]
     commit: Option<String>,
+    #[serde(default)]
+    at_options_file: bool,
 }
 
 impl Rule for Read {
@@ -60,6 +63,15 @@ impl Rule for Read {
         }
         if let Some(commit) = run.options().commit.clone() {
             run.report().finding("", Location::commit(commit), "commit");
+        }
+        if run.options().at_options_file
+            && let Some(file) = run.options_file().map(str::to_owned)
+        {
+            let message = match tree.text(&file) {
+                Some(text) => format!("options file {file}: {}", text.trim()),
+                None => format!("options file {file}: none"),
+            };
+            run.report().finding("", Location::file(file), message);
         }
         Ok(())
     }
