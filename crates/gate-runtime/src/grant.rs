@@ -171,8 +171,7 @@ impl Grant {
             return self.scan(paths, prefix);
         };
         let first = paths.partition_point(|path| path.as_str() < start.as_str());
-        let search =
-            usize::try_from(usize::BITS - paths.len().leading_zeros()).unwrap_or(usize::MAX);
+        let search = usize::try_from(paths.len().bit_width()).unwrap_or(usize::MAX);
         let mut examined = 0;
         let listed = paths[first..]
             .iter()
