@@ -180,6 +180,36 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
   all exit 0 in the gates on the pushed commit.
 - Do not edit docs/plan.md; the lead keeps it.
 
+## Proof
+
+### Item 7: wasmtime's compile settings
+
+Lane ticket 243 (Gate 005), 2026-11-19T20:59:06 to 20:59:40 UTC, exit 0. The script was
+`measure-consumer.sh`: `GATE_T047_COMPILE=<variant> GATE_CACHE_DIR=<cache> gate check --rule
+'nestjs/*' --timings` on the consumer copy, network denied. Each variant ran once cold (a fresh
+cache seeded with the released archives only) and once warm. The binary was the measurement
+build of lane ticket 233: `93749ae` plus the uncommitted `GATE_T047_COMPILE` switch in
+`Runtime::new`, sha256 `818f5066…`. That build compiles `nestjs` alone, so a cold row is one
+plugin's compile, not lane ticket 205's seven. The machine's load average was 46 to 51 on 18
+CPUs, with one sample per row. Exit 1 in every row is the tree's findings. Fuel was equal in
+every variant.
+
+| Variant | Run | Wall | Gate total | `load` | `plugins` |
+| --- | --- | --- | --- | --- | --- |
+| today (parallel on, opt `Speed`) | cold | 3.81 s | 3 749 ms | 1 342 ms | 2 203 ms |
+| today | warm | 0.29 s | 229 ms | 60 ms | 6 ms |
+| parallel compilation off | cold | 16.53 s | 16 288 ms | 12 920 ms | 2 707 ms |
+| parallel compilation off | warm | 0.36 s | 299 ms | 62 ms | 6 ms |
+| opt level `None` | cold | 5.67 s | 5 519 ms | 2 250 ms | 3 123 ms |
+| opt level `None` | warm | 0.40 s | 321 ms | 96 ms | 6 ms |
+| opt level `SpeedAndSize` | cold | 4.58 s | 4 519 ms | 2 562 ms | 1 742 ms |
+| opt level `SpeedAndSize` | warm | 0.33 s | 253 ms | 67 ms | 11 ms |
+
+What is on today stays: no variant lowered the cold total. Parallel compilation off is about ten
+times slower to load (12 920 ms against 1 342 ms). Neither opt level beat `Speed` cold. The gaps
+between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at a load near 50.
+`Runtime::new` is unchanged, and the switch was never committed.
+
 ## Open items
 
 - **T-057, v0.3.0: a `--commit-message` check checks only the message.** The lead decided this
