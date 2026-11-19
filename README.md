@@ -343,8 +343,9 @@ forbidden-packages = ["@nestjs/swagger"]
 ```
 
 ```bash
-git add apps/server/gate.toml
+git add gate.toml apps/server/gate.toml
 bin/gate lock                               # pin the plugins the new files name
+git add gate.lock
 bin/gate list --origin                      # projects, plugins and rules, and where each came from
 bin/gate check --changed --base origin/main # only the projects a change touches, and their dependents
 ```

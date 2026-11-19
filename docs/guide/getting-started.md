@@ -145,7 +145,7 @@ budget = 10
 
 ```bash
 bin/gate sync
-git add .githooks
+git add gate.toml .githooks
 ```
 
 `gate sync` writes the hooks into `.githooks/` and sets `core.hooksPath` once for the clone; every
@@ -173,7 +173,7 @@ run = ["check --push --format github"]
 
 ```bash
 bin/gate sync
-git add .github/workflows/gate.yml
+git add gate.toml .github/workflows/gate.yml
 ```
 
 `gate sync` writes the workflow file; commit it. `checkout` pins the checkout action by its full commit
