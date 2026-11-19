@@ -186,6 +186,26 @@ impl GitQuery {
         })
     }
 
+    /// Whether `recorded`, what a call recorded for this question, can never change, so a stored
+    /// result need not ask it again: an answer about commit ids, except an `is-ancestor` no, which
+    /// a fetch can turn into a yes.
+    #[must_use]
+    pub fn lasting(&self, recorded: &[String]) -> bool {
+        match self {
+            Self::Tree { .. }
+            | Self::MergeTree { .. }
+            | Self::ChangedPaths { .. }
+            | Self::ReadAt { .. } => true,
+            Self::IsAncestor { .. } => recorded.is_empty(),
+            Self::Head
+            | Self::Branch
+            | Self::Range
+            | Self::Resolve { .. }
+            | Self::Log { .. }
+            | Self::SyncState { .. } => false,
+        }
+    }
+
     /// The question as words, the kind first: what the result cache stores.
     #[must_use]
     pub fn to_words(&self) -> Vec<String> {

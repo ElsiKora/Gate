@@ -100,6 +100,9 @@ impl Stored {
             return Some("the change selection".to_owned());
         }
         for (query, recorded) in &self.read_set.git {
+            if query.lasting(recorded) {
+                continue;
+            }
             let holds = history
                 .is_some_and(|history| query.depends_on(history).is_ok_and(|now| now == *recorded));
             if !holds {
