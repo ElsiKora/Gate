@@ -20,7 +20,9 @@ skip can write it as options of `git/commit-message`, at parity with commitlint'
 1. `header-pattern`: one regular expression with the named groups `type`, `scope` and `subject`, read
    as JavaScript reads one without flags (ASCII `\w`, `\d`, `\b`). Unset, the header is read as today,
    with the conventional pattern. The breaking header (`type(scope)!: subject`) stays the parser's one
-   path, tried first as the preset tries it. A pattern that does not compile, or has no `type`
+   path, tried first as the preset tries it, unless `header-pattern` is set: then that one pattern
+   decides the header, a breaking `!` included (the lead's decision). A pattern that does not
+   compile, or has no `type`
    group, is a configuration error that names the option and says what to write.
 2. `ignores`: regular expressions; a message one matches is not checked. They are added to the
    default ignores.
@@ -52,3 +54,6 @@ ignore that does not compile, `default-ignores = false` with `fixup! x`, the Jav
 An option error reaches the user as exit 2 labelled "environment error", as every rule's option
 error does today (branch-name, main-history): the host labels a rule's error, not the rule. No
 native cargo run; the lane round runs the gates.
+2026-11-19: lead's decision: a custom `header-pattern` replaces the breaking path too; the default
+keeps the breaking pattern first. The policy test now expects `feat(a)!: add x` to pass and
+`feat(a_b)!: add x` to fail; ticket 175 had not started, so it builds this tip.
