@@ -33,6 +33,16 @@ Built for the plugin interface `gate:plugin@0.3.0`.
   `getters` and `external-keys`. No finding holds a value of the example file. A baseline entry's
   fingerprint holds the aspect: after the upgrade, check that `gate check` reports the same files
   under `boundary`, then run `gate baseline write` once.
+- `nestjs/wrappers#raw-nest-exception`: a construction whose arguments read a plain parameter of
+  its scope's own function (no default, no destructuring, never reassigned) has the scope form of
+  the target, with the parameter in its `parameters` list:
+  `src/x.ts: findListed parameters baseUrl: new BadRequestException({ baseUrl })`. Such a
+  construction had the line form `<path>:<line>: <construction>`; an exception that named it by
+  that line form must name it by the scope form now. A read of a local variable, of a reassigned
+  or defaulted parameter or of `arguments` keeps the line form.
+- `nestjs/wrappers` option `reporter-adapters`: an entry also matches a class that implements the
+  named export, an interface port, not only one that extends it. Its field `class` is renamed
+  `port`, with no alias: an entry with `class` is an options error until it says `port`.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.2.0...plugin-nestjs-v0.2.1) (2026-11-20)
 

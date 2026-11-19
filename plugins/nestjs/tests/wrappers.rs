@@ -314,7 +314,9 @@ fn callback_parameters_are_named_and_other_local_reads_are_not() {
             at(
                 "raw-nest-exception",
                 8,
-                Some(&format!("{path}:8: new BadRequestException({{ limit }})"))
+                Some(&format!(
+                    "{path}: ShelfFactory.create parameters limit: new BadRequestException({{ limit }})"
+                ))
             ),
             at(
                 "raw-nest-exception",
@@ -331,6 +333,77 @@ fn callback_parameters_are_named_and_other_local_reads_are_not() {
                 ))
             ),
         ]
+    );
+}
+
+#[test]
+fn own_parameters_are_named_and_reassigned_or_defaulted_ones_and_locals_are_not() {
+    let path = "src/modules/shelf/finder.ts";
+    let text = "import { BadRequestException } from \"@nestjs/common\";\n\
+                export class ShelfFinder {\n\
+                 findListed(baseUrl: string): void {\n\
+                  check();\n\
+                  throw new BadRequestException({ baseUrl });\n\
+                 }\n\
+                 moved(limit: number): void {\n\
+                  check();\n\
+                  limit = limit + 1;\n\
+                  throw new BadRequestException({ limit });\n\
+                 }\n\
+                 local(): void {\n\
+                  check();\n\
+                  const shelf = read();\n\
+                  throw new BadRequestException({ shelf });\n\
+                 }\n\
+                 nested(owner: string, items: Array<Item>): void {\n\
+                  check();\n\
+                  items.forEach((item: Item) => { throw new BadRequestException({ item, owner }); });\n\
+                 }\n\
+                }\n\
+                export function listShelves(page: number, size = 10): void {\n\
+                 if (page > 1) throw new BadRequestException({ page });\n\
+                 throw new BadRequestException({ size });\n\
+                }\n";
+    let named = |scope: &str, construction: &str| {
+        Some(format!(
+            "{path}: {scope}: new BadRequestException({{ {construction} }})"
+        ))
+    };
+    let lined = |line: u32, construction: &str| {
+        Some(format!(
+            "{path}:{line}: new BadRequestException({{ {construction} }})"
+        ))
+    };
+    let expected = [
+        (
+            5,
+            named("ShelfFinder.findListed parameters baseUrl", "baseUrl"),
+        ),
+        (10, lined(10, "limit")),
+        (15, lined(15, "shelf")),
+        (
+            19,
+            named("ShelfFinder.nested parameters owner, item", "item, owner"),
+        ),
+        (23, named("listShelves parameters page", "page")),
+        (24, lined(24, "size")),
+    ];
+
+    assert_eq!(
+        located_targets("{}", &[], &[(path, text)]),
+        expected
+            .iter()
+            .map(|(line, target)| at("raw-nest-exception", *line, target.as_deref()))
+            .collect::<Vec<_>>()
+    );
+
+    // An exception names the construction by its scope form.
+    let exception =
+        named("ShelfFinder.findListed parameters baseUrl", "baseUrl").expect("a scope form");
+    assert!(
+        !located_targets("{}", &[exception.as_str()], &[(path, text)])
+            .iter()
+            .any(|(_, line, _)| *line == Some(5))
     );
 }
 
@@ -499,7 +572,7 @@ fn reporter_adapters_are_an_option() {
                 export class ReportAdapter extends ReporterPort {\n\
                  report(error: Error) { return this.sink.report(error); }\n\
                 }\n";
-    let options = r#"{ "reporter-adapters": [{ "module": "@common/report", "class": "ReporterPort", "method": "report", "path-prefix": "src/infrastructure/" }] }"#;
+    let options = r#"{ "reporter-adapters": [{ "module": "@common/report", "port": "ReporterPort", "method": "report", "path-prefix": "src/infrastructure/" }] }"#;
 
     assert_eq!(
         check(RULE, "{}", &[(path, text)]),
@@ -511,6 +584,34 @@ fn reporter_adapters_are_an_option() {
         )]
     );
     assert_eq!(check(RULE, options, &[(path, text)]), []);
+    // The port is `port`; `class` is no option.
+    assert!(error(RULE, &options.replace("\"port\"", "\"class\""), &[]).contains("class"));
+}
+
+#[test]
+fn a_reporter_adapter_may_implement_an_interface_port() {
+    let path = "src/infrastructure/report/adapter.ts";
+    let text = "import type { ReporterPort } from \"@common/report\";\n\
+                import { AuditPort } from \"@common/audit\";\n\
+                export class ReportAdapter implements ReporterPort {\n\
+                 report(error: Error) { return this.sink.report(error); }\n\
+                }\n\
+                export class AuditAdapter implements AuditPort {\n\
+                 report(error: Error) { return this.sink.report(error); }\n\
+                }\n";
+    let options = r#"{ "reporter-adapters": [{ "module": "@common/report", "port": "ReporterPort", "method": "report", "path-prefix": "src/infrastructure/" }] }"#;
+
+    // The class implementing the port forwards at a boundary; the one implementing another
+    // interface does not.
+    assert_eq!(
+        check(RULE, options, &[(path, text)]),
+        [row(
+            "one-call-forwarding",
+            path,
+            Some(7),
+            &forwards(path, 7, "report", "this.sink.report")
+        )]
+    );
 }
 
 const TABLE: &str = "//! Generated.\n\

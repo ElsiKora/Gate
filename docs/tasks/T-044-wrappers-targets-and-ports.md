@@ -43,5 +43,6 @@ Not in scope: any other aspect of the rule; nestjs speed work (T-037 runs in par
 
 ## Resume point
 
-2026-11-19: branch `task/T-044-wrappers-targets-and-ports` from `main` at `v0.2.0`; task file
-written.
+2026-11-19T17:34:26+00:00: both changes, their tests, the rule page and the CHANGELOG are committed;
+not compiled yet. Next: one lane round (fmt, clippy, test, deny) and each change taken out with its
+tests run (each must fail).

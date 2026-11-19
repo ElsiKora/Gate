@@ -65,9 +65,11 @@ The finding's target names the construction for exceptions:
 - `<scope>` is `<Class>.<member>` for a construction in a class member, or `<function>` for one in
   a named function declared at the top level of the file, when no class of the file has that name.
 - `catch` is present when the construction lies in a `catch` clause of that scope.
-- `parameters` lists, in declaration order, the plain parameters (no default, no destructuring) of
-  the innermost callback holding the construction, other than the scope's own function, that the
-  construction's arguments read, such as the `errors` of a `ValidationPipe` `exceptionFactory`.
+- `parameters` lists, in declaration order, the plain parameters (no default, no destructuring,
+  never reassigned) that the construction's arguments read, of the scope's own function and of the
+  innermost callback holding the construction, such as the `baseUrl` of
+  `findListed(baseUrl: string)` or the `errors` of a `ValidationPipe` `exceptionFactory`:
+  `src/x.ts: findListed parameters baseUrl: new BadRequestException({ baseUrl })`.
 - `<construction>` is the construction in canonical form, with the exception's export name as its
   constructor: `new BadRequestException({ code: "INVALID" })`. When the construction is the first
   argument of a call whose callee reads no local binding, the target names the call,
@@ -82,7 +84,7 @@ spellings do not change the target; parentheses and the spelling of an object ke
 shorthand or computed) do.
 
 A construction outside such a scope, or whose arguments read another binding local to the scope
-(a parameter of the scope's own function, a local variable, `arguments`), has the target
+(a local variable, a parameter with a default or reassigned, `arguments`), has the target
 `<path>:<line>: <construction>`.
 
 ## Options
@@ -99,7 +101,7 @@ other form is an options error that shows the normal form.
 | `intrinsic-calls` | array of `[object, method]` | `[["JSON", "stringify"], ["Object", "freeze"]]` | The built-in calls of `intrinsic-alias`. |
 | `lifecycle-methods` | array of string | `["beforeApplicationShutdown", "onApplicationBootstrap", "onApplicationShutdown", "onModuleDestroy", "onModuleInit"]` | Boundary methods in every class. |
 | `framework-methods` | table of path segment to array of string | see below | Boundary methods in files whose path contains the segment. |
-| `reporter-adapters` | array of `{ module, class, method, path-prefix }` | `[]` | A class below `path-prefix` that extends `class` imported from `module` has its `method` as a boundary. |
+| `reporter-adapters` | array of `{ module, port, method, path-prefix }` | `[]` | A class below `path-prefix` that extends or implements `port`, a class or an interface imported from `module`, has its `method` as a boundary. |
 | `package-exports-file` | string | absent: no file | A tracked file listing the value exports of the known packages. |
 
 The default `framework-methods`:

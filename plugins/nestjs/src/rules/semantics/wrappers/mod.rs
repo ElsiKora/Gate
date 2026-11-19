@@ -83,8 +83,8 @@ impl Default for MessageFactory {
 pub struct ReporterAdapter {
     /// The module the port class is imported from, as the import names it.
     pub module: String,
-    /// The port class's export name, which the adapter class extends.
-    pub class: String,
+    /// The port's export name: a class the adapter class extends or an interface it implements.
+    pub port: String,
     /// The adapter's method that is a boundary.
     pub method: String,
     /// The path prefix of the files whose classes may adapt the port.
