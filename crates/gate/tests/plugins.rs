@@ -3556,10 +3556,15 @@ fn a_stored_file_whose_content_neither_the_cache_nor_git_has_is_an_error_not_abs
     std::fs::remove_dir_all(cache.join("git").join("blobs")).expect("stored blobs");
     std::fs::remove_dir_all(cache.join("results")).expect("stored results");
     reach(&second, None);
-    let output = probe_output_in(second.path(), cache, &[]);
-    failed_storing_no_absent(&output, "run git fetch", cache);
-    let output = probe_output_in(second.path(), cache, &[("GIT_NO_LAZY_FETCH", "1")]);
-    failed_storing_no_absent(&output, "run git fetch", cache);
+    for env in [&[][..], &[("GIT_NO_LAZY_FETCH", "1")][..]] {
+        let output = probe_output_in(second.path(), cache, env);
+        failed_storing_no_absent(&output, "run git fetch", cache);
+        let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+        assert!(
+            !said.contains("gate cache prune"),
+            "the question was asked again, not answered from the stored id: {said}"
+        );
+    }
 
     // With the remote back, git fetches the file by the stored id.
     reach(&second, Some(&origin));
