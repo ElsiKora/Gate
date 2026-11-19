@@ -41,6 +41,21 @@ timeout at all, and its `wget` fallback keeps wget's defaults: a 900 s read time
   release lookup, and whether it stalled in the headers or in the body. Without the outer timeout it
   would have ended at the 15-minute global timeout of that one request.
 
+## Fetch paths
+
+Every network read of a Gate run goes through one of two clients:
+
+| Path | Client | Connect bound today | Read bound today |
+| --- | --- | --- | --- |
+| The core: `gate lock` (release lookups through `Fetcher::release`, then each pinned archive through `download_checked`), plugin fetches in `gate sync` and `gate check` (`Fetcher::fetch`), `[tools]` (`tools::install`), `gate init` | the one `ureq::Agent` built in `Fetcher::new` | 30 s (`timeout_connect`) | none; only the 15-minute `timeout_global` of the request |
+| `bin/gate`: the core archive (`anonymous`, every redirect hop), a private release's JSON and asset | `curl`, else `wget` | curl's built-in 300 s; wget's 900 s | none for curl; wget's 900 s, with 20 tries |
+
+The core starts no other network client: its `git` commands read the local repository only, and
+`gh auth token` reads the local login. A second report fits the table: `gate lock` started through
+`bin/gate` failed with curl's exit 28 and exit 2, a connect timeout in the launcher's core download,
+before the core ran. The connect step has a bound on both paths; the read step has none that is
+short.
+
 ## Scope
 
 1. The core's agent (`Fetcher::new`) adds ureq 3.5.2's own per-read timeout,
@@ -85,6 +100,8 @@ timeout at all, and its `wget` fallback keeps wget's defaults: a 900 s read time
 
 ## Resume point
 
-2026-11-19: branch `task/T-046-download-timeout` from main `89c42c7`. Task file written from the
-reproduction above; no code yet. Next: the lead's word on scope (item 3, the launcher, is in because
-`bin/gate` downloads the core the same way), then the change and the tests.
+2026-11-19: branch `task/T-046-download-timeout` on main `105ca02`. Task file written from the
+reproduction above and the fetch paths traced; scope approved by the lead, launcher included. No
+code yet: the lead first decides whether `gate baseline prune`'s 0.1.0-to-0.2.0 gap (54 of 361
+entries not re-keyed) goes before it. Next: the core's per-read bound and message, the launcher's
+flags, then the tests.
