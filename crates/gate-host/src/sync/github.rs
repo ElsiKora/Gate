@@ -29,6 +29,14 @@ const RANGE: &str = "${{ github.event.pull_request.base.sha || github.event.befo
 const TARGET_REF: &str =
     "${{ github.base_ref && format('refs/heads/{0}', github.base_ref) || github.ref }}";
 
+/// The group of a run: one per workflow and ref, so a pull request's runs (`refs/pull/<n>/merge`)
+/// and a branch's runs (`refs/heads/<name>`) each queue apart.
+const CONCURRENCY_GROUP: &str = "${{ github.workflow }}-${{ github.ref }}";
+
+/// Whether a newer run of the group cancels the one in progress: for a pull request, whose older
+/// commits no longer matter; never for a push, so a push to main never cancels a running main check.
+const CANCEL_IN_PROGRESS: &str = "${{ github.event_name == 'pull_request' }}";
+
 /// The token a `bin/gate` step reads private plugin releases with: the repository secret
 /// `GATE_GITHUB_TOKEN` when it is set, else the job's own token. Only `bin/gate` steps get it; other
 /// steps and actions do not.
@@ -117,6 +125,10 @@ pub fn workflow(
             "pull_request": { "branches": branches },
         },
         "permissions": { "contents": "read" },
+        "concurrency": {
+            "group": CONCURRENCY_GROUP,
+            "cancel-in-progress": CANCEL_IN_PROGRESS,
+        },
         "jobs": jobs,
     });
 

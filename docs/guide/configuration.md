@@ -454,6 +454,11 @@ a job that lists `projects` is skipped when none of them changed. Generated `che
 `--no-overrides`, and `--budget <seconds> --budget-fails` when the job sets `budget`. `gate sync` writes
 the workflow; `gate sync --check` reports drift. Root file only.
 
+The workflow's runs share a `concurrency` group per workflow and ref. A newer run of a pull request
+cancels the one still in progress for its older commit; a push to a branch never cancels a running
+check of that branch, it waits for it. GitHub keeps one waiting run per group, so a third push while
+one run works and one waits replaces the waiting run. There is no setting for this.
+
 The `bin/gate` steps of the workflow get `GATE_GITHUB_TOKEN`, the repository secret `GATE_GITHUB_TOKEN`
 when it is set, else the job's own token, and `GATE_BRANCH`, the branch under test (a pull request's
 checkout is a detached `HEAD`). Set the secret to a token that can read the releases of private

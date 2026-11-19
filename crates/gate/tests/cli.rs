@@ -1126,6 +1126,45 @@ fn every_generated_checkout_keeps_no_credentials() {
     );
 }
 
+#[test]
+fn the_workflow_cancels_superseded_pull_request_runs_and_never_main() {
+    let repo = with_root(&format!(
+        "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check --push\"]\n"
+    ));
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+
+    // It runs on pushes and pull requests, and its runs share one group per workflow and ref; a
+    // newer run cancels the one in progress for a pull request only.
+    assert!(
+        workflow.contains("\non:\n  push:\n    branches:\n      - main\n  pull_request:\n    branches:\n      - main\n"),
+        "{workflow}"
+    );
+    let concurrency = concat!(
+        "\nconcurrency:\n",
+        "  group: ${{ github.workflow }}-${{ github.ref }}\n",
+        "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
+        "jobs:\n",
+    );
+    assert_eq!(workflow.matches(concurrency).count(), 1, "{workflow}");
+    assert_eq!(workflow.matches("concurrency:").count(), 1, "{workflow}");
+    repo.commit("workflow");
+
+    // A workflow written before the group, by 0.2.0, is drift.
+    let earlier = workflow.replace(concurrency, "\njobs:\n");
+    assert_ne!(earlier, workflow);
+    repo.write(".github/workflows/gate.yml", &earlier);
+    repo.commit("a workflow from an earlier core");
+    let output = repo.gate(&["sync", "--check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("[gate/sync#ci] .github/workflows/gate.yml"),
+        "{}",
+        stdout(&output)
+    );
+}
+
 const ACTION: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// The text of one job of a workflow, from its id line to the next job.
