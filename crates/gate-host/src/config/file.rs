@@ -57,8 +57,9 @@ pub struct ConfigFile {
     #[serde(default)]
     #[schemars(with = "BTreeMap<Name, Suite>")]
     pub suites: BTreeMap<Name, Spanned<Suite>>,
-    /// Whether every exception in the `gate.exceptions.toml` beside this file needs a decision.
-    pub exception_policy: Option<ExceptionPolicy>,
+    /// Whether every relaxation of a rule this file covers needs a decision: each exception in the
+    /// `gate.exceptions.toml` beside it, and each rule entry that sets a level below its default.
+    pub decision_policy: Option<DecisionPolicy>,
     /// Root only: project settings for the projects whose roots match `projects`.
     #[serde(default)]
     #[schemars(with = "Vec<Profile>")]
@@ -346,6 +347,8 @@ pub struct RuleEntry {
     pub options: Option<serde_json::Value>,
     /// A JSON file with the rule's options, relative to this `gate.toml`.
     pub options_file: Option<RelativePath>,
+    /// The decision record that accepted the entry's levels, trimmed.
+    pub decision: Option<String>,
 }
 
 /// The table form of a `[rules]` entry.
@@ -367,11 +370,14 @@ struct RuleTable {
     options: Option<serde_json::Value>,
     /// A JSON file with the rule's options, relative to this `gate.toml`. Not with `options`.
     options_file: Option<RelativePath>,
+    /// The decision record that accepted the entry's levels; required for a level below the
+    /// default when `[decision-policy]` says so.
+    decision: Option<String>,
 }
 
 impl StringOrTable for RuleEntry {
     type Table = RuleTable;
-    const EXPECTING: &'static str = "a level (\"error\", \"warning\", \"note\", \"off\") or a table with level, norm, levels, norms, options or options-file";
+    const EXPECTING: &'static str = "a level (\"error\", \"warning\", \"note\", \"off\") or a table with level, norm, levels, norms, options, options-file or decision";
 
     fn from_str(value: &str) -> Result<Self, String> {
         Setting::parse(value).map(|level| Self {
@@ -399,6 +405,14 @@ impl StringOrTable for RuleEntry {
             ));
         }
 
+        if table
+            .decision
+            .as_deref()
+            .is_some_and(|decision| decision.trim().is_empty())
+        {
+            return Err("decision is empty; name the decision record or remove the key".to_owned());
+        }
+
         Ok(Self {
             level: table.level,
             norm: table.norm,
@@ -406,6 +420,7 @@ impl StringOrTable for RuleEntry {
             norms: table.norms,
             options: table.options,
             options_file: table.options_file,
+            decision: table.decision.as_deref().map(str::trim).map(str::to_owned),
         })
     }
 }
@@ -580,11 +595,13 @@ impl JsonSchema for Suite {
     }
 }
 
-/// `[exception-policy]`.
+/// `[decision-policy]`.
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
-pub struct ExceptionPolicy {
-    /// Every exception must name its decision record; a plugin may check that it exists.
+pub struct DecisionPolicy {
+    /// Every relaxation must name its decision record: each exception, and each rule entry whose
+    /// level, or a level in its `levels`, is below the default (the preset's level, else `error`).
+    /// A plugin may check that an exception's decision exists.
     #[serde(default)]
     pub require_decision: bool,
 }

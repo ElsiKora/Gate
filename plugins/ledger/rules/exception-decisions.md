@@ -10,7 +10,7 @@ that is not accepted, does not justify the exception.
 - Each exception with `decision`: the decision index (`[plugins.ledger] options` `decisions`) lists it
   with the status `accepted`.
 - An exception without `decision` is not this rule's finding. Whether every exception must name one
-  is `[exception-policy] require-decision` in `gate.toml`, which the host enforces when it loads the
+  is `[decision-policy] require-decision` in `gate.toml`, which the host enforces when it loads the
   configuration.
 - The finding points at the exception's `[[exception]]` line.
 

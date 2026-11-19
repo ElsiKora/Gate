@@ -12,7 +12,7 @@ mod settings;
 use std::collections::BTreeMap;
 
 pub use file::{
-    CiGithub, CiJob, CiSection, CiStep, ConfigFile, Exception, ExceptionPolicy, ExceptionsFile,
+    CiGithub, CiJob, CiSection, CiStep, ConfigFile, DecisionPolicy, Exception, ExceptionsFile,
     GateSection, GenerateEntry, HooksSection, PluginSpec, Profile, ProjectSection, ProjectSources,
     RuleEntry, RunSection, Setting, Step, StepFiles, Suite, Tool, ToolTarget, WorkspaceSection,
 };
@@ -21,7 +21,9 @@ pub use names::{
     ProjectName, RelativePath, RepositoryPath, RuleId, RuleKey, RuleRef, Version, check_relative,
     is_kebab, is_version,
 };
-pub use settings::{Options, PluginSettings, RuleSettings, SettingOrigin, Settings, Sourced};
+pub use settings::{
+    LevelSetting, Options, PluginSettings, RuleSettings, SettingOrigin, Settings, Sourced,
+};
 
 use serde::Deserialize;
 use toml::Spanned;
@@ -326,11 +328,11 @@ impl Config {
         &self.profiles
     }
 
-    /// Whether the file's `[exception-policy]` requires a decision; `None` when it has no policy.
+    /// Whether the file's `[decision-policy]` requires a decision; `None` when it has no policy.
     #[must_use]
     pub fn require_decision(&self) -> Option<bool> {
         self.file
-            .exception_policy
+            .decision_policy
             .map(|policy| policy.require_decision)
     }
 
@@ -535,7 +537,7 @@ impl Config {
                     return Err(self.error(
                         offset,
                         format!(
-                            "{prefix}[rules] \"{key}\": a family wildcard takes only a level; set norms, aspects and options on each rule"
+                            "{prefix}[rules] \"{key}\": a family wildcard takes only a level and a decision; set norms, aspects and options on each rule"
                         ),
                     ));
                 }
@@ -704,9 +706,10 @@ impl Config {
                     if let Some(level) = value.level {
                         settings.families.insert(
                             plugin.clone(),
-                            Sourced {
+                            LevelSetting {
                                 value: level,
                                 origin: at,
+                                decision: value.decision.clone(),
                             },
                         );
                     }
@@ -990,9 +993,11 @@ fn section_label(profile: Option<usize>, name: &str) -> String {
 
 /// One rule entry's fields, each with the place it was written.
 fn rule_settings(value: &RuleEntry, options: Option<Options>, at: &SettingOrigin) -> RuleSettings {
-    let level = |value: Setting| Sourced {
+    let value_decision = value.decision.clone();
+    let level = |value: Setting| LevelSetting {
         value,
         origin: at.clone(),
+        decision: value_decision.clone(),
     };
     RuleSettings {
         level: value.level.map(level),

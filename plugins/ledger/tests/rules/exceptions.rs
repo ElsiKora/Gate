@@ -129,8 +129,8 @@ fn exception_decisions_unknown_and_unaccepted() {
         ]
     );
 
-    // A missing decision is the host's to refuse under `[exception-policy] require-decision`.
-    let files = files.with("gate.toml", "[exception-policy]\nrequire-decision = true\n");
+    // A missing decision is the host's to refuse under `[decision-policy] require-decision`.
+    let files = files.with("gate.toml", "[decision-policy]\nrequire-decision = true\n");
     assert_eq!(findings("exception-decisions", "", "", &files).len(), 2);
 }
 

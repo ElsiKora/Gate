@@ -748,5 +748,9 @@ gate_sdk::plugin! {
             name: "both",
             rules: r#"{"whole": {"level": "error"}, "aspects": {"level": "error"}}"#,
         },
+        gate_sdk::Preset {
+            name: "lenient",
+            rules: r#"{"aspects": {"level": "warning", "levels": {"loud": "error"}}}"#,
+        },
     ],
 }

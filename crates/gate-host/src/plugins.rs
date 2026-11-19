@@ -25,7 +25,8 @@ use crate::cache::answers::{Answer, Answers, Question};
 use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
-    PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings, Sourced,
+    LevelSetting, PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings,
+    Sourced,
 };
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
@@ -643,6 +644,7 @@ impl Loaded {
         workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
         self.check_presets(workspace)?;
         self.check_needs(workspace, filter)?;
+        self.check_decisions(workspace)?;
         self.check_generators(workspace)?;
         workspace.check_rule_filter(filter, &declaration)
     }
@@ -693,6 +695,71 @@ impl Loaded {
         }
         if let Some(seen) = reach.iter().find(|seen| !seen.turns_on) {
             return Err(Error::config(seen.message(workspace.root_is_project())));
+        }
+        Ok(())
+    }
+
+    /// Checks that, where a `[decision-policy]` requires it, every level configuration sets below
+    /// its default names a decision. The default is what the rule's presets give the aspect, else
+    /// the rule, else `error`; a whole-rule level (an entry's `level`, or a `"<plugin>/*"` family's)
+    /// is compared with the preset's rule level and with each preset aspect level it overrides.
+    ///
+    /// # Errors
+    /// Fails on the first level below its default with no decision, naming where it is written,
+    /// the default and where that comes from, and the policy that requires the decision.
+    fn check_decisions(&self, workspace: &Workspace) -> Result<()> {
+        for (project, settings) in scopes(workspace) {
+            let scope = if project.is_none() {
+                Scope::Repository
+            } else {
+                Scope::Project
+            };
+            for (name, declared) in &self.declarations {
+                if !settings.plugins.contains_key(name) {
+                    continue;
+                }
+                let presets = presets(&declared.info, name, settings)?;
+                for info in declared
+                    .info
+                    .rules
+                    .iter()
+                    .filter(|info| info.scope == scope)
+                {
+                    let id = rule_id(name, &info.name)?;
+                    let preset = presets.get(info.name.as_str());
+                    let entry = settings.rules.get(&id);
+                    let named =
+                        |aspect: &str| entry.is_some_and(|entry| entry.levels.contains_key(aspect));
+                    let whole = entry
+                        .and_then(|entry| entry.level.as_ref())
+                        .or_else(|| settings.families.get(name.as_str()));
+                    if let Some(whole) = whole {
+                        let mut defaults = vec![(None, preset.and_then(|preset| preset.level))];
+                        defaults.extend(preset.into_iter().flat_map(|preset| {
+                            preset
+                                .levels
+                                .iter()
+                                .filter(|(aspect, _)| !named(aspect))
+                                .map(|(aspect, level)| (Some(aspect.as_str()), Some(*level)))
+                        }));
+                        for (aspect, default) in defaults {
+                            decided(workspace, &id, aspect, whole, default, preset)?;
+                        }
+                    }
+                    for (aspect, level) in entry.into_iter().flat_map(|entry| &entry.levels) {
+                        let default = preset
+                            .and_then(|preset| preset.levels.get(aspect).copied().or(preset.level));
+                        decided(
+                            workspace,
+                            &id,
+                            Some(aspect.as_str()),
+                            level,
+                            default,
+                            preset,
+                        )?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1646,9 +1713,53 @@ fn preset_turns_on(info: &PluginInfo, preset: &str, scope: Scope) -> bool {
 /// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.
 #[derive(Debug, Default)]
 struct PresetRule {
+    /// The preset that set the rule, `<plugin>/<preset>`.
+    preset: String,
     level: Option<Setting>,
     levels: BTreeMap<String, Setting>,
     options: Option<Value>,
+}
+
+/// How strict a level is: `off` below `note` below `warning` below `error`.
+fn strictness(setting: Setting) -> u8 {
+    match setting {
+        Setting::Off => 0,
+        Setting::On(Level::Note) => 1,
+        Setting::On(Level::Warning) => 2,
+        Setting::On(Level::Error) => 3,
+    }
+}
+
+/// Checks that `level`, set for `aspect` of rule `id` (`None`: the whole rule), names a decision
+/// when it is below `default` (`None`: no preset says, so `error`) and a `[decision-policy]`
+/// covering the file that wrote it requires one.
+///
+/// # Errors
+/// A configuration error naming the level's place, the default and its source, and the policy.
+fn decided(
+    workspace: &Workspace,
+    id: &RuleId,
+    aspect: Option<&str>,
+    level: &LevelSetting,
+    default: Option<Setting>,
+    preset: Option<&PresetRule>,
+) -> Result<()> {
+    let floor = default.unwrap_or(Setting::On(Level::Error));
+    if level.decision.is_some() || strictness(level.value) >= strictness(floor) {
+        return Ok(());
+    }
+    let Some(policy) = workspace.decision_policy(&level.origin.file) else {
+        return Ok(());
+    };
+    let subject = aspect.map_or_else(|| id.to_string(), |aspect| format!("{id}#{aspect}"));
+    let source = match (default, preset) {
+        (Some(_), Some(preset)) => format!("the preset {}", preset.preset),
+        _ => "no preset sets it".to_owned(),
+    };
+    Err(Error::config(format!(
+        "{}: {subject} is set to {}, below its default {floor} ({source}), and {policy} [decision-policy] requires a decision for that; add decision = \"<record>\" to the entry",
+        level.origin, level.value
+    )))
 }
 
 /// The rules of the presets these settings extend from `plugin`, later presets over earlier.
@@ -1731,6 +1842,7 @@ fn presets(
             rules.insert(
                 rule,
                 PresetRule {
+                    preset: format!("{name}/{}", preset.name),
                     level,
                     levels,
                     options: value.get("options").cloned(),

@@ -209,7 +209,7 @@ ledger = { source = "ElsiKora/Gate:ledger@0.2.0", options = { decisions = "ledge
 | `ledger/closing-notes` | a temporary difference whose closer is closed carries a dated closing note |
 | `ledger/reuses` | every open implementation record names the shared mechanisms it reuses |
 | `ledger/exception-owners` | the owner an exception names is an open implementation record |
-| `ledger/exception-decisions` | the decision an exception names is an accepted decision of the index; whether every exception needs one is `[exception-policy] require-decision` |
+| `ledger/exception-decisions` | the decision an exception names is an accepted decision of the index; whether every exception needs one is `[decision-policy] require-decision` |
 
 ### `nestjs`
 

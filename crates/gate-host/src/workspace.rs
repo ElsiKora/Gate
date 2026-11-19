@@ -248,6 +248,26 @@ impl Workspace {
         )
     }
 
+    /// The `gate.toml` whose `[decision-policy]` requires a decision for what the configuration
+    /// file `file` writes (its rule entries, and the exceptions beside it): the file's own policy
+    /// when it is a project's file that sets one, else the root's. `None` when no policy requires
+    /// one.
+    #[must_use]
+    pub fn decision_policy(&self, file: &str) -> Option<String> {
+        let own = self
+            .configs()
+            .find(|(_, loaded)| loaded.path() == file && !loaded.directory().is_empty())
+            .and_then(|(_, loaded)| loaded.require_decision());
+        match own {
+            Some(required) => required.then(|| file.to_owned()),
+            None => self
+                .root
+                .require_decision()
+                .is_some_and(|required| required)
+                .then(|| FILE_NAME.to_owned()),
+        }
+    }
+
     /// What the root `gate.toml` sets: the repository's plugins and repository-scope rules (and,
     /// when the root is a project, its project settings too).
     #[must_use]
@@ -519,8 +539,6 @@ impl Workspace {
             }
         }
 
-        let root_policy = self.root.require_decision();
-
         let root_project = self
             .projects
             .iter()
@@ -537,13 +555,7 @@ impl Workspace {
                     format!("project {name}"),
                 ),
             };
-            let is_root = loaded.directory().is_empty();
-            let required = match (is_root, loaded.require_decision()) {
-                (false, Some(own)) => own.then(|| loaded.path().to_owned()),
-                (false, None) | (true, _) => root_policy
-                    .is_some_and(|required| required)
-                    .then(|| FILE_NAME.to_owned()),
-            };
+            let required = self.decision_policy(loaded.path());
 
             for mut exception in loaded.load_exceptions(&self.snapshot)? {
                 exception.project = project.map(str::to_owned);
@@ -562,7 +574,7 @@ impl Workspace {
                     && exception.decision.is_none()
                 {
                     return Err(Error::config(format!(
-                        "{place}: the exception has no decision, and {policy} [exception-policy] requires one; add decision = \"<record>\""
+                        "{place}: the exception has no decision, and {policy} [decision-policy] requires one; add decision = \"<record>\""
                     )));
                 }
                 exceptions.push(exception);

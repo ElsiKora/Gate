@@ -529,7 +529,7 @@ fn exception_without_decision_under_a_required_policy() {
         (
             "gate.toml",
             &root_with(&format!(
-                "{GIT_PLUGIN}\n[exception-policy]\nrequire-decision = true\n"
+                "{GIT_PLUGIN}\n[decision-policy]\nrequire-decision = true\n"
             )),
         ),
         (
@@ -542,8 +542,63 @@ fn exception_without_decision_under_a_required_policy() {
         &[
             "gate.exceptions.toml:1:",
             "has no decision",
-            "gate.toml [exception-policy] requires one",
+            "gate.toml [decision-policy] requires one",
         ],
+    );
+}
+
+#[test]
+fn the_exception_policy_table_is_unknown_like_any_other() {
+    let message = error(&[(
+        "gate.toml",
+        &root_with("\n[exception-policy]\nrequire-decision = true\n"),
+    )]);
+    assert_all(
+        &message,
+        &["unknown field `exception-policy`", "`decision-policy`"],
+    );
+}
+
+#[test]
+fn an_empty_decision_on_a_rule_entry_is_a_configuration_error() {
+    let message = error(&[(
+        "gate.toml",
+        &root_with(&format!(
+            "{GIT_PLUGIN}\n[rules]\n\"git/commit-subject\" = {{ level = \"warning\", decision = \" \" }}\n"
+        )),
+    )]);
+    assert_all(
+        &message,
+        &[
+            "gate.toml:",
+            "decision is empty; name the decision record or remove the key",
+        ],
+    );
+}
+
+#[test]
+fn a_family_wildcard_takes_a_level_and_a_decision_only() {
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &root_with(&format!(
+            "{GIT_PLUGIN}\n[rules]\n\"git/*\" = {{ level = \"off\", decision = \"D-1\" }}\n"
+        )),
+    )
+    .add();
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("valid");
+    let family = &workspace.repository().families["git"];
+    assert_eq!(family.decision.as_deref(), Some("D-1"));
+
+    let message = error(&[(
+        "gate.toml",
+        &root_with(&format!(
+            "{GIT_PLUGIN}\n[rules]\n\"git/*\" = {{ level = \"off\", norm = \"N-1\" }}\n"
+        )),
+    )]);
+    assert_all(
+        &message,
+        &["a family wildcard takes only a level and a decision"],
     );
 }
 
@@ -552,11 +607,11 @@ fn a_project_policy_overrides_the_root_policy() {
     let repo = Repo::new();
     repo.write(
         "gate.toml",
-        &format!("{WORKSPACE_ROOT}{GIT_PLUGIN}\n[exception-policy]\nrequire-decision = true\n"),
+        &format!("{WORKSPACE_ROOT}{GIT_PLUGIN}\n[decision-policy]\nrequire-decision = true\n"),
     )
     .write(
         "apps/a/gate.toml",
-        "[exception-policy]\nrequire-decision = false\n",
+        "[decision-policy]\nrequire-decision = false\n",
     )
     .write(
         "apps/a/gate.exceptions.toml",
@@ -1373,7 +1428,7 @@ fn schema_covers_every_section_and_has_no_null() {
         "generate",
         "steps",
         "suites",
-        "exception-policy",
+        "decision-policy",
         "profiles",
         "run",
         "hooks",
@@ -1383,6 +1438,7 @@ fn schema_covers_every_section_and_has_no_null() {
         assert!(properties.contains_key(section), "schema lacks {section}");
     }
     assert!(!properties.contains_key("exceptions"));
+    assert!(!properties.contains_key("exception-policy"));
     assert!(!properties.contains_key("extends"));
     assert_eq!(schema["additionalProperties"], serde_json::json!(false));
     assert!(!schema.to_string().contains("null"));

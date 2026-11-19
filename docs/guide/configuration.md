@@ -9,7 +9,7 @@ the file, which editors use for completion through the `#:schema` line.
 | File | Where | Holds |
 | --- | --- | --- |
 | `gate.toml` (root) | the repository root | `[gate]`, `[workspace]`, repository-scope plugins and rules, `[[profiles]]`, root steps and suites, `[run]`, hooks, CI, tools |
-| `gate.toml` (project) | a project's root | `[project]`, that project's plugins, languages, rules, generators, steps and suites, `[exception-policy]` |
+| `gate.toml` (project) | a project's root | `[project]`, that project's plugins, languages, rules, generators, steps and suites, `[decision-policy]` |
 | `gate.exceptions.toml` | beside a `gate.toml` | the `[[exception]]` entries of that file's scope |
 | `gate.lock` | the repository root, written by `gate lock` | the resolved URL and sha256 of the core per platform and of every plugin |
 | `gate/baseline.json` | the repository root, written by `gate baseline write`, shrunk by `gate baseline prune` | fingerprints of findings accepted for now |
@@ -38,7 +38,9 @@ file, the key and what is expected, with exit code `2`:
 - a rule id that no configured plugin declares;
 - a project-scope rule in the root `[rules]` (the message points to `[[profiles]]`);
 - options that fail the rule's JSON Schema, including unknown option keys;
-- an exception without a `reason`, or without a `decision` when `[exception-policy]` requires one;
+- an exception without a `reason`, or without a `decision` when `[decision-policy]` requires one;
+- a rule entry that sets a level below its default without a `decision` when `[decision-policy]`
+  requires one (checked when the plugins load, since presets come from plugins);
 - a `gate.lock` that does not match the configuration.
 
 ## `[gate]`
@@ -210,8 +212,10 @@ of the key. The value is a level string or a table:
 | `norms` | norms of single aspects: `{ <aspect> = "RULE-X-001" }` |
 | `options` | the rule's options, validated against its schema |
 | `options-file` | a JSON file with the options, relative to this `gate.toml`, for large data; validated against the same schema; not with `options` |
+| `decision` | the id of the decision record that accepted this entry's levels; required for a level below its default when [`[decision-policy]`](#decision-policy) says so |
 
-A rule's page lists its options and its aspects.
+A family wildcard takes only `level` and `decision`; norms, aspect levels and options are set on each
+rule. A rule's page lists its options and its aspects.
 
 The root `[rules]` holds repository-scope rules only (for example `git/no-ci-skip`). Project-scope
 rules go in a project's own file or in a profile. `gate list` prints every rule that is on, every rule
@@ -263,7 +267,7 @@ decision = "D-ORM-014"
 | `rule` | the rule id, with an aspect if the exception is for one aspect |
 | `target` | what the exception covers, in the rule's target grammar as its page describes (for example `<path>:<Class>.<member>`), or the path of a finding that has no target; relative to the directory of the file |
 | `reason` | required: why the finding stays |
-| `decision` | the id of the decision record that accepted it; required when `[exception-policy]` says so |
+| `decision` | the id of the decision record that accepted it; required when [`[decision-policy]`](#decision-policy) says so |
 | `owner` | the record that owns the exception; a plugin may check that it is open |
 
 `gate schema --exceptions` prints the JSON Schema of the file.
@@ -273,18 +277,39 @@ as `gate/exceptions`, so exceptions are removed when they are no longer needed. 
 comments in source files, and data that exempts something is written as an exception, not as a rule
 option.
 
-A repository can make a decision mandatory on every exception:
+## Decision policy
+
+A repository can make a decision mandatory on every relaxation of a rule:
 
 ```toml
-[exception-policy]
+[decision-policy]
 require-decision = true
 ```
 
-In the root `gate.toml` it applies to every `gate.exceptions.toml`; a project's own `gate.toml` can set
-its own policy for its exceptions. The core enforces it when it loads the configuration: an exception
-without `decision` is a configuration error. Whether the decision exists is a plugin's check: the
-`ledger` plugin's `ledger/exception-decisions` rule reports a decision that its decision index does not
-list as accepted.
+A relaxation is an `[[exception]]`, or a `[rules]` entry (a rule or a family) whose `level`, or any
+level in `levels`, is below its default. The default is the level the rule or aspect has without the
+entry: the preset's level of that aspect, else the preset's level of the rule, else `error` when no
+preset names the rule. Below means a lower level (`error` > `warning` > `note`) or `off`. A whole-rule
+`level` replaces the preset's aspect levels too, so it is compared with each one that `levels` does
+not name:
+
+```toml
+[rules]
+# the default is error: a decision names the record that accepted the warning
+"nestjs/barrel-exports" = { level = "warning", decision = "D-API-002" }
+"ledger/*" = { level = "off", decision = "D-LEDGER-001" }
+```
+
+In the root `gate.toml` the policy covers every file, profiles included; a project's own `gate.toml`
+can set its own for its exceptions and its rule entries. A decision covers the levels of the entry
+that writes it, so a project file that lowers a rule or aspect the root left alone needs its own
+decision. The core enforces the policy as a configuration error (exit `2`) that names the file, the
+rule, the level, the default and where the default comes from: for exceptions when it loads the
+configuration, for rule entries when it loads the plugins, since presets come from plugins. Without
+the policy, or with `require-decision = false`, nothing is checked and `decision` is accepted anyway.
+
+Whether a decision exists is a plugin's check: the `ledger` plugin's `ledger/exception-decisions` rule
+reports an exception's decision that its decision index does not list as accepted.
 
 ## Baselines
 

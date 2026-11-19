@@ -67,4 +67,5 @@ says the table is renamed and what it now covers.
 
 ## Resume point
 
-2026-11-19: design approved by the lead; branch `task/T-048-level-decisions` from `main` at `4c55ca6`; next: the code.
+2026-11-19: code, tests and docs written on `task/T-048-level-decisions` from `main` at `4c55ca6`;
+next: one lane round on the pushed tip, then the review; rebase onto main after T-043 merges.

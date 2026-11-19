@@ -36,6 +36,17 @@ pub struct Sourced<T> {
     pub origin: SettingOrigin,
 }
 
+/// A level with the place it was written and the decision the entry that wrote it names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LevelSetting {
+    /// The level.
+    pub value: Setting,
+    /// Where it was written.
+    pub origin: SettingOrigin,
+    /// The decision record the entry names; it travels with the level when files layer.
+    pub decision: Option<String>,
+}
+
 /// Options of a rule or a generator, inline or read from a file.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Options {
@@ -60,11 +71,11 @@ pub struct PluginSettings {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RuleSettings {
     /// The level of the aspects `levels` does not name.
-    pub level: Option<Sourced<Setting>>,
+    pub level: Option<LevelSetting>,
     /// The norm of the aspects `norms` does not name.
     pub norm: Option<Sourced<String>>,
     /// Levels of single aspects.
-    pub levels: BTreeMap<String, Sourced<Setting>>,
+    pub levels: BTreeMap<String, LevelSetting>,
     /// Norms of single aspects.
     pub norms: BTreeMap<String, Sourced<String>>,
     /// The options.
@@ -114,7 +125,7 @@ pub struct Settings {
     /// The presets, in order, without repeats.
     pub extends: Vec<Sourced<PluginItem>>,
     /// Family wildcards: `"<plugin>/*"` levels, by plugin.
-    pub families: BTreeMap<String, Sourced<Setting>>,
+    pub families: BTreeMap<String, LevelSetting>,
     /// Rules.
     pub rules: BTreeMap<RuleId, RuleSettings>,
     /// Generators and their options.
