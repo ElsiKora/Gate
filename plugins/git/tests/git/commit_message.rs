@@ -706,8 +706,7 @@ fn a_merge_and_a_fixup_in_a_push_are_skipped_by_the_default_ignores() {
         .into_iter()
         .map(|(.., key, _)| key)
         .collect();
-    assert!(!keys.is_empty());
-    assert!(!keys.contains(&first));
+    assert!(!keys.contains(&first), "{keys:?}");
     let at = |id: &String| keys.iter().position(|key| key == id);
     assert!(
         at(&second).zip(at(&third)).is_some_and(|(s, t)| s < t),

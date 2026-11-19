@@ -93,3 +93,7 @@ Title, module and option docs, rule page (what is read, when, an example finding
 commit, the difference for a new branch) and the changelog under `# 0.3.0 (unreleased)`,
 `### Breaking Changes`, above the v0.2.1 `## Unreleased`, as T-048's branch heads it, with the
 consumer paragraph. rustfmt --edition 2024 --check on the changed `.rs` files: exit 0.
+2026-11-19: lane ticket 237 on `3dde7ae`: fmt 0, clippy 101 (`clippy::assert_is_empty` on an
+`assert!(!keys.is_empty())` in the merge-and-fixup test), so the round stopped after clippy. The
+assertion is dropped: the one after it already needs both keys present. rustfmt --edition 2024
+--check on the changed `.rs` files: exit 0.
