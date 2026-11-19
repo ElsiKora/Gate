@@ -5,9 +5,7 @@ use std::rc::Rc;
 
 use gate_typescript::oxc_ast::ast::Statement;
 use gate_typescript::oxc_span::GetSpan;
-use gate_typescript::{
-    Allocator, MemorySource, Settings, Source, TypeScript, parsed_on_this_thread,
-};
+use gate_typescript::{Allocator, MemorySource, Settings, Source, TypeScript};
 
 const TSCONFIG: &str = r#"{
  // comments and trailing commas are allowed, as in the TypeScript compiler
@@ -499,7 +497,7 @@ impl Source for Counting {
 }
 
 #[test]
-fn a_view_reads_each_file_for_its_parse_once_and_counts_the_parse() {
+fn a_view_reads_each_file_for_its_parse_once_and_keeps_the_parse() {
     let source = Counting {
         files: MemorySource::new(SOURCES.iter().copied()),
         reads: std::cell::Cell::new(0),
@@ -507,7 +505,6 @@ fn a_view_reads_each_file_for_its_parse_once_and_counts_the_parse() {
     };
     let allocator = Allocator::default();
     let typescript = TypeScript::new(&source, Settings::default(), &allocator);
-    let before = parsed_on_this_thread();
 
     assert!(typescript.parsed("src/app.ts").is_none());
     let first = typescript
@@ -521,7 +518,6 @@ fn a_view_reads_each_file_for_its_parse_once_and_counts_the_parse() {
     let known = typescript.parsed("src/app.ts").expect("parsed before");
 
     assert!(Rc::ptr_eq(&first, &again) && Rc::ptr_eq(&first, &known));
-    assert_eq!(parsed_on_this_thread() - before, 1);
     assert_eq!(source.reads_for_parse.get(), 1);
     assert_eq!(source.reads.get(), 0);
 }

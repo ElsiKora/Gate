@@ -18,5 +18,9 @@ gate-typescript.workspace = true
 pulldown-cmark.workspace = true
 regex-automata.workspace = true
 
+[dev-dependencies]
+# The speed tests count the parses of a call.
+gate-typescript = { workspace = true, features = ["parse-log"] }
+
 [lints]
 workspace = true

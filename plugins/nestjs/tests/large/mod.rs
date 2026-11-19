@@ -68,16 +68,26 @@ impl Host for Counted {
     fn log(&self, _message: &str) {}
 }
 
-/// The rules of the plugin that run with their default options, by name.
+/// The rules that run with their default options on the synthetic tree; the other declared rules
+/// need options and fail without them.
+pub const RUNNING_RULES: usize = 30;
+
+/// The rules of the plugin that run with their default options, by name: [`RUNNING_RULES`] of
+/// them, or the call panics naming the rules that fail.
 #[must_use]
 pub fn rules() -> Vec<String> {
     let tiny = Counted::new(tree(1));
-    gate_sdk::describe(&nestjs::PLUGIN)
+    let (running, failing): (Vec<String>, Vec<String>) = gate_sdk::describe(&nestjs::PLUGIN)
         .rules
         .into_iter()
         .map(|rule| rule.name)
-        .filter(|name| check(&tiny, &[name.as_str()]).is_ok())
-        .collect()
+        .partition(|name| check(&tiny, &[name.as_str()]).is_ok());
+    assert_eq!(
+        running.len(),
+        RUNNING_RULES,
+        "rules that run with their default options: {running:?}; rules that fail: {failing:?}"
+    );
+    running
 }
 
 /// One call of the rules `names` with default options over `host`.

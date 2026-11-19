@@ -344,12 +344,6 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
         self.call.tree()
     }
 
-    /// What the call is, alike for every rule of it.
-    #[must_use]
-    pub fn call(&self) -> Call<'h> {
-        self.call
-    }
-
     /// Runs `body` with this run and the state every rule of the call shares ([`CallState`]),
     /// and answers what `body` answers. The state is borrowed only inside `body`.
     ///
@@ -367,7 +361,12 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
                 answer = Some(body(self, shared));
             }
         });
-        answer.unwrap_or_else(|| Err(Error::new("the call's state was not entered")))
+        answer.unwrap_or_else(|| {
+            Err(Error::new(
+                "the call's state was not handed to the rule: a bug in gate-sdk, not in the \
+                 configuration; report it with the plugin's name and version",
+            ))
+        })
     }
 
     /// The repository's history.

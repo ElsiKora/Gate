@@ -26,7 +26,7 @@ pub mod source;
 pub mod syntax;
 pub mod value;
 
-use std::cell::{Cell, OnceCell, RefCell};
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -159,8 +159,9 @@ impl<'a> TypeScript<'a> {
                 file
             })),
         };
+        #[cfg(feature = "parse-log")]
         if parsed.is_some() {
-            PARSED_ON_THREAD.with(|count| count.set(count.get() + 1));
+            PARSED_ON_THREAD.with(|log| log.borrow_mut().push(path.to_owned()));
         }
         self.parsed
             .borrow_mut()
@@ -219,16 +220,18 @@ impl<'a> TypeScript<'a> {
     }
 }
 
+#[cfg(feature = "parse-log")]
 thread_local! {
-    static PARSED_ON_THREAD: Cell<usize> = const { Cell::new(0) };
+    static PARSED_ON_THREAD: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
-/// How many files the views of this thread have parsed so far, each counted once per parse and
-/// not per answer from a view's cache. A test counts the parses of one call as the difference
-/// before and after it.
+/// The paths the views of this thread parsed since the last call, in order, one entry per parse
+/// and none for an answer from a view's cache. Only with the `parse-log` feature, which tests
+/// enable to count the parses of a call; a release build has no log.
+#[cfg(feature = "parse-log")]
 #[must_use]
-pub fn parsed_on_this_thread() -> usize {
-    PARSED_ON_THREAD.with(Cell::get)
+pub fn take_parsed_on_this_thread() -> Vec<String> {
+    PARSED_ON_THREAD.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
 /// Parses `text` as one TypeScript expression into `allocator`, as a policy target that names a

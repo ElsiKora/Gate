@@ -21,5 +21,10 @@ oxc_syntax.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[features]
+# A per-thread log of the files the views parse, for tests that count a call's parses; never in a
+# release build.
+parse-log = []
+
 [lints]
 workspace = true
