@@ -142,6 +142,23 @@ Test: `crates/gate/tests/plugins.rs`, `a_nestjs_option_its_rule_refuses_is_a_con
 `nestjs/eslint-directives` with `rule-id-pattern = "("` gives exit 2 and `gate: configuration
 error:`.
 
+`plugins/ledger/src` (12 moved, 1 kept):
+
+- Moved: `settings.rs` 106 and 109 (a path option not in normal form, or absolute), 142
+  (`closed-statuses` not lowercase), 155 (`parity.prefix` not uppercase letters and digits).
+- Moved: `rules/closing_notes.rs:126` (`entry-label-letters` not one uppercase letter each).
+- Moved: `rules/records.rs:81` (`pending-patterns` with a pattern that is no regular expression)
+  and 139 (`allowed` empty).
+- Moved: `generators/review_progress.rs` 223, 228 and 234 (a kind not uppercase letters and digits,
+  of a feature's form, or listed twice).
+- Moved: `rules/reuses.rs:70` (`generic-reasons` is no regular expression).
+- Moved: `rules/exceptions.rs:65` (the exceptions file the option `exceptions` names is not valid
+  TOML).
+- Kept: `records.rs:52` (`compile`, the plugin's own patterns; a failure is a defect of the plugin).
+
+Test: `crates/gate/tests/plugins.rs`, `a_ledger_option_its_rule_refuses_is_a_configuration_error`:
+`ledger/reuses` with `generic-reasons = "("` gives exit 2 and `gate: configuration error:`.
+
 ## Done when
 
 - fmt, clippy, test (`--no-fail-fast`), deny and build exit 0 in one lane round on the pushed tip.

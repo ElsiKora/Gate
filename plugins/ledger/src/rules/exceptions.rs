@@ -62,7 +62,7 @@ fn exceptions(tree: &Tree<'_>, path: &str, rule: &str) -> gate_sdk::Result<Vec<L
         return Ok(Vec::new());
     };
     let file: File = toml::from_str(&text).map_err(|error| {
-        Error::new(format!(
+        Error::config(format!(
             "{path} is not a valid exceptions file: {}; fix it so the host can load it",
             error.message()
         ))
