@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | review fix round |
 | Release | v0.2.1 (core only; no interface, SDK or plugin change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `9b18b32` |
-| Touches | `crates/gate-runtime/src/state.rs`, `crates/gate-runtime/src/grant.rs`, `crates/gate-runtime/tests/runtime.rs`, `CHANGELOG.md` |
+| Touches | `crates/gate-runtime/src/grant.rs`, `crates/gate-runtime/src/state.rs`, `crates/gate-runtime/src/host.rs`, `crates/gate-host/src/plugins.rs`, `CHANGELOG.md` |
 
 ## Goal
 
@@ -49,6 +49,13 @@ The runtime answers `tree.paths(prefix)` with a range search of the sorted snaps
 - **The read set is unchanged.** `grant.listed(prefix)` is recorded exactly as now, so a stored
   result is invalidated by exactly the same changes as before.
 - **The answer is unchanged.** It is the same paths in the same sorted order.
+- **The order is part of the contract.** `Tree::paths` is sorted by byte order (`str` order), each
+  path once; the host's tree checks it with a `debug_assert` where it is built.
+- **One public way to list.** `Grant::list` returns the paths; the scan and the counting entry are
+  private, reached by the unit tests in the same file.
+
+A tracked file named exactly as the root, with the prefix `""`, is left as is: git cannot track a
+file and a directory at one path, so such a tree loses a path and never exposes one.
 
 Nothing changes in the WIT, the SDK or any plugin: `contains`, `under` and `with_extensions` keep
 calling `list`, and every built plugin gets the faster answer from a 0.2.1 core without a rebuild. A
@@ -67,8 +74,8 @@ Two other designs are out, because each one breaks a constraint:
 1. `tree::Host::paths` in `gate-runtime` answers by a range search when the prefix cannot match a
    `..` form, and by the scan otherwise. A helper on `Grant` gives the repository prefix and says
    whether the fast path applies.
-2. An equivalence test compares the fast answer with the scan, and the read set with the one the
-   scan records, over this table:
+2. An equivalence unit test compares the fast answer with the scan's over this table (the read set
+   is recorded by unchanged code, `grant.listed(prefix)`, so the answers are what is compared):
    - grants: the repository root, a nested root, a parent root, a root with a read path inside it,
      and a root with read paths outside it; each path in the range still passes the grant check.
      A grant has no exclusion (`allows` is "inside the root or a read path"), so no path inside
@@ -77,10 +84,11 @@ Two other designs are out, because each one breaks a constraint:
    - prefixes: `""` (also from the repository root), `src`, `src/`, `sr`, `.github/`, `.`, `..`,
      `../`, `../../docs/le`, `../../.github/`, `./x`, `a/../b`, `..f`, a path equal to a file, and
      the root's siblings (`api`, `api2`, `apps/api`, `../api2`).
-3. A count, not a time: a runtime test counts the snapshot paths examined for 1,000 `contains`
-   probes on a synthetic tree of 20,000 paths. Today that is all paths per probe; after the change
-   it is at most the matching paths plus the search steps. The test asserts the bound and prints
-   both counts; the task file records them with the command that printed them.
+3. A count, not a time: a unit test in `grant.rs` counts the paths compared for 1,000 `contains`
+   probes on a synthetic tree of 20,000 paths, each comparison of the binary search counted inside
+   its closure. Today that is all paths per probe; after the change it is the search's comparisons
+   plus the paths in the range. The test asserts the bound and prints both counts; the task file
+   records them with the command that printed them.
 4. CHANGELOG `Unreleased`: a performance entry.
 
 Not in scope: the full listing `paths("")`, which has to visit every path; the `gate-test` native
@@ -89,21 +97,17 @@ fixture (`Fixture::list` filters a `BTreeMap`, which costs the native tests only
 ## Done when
 
 - Tests, each failing with its change taken out:
-  - the equivalence table, with the answers and the read sets equal;
-  - the count bound.
+  - the equivalence table, with the answers equal;
+  - the count bound, which a linear `position` in place of `partition_point` breaks.
 - `cargo fmt`, `clippy -D warnings`, `cargo test`, `cargo deny` pass in one lane round.
 - The leak scan prints nothing.
 
 ## Resume point
 
-2026-11-19T21:22:28+00:00: lane ticket 245 on fd1205d (`round-inner.sh`: fmt, clippy, test, deny, the count,
-then each change taken out) is green: `cargo fmt --all --check` exit 0, `cargo clippy --locked
---workspace --all-targets -- -D warnings` exit 0, `cargo test --locked --workspace --no-fail-fast`
-exit 0 (1016 passed, 0 failed), `cargo deny --locked check` exit 0. The count, from
-`cargo test -p gate-runtime --lib -- --exact
-grant::tests::a_probe_examines_the_paths_that_start_with_it_not_the_tree --nocapture`: 1000 probes
-of 20000 paths take 17000 steps by the listing and 20000000 paths by the scan. Each change taken
-out fails its test with exit 101: no range search (the count), the `../` prefixes taking the range
-(the table, a root with read paths outside it, prefix `""`), the range not under the root (the
-table, a nested root, prefix `src`). Ticket 236 on a90b87d stopped at clippy
-(`manual_bit_width`), fixed in fd1205d. Next: the review.
+2026-11-19T21:26:42+00:00: lane ticket 245 on fd1205d was green (fmt, clippy, test with 1016 passed, deny
+all exit 0; 17000 steps against 20000000 paths; three mutations exit 101). The review of e063252
+asked for one round: count the binary search's comparisons inside its closure, with the mutation
+"linear position instead of partition_point"; `Tree::paths` documented as byte order, each once,
+checked by a `debug_assert` where the host builds its tree; one public `Grant::list` returning the
+paths, with the scan and the count private; this file made to say what the branch does. Committed;
+not compiled yet. Next: one lane round.

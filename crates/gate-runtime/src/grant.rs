@@ -157,37 +157,45 @@ impl Grant {
         parts.join("/")
     }
 
-    /// The listing of the plugin prefix `prefix` over `paths`, the snapshot's tracked paths sorted:
-    /// the granted paths whose plugin form starts with `prefix`, in plugin form and sorted, with
-    /// the number of steps it took (paths examined and binary-search steps).
+    /// The listing of the plugin prefix `prefix` over `paths`, the snapshot's tracked paths in
+    /// byte order (`str` order), each once: the granted paths whose plugin form starts with
+    /// `prefix`, in plugin form and sorted.
     ///
     /// A path inside the root is `<root>/<plugin form>`, so the listing is the range of `paths`
     /// that starts with `<root>/<prefix>`, found by a binary search; each path in it still passes
     /// the grant and prefix checks. Only a prefix that can match the `..` form of a read path
     /// outside the root lists by a scan of every path.
     #[must_use]
-    pub fn list(&self, paths: &[String], prefix: &str) -> (Vec<String>, usize) {
+    pub fn list(&self, paths: &[String], prefix: &str) -> Vec<String> {
+        self.counted(paths, prefix).0
+    }
+
+    /// [`Grant::list`], with the number of paths it compared: in the binary search and in the
+    /// range, or every path for a scan.
+    fn counted(&self, paths: &[String], prefix: &str) -> (Vec<String>, usize) {
         let Some(start) = self.range_start(prefix) else {
-            return self.scan(paths, prefix);
+            return (self.scan(paths, prefix), paths.len());
         };
-        let first = paths.partition_point(|path| path.as_str() < start.as_str());
-        let search = usize::try_from(paths.len().bit_width()).unwrap_or(usize::MAX);
-        let mut examined = 0;
+        let mut compared = 0;
+        let mut below = |path: &String| {
+            compared += 1;
+            path.as_str() < start.as_str()
+        };
+        let first = paths.partition_point(&mut below);
         let listed = paths[first..]
             .iter()
-            .inspect(|_| examined += 1)
+            .inspect(|_| compared += 1)
             .take_while(|path| path.starts_with(start.as_str()))
             .filter(|path| self.allows(path))
             .map(|path| self.to_plugin(path))
             .filter(|path| path.starts_with(prefix))
             .collect();
-        (listed, search + examined)
+        (listed, compared)
     }
 
     /// [`Grant::list`] by a scan of every path, the only way to find the `..` forms of read paths
     /// outside the root.
-    #[must_use]
-    pub fn scan(&self, paths: &[String], prefix: &str) -> (Vec<String>, usize) {
+    fn scan(&self, paths: &[String], prefix: &str) -> Vec<String> {
         let mut listed: Vec<String> = paths
             .iter()
             .filter(|path| self.allows(path))
@@ -195,7 +203,7 @@ impl Grant {
             .filter(|path| path.starts_with(prefix))
             .collect();
         listed.sort();
-        (listed, paths.len())
+        listed
     }
 
     /// The repository string every path a listing of `prefix` answers starts with: `None` when
@@ -362,8 +370,8 @@ mod tests {
         for (name, grant) in &grants {
             for prefix in prefixes {
                 assert_eq!(
-                    grant.list(&paths, prefix).0,
-                    grant.scan(&paths, prefix).0,
+                    grant.list(&paths, prefix),
+                    grant.scan(&paths, prefix),
                     "{name}, prefix {prefix:?}"
                 );
             }
@@ -372,17 +380,17 @@ mod tests {
         // The cases the table must cover answer something, so equal answers are not empty ones.
         let nested = Grant::new("apps/api", &[]);
         assert_eq!(
-            nested.list(&paths, "src").0,
+            nested.list(&paths, "src"),
             ["src/main.ts", "src/server.ts", "srcs/x.ts"]
         );
-        assert_eq!(nested.list(&paths, "").0.len(), 8);
-        assert_eq!(Grant::repository().list(&paths, "").0, paths);
+        assert_eq!(nested.list(&paths, "").len(), 8);
+        assert_eq!(Grant::repository().list(&paths, ""), paths);
         let outside = &grants[4].1;
         assert_eq!(
-            outside.list(&paths, "../../docs/le").0,
+            outside.list(&paths, "../../docs/le"),
             ["../../docs/ledger/a.md"]
         );
-        assert_eq!(outside.list(&paths, "").0.len(), 10);
+        assert_eq!(outside.list(&paths, "").len(), 10);
     }
 
     #[test]
@@ -398,10 +406,10 @@ mod tests {
 
         let (mut listed, mut scanned) = (0, 0);
         for probe in &probes {
-            let (answer, steps) = grant.list(&paths, probe);
+            let (answer, steps) = grant.counted(&paths, probe);
             assert!(answer.contains(probe), "{probe}");
             listed += steps;
-            scanned += grant.scan(&paths, probe).1;
+            scanned += paths.len();
         }
         println!("1000 probes of 20000 paths: listing {listed} steps, scan {scanned} paths");
         assert_eq!(scanned, 1_000 * 20_000);

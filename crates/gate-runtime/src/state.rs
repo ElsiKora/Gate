@@ -435,7 +435,7 @@ impl gate::plugin::types::Host for State {}
 impl gate::plugin::tree::Host for State {
     fn paths(&mut self, prefix: String) -> wasmtime::Result<Vec<String>> {
         let grant = &self.access.grant;
-        let (paths, _) = grant.list(self.access.tree.paths(), &prefix);
+        let paths = grant.list(self.access.tree.paths(), &prefix);
         for covered in grant.listed(&prefix) {
             self.record_listed(covered)?;
         }
