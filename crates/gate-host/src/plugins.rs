@@ -584,24 +584,12 @@ impl Loaded {
             changed: changed_paths.clone(),
             snapshot: Arc::clone(&snapshot),
         });
-        let git_history = Arc::new(GitHistory {
-            git: snapshot.git().clone(),
-            head: snapshot.commit().map(str::to_owned),
-            range: run_git.range,
-            message: run_git.message,
-            hook: run_git.hook,
-            overrides: Arc::clone(&self.overrides),
-            run_workspace: workspace.clone(),
-            run: OnceLock::new(),
-            commit_plugins: Mutex::new(BTreeMap::new()),
-            states: Mutex::new(BTreeMap::new()),
-            counted: SyncStateCount::default(),
-            objects: Mutex::new(None),
-            merges: Mutex::new(Batch::Unstarted),
-            writes: CacheWrites::default(),
-            answers: OnceLock::new(),
-            facts: OnceLock::new(),
-        });
+        let git_history = Arc::new(GitHistory::new(
+            &snapshot,
+            workspace,
+            run_git,
+            Arc::clone(&self.overrides),
+        ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
         let mut planned = Vec::new();
@@ -1810,6 +1798,33 @@ struct Facts {
 }
 
 impl GitHistory {
+    /// The history of a run on `snapshot` of `workspace`, with what the command line gave.
+    fn new(
+        snapshot: &Snapshot,
+        workspace: &Workspace,
+        run_git: RunGit,
+        overrides: Arc<Overrides>,
+    ) -> Self {
+        Self {
+            git: snapshot.git().clone(),
+            head: snapshot.commit().map(str::to_owned),
+            range: run_git.range,
+            message: run_git.message,
+            hook: run_git.hook,
+            overrides,
+            run_workspace: workspace.clone(),
+            run: OnceLock::new(),
+            commit_plugins: Mutex::new(BTreeMap::new()),
+            states: Mutex::new(BTreeMap::new()),
+            counted: SyncStateCount::default(),
+            objects: Mutex::new(None),
+            merges: Mutex::new(Batch::Unstarted),
+            writes: CacheWrites::default(),
+            answers: OnceLock::new(),
+            facts: OnceLock::new(),
+        }
+    }
+
     fn facts(&self) -> std::result::Result<&Facts, HostError> {
         self.facts
             .get_or_init(|| {

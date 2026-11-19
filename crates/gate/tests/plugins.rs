@@ -2541,6 +2541,74 @@ fn a_projects_rule_level_wins_over_the_aspect_levels_of_git_recommended() {
     );
 }
 
+#[test]
+fn a_warm_result_cache_reruns_the_rule_for_another_message_or_hook_state() {
+    let git = GitOptions::new();
+    let repo = &git.repo;
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n\"git/branch-name\" = {{ level = \"error\", options = {{ pattern = \"^feature/.+$\" }} }}\n"
+        ),
+    );
+    repo.commit("configure");
+    // The exit code, how many git calls ran rather than came from the result cache, and what
+    // the run said.
+    let run = |arguments: &[&str]| {
+        let mut all = vec!["check", "--plugin", git.plugin.as_str(), "--timings"];
+        all.extend_from_slice(arguments);
+        let output = repo.gate(&all);
+        let stderr = text(&output.stderr);
+        let ran = stderr
+            .lines()
+            .filter(|line| line.starts_with("timings: call git ") && line.contains(": ran "))
+            .count();
+        (
+            output.status.code(),
+            ran,
+            format!("{}{stderr}", text(&output.stdout)),
+        )
+    };
+
+    // One message file, outside the tree, whose text changes: the same request each time.
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    let at = file.display().to_string();
+    let message = |body: &str| {
+        std::fs::write(&file, body).expect("message");
+        run(&["--rule", "git/commit-message", "--commit-message", &at])
+    };
+    let (code, ran, said) = message("feat(core): add the thing\n");
+    assert_eq!((code, ran), (Some(0), 1), "cold: {said}");
+    let (code, ran, said) = message("feat(core): add the thing\n");
+    assert_eq!((code, ran), (Some(0), 0), "cached: {said}");
+    let (code, ran, said) = message("Added the thing\n");
+    assert_eq!(
+        (code, ran),
+        (Some(1), 1),
+        "another message runs the rule again: {said}"
+    );
+    assert!(said.contains("git/commit-message#type-empty"), "{said}");
+
+    // Outside a hook main passes; in a hook it is checked like any branch.
+    let branch = |hook: &[&str]| {
+        let mut arguments = vec!["--rule", "git/branch-name"];
+        arguments.extend_from_slice(hook);
+        run(&arguments)
+    };
+    let (code, ran, said) = branch(&[]);
+    assert_eq!((code, ran), (Some(0), 1), "{said}");
+    let (code, ran, said) = branch(&[]);
+    assert_eq!((code, ran), (Some(0), 0), "warm: {said}");
+    let (code, ran, said) = branch(&["--hook"]);
+    assert_eq!(
+        (code, ran),
+        (Some(1), 1),
+        "a hook run runs the rule again: {said}"
+    );
+    assert!(said.contains("git/branch-name"), "{said}");
+}
+
 /// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the
 /// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
 fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {

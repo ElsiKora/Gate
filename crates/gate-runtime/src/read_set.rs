@@ -177,6 +177,8 @@ impl GitQuery {
             Self::Resolve { rev } => history.resolve(rev)?.into_iter().collect(),
             Self::Log { range } => history.revisions(range)?,
             Self::SyncState { commit } => vec![sync_state_digest(&history.sync_state(commit)?)],
+            Self::Message => history.message()?.into_iter().collect(),
+            Self::Hook => vec![history.hook()?.to_string()],
             Self::IsAncestor {
                 ancestor,
                 descendant,
@@ -204,7 +206,9 @@ impl GitQuery {
             | Self::Range
             | Self::Resolve { .. }
             | Self::Log { .. }
-            | Self::SyncState { .. } => false,
+            | Self::SyncState { .. }
+            | Self::Message
+            | Self::Hook => false,
         }
     }
 
@@ -226,6 +230,8 @@ impl GitQuery {
                 descendant,
             } => vec!["is-ancestor", ancestor, descendant],
             Self::SyncState { commit } => vec!["sync-state", commit],
+            Self::Message => vec!["message"],
+            Self::Hook => vec!["hook"],
         };
         words.into_iter().map(str::to_owned).collect()
     }
@@ -258,6 +264,8 @@ impl GitQuery {
                 descendant: owned(2)?,
             },
             (Some("sync-state"), 2) => Self::SyncState { commit: owned(1)? },
+            (Some("message"), 1) => Self::Message,
+            (Some("hook"), 1) => Self::Hook,
             _ => return None,
         };
         Some(query)
@@ -299,6 +307,8 @@ mod tests {
                 descendant: id('b'),
             },
             GitQuery::SyncState { commit: id('c') },
+            GitQuery::Message,
+            GitQuery::Hook,
         ];
         for query in queries {
             assert_eq!(GitQuery::from_words(&query.to_words()), Some(query));
