@@ -60,6 +60,7 @@ impl Fixture {
             plugin_options: String::new(),
             languages: String::new(),
             norms: norms.iter().map(|norm| (*norm).to_owned()).collect(),
+            rule_decisions: Vec::new(),
         };
         gate_sdk::check(&agents::PLUGIN, self, &request)
     }

@@ -958,6 +958,7 @@ impl Loaded {
             let root = project
                 .and_then(|name| workspace.projects().get(name))
                 .map(|project| project.root.clone());
+            let decisions = project.map_or_else(Vec::new, |name| rule_decisions(workspace, name));
             for name in settings.plugins.keys() {
                 let Some(plugin) = self.plugins.get(name) else {
                     continue;
@@ -975,7 +976,7 @@ impl Loaded {
                     .filter_map(|rule| rule.run.options_file.as_deref())
                     .collect();
                 let grant = grant(root.as_deref(), settings, name, &options_files);
-                let request = check_request(root.as_deref(), settings, name, &rules);
+                let request = check_request(root.as_deref(), settings, name, &rules, &decisions);
                 planned.push((project, settings, name, rules, plugin, request, grant));
             }
         }
@@ -1917,16 +1918,19 @@ fn presets(
     Ok(rules)
 }
 
-/// The `check` call of `name` on the project at `root` (the repository when `None`), for `rules`.
+/// The `check` call of `name` on the project at `root` (the repository when `None`), for `rules`,
+/// with the rule `decisions` the scope's own `gate.toml` names.
 fn check_request(
     root: Option<&str>,
     settings: &Settings,
     name: &PluginName,
     rules: &[Enabled],
+    decisions: &[gate_sdk::RuleDecision],
 ) -> gate_sdk::CheckRequest {
     gate_sdk::CheckRequest {
         project: root.unwrap_or_default().to_owned(),
         norms: norms(settings),
+        rule_decisions: decisions.to_vec(),
         rules: rules.iter().map(|rule| rule.run.clone()).collect(),
         plugin_options: settings
             .plugin_options(name)
@@ -1945,6 +1949,29 @@ fn norms(settings: &Settings) -> Vec<String> {
         norms.extend(entry.norms.values().map(|norm| norm.value.clone()));
     }
     norms.into_iter().collect()
+}
+
+/// The decisions the rule entries of project `project`'s own `gate.toml` name, as
+/// `check-request.rule-decisions` promises: its own file's, which for the root project is the root
+/// file. Their paths are repository paths; the runtime gives them to the plugin relative to its
+/// scope's root. A project's call never carries the root file's decisions, which a path relative
+/// to the project's root could not name.
+fn rule_decisions(workspace: &Workspace, project: &str) -> Vec<gate_sdk::RuleDecision> {
+    let Some(config) = workspace.project_config(project) else {
+        return Vec::new();
+    };
+    config
+        .rule_decisions()
+        .into_iter()
+        .map(|written| gate_sdk::RuleDecision {
+            key: written.key,
+            decision: written.decision,
+            at: gate_sdk::FileLocation {
+                path: config.path().to_owned(),
+                span: Some(gate_sdk::Span::line(written.line)),
+            },
+        })
+        .collect()
 }
 
 /// The `[languages.<id>]` settings as one JSON object by id; empty when there are none.

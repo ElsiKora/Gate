@@ -96,6 +96,11 @@ interface types {
     exceptions: list<string>,
   }
 
+  /// A decision a rule entry of the scope's own `gate.toml` names: the entry's key as written
+  /// (`<plugin>/<rule>`, or `<plugin>/*` for a family), the decision's id, trimmed, and where the
+  /// entry's value is written, relative to the scope's root.
+  record rule-decision { key: string, decision: string, at: file-location }
+
   /// One `check` call: every enabled rule of the plugin for one project.
   record check-request {
     /// The project's root, relative to the repository; empty for the repository.
@@ -107,6 +112,10 @@ interface types {
     languages: string,
     /// Every norm the configuration maps, for rules about rule documents.
     norms: list<string>,
+    /// Every decision the rule entries of the scope's own `gate.toml` name, for rules about them:
+    /// a project's file in its project's call, the root file in the root project's call; whether
+    /// or not a later layer overrides the entry, and whether or not a policy requires it.
+    rule-decisions: list<rule-decision>,
   }
 
   /// A file a generator writes, at a path relative to the project root; the host maps it. A seed

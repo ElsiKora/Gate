@@ -163,6 +163,7 @@ impl Repo {
             plugin_options: settings.to_owned(),
             languages: String::new(),
             norms: Vec::new(),
+            rule_decisions: Vec::new(),
         };
         gate_sdk::check(&git::PLUGIN, self, &request)
     }

@@ -925,8 +925,8 @@ fn info_from(info: wit::PluginInfo) -> PluginInfo {
     }
 }
 
-/// The request as the plugin reads it. Its options files are repository paths in `request`, as the
-/// core read them; the plugin addresses every path relative to `grant`'s root, so it gets them that
+/// The request as the plugin reads it. Its options files and the places of its rule decisions are
+/// repository paths in `request`, as the core read them; the plugin addresses every path relative to `grant`'s root, so it gets them that
 /// way, and a finding it reports at one is mapped back to the repository once.
 fn request_to_wit(request: &CheckRequest, grant: &Grant) -> wit::CheckRequest {
     wit::CheckRequest {
@@ -947,6 +947,23 @@ fn request_to_wit(request: &CheckRequest, grant: &Grant) -> wit::CheckRequest {
         plugin_options: request.plugin_options.clone(),
         languages: request.languages.clone(),
         norms: request.norms.clone(),
+        rule_decisions: request
+            .rule_decisions
+            .iter()
+            .map(|decision| wit::RuleDecision {
+                key: decision.key.clone(),
+                decision: decision.decision.clone(),
+                at: wit::FileLocation {
+                    path: grant.to_plugin(&decision.at.path),
+                    span: decision.at.span.map(|span| wit::Span {
+                        line: span.line,
+                        column: span.column,
+                        end_line: span.end_line,
+                        end_column: span.end_column,
+                    }),
+                },
+            })
+            .collect(),
     }
 }
 

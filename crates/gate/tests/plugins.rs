@@ -39,6 +39,12 @@ fn typescript() -> &'static (PathBuf, Vec<u8>) {
     component("gate-plugin-typescript", "typescript")
 }
 
+/// The ledger plugin's component.
+fn ledger() -> &'static (PathBuf, Vec<u8>) {
+    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    WASM.get_or_init(|| component("gate-plugin-ledger", "ledger"))
+}
+
 /// The runtime's probe component.
 fn probe() -> &'static (PathBuf, Vec<u8>) {
     component("gate-runtime-probe", "gate_runtime_probe")
@@ -2240,6 +2246,185 @@ fn a_call_carries_the_norms_of_every_configured_rule_of_every_plugin() {
         "{}",
         text(&output.stderr)
     );
+}
+
+/// `gate check --rule probe/decisions` with the built probe, as JSON: its exit code, and each
+/// finding's message with the repository path and line it is reported at, sorted.
+fn decisions_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &plugin,
+        "--format",
+        "json",
+        "--rule",
+        "probe/decisions",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut seen: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            format!(
+                "{} [{}:{}]",
+                finding["message"].as_str().unwrap_or_default(),
+                finding["location"]["path"].as_str().unwrap_or_default(),
+                finding["location"]["span"]["line"]
+            )
+        })
+        .collect();
+    seen.sort();
+    (output.status.code(), seen)
+}
+
+/// Project `one`'s own `gate.toml`, naming a decision on a family and on a rule entry, the first
+/// with white space around it.
+const ONE_DECISIONS: &str = "[project]\nname = \"one\"\n\n[rules]\n\"probe/*\" = { level = \"off\", decision = \" D-FAM \" }\n\"probe/decisions\" = { level = \"error\", decision = \"D-ONE\" }\n";
+
+#[test]
+fn a_project_call_carries_the_decisions_its_own_gate_toml_names_under_any_policy() {
+    // The root file is no project's own here: its decision reaches no call. Project two names
+    // none, and its call carries none of project one's.
+    for policy in [
+        "",
+        POLICY,
+        "\n[decision-policy]\nrequire-decision = false\n",
+    ] {
+        let repo = probe_repo_for(
+            "apps/*",
+            r#""probe/decisions" = "error"
+"probe/aspects" = { level = "off", decision = "D-ROOT" }"#,
+        );
+        let mut toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+        toml.push_str(policy);
+        repo.write("gate.toml", &toml);
+        repo.write("apps/one/gate.toml", ONE_DECISIONS);
+        repo.commit("decisions in project one");
+
+        assert_eq!(
+            decisions_check(&repo),
+            (
+                Some(1),
+                vec![
+                    "decision probe/* D-FAM at gate.toml:5 [apps/one/gate.toml:5]".to_owned(),
+                    "decision probe/decisions D-ONE at gate.toml:6 [apps/one/gate.toml:6]"
+                        .to_owned(),
+                ]
+            ),
+            "policy {policy:?}"
+        );
+    }
+}
+
+#[test]
+fn the_root_files_decisions_go_to_the_root_projects_call_only() {
+    // The top is a project (no [workspace]); apps/one is one by its own gate.toml. The profile's
+    // decision is written in the root file, so it goes to the root project's call although the
+    // profile covers apps/one, whose own file names none.
+    let repo = Repo::empty();
+    let source = "acme/rules:probe@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[rules]\n\"probe/decisions\" = {{ level = \"error\", decision = \"D-ROOT\" }}\n\n[[profiles]]\nprojects = [\"apps/one\"]\n\n[profiles.rules]\n\"probe/decisions\" = {{ level = \"warning\", decision = \"D-PROFILE\" }}\n"
+        ),
+    );
+    repo.write("apps/one/gate.toml", "[project]\nname = \"one\"\n");
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/probe.wasm",
+            &"b".repeat(64),
+        ),
+    );
+    repo.commit("a root project");
+
+    assert_eq!(
+        decisions_check(&repo),
+        (
+            Some(1),
+            vec![
+                "decision probe/decisions D-PROFILE at gate.toml:14 [gate.toml:14]".to_owned(),
+                "decision probe/decisions D-ROOT at gate.toml:8 [gate.toml:8]".to_owned(),
+            ]
+        )
+    );
+}
+
+#[test]
+fn a_changed_decision_is_not_answered_from_the_result_cache() {
+    // The plugin never reads gate.toml, so only the request can tell the cached result is stale.
+    let repo = probe_repo_for("apps/*", r#""probe/decisions" = "error""#);
+    repo.write("apps/one/gate.toml", ONE_DECISIONS);
+    repo.commit("decisions in project one");
+    let (_, first) = decisions_check(&repo);
+    assert!(
+        first.iter().any(|line| line.contains(" D-ONE ")),
+        "{first:?}"
+    );
+
+    repo.write(
+        "apps/one/gate.toml",
+        &ONE_DECISIONS.replace("D-ONE", "D-TWO"),
+    );
+    repo.commit("another decision");
+    let (_, second) = decisions_check(&repo);
+    assert!(
+        second.iter().any(|line| line.contains(" D-TWO ")),
+        "{second:?}"
+    );
+    assert!(
+        !second.iter().any(|line| line.contains(" D-ONE ")),
+        "{second:?}"
+    );
+}
+
+#[test]
+fn ledger_rule_decisions_refuses_a_proposed_decision_and_passes_an_accepted_one() {
+    let repo = Repo::empty();
+    let source = "acme/rules:ledger@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/rule-decisions\" = \"error\"\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-API-002\" }}\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/ledger.wasm",
+            &"c".repeat(64),
+        ),
+    );
+    let index = "docs/ledger/decision-index.md";
+    repo.write(index, "| `D-API-002` | `proposed` | Api | `api.md` |\n");
+    repo.commit("a relaxation that names a proposed decision");
+
+    let plugin = format!("ledger={}", ledger().0.display());
+    let check = || {
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        (
+            output.status.code(),
+            format!("{}{}", text(&output.stdout), text(&output.stderr)),
+        )
+    };
+    let (code, said) = check();
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains("the rule entry \"ledger/decisions\" names the decision D-API-002, which is `proposed`; a rule entry needs an accepted decision"),
+        "{said}"
+    );
+    assert!(said.contains("gate.toml:9"), "{said}");
+
+    repo.write(index, "| `D-API-002` | `accepted` | Api | `api.md` |\n");
+    repo.commit("the decision is accepted");
+    let (code, said) = check();
+    assert_eq!(code, Some(0), "{said}");
 }
 
 #[test]

@@ -7,3 +7,4 @@ pub mod exceptions;
 pub mod manifest;
 pub mod records;
 pub mod reuses;
+pub mod rule_decisions;

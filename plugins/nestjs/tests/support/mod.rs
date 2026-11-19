@@ -138,6 +138,7 @@ fn run_in(
             plugin_options: plugin_options.to_owned(),
             languages: languages.to_owned(),
             norms: Vec::new(),
+            rule_decisions: Vec::new(),
         },
     )
 }

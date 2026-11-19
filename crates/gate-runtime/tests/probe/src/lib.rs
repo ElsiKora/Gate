@@ -633,6 +633,30 @@ impl Rule for Whole {
     }
 }
 
+/// Reports each rule decision its call carries, at its place: the key, the decision, and the path
+/// and line as the plugin sees them.
+#[derive(Debug, Default)]
+pub struct Decisions;
+
+impl Rule for Decisions {
+    type Options = gate_sdk::serde_json::Value;
+    const NAME: &'static str = "decisions";
+    const TITLE: &'static str = "Reports the rule decisions of the call";
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        for written in run.rule_decisions().to_vec() {
+            let line = written.at.span.map_or(0, |span| span.line);
+            let message = format!(
+                "decision {} {} at {}:{line}",
+                written.key, written.decision, written.at.path
+            );
+            run.report()
+                .finding("", Location::File(written.at), message);
+        }
+        Ok(())
+    }
+}
+
 /// Options whose schema cannot be built: `describe` traps building it, or never ends.
 #[cfg(any(feature = "describe-traps", feature = "describe-spins"))]
 #[derive(Debug, serde::Deserialize)]
@@ -729,7 +753,7 @@ gate_sdk::plugin! {
     name: "probe",
     version: env!("CARGO_PKG_VERSION"),
     options: ProbeOptions,
-    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects, Whole, MessageUndeclared, MessageNoFlags, HistoryUndeclared],
+    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Decisions, Aspects, Whole, MessageUndeclared, MessageNoFlags, HistoryUndeclared],
     generators: [Write, Toml],
     presets: [
         gate_sdk::Preset {

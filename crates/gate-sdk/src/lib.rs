@@ -80,7 +80,7 @@ pub use self::git::{Commit, CommitRange, Git, SyncState};
 pub use self::host::{GitHost, Host, TreeHost};
 pub use self::plugin::{
     CheckRequest, GenerateOutput, GeneratorEntry, NoOptions, PluginInfo, PluginSpec, Preset,
-    PresetInfo, RuleEntry, RuleRun, check, describe, generate,
+    PresetInfo, RuleDecision, RuleEntry, RuleRun, check, describe, generate,
 };
 pub use self::report::{FileLocation, Finding, Location, Report, Span};
 pub use self::rule::{

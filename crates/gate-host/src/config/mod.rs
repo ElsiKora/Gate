@@ -61,6 +61,17 @@ pub struct Config {
     profiles: Vec<ProfileLayer>,
 }
 
+/// A decision a rule entry of a `gate.toml` names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WrittenDecision {
+    /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family.
+    pub key: String,
+    /// The decision's id, trimmed.
+    pub decision: String,
+    /// The line of the entry's value.
+    pub line: u32,
+}
+
 /// Where the sections that carry no span of their own start, for the line numbers of messages.
 #[derive(Debug, Default)]
 struct Positions {
@@ -326,6 +337,30 @@ impl Config {
     #[must_use]
     pub fn profiles(&self) -> &[ProfileLayer] {
         &self.profiles
+    }
+
+    /// Every decision the file's rule entries name, as written: those of `[rules]`, then those of
+    /// each `[[profiles]]` entry's `rules`, in file order of the profiles and key order within a
+    /// table. An entry a later layer overrides still names its decision here.
+    #[must_use]
+    pub fn rule_decisions(&self) -> Vec<WrittenDecision> {
+        let profiles = self
+            .file
+            .profiles
+            .iter()
+            .map(|profile| &profile.get_ref().rules);
+        std::iter::once(&self.file.rules)
+            .chain(profiles)
+            .flatten()
+            .filter_map(|(key, entry)| {
+                let decision = entry.get_ref().decision.clone()?;
+                Some(WrittenDecision {
+                    key: key.to_string(),
+                    decision,
+                    line: u32::try_from(self.line_of(entry.span().start)).unwrap_or(u32::MAX),
+                })
+            })
+            .collect()
     }
 
     /// Whether the file's `[decision-policy]` requires a decision; `None` when it has no policy.

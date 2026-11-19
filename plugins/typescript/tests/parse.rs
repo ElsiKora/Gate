@@ -64,6 +64,7 @@ fn request_with(options: &str, languages: &str) -> CheckRequest {
         plugin_options: "{}".to_owned(),
         languages: languages.to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     }
 }
 

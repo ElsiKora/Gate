@@ -2,7 +2,7 @@
 //! every recorded input answers as it did (architecture §9).
 //!
 //! The key is the core version, the plugin's sha256, the call's request (rules, options, norms,
-//! project, plugin and language settings) and its grant. The entry holds the findings and the read
+//! rule decisions, project, plugin and language settings) and its grant. The entry holds the findings and the read
 //! set, plus what the read set alone cannot say again: for each listed prefix, a digest of the
 //! tracked paths below it; for a call that asked for the change selection, a digest of it. A
 //! stored result is reused when each listed prefix lists the same paths, each read path has the

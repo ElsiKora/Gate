@@ -15,6 +15,7 @@ The rules of this plugin keep those records consistent with each other.
 | [`ledger/reuses`](reuses.md) | Every open implementation record names the shared mechanisms it reuses |
 | [`ledger/exception-owners`](exception-owners.md) | The owner an exception names is an open implementation record |
 | [`ledger/exception-decisions`](exception-decisions.md) | The decision an exception names is an accepted decision of the index |
+| [`ledger/rule-decisions`](rule-decisions.md) | The decision a rule entry names is an accepted decision of the index |
 
 | Generator | What it writes |
 | --- | --- |

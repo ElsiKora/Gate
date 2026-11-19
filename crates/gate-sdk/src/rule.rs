@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 
 use crate::git::Git;
 use crate::host::Host;
+use crate::plugin::RuleDecision;
 use crate::report::Report;
 use crate::tree::Tree;
 use crate::{Error, Result};
@@ -147,6 +148,7 @@ pub struct Call<'h> {
     pub(crate) plugin_options: &'h serde_json::Value,
     pub(crate) languages: &'h serde_json::Value,
     pub(crate) norms: &'h [String],
+    pub(crate) rule_decisions: &'h [RuleDecision],
 }
 
 impl std::fmt::Debug for Call<'_> {
@@ -203,6 +205,15 @@ impl<'h> Call<'h> {
     #[must_use]
     pub fn norms(&self) -> &'h [String] {
         self.norms
+    }
+
+    /// Every decision the rule entries of the scope's own `gate.toml` name, for rules that check
+    /// decisions: a project's file in its project's call, the root file in the root project's
+    /// call, each whether or not a later layer overrides the entry. Paths are relative to the
+    /// scope's root.
+    #[must_use]
+    pub fn rule_decisions(&self) -> &'h [RuleDecision] {
+        self.rule_decisions
     }
 
     /// A diagnostic line for `--verbose`; never part of a finding.
@@ -469,6 +480,13 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
     #[must_use]
     pub fn norms(&self) -> &[String] {
         self.call.norms
+    }
+
+    /// Every decision the rule entries of the scope's own `gate.toml` name, for rules that check
+    /// decisions; see [`Call::rule_decisions`].
+    #[must_use]
+    pub fn rule_decisions(&self) -> &[RuleDecision] {
+        self.call.rule_decisions
     }
 
     /// A diagnostic line for `--verbose`; never part of a finding.

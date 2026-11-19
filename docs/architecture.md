@@ -138,12 +138,15 @@ interface types {
     options-file: option<string>,   // the tracked file the options came from, readable by the rule
     exceptions: list<string>,       // the targets of this rule's exceptions, for rules whose result depends on them
   }
+  record rule-decision { key: string, decision: string, at: file-location }
+                                    // a decision a rule entry of the scope's own gate.toml names
   record check-request {
     project: string,
     rules: list<rule-run>,
     plugin-options: string,         // JSON: [plugins.<name>] options, shared by the plugin's rules
     languages: string,              // JSON: [languages.<id>] settings of the languages the plugin declares
     norms: list<string>,            // every norm the configuration maps, for rules about rule documents
+    rule-decisions: list<rule-decision>, // the decisions the scope's own gate.toml names, for rules about them
   }
   record generated-file { path: string, contents: list<u8>, seed: bool }   // a seed: written only
                                                                            // where nothing exists
@@ -709,7 +712,10 @@ The first readers raised these points; each is settled:
   without a decision when it loads the configuration, and a rule entry without one when it loads the
   plugins, because presets come from plugins. A decision covers the levels of the entry that writes it,
   so a project file that lowers what the root left alone needs its own. Whether a decision names a
-  real record is the `ledger/exception-decisions` rule's question, for exceptions. Option data that exempts something is written as an exception, not as data.
+  real record is a plugin's question: `ledger/exception-decisions` asks it for exceptions, and
+  `ledger/rule-decisions` for rule entries, whose decisions the core hands over in
+  `check-request.rule-decisions`. Option data that exempts something is written as an exception,
+  not as data.
 - **Baselines.** `gate baseline write` stores the fingerprints of today's findings in
   `gate/baseline.json`; findings in it are not reported, entries that match nothing are, so a baseline
   only shrinks. `gate baseline prune` removes those entries (an aspect set to `off` while its rule
