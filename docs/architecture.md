@@ -639,7 +639,11 @@ The first readers raised these points; each is settled:
   and an `after` step may carry an `if:` (for example to upload reports on failure); a job that runs a
   history rule checks out the full history, and any job may set `fetch-depth`. Every generated
   checkout sets `persist-credentials: false`, with no setting to keep them: the jobs never push, and
-  they read private plugin releases through `GATE_GITHUB_TOKEN`, not through git's credentials.
+  they read private plugin releases through `GATE_GITHUB_TOKEN`, not through git's credentials. The
+  workflow has one `concurrency` group per workflow file and ref (`<workflow>@${{ github.ref }}`,
+  the file's path, so a workflow of another name never shares it), with `cancel-in-progress` true
+  for pull requests only, so a superseded pull-request run stops and a push to main never cancels a
+  running main check; no setting changes it.
 
 **Findings**
 - **Mandatory decisions on exceptions.** `[exception-policy] require-decision = true` makes a decision

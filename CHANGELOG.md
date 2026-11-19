@@ -10,6 +10,13 @@ Each shared plugin keeps its own changelog next to its code.
 
 ## Unreleased
 
+### Features
+
+- **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per
+  workflow file and ref: a newer pull-request run cancels the older one still in progress, and a
+  push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run
+  `gate sync`.
+
 ### Documentation
 
 - **docs:** upgrading a baseline written by 0.1.0. A finding of a project below the repository root
