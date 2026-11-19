@@ -42,22 +42,23 @@ The checks:
   the top-level and root-package `version` fields, and its `package.json` only `version`, which must
   be the version capture 1 of `release-subject` names. When either file it changes does not read as
   JSON on one side (absent, not UTF-8 or not JSON), the commit is reported. Needs `parents = 1`.
-- **`direct`: `files`.** The host says what `gate sync` produces at that commit (its generators'
-  outputs, the tracked files under a glob a generator owns, the core's hook and CI files) and which of
-  it differs there (the plugin interface's `sync-state`). At a commit from before the repository
-  moved to Gate, whose `gate.toml` is not a configuration of this core, the host answers the run's
-  produced paths and no drift: content another tool wrote is not judged, only paths count. Needs
-  `parents = 1`. For each file the commit changes:
-  1. one that differs from `gate sync` is reported: a generated file that is not its generator's
-     output, a tracked file under an owned glob that no generator writes, a hand-edited hook or CI
-     file;
-  2. one `gate sync` produces and that is in sync is allowed: it changes with its sources. A path
+- **`direct`: `files`.** Needs `parents = 1`. For each file the commit changes:
+  1. one `documentation` matches is allowed, except a change to the Enforcement/Status line of a
+     rule in a rule file under `rules-directory`, and a rule file there that is not UTF-8 text,
+     whose lines cannot be compared. Documentation is judged by its text alone;
+  2. for any other file, the host says what `gate sync` produces at that commit (its generators'
+     outputs, the tracked files under a glob a generator owns, the core's hook and CI files) and
+     which of it differs there (the plugin interface's `sync-state`). It is asked once per commit,
+     and only for a commit that changes a file outside `documentation`. At a commit from before the
+     repository moved to Gate, whose `gate.toml` is not a configuration of this core, the host
+     answers the run's produced paths and no drift: content another tool wrote is not judged, only
+     paths count. A file that differs from `gate sync` is reported: a generated file that is not its
+     generator's output, a tracked file under an owned glob that no generator writes, a hand-edited
+     hook or CI file;
+  3. one `gate sync` produces and that is in sync is allowed: it changes with its sources. A path
      the commit removes (a deletion, or the old side of a rename: changed paths are listed without
      rename detection) is judged against what `gate sync` produced at the parent, so a generated
      file that goes with its sources is allowed;
-  3. one `documentation` matches is allowed, except a change to the Enforcement/Status line of a
-     rule in a rule file under `rules-directory`, and a rule file there that is not UTF-8 text,
-     whose lines cannot be compared;
   4. any other file is a code path, and is reported.
 
 The default forms, when `[plugins.git] options` has no `forms`, are the merge, release and direct

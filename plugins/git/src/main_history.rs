@@ -426,10 +426,11 @@ impl<'r> Policy<'r> {
         let mut found = Vec::new();
         let rules = format!("{}/", self.options.rules_directory.trim_end_matches('/'));
         let changed = self.git.changed_paths(parent, &commit.id);
-        // What `gate sync` produces at this commit (generator outputs, tracked files under an owned
-        // glob, the core's hook and CI files), and which of it differs there. Asked only when the
-        // commit changes something.
-        let state = if changed.is_empty() {
+        // Documentation is judged by its text alone. For the other paths: what `gate sync`
+        // produces at this commit (generator outputs, tracked files under an owned glob, the
+        // core's hook and CI files), and which of it differs there. Asked only when the commit
+        // changes a path outside documentation, as most direct commits do not.
+        let state = if changed.iter().all(|file| self.documentation.is_match(file)) {
             SyncState::default()
         } else {
             self.git.sync_state(&commit.id)
@@ -440,29 +441,31 @@ impl<'r> Policy<'r> {
         let mut before: Option<SyncState> = None;
 
         for file in changed {
-            if state.drift.contains(&file) {
-                found.push((
-                    "direct",
-                    format!(
-                        "direct commit {short} changes {file}, which differs from gate sync at that commit"
-                    ),
-                ));
-            } else if state.produced.contains(&file) {
-                // Generated and in sync: it changes with its sources.
-            } else if self.git.read_at(&commit.id, &file).is_none()
-                && before
-                    .get_or_insert_with(|| self.git.sync_state(parent))
-                    .produced
-                    .contains(&file)
-            {
-                // Generated at the parent and gone with its sources: `gate sync` removes it.
-            } else if !self.documentation.is_match(&file) {
-                found.push((
-                    "direct",
-                    format!(
-                        "direct commit {short} changes code path {file}; code reaches main through a branch merge"
-                    ),
-                ));
+            if !self.documentation.is_match(&file) {
+                if state.drift.contains(&file) {
+                    found.push((
+                        "direct",
+                        format!(
+                            "direct commit {short} changes {file}, which differs from gate sync at that commit"
+                        ),
+                    ));
+                } else if state.produced.contains(&file) {
+                    // Generated and in sync: it changes with its sources.
+                } else if self.git.read_at(&commit.id, &file).is_none()
+                    && before
+                        .get_or_insert_with(|| self.git.sync_state(parent))
+                        .produced
+                        .contains(&file)
+                {
+                    // Generated at the parent and gone with its sources: `gate sync` removes it.
+                } else {
+                    found.push((
+                        "direct",
+                        format!(
+                            "direct commit {short} changes code path {file}; code reaches main through a branch merge"
+                        ),
+                    ));
+                }
             } else if file.starts_with(&rules) && is_markdown(&file) {
                 match (self.text(parent, &file), self.text(&commit.id, &file)) {
                     (Ok(before), Ok(after)) => {

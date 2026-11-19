@@ -359,7 +359,7 @@ fn direct_commits_change_documentation_and_what_gate_sync_produces_in_sync() {
 }
 
 #[test]
-fn removed_paths_are_judged_against_the_parents_sync_and_documentation_in_drift_is_reported() {
+fn removed_paths_are_judged_against_the_parents_sync_and_documentation_by_its_text_alone() {
     let (mut repo, activation) = start();
     let generated = repo.commit(
         &[&activation],
@@ -399,7 +399,8 @@ fn removed_paths_are_judged_against_the_parents_sync_and_documentation_in_drift_
         &[".agents/skill/start.sh"],
         &[".agents/skill/start.sh"],
     );
-    // A file `documentation` matches, edited by hand where `gate sync` writes it.
+    // A file `documentation` matches, edited by hand where `gate sync` writes it: documentation
+    // is judged by its text alone, and `gate sync` is not asked for a commit of documentation only.
     let block = repo.commit(
         &[&hand],
         "docs: edit the block by hand",
@@ -418,10 +419,6 @@ fn removed_paths_are_judged_against_the_parents_sync_and_documentation_in_drift_
             format!(
                 "direct commit:{hand} direct commit {} changes .agents/skill/start.sh, which differs from gate sync at that commit",
                 short(&hand)
-            ),
-            format!(
-                "direct commit:{block} direct commit {} changes AGENTS.md, which differs from gate sync at that commit",
-                short(&block)
             ),
             format!(
                 "direct commit:{code} direct commit {} changes code path src/main.ts; code reaches main through a branch merge",
