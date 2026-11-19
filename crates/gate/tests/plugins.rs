@@ -3,6 +3,7 @@
 //! probe, whose history rule reports the range a push run passes; the git and typescript plugins
 //! for their option and setting errors.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -4280,6 +4281,124 @@ fn a_plugin_option_its_schema_refuses_fails_sync_and_a_full_check_but_not_a_run_
         assert!(
             message.starts_with("gate: configuration error:") && message.contains("hello/marker"),
             "{arguments:?}: {message}"
+        );
+    }
+}
+
+/// The probe's `writer` build: plugin `writer`, with the `write` generator and no rule.
+fn writer() -> &'static (PathBuf, Vec<u8>) {
+    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    WASM.get_or_init(|| component_with("gate-runtime-probe", "gate_runtime_probe", "writer"))
+}
+
+#[test]
+fn a_sync_state_fallback_loads_the_generator_plugin_a_rule_filter_left_out() {
+    let repo = probe_repo(
+        r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1", "HEAD"] } }"#,
+    );
+    let adopted = std::fs::read_to_string(repo.path().join("gate.toml"))
+        .expect("gate.toml")
+        .replace(
+            "[plugins]\n",
+            "[plugins]\nwriter = { source = \"acme/rules:writer@0.1.0\" }\n",
+        );
+
+    repo.write(
+        "gate.toml",
+        concat!(
+            "[gate]\nversion = \"",
+            env!("CARGO_PKG_VERSION"),
+            "\"\n\n[agents]\nrules = \"docs/rules\"\n"
+        ),
+    );
+    repo.write("apps/one/gate.toml", "[project]\nname = \"one\"\n");
+    repo.write("apps/one/gen/a.md", "old\n");
+    repo.commit("old format: the run's configuration answers");
+
+    repo.write("gate.toml", &adopted);
+    repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\n\n[generate]\n\"writer/write\" = { options = { files = { \"gen/a.md\" = \"a\\n\" } } }\n",
+    );
+    repo.write("apps/one/gen/a.md", "a\n");
+    repo.commit("moved to Gate and in sync");
+
+    let plugin = format!("writer={}", writer().0.display());
+    let (code, messages) = probe_check(&repo, &["--rule", "probe/*", "--plugin", &plugin]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        [
+            "sync-state HEAD: produced gen/a.md; drift none",
+            "sync-state HEAD~1: produced gen/a.md; drift none",
+        ],
+        "--rule leaves writer out of the run, and the fallback at HEAD~1 still loads it for its \
+         generator: without it, nothing would be produced"
+    );
+}
+
+/// The compiled modules in `cache`: the files under `modules`, without wasmtime's `.stats`
+/// counters and the `.cleanup.wip-*` markers it writes as it goes.
+fn compiled_modules(cache: &Path) -> BTreeSet<String> {
+    fn walk(directory: &Path, found: &mut BTreeSet<String>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, found);
+            } else if let Some(name) = path.file_name().and_then(|name| name.to_str())
+                && !name.contains('.')
+            {
+                found.insert(name.to_owned());
+            }
+        }
+    }
+    let mut found = BTreeSet::new();
+    walk(&cache.join("modules"), &mut found);
+    found
+}
+
+#[test]
+fn after_gate_sync_no_check_compiles_a_plugin_again() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+    repo.write(
+        "gate.toml",
+        &toml.replace(
+            "[plugins]\n",
+            "[plugins]\ntypescript = { source = \"acme/rules:typescript@0.1.0\" }\n",
+        ),
+    );
+    repo.commit("a second plugin, with no rule configured");
+    let plugin = format!("typescript={}", typescript().0.display());
+    assert!(compiled_modules(repo.cache.path()).is_empty());
+
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let after_sync = compiled_modules(repo.cache.path());
+    assert_eq!(
+        after_sync.len(),
+        2,
+        "gate sync compiles every declared plugin, generators or not: {after_sync:?}"
+    );
+
+    for arguments in [
+        &["check", "--rule", "hello/*", "--plugin", plugin.as_str()][..],
+        &["check", "--plugin", plugin.as_str()][..],
+    ] {
+        let output = repo.gate(arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+        assert_eq!(
+            compiled_modules(repo.cache.path()),
+            after_sync,
+            "{arguments:?} loads cached modules only"
         );
     }
 }

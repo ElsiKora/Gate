@@ -406,6 +406,14 @@ all = ["lint", "unit"]
 
 - Plugin modules are compiled once per (plugin sha256, wasmtime version) and stored in the cache;
   later runs load the compiled module.
+- A check loads only the plugins it needs: those declared in a scope the change selection runs
+  that `--rule` allows, and a plugin a `--rule <plugin>/<rule>` key names. Any other declared
+  plugin is never fetched or compiled. The core alone checks that plugin's configuration; its
+  option schemas are not checked in that run. A `sync-state` answer that falls back to the run's
+  configuration loads the plugins of its `[generate]` entries when it first needs them.
+- `gate sync` loads every declared plugin. It is the command every clone runs before its first
+  hook, since it sets `core.hooksPath`, so every plugin is in the module cache before a hook
+  needs it. It also checks the whole configuration against every plugin.
 - Plugin calls (project x plugin) run in parallel on a worker pool.
 - **Result cache**: the host records every path a call listed or read and every git query it made.
   A call's findings are stored under (core version, plugin sha256, rules and options, project, grant)
