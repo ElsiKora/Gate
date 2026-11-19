@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | v0.3.0 (breaking: `--sha256` is removed) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
@@ -70,8 +70,23 @@ file is a component of the named plugin (`gate check` does that when it loads it
 
 ## Resume point
 
-2026-11-19T20:58:27+00:00: the review of 2c05ee4 found the trust model sound and asked for one round: the
-admit advice only when the asset is not found (a 401, a 403 or a missing credential gets none,
-with a test), the CHANGELOG entry under `# 0.3.0 (unreleased)` / `### Breaking Changes`, and the
-`bin/gate check` step in the plugin guide's release steps. Committed; not compiled yet. Round 248
-on 2c05ee4 is queued; its successor on this commit records the proof here when green.
+2026-11-19T22:03:51+00:00: lane ticket 250 on 958681e (`round-inner.sh`) is green: `cargo fmt --all --check`
+exit 0, `cargo clippy --locked --workspace --all-targets -- -D warnings` exit 0, `cargo test
+--locked --workspace --no-fail-fast` exit 0 (1018 passed, 0 failed), `cargo deny --locked check`
+exit 0. Each change taken out, with its tests run by `cargo test -p gate --test distribution --
+--exact <test>`, fails with exit 101:
+- the build not admitted into the cache:
+  `lock_set_file_admits_the_build_and_check_runs_exactly_it_before_it_is_published`;
+- no admit advice on a missing asset:
+  `a_pin_whose_blob_is_missing_and_cannot_be_downloaded_fails_closed_and_says_what_to_do` and
+  `another_file_under_the_pinned_sha256_is_refused_and_nothing_runs`;
+- the build admitted before the pin is checked:
+  `lock_set_needs_a_readable_file_and_a_declared_name_and_has_no_sha256`;
+- a cache entry not re-hashed before use: `another_file_under_the_pinned_sha256_is_refused_and_nothing_runs`;
+- the advice on every refused download, not only a missing asset:
+  `a_refused_download_or_a_missing_credential_gets_no_admit_advice`.
+Earlier rounds: 219 (6ee5968) did not compile, a missed caller; 238 (cd3a606) failed one test, the
+git plugin's required option missing from its gate.toml; 248 was withdrawn unstarted. Open, from
+the review, not blocking: two concurrent `lock --set` runs lose one pin (read-modify-write, as
+before); a prune with another repository's lock drops an unpublished admitted build (recoverable).
+Next: the lead merges after the v0.2.1 tag.
