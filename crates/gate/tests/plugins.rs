@@ -926,7 +926,10 @@ fn generating(options: &str) -> Repo {
     let repo =
         probe_repo(r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1"] } }"#);
     let core = r#"files = { "gate.toml" = "overwritten\n" }"#;
-    repo.write("apps/one/gate.toml", &writing(&format!("{options}, {core}")));
+    repo.write(
+        "apps/one/gate.toml",
+        &writing(&format!("{options}, {core}")),
+    );
     repo.write("apps/one/inputs/a.txt", "a\n");
     repo.commit("the generator writes a core file: the run's configuration answers");
     repo.write("apps/one/gate.toml", &writing(options));
