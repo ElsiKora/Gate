@@ -50,7 +50,7 @@ impl Rule for RuleFileSize {
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let (max, warn) = (run.options().max_lines, run.options().warn_lines);
         if warn > max {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "warn-lines {warn} is above max-lines {max}; set warn-lines at or below max-lines"
             )));
         }

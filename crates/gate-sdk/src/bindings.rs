@@ -145,8 +145,11 @@ pub fn describe(spec: &PluginSpec) -> wit::PluginInfo {
 /// The `check` export.
 ///
 /// # Errors
-/// The SDK's error message, which the host reports with the plugin's name.
-pub fn check(spec: &PluginSpec, request: wit::CheckRequest) -> Result<Vec<wit::Finding>, String> {
+/// The SDK's error, of its kind, which the host reports with the plugin's name.
+pub fn check(
+    spec: &PluginSpec,
+    request: wit::CheckRequest,
+) -> Result<Vec<wit::Finding>, wit::PluginError> {
     let request = plugin::CheckRequest {
         project: request.project,
         rules: request
@@ -165,19 +168,19 @@ pub fn check(spec: &PluginSpec, request: wit::CheckRequest) -> Result<Vec<wit::F
     };
     plugin::check(spec, &ComponentHost, &request)
         .map(|findings| findings.into_iter().map(finding).collect())
-        .map_err(|error| error.message().to_owned())
+        .map_err(plugin_error)
 }
 
 /// The `generate` export.
 ///
 /// # Errors
-/// The SDK's error message, which the host reports with the plugin's name.
+/// The SDK's error, of its kind, which the host reports with the plugin's name.
 pub fn generate(
     spec: &PluginSpec,
     name: &str,
     project: &str,
     options: &str,
-) -> Result<wit::GenerateResult, String> {
+) -> Result<wit::GenerateResult, wit::PluginError> {
     plugin::generate(spec, &ComponentHost, name, project, options)
         .map(|output| wit::GenerateResult {
             files: output
@@ -190,7 +193,16 @@ pub fn generate(
                 .collect(),
             findings: output.findings.into_iter().map(finding).collect(),
         })
-        .map_err(|error| error.message().to_owned())
+        .map_err(plugin_error)
+}
+
+/// `error` as the interface carries it, of its kind.
+fn plugin_error(error: crate::Error) -> wit::PluginError {
+    if error.configuration {
+        wit::PluginError::Configuration(error.message)
+    } else {
+        wit::PluginError::Environment(error.message)
+    }
 }
 
 fn rule_info(info: RuleInfo) -> wit::RuleInfo {
@@ -303,7 +315,7 @@ macro_rules! plugin {
                     request: $crate::bindings::gate::plugin::types::CheckRequest,
                 ) -> ::core::result::Result<
                     ::std::vec::Vec<$crate::bindings::gate::plugin::types::Finding>,
-                    ::std::string::String,
+                    $crate::bindings::gate::plugin::types::PluginError,
                 > {
                     $crate::bindings::check(&PLUGIN, request)
                 }
@@ -314,7 +326,7 @@ macro_rules! plugin {
                     options: ::std::string::String,
                 ) -> ::core::result::Result<
                     $crate::bindings::gate::plugin::types::GenerateResult,
-                    ::std::string::String,
+                    $crate::bindings::gate::plugin::types::PluginError,
                 > {
                     $crate::bindings::generate(&PLUGIN, &name, &project, &options)
                 }

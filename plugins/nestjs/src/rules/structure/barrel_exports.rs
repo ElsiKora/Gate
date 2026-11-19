@@ -376,10 +376,7 @@ impl<'r> Barrels<'r, '_> {
                 };
                 let specifier = module.value.as_str();
                 let line = Some(file.line(statement.span().start));
-                let resolved = self
-                    .typescript
-                    .resolve(barrel, specifier)
-                    .map_err(|failure| project::error(&failure))?;
+                let resolved = self.typescript.resolve(barrel, specifier)?;
 
                 if let Some(target) = &resolved
                     && !barrel.starts_with(&test_prefix)

@@ -309,7 +309,7 @@ fn packages(run: &Run<'_, Options>, options: &Options, factory_package: &str) ->
     };
 
     let text = run.tree().text(path).ok_or_else(|| {
-        gate_sdk::Error::new(format!(
+        gate_sdk::Error::config(format!(
             "the package-exports-file {path} is not a tracked text file; generate and commit it, or remove the option"
         ))
     })?;

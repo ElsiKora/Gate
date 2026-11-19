@@ -106,6 +106,7 @@ impl gate_sdk::Rule for Rule {
             crate::shared::paths::check("generated-folder", &o.generated_folder, Folder)?;
             crate::shared::paths::check("barrel", &o.barrel, File)?;
             crate::shared::paths::check("registry", &o.registry, File)?;
+            gate_typescript::check_source_option("registry", &o.registry)?;
         }
 
         let options = run.options();
@@ -394,10 +395,7 @@ impl Registry {
         typescript: &TypeScript<'_>,
         ordered: &[Migration],
     ) -> gate_sdk::Result<()> {
-        match typescript
-            .parse(&self.path)
-            .map_err(|failure| project::error(&failure))?
-        {
+        match typescript.parse(&self.path)? {
             Some(source) if !source.fatal() => {
                 for (line, key, message) in self.findings(&source, ordered) {
                     run.report()

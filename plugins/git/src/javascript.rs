@@ -1,5 +1,6 @@
-//! Regular expressions of `commitlint`'s configuration, read as JavaScript reads one without flags
-//! (with the web-compatibility grammar of Annex B), and written for the `regex` crate.
+//! Regular expressions of `commitlint`'s and `git-branch-lint`'s configuration, read as JavaScript
+//! reads one without flags (with the web-compatibility grammar of Annex B), and written for the
+//! `regex` crate. Every pattern a git rule takes from a JavaScript tool's policy is read here.
 //!
 //! Each construct is translated to the one that means the same here, so that no construct of the
 //! `regex` crate's own syntax (`\A`, `\z`, `\<`, `\pL`, `[[:alpha:]]`, `&&` and `--` in a class, a

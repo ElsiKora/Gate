@@ -131,6 +131,7 @@ impl gate_sdk::Rule for Rule {
             let o = run.options();
             crate::shared::paths::check_all("readiness-files", &o.readiness_files, File)?;
             crate::shared::paths::check("startup-file", &o.startup_file, File)?;
+            gate_typescript::check_source_option("startup-file", &o.startup_file)?;
         }
 
         let role = run.options().role_name.clone();
@@ -161,10 +162,7 @@ impl gate_sdk::Rule for Rule {
         let allocator = Allocator::default();
         let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
 
-        let Some(file) = typescript
-            .parse(&start)
-            .map_err(|failure| project::error(&failure))?
-        else {
+        let Some(file) = typescript.parse(&start)? else {
             run.report()
                 .finding(
                     "startup-order",

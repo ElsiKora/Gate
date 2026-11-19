@@ -44,8 +44,19 @@ What passed under 0.1.0 and now fails, with no change to `gate.toml`:
   - in a hook run, main is checked like any branch (0.1.0 passed main always); outside a hook run
     main still passes;
   - `dev` passes every check but `prohibited` (`ignore`); set `ignore = []` to check it.
-- `\w`, `\d` and `\b` in `pattern`, `template` and `subject` are ASCII, as in a JavaScript regular
-  expression without the `u` flag: `^feature/\w+$` now refuses `feature/café`.
+- Every pattern option of the plugin is read as JavaScript reads a regular expression without
+  flags, in the subset the `git/commit-message` page lists: `git/branch-name`'s `pattern`,
+  `template` and `subject`, `git/no-ci-skip`'s `directive-pattern` and `trailer-pattern`, and
+  `release-subject`, `branch-pattern` and a form's `subject` in `[plugins.git] options`. `\w`, `\d`
+  and `\b` are ASCII, so `^feature/\w+$` now refuses `feature/café`; syntax of Rust's `regex`
+  crate such as `\A`, `\pL` or `[[:alpha:]]` means what JavaScript means by it; and an inline
+  flag such as `(?i)` is refused as a configuration error. `git/no-ci-skip`'s defaults spell each
+  letter in both cases instead of `(?i)` and match the trailer on a line of its own instead of
+  `(?m)`, so they find what they found before.
+- A wrong option or `[plugins.git] options` key ends the run as a configuration error (exit 2,
+  `configuration error`), not as an environment error. A main reference that is missing, or an
+  activation commit that is not an ancestor of main, stays an environment error: fetching the
+  history may fix it.
 - `git/no-ci-skip` also checks the message being written (`gate check --commit-message`, the
   `commit-msg` hook), `#` lines included, so a CI-skip directive fails the hook instead of the next
   check.

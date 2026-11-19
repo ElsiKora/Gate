@@ -114,6 +114,8 @@ interface types {
     target: option<string>,   // what the finding is about, in the rule's own documented grammar
                               // (for example "src/user.entity.ts:UserEntity.parent"); exceptions match it
     help: option<string>,
+    key: option<string>,      // the plugin's stable identity of what the finding is about; with
+                              // it, the fingerprint is rule, aspect, path and key
   }
   record rule-info {
     name: string, title: string, aspects: list<string>, scope: scope,
@@ -144,6 +146,10 @@ interface types {
   }
   record generated-file { path: string, contents: list<u8> }
   record generate-result { files: list<generated-file>, findings: list<finding> }
+  variant plugin-error {      // why check or generate failed; the message says what to do
+    configuration(string),    // the options or settings cannot be used: a configuration error
+    environment(string),      // anything else outside the configuration: an environment error
+  }
 }
 
 interface tree {      // the snapshot, read-only, tracked files only
@@ -180,9 +186,10 @@ interface git {       // granted only to rules that declare reads-history
 world plugin {
   import tree; import git; import log: func(message: string);
   export describe: func() -> types.plugin-info;
-  export check: func(request: types.check-request) -> result<list<types.finding>, string>;
+  export check: func(request: types.check-request) -> result<list<types.finding>, types.plugin-error>;
   export generate: func(name: string, project: string, options: string)
-      -> result<types.generate-result, string>;   // findings surface as gate/sync#<generator>
+      -> result<types.generate-result, types.plugin-error>;   // findings surface as
+                                                               // gate/sync#<generator>
 }
 ```
 
@@ -194,9 +201,11 @@ Rules:
   `repository` scope rule runs once and sees the whole repository. A configuration may grant a plugin
   extra read paths outside its project (`reads = [...]`), for example a ledger that cites records of a
   sibling project; anything else returns `none`.
-- `Err` from `check` is an environment failure (the run fails, the message names the plugin, and,
-  for a project below the repository root, the project and that its paths are relative to its root,
-  since the core does not rewrite the plugin's text); a violation is a finding.
+- `Err` from `check` or `generate` is a `plugin-error`: `configuration` when the options or settings
+  the call was given cannot be used, which fails the run as a configuration error, and `environment`
+  otherwise, which fails it as an environment error. The message names the plugin and, for a project
+  below the repository root, the project and that its paths are relative to its root, since the
+  core does not rewrite the plugin's text. A violation is a finding.
 - The SDK (`gate-sdk`, Rust) wraps the interface: a `Tree` with `paths()`, `under()`, `text()`,
   `bytes()`; a `Git`; a `Report` with `finding(aspect, location, message)` (the level is configuration,
   never the plugin's); typed options with

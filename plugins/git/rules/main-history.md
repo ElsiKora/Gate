@@ -82,7 +82,10 @@ without `parents = 1`, a release form with a `subject`, an empty `forms`.
 
 Every pattern (`subject`, `release-subject`, `branch-pattern`) is a regular expression searched
 anywhere in its text: `^Merge ` matches only at the start, `Merge ` anywhere in the subject. Anchor a
-pattern with `^` and `$` to match the whole text. Globs are matched against repository paths; `*`
+pattern with `^` and `$` to match the whole text. Each is read as JavaScript reads a regular
+expression without flags, in the subset
+[`git/commit-message`](commit-message.md#regular-expressions) lists: `\d` and `\w` are ASCII, and
+there is no `(?i)` or other inline flag. Globs are matched against repository paths; `*`
 does not cross `/`. The rule reads history only through the host's git
 interface and needs the full history: in a shallow clone the activation commit is missing and the
 run fails with an error that says so.

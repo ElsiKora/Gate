@@ -82,7 +82,7 @@ impl Rule for InstructionReferences {
                     .ok()
                     .filter(|compiled| compiled.captures_len() > 1)
                     .ok_or_else(|| {
-                        Error::new(format!(
+                        Error::config(format!(
                             "command-pattern `{pattern}` is not a regular expression with a group; \
                              write one whose first group captures the script name"
                         ))

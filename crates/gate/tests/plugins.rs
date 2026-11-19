@@ -1,6 +1,7 @@
 //! `gate check` running real plugins built for wasm32-wasip2: `examples/plugin-hello`, pinned in
 //! `gate.lock` and served from the cache, or replaced for one run by `--plugin`; and the runtime's
-//! probe, whose history rule reports the range a push run passes.
+//! probe, whose history rule reports the range a push run passes; the git and typescript plugins
+//! for their option and setting errors.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -52,6 +53,12 @@ fn component_with(package: &str, library: &str, features: &str) -> (PathBuf, Vec
 fn hello() -> &'static (PathBuf, Vec<u8>) {
     static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
     WASM.get_or_init(|| component("gate-plugin-hello", "gate_plugin_hello"))
+}
+
+/// The typescript plugin's component.
+fn typescript() -> &'static (PathBuf, Vec<u8>) {
+    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    WASM.get_or_init(|| component("gate-plugin-typescript", "typescript"))
 }
 
 /// The runtime's probe component.
@@ -2628,6 +2635,158 @@ fn a_message_past_the_read_set_limit_is_recorded_by_its_digest() {
         &["--commit-message", &file.display().to_string()],
     );
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+}
+
+#[test]
+fn a_rules_bad_option_is_a_configuration_error_and_a_missing_plugin_an_environment_error() {
+    // The hello plugin: its marker passes the schema and is refused by the rule.
+    let repo = Repo::pinned(r#"{ marker = "" }"#);
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:") && message.contains("marker is empty"),
+        "{message}"
+    );
+
+    // The git plugin: a header-pattern that does not compile.
+    let git = GitOptions::new();
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&file, "feat(core): add the thing\n").expect("message");
+    let at = file.display().to_string();
+    let output = git.check(
+        "",
+        r#""git/commit-message" = { level = "error", options = { header-pattern = "(" } }"#,
+        &["--commit-message", &at],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("header-pattern \"(\" is not a valid regular expression"),
+        "{message}"
+    );
+
+    // A plugin file that is not there stays an environment error.
+    let missing = outside.path().join("git.wasm");
+    let output = git.repo.gate(&[
+        "check",
+        "--plugin",
+        &format!("git={}", missing.display()),
+        "--commit-message",
+        &at,
+    ]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: environment error:") && message.contains("cannot read"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_plugins_own_environment_error_keeps_its_label() {
+    // git/no-ci-skip with a main reference the repository does not have: the plugin's
+    // environment error (a fetch may fix it), which the runtime and the host keep as one.
+    let git = GitOptions::new();
+    git.repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/trunk\"], activation = \"{}\", forms = [{{ kind = \"direct\", parents = 1, checks = [] }}] }}\n\n[rules]\n{NO_CI_SKIP}\n",
+            git.root
+        ),
+    );
+    git.repo.commit("configure");
+    let output = git.repo.gate(&["check", "--plugin", &git.plugin]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: environment error:")
+            && message.contains("none of the main references"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_configured_tsconfig_that_is_not_tracked_is_a_configuration_error() {
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"app\"\n\n[plugins]\ntypescript = {{ source = \"acme/rules:typescript@0.1.0\" }}\n\n[languages.typescript]\ntsconfig = \"tsconfig.app.json\"\n\n[rules]\n\"typescript/barrel-imports\" = {{ level = \"error\" }}\n"
+        ),
+    );
+    repo.write(
+        "src/accounts/index.ts",
+        "export { account } from \"./account\";\n",
+    );
+    repo.write("src/accounts/account.ts", "export const account = 1;\n");
+    repo.write("src/main.ts", "import { account } from \"./accounts\";\n");
+    repo.commit("init");
+    let plugin = format!("typescript={}", typescript().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("tsconfig names tsconfig.app.json, which is not tracked"),
+        "{message}"
+    );
+}
+
+/// `gate check` in a repository with one tracked TypeScript file and `[plugins.<name>]` declared,
+/// the built component of `package` (library `library`) given as `--plugin <name>=<path>`, and
+/// `[rules]` `rules`.
+fn bad_option_check(package: &str, library: &str, name: &str, rules: &str) -> Output {
+    let (path, _) = component(package, library);
+    let repo = Repo::empty();
+    repo.write("src/app/app.service.ts", "export class AppService {}\n");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.{name}]\nsource = \"acme/rules:{name}@0.1.0\"\n\n[rules]\n{rules}\n"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("{name}={}", path.display());
+    repo.gate(&["check", "--plugin", &plugin])
+}
+
+#[test]
+fn a_nestjs_option_its_rule_refuses_is_a_configuration_error() {
+    // A pattern that is no regular expression: no schema can refuse it, the rule does.
+    let output = bad_option_check(
+        "gate-plugin-nestjs",
+        "nestjs",
+        "nestjs",
+        r#""nestjs/eslint-directives" = { level = "error", options = { rule-id-pattern = "(" } }"#,
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("rule-id-pattern \"(\" is no regular expression"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_ledger_option_its_rule_refuses_is_a_configuration_error() {
+    // A pattern that is no regular expression: no schema can refuse it, the rule does.
+    let output = bad_option_check(
+        "gate-plugin-ledger",
+        "ledger",
+        "ledger",
+        r#""ledger/reuses" = { level = "error", options = { generic-reasons = "(" } }"#,
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("option generic-reasons is not a valid pattern"),
+        "{message}"
+    );
 }
 
 /// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the

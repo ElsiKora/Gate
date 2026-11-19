@@ -128,7 +128,7 @@ impl Patterns {
                 if letter.len() == 1 && letter.bytes().all(|byte| byte.is_ascii_uppercase()) {
                     Ok(letter.as_str())
                 } else {
-                    Err(Error::new(format!(
+                    Err(Error::config(format!(
                         "ledger/closing-notes option entry-label-letters has {letter:?}; each entry is one uppercase letter"
                     )))
                 }

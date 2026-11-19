@@ -7,6 +7,7 @@ use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use regex::Regex;
 
 use crate::forms::{Compiled, Form, compile_all, default_forms};
+use crate::javascript::translate;
 
 /// The `[plugins.git] options`. `main` is required; each other key is required by the rule, or the
 /// form of `git/main-history`, that reads it.
@@ -47,12 +48,12 @@ impl Settings {
     /// maximum.
     pub fn read<O>(run: &gate_sdk::Run<'_, O>) -> Result<Self> {
         let settings: Self = run.plugin_options().map_err(|error| {
-            Error::new(format!(
+            Error::config(format!(
                 "{error}; the git rules read main and the policy keys from [plugins.git] options"
             ))
         })?;
         if settings.main.is_empty() {
-            return Err(Error::new(
+            return Err(Error::config(
                 "[plugins.git] options main is empty; name the references of main, for example \
                  [\"refs/remotes/origin/main\", \"refs/heads/main\"]",
             ));
@@ -63,7 +64,7 @@ impl Settings {
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
             if !hex {
-                return Err(Error::new(format!(
+                return Err(Error::config(format!(
                     "[plugins.git] options activation {activation:?} is not a full commit id; \
                      write the 40 lowercase hexadecimal characters of the commit the policy \
                      starts after"
@@ -73,7 +74,7 @@ impl Settings {
         if let Some(release) = settings.release()?
             && release.captures_len() < 2
         {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[plugins.git] options release-subject {:?} has no capture group; capture the \
                  version in group 1, for example '^chore\\(release\\): (\\d+\\.\\d+\\.\\d+)$'",
                 release.as_str()
@@ -82,7 +83,7 @@ impl Settings {
         if let Some([shortest, longest]) = settings.branch_length
             && shortest > longest
         {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[plugins.git] options branch-length [{shortest}, {longest}] has its minimum above \
                  its maximum; write [shortest, longest]"
             )));
@@ -96,7 +97,7 @@ impl Settings {
     /// When it is absent.
     pub fn activation(&self, rule: &str) -> Result<&str> {
         self.activation.as_deref().ok_or_else(|| {
-            Error::new(format!(
+            Error::config(format!(
                 "[plugins.git] options has no activation; {rule} reads history after it: write \
                  the 40-hex id of the commit the policy starts after"
             ))
@@ -217,19 +218,29 @@ pub(crate) const DOCUMENTATION: Need = Need {
 /// When the key is absent.
 pub(crate) fn required<'s, T>(value: Option<&'s T>, key: &str, reader: &str) -> Result<&'s T> {
     value.ok_or_else(|| {
-        Error::new(format!(
+        Error::config(format!(
             "[plugins.git] options has no {key}; {reader} reads it: set it, or turn that check off"
         ))
     })
 }
 
-/// A regular expression of the settings or options.
+/// A regular expression of the settings or of a rule's options, read as JavaScript reads one
+/// without flags (see [`translate`]): `\w`, `\d` and `\b` are ASCII, so `[\w-]+` does not take
+/// `é`. Every pattern option of the plugin is read here or, for `git/commit-message`, with the same
+/// translation.
 ///
 /// # Errors
-/// When it does not compile, naming the key.
+/// When it holds a construct the translation does not read, or does not compile, naming the key
+/// and the text as written.
 pub(crate) fn pattern(key: &str, text: &str) -> Result<Regex> {
-    Regex::new(text).map_err(|error| {
-        Error::new(format!(
+    let translated = translate(text).map_err(|construct| {
+        Error::config(format!(
+            "{key} {text:?} has {construct}, which the git plugin does not read; write a \
+             JavaScript regular expression without lookaround or backreferences"
+        ))
+    })?;
+    Regex::new(&translated).map_err(|error| {
+        Error::config(format!(
             "{key} {text:?} is not a valid regular expression: {error}"
         ))
     })
@@ -247,11 +258,11 @@ pub(crate) fn globs(key: &str, patterns: &[String]) -> Result<GlobSet> {
                 .literal_separator(true)
                 .build()
                 .map_err(|error| {
-                    Error::new(format!("{key} glob {pattern:?} is not valid: {error}"))
+                    Error::config(format!("{key} glob {pattern:?} is not valid: {error}"))
                 })?,
         );
     }
     builder
         .build()
-        .map_err(|error| Error::new(format!("{key} globs do not build: {error}")))
+        .map_err(|error| Error::config(format!("{key} globs do not build: {error}")))
 }

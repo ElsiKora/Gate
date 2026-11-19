@@ -55,7 +55,7 @@ impl Rule for NoBareTodo {
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let pattern = run.options().pattern.clone();
         let issue = regex::Regex::new(&pattern).map_err(|error| {
-            Error::new(format!(
+            Error::config(format!(
                 "the option pattern is not a regular expression ({error}); fix it in gate.toml"
             ))
         })?;
@@ -112,7 +112,7 @@ The repository turns it on:
   source root, a list of layers) takes them as required options; it never assumes a layout.
 - Large data goes in an `options-file` on the repository's side; the rule sees the same type.
 - An option that is valid by the schema but unusable (a regular expression that does not compile) is
-  an `Err(Error::new(..))` with a message that names the option and what to do.
+  an `Err(Error::config(..))` with a message that names the option and what to do.
 
 ## 3. Scope
 
@@ -223,9 +223,22 @@ changes the fingerprint.
 
 ## 8. Errors
 
-`Err` means the rule could not run: unusable options, a file the rule requires that is not tracked, an
-internal fault. The run fails with exit code `2` and the message names the plugin. A violation is never
-an `Err`.
+`Err` means the rule could not run, and the run fails with exit code `2`; the message names the
+plugin. A violation is never an `Err`. Two kinds:
+
+- `Error::config`: the configuration the rule was given cannot be used, such as an option that passes
+  the schema but cannot work, or two options that contradict each other. The run fails as a
+  configuration error, like a wrong `gate.toml` key. The SDK reports options that do not match the
+  options type this way itself.
+- `Error::new`: an environment failure, such as a source file that does not parse, a git question
+  the history cannot answer, or an internal fault. The run fails as an environment error.
+
+A file an option names follows one rule. Missing or not tracked: `Error::config`, since the option
+is wrong. Tracked but it does not parse: `Error::new` when it is a source or generated file whose fix
+is in the tree (fix its syntax, regenerate it), and `Error::config` only when it is itself option
+data, a JSON or TOML file that holds the rule's configuration. A file that holds source the rule
+parses, named by an option, is checked when the options are: one of another kind is `Error::config`,
+and the message names the kinds the rule reads.
 
 ## 9. Fixtures
 

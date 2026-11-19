@@ -122,13 +122,15 @@ impl Options {
         })
     }
 
-    /// Checks that every path option is a normalized path relative to the project root.
+    /// Checks that every path option is a normalized path relative to the project root, and that
+    /// `operation-enum-path` names a JavaScript or TypeScript file.
     fn check_paths(&self) -> gate_sdk::Result<()> {
         if let Some(manifest) = &self.manifest_path {
             paths::check("manifest-path", manifest, Form::File)?;
         }
         if let Some(operation_enum) = &self.operation_enum_path {
             paths::check("operation-enum-path", operation_enum, Form::File)?;
+            gate_typescript::check_source_option("operation-enum-path", operation_enum)?;
         }
         for (marker, files) in &self.marker_paths {
             paths::check_all(&format!("marker-paths.{marker}"), files, Form::File)?;
@@ -265,10 +267,7 @@ fn operation_enum(
     operations: &[&str],
     findings: &mut Findings,
 ) -> gate_sdk::Result<()> {
-    match typescript
-        .parse(path)
-        .map_err(|failure| project::error(&failure))?
-    {
+    match typescript.parse(path)? {
         None => findings.push(
             "operation-enum",
             path,

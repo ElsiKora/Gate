@@ -34,6 +34,13 @@ and the release to pin.
   the finding, and removes the entries that match no finding although their rule ran, an aspect
   set to `off` included; it prints each one and never adds an entry, so a new finding stays
   reported. `gate baseline write` is for the first baseline.
+- **plugin interface:** `check` and `generate` fail with a `plugin-error`, `configuration` or
+  `environment`, in place of a string. A `configuration` error ends the run as a configuration
+  error (exit 2, `configuration error`), as a wrong `gate.toml` key does; an `environment` error
+  stays an environment error.
+- **sdk:** `Error::config` is a configuration error beside `Error::new`, an environment failure.
+  Options that do not match a rule's or generator's options type, and `[plugins]` options or
+  `[languages]` settings that do not match, are configuration errors.
 
 ### Bug Fixes
 

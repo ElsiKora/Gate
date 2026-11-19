@@ -109,6 +109,13 @@ interface types {
 
   /// What `generate` answers; its findings surface as `gate/sync#<generator>`.
   record generate-result { files: list<generated-file>, findings: list<finding> }
+
+  /// Why a `check` or `generate` call failed; the message says what is wrong and what to do, and
+  /// the host names the plugin. `configuration`: the options or settings the call was given cannot
+  /// be used, and the run fails as a configuration error. `environment`: something outside the
+  /// configuration failed, and the run fails as an environment error. A violation is never an
+  /// error; it is a finding.
+  variant plugin-error { configuration(string), environment(string) }
 }
 
 /// The snapshot, read-only, tracked files only, within the call's grant.
@@ -178,7 +185,7 @@ interface git {
 }
 
 world plugin {
-  use types.{plugin-info, check-request, finding, generate-result};
+  use types.{plugin-info, check-request, finding, generate-result, plugin-error};
 
   import tree;
   import git;
@@ -186,8 +193,7 @@ world plugin {
   import log: func(message: string);
 
   export describe: func() -> plugin-info;
-  /// `err` is an environment failure (the run fails, the message names the plugin); a violation is
-  /// a finding.
-  export check: func(request: check-request) -> result<list<finding>, string>;
-  export generate: func(name: string, project: string, options: string) -> result<generate-result, string>;
+  /// `err` fails the run, as a configuration or an environment error (see `plugin-error`).
+  export check: func(request: check-request) -> result<list<finding>, plugin-error>;
+  export generate: func(name: string, project: string, options: string) -> result<generate-result, plugin-error>;
 }

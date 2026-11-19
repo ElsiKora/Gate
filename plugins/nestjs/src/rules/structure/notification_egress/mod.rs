@@ -225,7 +225,7 @@ impl Rule for NotificationEgress {
         let decisions = match &options.decisions {
             Some(path) => Some(decisions::accepted(&run.tree().text(path).ok_or_else(
                 || {
-                    gate_sdk::Error::new(format!(
+                    gate_sdk::Error::config(format!(
                         "{label}: the decision index {path} is not tracked; correct `decisions` \
                          or add the index"
                     ))
@@ -243,8 +243,7 @@ impl Rule for NotificationEgress {
         let source = project::source(run);
         let allocator = Allocator::default();
         let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)
-            .map_err(|failure| project::error(&failure))?;
+        let sources = Sources::new(&typescript, &layout.source_root)?;
         let mut findings = Findings::default();
         let scan = Scan {
             sources: &sources,
@@ -281,7 +280,7 @@ fn help(aspect: &str) -> &'static str {
 }
 
 fn invalid(label: &str, message: &str) -> gate_sdk::Error {
-    gate_sdk::Error::new(format!("{label}: {message}"))
+    gate_sdk::Error::config(format!("{label}: {message}"))
 }
 
 /// Stops the run on a repeated owner class, a notification class outside the owner classes, a

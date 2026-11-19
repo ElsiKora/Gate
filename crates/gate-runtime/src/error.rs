@@ -18,9 +18,12 @@ pub enum ErrorKind {
     /// The call hit the memory limit (its linear memories and tables together) or the read-set
     /// limit.
     OutOfMemory,
-    /// The plugin answered `err`: an environment failure it reports, which may pass by the next
-    /// call.
+    /// The plugin answered `environment`: an environment failure it reports, which may pass by the
+    /// next call.
     Reported,
+    /// The plugin answered `configuration`: the options or settings the call was given cannot be
+    /// used. It recurs for the same configuration.
+    Configuration,
     /// The plugin broke the interface: a finding outside the repository, of a rule the call did not run or an aspect the rule does
     /// not declare, at a commit that is not a full id; a git call with a revision where a full
     /// commit id belongs; a generated file outside its project or one the core owns.

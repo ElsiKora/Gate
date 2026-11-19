@@ -120,9 +120,7 @@ impl gate_sdk::Rule for Rule {
 
             for node in file.semantic().nodes().iter() {
                 if let AstKind::Class(class) = node.kind() {
-                    descriptions
-                        .class(class, &mut findings)
-                        .map_err(|failure| project::error(&failure))?;
+                    descriptions.class(class, &mut findings)?;
                 }
             }
         }

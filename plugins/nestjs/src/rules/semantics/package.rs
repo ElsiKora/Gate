@@ -11,7 +11,7 @@ pub(crate) fn resolve(
 ) -> gate_sdk::Result<String> {
     match value {
         None => Ok(fallback.to_owned()),
-        Some("") => Err(gate_sdk::Error::new(format!(
+        Some("") => Err(gate_sdk::Error::config(format!(
             "the option `{option}` is empty; name a package, or leave the option out to use the layout's package ({fallback})"
         ))),
         Some(package) => Ok(package.to_owned()),

@@ -227,18 +227,18 @@ impl Grammar {
                     .bytes()
                     .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
         }) {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[generate] ledger/review-progress kind {kind:?} must be uppercase letters and digits, such as \"RET\""
             )));
         }
         if let Some(kind) = kinds.iter().find(|kind| is_feature(kind)) {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[generate] ledger/review-progress kind {kind:?} has the form of a feature (F and three digits); name the kind otherwise"
             )));
         }
         let mut seen = BTreeSet::new();
         if let Some(kind) = kinds.iter().find(|kind| !seen.insert(kind.as_str())) {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[generate] ledger/review-progress kind {kind:?} is listed twice; list each kind once, in cross-cutting-kinds or in zero-answer-kinds"
             )));
         }

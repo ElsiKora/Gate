@@ -74,7 +74,7 @@ impl Rule for BarrelImports {
             || barrel_name == "."
             || barrel_name == ".."
         {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "barrel-name {barrel_name:?} is not a file name; write the name of a folder's \
                  barrel file, for example \"index.ts\""
             )));
@@ -144,7 +144,7 @@ fn globs(key: &str, patterns: &[String]) -> Result<GlobSet> {
                 .literal_separator(true)
                 .build()
                 .map_err(|error| {
-                    Error::new(format!(
+                    Error::config(format!(
                         "{key} glob {pattern:?} is not valid: {error}; write a glob relative to \
                          the project root, such as \"src/modules/*\""
                     ))
@@ -153,7 +153,7 @@ fn globs(key: &str, patterns: &[String]) -> Result<GlobSet> {
     }
     builder
         .build()
-        .map_err(|error| Error::new(format!("{key} globs do not build: {error}")))
+        .map_err(|error| Error::config(format!("{key} globs do not build: {error}")))
 }
 
 /// One module a file loads statically, and the names it takes from it.
@@ -272,19 +272,12 @@ impl<'a> Checker<'_, 'a> {
     /// The syntax tree of a tracked file; `None` when it is not tracked or does not parse, which
     /// `typescript/parse` reports.
     fn parse(&self, path: &str) -> Result<Option<std::rc::Rc<SourceFile<'a>>>> {
-        let file = self
-            .typescript
-            .parse(path)
-            .map_err(|error| Error::new(error.to_string()))?;
+        let file = self.typescript.parse(path)?;
         Ok(file.filter(|file| !file.fatal()))
     }
 
     fn check(&self, path: &str, load: &Load, found: &mut Vec<Found>) -> Result<()> {
-        let Some(target) = self
-            .typescript
-            .resolve(path, &load.specifier)
-            .map_err(|error| Error::new(error.to_string()))?
-        else {
+        let Some(target) = self.typescript.resolve(path, &load.specifier)? else {
             return Ok(());
         };
         let Some(folder) = self.barrel_folder(path, &target) else {
@@ -425,11 +418,7 @@ impl<'a> Checker<'_, 'a> {
                 Some(name) => {
                     own.names.insert(export_name(name));
                 }
-                None => match self
-                    .typescript
-                    .resolve(path, &export.source.value)
-                    .map_err(|error| Error::new(error.to_string()))?
-                {
+                None => match self.typescript.resolve(path, &export.source.value)? {
                     Some(target) => own.stars.push(target),
                     None => own.open = true,
                 },

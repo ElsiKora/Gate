@@ -239,7 +239,7 @@ impl Vocabulary {
     /// alias `layout.path-aliases` does not define.
     fn new(options: &Options, layout: &Layout) -> gate_sdk::Result<Self> {
         if options.foreign_key_case.is_some() && options.foreign_key_label.is_none() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "the option foreign-key-case needs foreign-key-label, the word the foreign key name message prints after the pattern; set foreign-key-label",
             ));
         }
@@ -248,7 +248,7 @@ impl Vocabulary {
 
         for alias in &options.resolved_aliases {
             let Some(folder) = layout.path_aliases.get(alias) else {
-                return Err(gate_sdk::Error::new(format!(
+                return Err(gate_sdk::Error::config(format!(
                     "the option resolved-aliases names {alias}, which [plugins.nestjs] options layout.path-aliases does not define; define it there or remove it"
                 )));
             };
@@ -458,10 +458,7 @@ impl gate_sdk::Rule for Rule {
         for path in
             tree::typescript_files(typescript.source(), &layout.source_root, &tree::UNSKIPPED)
         {
-            if let Some(file) = typescript
-                .parse(path)
-                .map_err(|failure| project::error(&failure))?
-            {
+            if let Some(file) = typescript.parse(path)? {
                 files.push((path, file));
             }
         }
@@ -493,7 +490,7 @@ impl gate_sdk::Rule for Rule {
         pass.files();
 
         if spelling.is_none() && !reuse.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "the option foreign-key-case is not set, but an owning relation's join reaches its foreign key name; set foreign-key-case to \"upper\" or \"lower\" and foreign-key-label",
             ));
         }

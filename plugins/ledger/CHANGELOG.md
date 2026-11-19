@@ -18,6 +18,9 @@ The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<ver
   above a finding or a reworded message keeps its fingerprint. These findings' fingerprints change
   once, with this release; `gate baseline prune` re-keys their baseline entries when the
   repository upgrades.
+- A wrong option, or an exceptions file the options name that is not valid TOML, ends the run as a
+  configuration error (exit 2, `configuration error`), not as an environment error. A file the rule
+  cannot read stays an environment error.
 
 # 0.1.0
 

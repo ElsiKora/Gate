@@ -9,7 +9,7 @@ use crate::shared::paths::{self, Form};
 /// When the folder is not normalized, or is the project root.
 pub fn check_below_root(option: &str, value: &str) -> gate_sdk::Result<()> {
     if value.is_empty() {
-        return Err(gate_sdk::Error::new(format!(
+        return Err(gate_sdk::Error::config(format!(
             "option `{option}` is \"\", the project root; write a folder below it, such as \"src/shared\""
         )));
     }

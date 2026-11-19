@@ -153,7 +153,7 @@ impl gate_sdk::Rule for Rule {
         let options = run.options();
 
         if options.function_decorators.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "`function-decorators` is empty; name at least one automator function decorator",
             ));
         }
@@ -173,8 +173,7 @@ impl gate_sdk::Rule for Rule {
         let source = project::source(run);
         let allocator = Allocator::default();
         let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)
-            .map_err(|failure| project::error(&failure))?;
+        let sources = Sources::new(&typescript, &layout.source_root)?;
         let report = run.report();
 
         for source in sources.iter() {
