@@ -152,10 +152,12 @@ mod tests {
 
     use super::{UNSKIPPED, entries, files, folders};
 
-    /// A sorted source that counts the paths it hands out, however they are asked for.
+    /// A sorted source that counts the paths it hands out through [`Source::paths`] and through
+    /// [`Source::paths_with_prefix`], apart.
     struct Counting {
         paths: Vec<String>,
-        handed: Cell<usize>,
+        through_paths: Cell<usize>,
+        through_prefix: Cell<usize>,
     }
 
     impl Counting {
@@ -169,25 +171,27 @@ mod tests {
             paths.sort_unstable();
             Self {
                 paths,
-                handed: Cell::new(0),
+                through_paths: Cell::new(0),
+                through_prefix: Cell::new(0),
             }
-        }
-
-        fn count<'s>(
-            &'s self,
-            paths: impl Iterator<Item = &'s str> + 's,
-        ) -> Box<dyn Iterator<Item = &'s str> + 's> {
-            Box::new(paths.inspect(|_| self.handed.set(self.handed.get() + 1)))
         }
     }
 
     impl Source for Counting {
         fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-            self.count(self.paths.iter().map(String::as_str))
+            Box::new(
+                self.paths
+                    .iter()
+                    .map(String::as_str)
+                    .inspect(|_| self.through_paths.set(self.through_paths.get() + 1)),
+            )
         }
 
         fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
-            self.count(sorted_with_prefix(&self.paths, prefix))
+            Box::new(
+                sorted_with_prefix(&self.paths, prefix)
+                    .inspect(|_| self.through_prefix.set(self.through_prefix.get() + 1)),
+            )
         }
 
         fn bytes(&self, _path: &str) -> gate_typescript::Result<Option<Rc<[u8]>>> {
@@ -195,8 +199,12 @@ mod tests {
         }
     }
 
+    /// What this proves: every walk goes through the source's paths below its folder
+    /// ([`Source::paths_with_prefix`]) and never through the list of every path, and is handed
+    /// only the paths below the folder. How many paths a source scans to answer is the source's
+    /// own: the sorted ones search their list (`gate-typescript`'s `sorted_with_prefix`).
     #[test]
-    fn a_walk_below_one_folder_reads_only_the_paths_below_it() {
+    fn a_walk_below_one_folder_is_handed_only_the_paths_below_it() {
         let source = Counting::new(200);
 
         let found = entries(&source, "src/m007", &UNSKIPPED);
@@ -208,32 +216,20 @@ mod tests {
                 ("index.ts".to_owned(), false)
             ]
         );
-        // Four files below the folder, and at most the one path that ends the range: not the
-        // 800 tracked paths.
-        assert!(
-            source.handed.get() <= 5,
-            "{} paths read",
-            source.handed.get()
-        );
+        assert_eq!(source.through_prefix.get(), 4);
 
-        source.handed.set(0);
+        source.through_prefix.set(0);
         let below: Vec<&str> = files(&source, "src/m007/b", &UNSKIPPED).collect();
         assert_eq!(below, ["src/m007/b/c.ts", "src/m007/b/index.ts"]);
-        assert!(
-            source.handed.get() <= 3,
-            "{} paths read",
-            source.handed.get()
-        );
+        assert_eq!(source.through_prefix.get(), 2);
 
-        // Every folder of the tree, each walked once, reads each path a bounded number of times.
-        source.handed.set(0);
+        // The folders of the tree, then each folder's entries: the 800 paths once for the
+        // folders, then each path once per folder above it (4 per module, 2 more per `b`).
+        source.through_prefix.set(0);
         for folder in folders(&source, "src", &UNSKIPPED) {
             let _ = entries(&source, &folder, &UNSKIPPED);
         }
-        assert!(
-            source.handed.get() <= 4 * 800,
-            "{} paths read for 400 folders of 800 paths",
-            source.handed.get()
-        );
+        assert_eq!(source.through_prefix.get(), 800 + 200 * 4 + 200 * 2);
+        assert_eq!(source.through_paths.get(), 0, "a walk read every path");
     }
 }
