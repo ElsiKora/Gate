@@ -179,7 +179,7 @@ impl<'a> TypeScript<'a> {
             if self.settings.tsconfig != Settings::default().tsconfig
                 && !self.source.contains(&self.settings.tsconfig)
             {
-                return Err(Error::new(format!(
+                return Err(Error::config(format!(
                     "[languages.typescript] tsconfig names {}, which is not tracked; track that \
                      file or remove the setting to use the default tsconfig.json",
                     self.settings.tsconfig

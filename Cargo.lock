@@ -974,6 +974,7 @@ dependencies = [
 name = "gate-typescript"
 version = "0.1.0"
 dependencies = [
+ "gate-sdk",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",

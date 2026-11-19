@@ -17,8 +17,10 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:typescript@<ver
   stable key (what it is about, never a line or column), so an edit above a finding or a reworded
   message keeps its fingerprint. These findings' fingerprints change once, with this release;
   `gate baseline prune` re-keys their baseline entries when the repository upgrades.
-- A wrong option ends the run as a configuration error (exit 2, `configuration error`), not as
-  an environment error. A file the rule cannot read stays an environment error.
+- A wrong option, or a `[languages.typescript] tsconfig` that names an untracked file, ends the run
+  as a configuration error (exit 2, `configuration error`), not as an environment error. A file the
+  rule cannot read stays an environment error. The language library's error carries that kind and
+  converts into the SDK's error with it.
 
 # 0.1.0
 

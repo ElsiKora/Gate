@@ -1,6 +1,7 @@
 //! `gate check` running real plugins built for wasm32-wasip2: `examples/plugin-hello`, pinned in
 //! `gate.lock` and served from the cache, or replaced for one run by `--plugin`; and the runtime's
-//! probe, whose history rule reports the range a push run passes.
+//! probe, whose history rule reports the range a push run passes; the git and typescript plugins
+//! for their option and setting errors.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -52,6 +53,12 @@ fn component_with(package: &str, library: &str, features: &str) -> (PathBuf, Vec
 fn hello() -> &'static (PathBuf, Vec<u8>) {
     static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
     WASM.get_or_init(|| component("gate-plugin-hello", "gate_plugin_hello"))
+}
+
+/// The typescript plugin's component.
+fn typescript() -> &'static (PathBuf, Vec<u8>) {
+    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    WASM.get_or_init(|| component("gate-plugin-typescript", "typescript"))
 }
 
 /// The runtime's probe component.
@@ -2674,6 +2681,30 @@ fn a_rules_bad_option_is_a_configuration_error_and_a_missing_plugin_an_environme
     let message = text(&output.stderr);
     assert!(
         message.starts_with("gate: environment error:") && message.contains("cannot read"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_configured_tsconfig_that_is_not_tracked_is_a_configuration_error() {
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"app\"\n\n[plugins]\ntypescript = {{ source = \"acme/rules:typescript@0.1.0\" }}\n\n[languages.typescript]\ntsconfig = \"tsconfig.app.json\"\n\n[rules]\n\"typescript/barrel-imports\" = {{ level = \"error\" }}\n"
+        ),
+    );
+    repo.write("src/accounts/index.ts", "export { account } from \"./account\";\n");
+    repo.write("src/accounts/account.ts", "export const account = 1;\n");
+    repo.write("src/main.ts", "import { account } from \"./accounts\";\n");
+    repo.commit("init");
+    let plugin = format!("typescript={}", typescript().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("tsconfig names tsconfig.app.json, which is not tracked"),
         "{message}"
     );
 }
