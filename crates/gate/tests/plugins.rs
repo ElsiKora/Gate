@@ -1505,7 +1505,7 @@ fn a_failing_rule_in_a_nested_project_names_the_project_its_paths_are_relative_t
     let message = text(&output.stderr);
     assert!(
         message.contains(
-            "plugin probe in project one (its paths are relative to apps/one): gate/options/probe/read.json: cannot use it"
+            "plugin probe in project one (its paths are relative to apps/one): rule read failed: gate/options/probe/read.json: cannot use it"
         ),
         "{message}"
     );

@@ -66,7 +66,8 @@ reports a finding at its option file with what reading it answers:
   and reports at its own repository path.
 - `a_failing_rule_in_a_nested_project_names_the_project_its_paths_are_relative_to`: `probe/read`
   fails in `apps/one` (project `one`) with its option file's path in its text; the error reads
-  `plugin probe in project one (its paths are relative to apps/one): gate/options/probe/read.json: …`.
+  `plugin probe in project one (its paths are relative to apps/one): rule read failed:
+  gate/options/probe/read.json: …`.
   It fails on the host before the change.
 - `a_rule_reads_a_root_profiles_option_file_and_reports_at_its_repository_path`: the root's
   `[[profiles]]` gives a rule of `apps/one` the option file `gate/options/probe/read.json`; the rule
