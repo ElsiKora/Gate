@@ -2,8 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead |
-| Release | v0.2.1 |
+| Status | design approved; code after T-044 is merged |
+| Release | v0.3.0 (breaking: `--sha256` is removed) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `v0.2.0` |
@@ -46,7 +46,8 @@ that differs; the supported way to check the file that will be published is `--f
 3. The plugin load error for a missing blob whose download fails says to publish or to admit the
    build with `--file`.
 4. README, `docs/architecture.md` (the release flow), `docs/guide/writing-a-plugin.md` and
-   `docs/guide/configuration.md` name `--file`; the core CHANGELOG says `--sha256` is gone.
+   `docs/guide/configuration.md` name `--file`; the core CHANGELOG lists the removal of `--sha256`
+   under Breaking.
 
 Not in scope: comparing a `--plugin` override with the pin; validating at `gate lock` time that the
 file is a component of the named plugin (`gate check` does that when it loads it).
@@ -65,4 +66,7 @@ file is a component of the named plugin (`gate check` does that when it loads it
 
 ## Resume point
 
-2026-11-19: design written; waiting for the lead's answer before code.
+2026-11-19T17:49:05+00:00: the lead approved the design as written: `--file` replaces `--sha256` with no
+alias, and `check --plugin` stays a one-run override not compared with the pin. Ships in v0.3.0.
+Code starts after T-044's lane round is green and merged; then rustfmt natively, a lane round and
+a review.
