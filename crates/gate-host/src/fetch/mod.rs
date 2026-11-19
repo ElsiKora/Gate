@@ -467,7 +467,7 @@ impl Fetcher {
             None => None,
         };
         let (actual, _) =
-            self.download_checked(asset, &url, published.as_ref(), |published, actual| {
+            self.download_checked(asset, &url, published.as_ref(), None, |published, actual| {
                 format!(
                     "{asset} of release {tag} of {owner}/{repo}: the release publishes sha256 {published}, the download from {url} has sha256 {actual}; nothing was pinned or cached, do not trust the download"
                 )
