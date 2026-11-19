@@ -149,5 +149,19 @@
   `git.read-at 632 ms in 810` and "2 asked, 2293 from the cache"; 3.40 s user, 2.20 s sys. The
   call's own work is fuel 2.73e10. Both runs spent 12 to 14 s in the snapshot, because a copied
   tree's git index no longer matches its files (a clone in place does not pay it).
+- 2026-11-19T07:24:08+00:00: the cold `sync-state` cost. A profile of a cold git-only run at 34ab5b5 (12
+  answers computed, 47 generators ran, 5 from the cache): 78.3 s wall, 6.9 s user, 2.5 s sys for the
+  whole run; of the samples, `sync_state_at` 49111, its generators 34736 (about 14000 of them
+  `cat-file` reads), `Snapshot::open` 8564. 343f163 lets the commit snapshots of one run share their
+  tree listings, blob contents and one `cat-file` reader. Not measured yet.
+- Review of 15fac7c..e25a2ec, fixed: a `read-at` miss is stored as absent only when the commit's
+  tree names no file at the path (`ls-tree`); a partial clone that cannot fetch the file fails the
+  call and stores nothing. A stored blob id whose content neither the cache nor git has fails the
+  call and says to fetch or `gate cache prune`, never "no file". A git answers file whose entry has
+  the wrong shape for its kind is skipped. Tests for the generator cache: other options, another
+  build, a new file under a listed directory, a missing file created, `gate sync --check` answered
+  from the stored outputs.
 - Open: per-rule time and fuel need the plugin to say where a rule starts (an interface question,
   put to the lead); the 12 `sync-state` answers at about 4 s each.
+- Follow-ups: `gate cache prune` never removes `git/blobs/`; the blob contents a run reads stay in
+  memory for the whole run.
