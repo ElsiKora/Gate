@@ -2,7 +2,7 @@
 
 mod host;
 
-use host::{check, error, row};
+use host::{check, error, row, run};
 
 const RULE: &str = "api-readiness";
 const START: &str = "src/start.ts";
@@ -617,4 +617,17 @@ fn the_defaults_name_the_conventional_files_and_calls() {
 fn unknown_options_are_errors() {
     assert!(error(RULE, r#"{ "listener": "open" }"#, &[]).contains("listener"));
     assert!(error(RULE, r#"{ "calls": { "ready": "x" } }"#, &[]).contains("ready"));
+}
+
+#[test]
+fn a_startup_file_that_is_no_source_file_is_a_configuration_error() {
+    let options = OPTIONS.replace("\"src/start.ts\"", "\"src/start.json\"");
+    let refused = run(RULE, &options, "{}", &[("src/start.json", "{}\n")]).expect_err("refused");
+    let message = refused.message();
+    assert!(
+        message.contains("option `startup-file` is \"src/start.json\"")
+            && message.contains("name a file ending in .ts, .tsx"),
+        "{message}"
+    );
+    assert!(refused.is_config(), "a configuration error: {message}");
 }

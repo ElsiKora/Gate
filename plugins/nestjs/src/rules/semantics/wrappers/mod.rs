@@ -314,7 +314,7 @@ fn packages(run: &Run<'_, Options>, options: &Options, factory_package: &str) ->
         ))
     })?;
 
-    Packages::parse(path, &text).map_err(gate_sdk::Error::config)
+    Packages::parse(path, &text).map_err(gate_sdk::Error::new)
 }
 
 /// A function-like owner of a body.

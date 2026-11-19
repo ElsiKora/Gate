@@ -2686,6 +2686,29 @@ fn a_rules_bad_option_is_a_configuration_error_and_a_missing_plugin_an_environme
 }
 
 #[test]
+fn a_plugins_own_environment_error_keeps_its_label() {
+    // git/no-ci-skip with a main reference the repository does not have: the plugin's
+    // environment error (a fetch may fix it), which the runtime and the host keep as one.
+    let git = GitOptions::new();
+    git.repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/trunk\"], activation = \"{}\", forms = [{{ kind = \"direct\", parents = 1, checks = [] }}] }}\n\n[rules]\n{NO_CI_SKIP}\n",
+            git.root
+        ),
+    );
+    git.repo.commit("configure");
+    let output = git.repo.gate(&["check", "--plugin", &git.plugin]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: environment error:")
+            && message.contains("none of the main references"),
+        "{message}"
+    );
+}
+
+#[test]
 fn a_configured_tsconfig_that_is_not_tracked_is_a_configuration_error() {
     let repo = Repo::empty();
     repo.write(

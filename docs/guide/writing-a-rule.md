@@ -230,8 +230,15 @@ plugin. A violation is never an `Err`. Two kinds:
   the schema but cannot work, or two options that contradict each other. The run fails as a
   configuration error, like a wrong `gate.toml` key. The SDK reports options that do not match the
   options type this way itself.
-- `Error::new`: an environment failure, such as a file the rule requires that is not tracked, a file
-  that does not parse, or an internal fault. The run fails as an environment error.
+- `Error::new`: an environment failure, such as a source file that does not parse, a git question
+  the history cannot answer, or an internal fault. The run fails as an environment error.
+
+A file an option names follows one rule. Missing or not tracked: `Error::config`, since the option
+is wrong. Tracked but it does not parse: `Error::new` when it is a source or generated file whose fix
+is in the tree (fix its syntax, regenerate it), and `Error::config` only when it is itself option
+data, a JSON or TOML file that holds the rule's configuration. A file that holds source the rule
+parses, named by an option, is checked when the options are: one of another kind is `Error::config`,
+and the message names the kinds the rule reads.
 
 ## 9. Fixtures
 

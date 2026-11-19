@@ -131,6 +131,7 @@ impl gate_sdk::Rule for Rule {
             let o = run.options();
             crate::shared::paths::check_all("readiness-files", &o.readiness_files, File)?;
             crate::shared::paths::check("startup-file", &o.startup_file, File)?;
+            gate_typescript::check_source_option("startup-file", &o.startup_file)?;
         }
 
         let role = run.options().role_name.clone();

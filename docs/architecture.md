@@ -114,6 +114,8 @@ interface types {
     target: option<string>,   // what the finding is about, in the rule's own documented grammar
                               // (for example "src/user.entity.ts:UserEntity.parent"); exceptions match it
     help: option<string>,
+    key: option<string>,      // the plugin's stable identity of what the finding is about; with
+                              // it, the fingerprint is rule, aspect, path and key
   }
   record rule-info {
     name: string, title: string, aspects: list<string>, scope: scope,
@@ -144,6 +146,10 @@ interface types {
   }
   record generated-file { path: string, contents: list<u8> }
   record generate-result { files: list<generated-file>, findings: list<finding> }
+  variant plugin-error {      // why check or generate failed; the message says what to do
+    configuration(string),    // the options or settings cannot be used: a configuration error
+    environment(string),      // anything else outside the configuration: an environment error
+  }
 }
 
 interface tree {      // the snapshot, read-only, tracked files only
@@ -180,9 +186,10 @@ interface git {       // granted only to rules that declare reads-history
 world plugin {
   import tree; import git; import log: func(message: string);
   export describe: func() -> types.plugin-info;
-  export check: func(request: types.check-request) -> result<list<types.finding>, string>;
+  export check: func(request: types.check-request) -> result<list<types.finding>, types.plugin-error>;
   export generate: func(name: string, project: string, options: string)
-      -> result<types.generate-result, string>;   // findings surface as gate/sync#<generator>
+      -> result<types.generate-result, types.plugin-error>;   // findings surface as
+                                                               // gate/sync#<generator>
 }
 ```
 

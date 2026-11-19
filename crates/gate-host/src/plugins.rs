@@ -861,8 +861,9 @@ pub struct PluginGenerators<'w> {
     /// One line per `--plugin` build: name, path and sha256.
     overrides: Vec<String>,
     /// Whether a generator call failed in a way that may pass by the next call (the plugin
-    /// reported an environment failure, trapped, or the runtime could not start). Every call
-    /// failure is an environment error to the user, as in `gate check`; sync-state reads this to
+    /// reported an environment failure, trapped, or the runtime could not start). A call failure
+    /// reaches the user as in `gate check`: a configuration error when the plugin reported its
+    /// options or settings unusable, an environment error otherwise; sync-state reads this to
     /// decide whether an answer may be stored.
     passing: std::sync::atomic::AtomicBool,
     /// What the generators reported while they ran, as `gate/sync#<generator>` findings.
@@ -918,9 +919,10 @@ impl<'w> PluginGenerators<'w> {
         &self.overrides
     }
 
-    /// A generator call's failure for `project` (`None`: the repository) as the user sees it: an
-    /// environment error naming the scope, as in `gate check` (see [`call_failed`]). One that may
-    /// pass by the next call is noted for [`PluginGenerators::had_passing_failure`].
+    /// A generator call's failure for `project` (`None`: the repository) as the user sees it,
+    /// naming the scope, as in `gate check` (see [`call_failed`]): a configuration error when the
+    /// plugin reported a configuration error, an environment error otherwise. One that may pass by
+    /// the next call is noted for [`PluginGenerators::had_passing_failure`].
     fn failed(&self, project: Option<&str>, error: &gate_runtime::Error) -> Error {
         if passing_call_failure(error.kind()) {
             self.passing.store(true, Ordering::Relaxed);

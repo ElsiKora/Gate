@@ -118,7 +118,8 @@ site.
 - Moved: `rules/semantics/package.rs:14` (a package option empty).
 - Moved: `rules/semantics/folders.rs:12` (a folder option that is the project root).
 - Moved: `rules/semantics/wrappers/mod.rs:312` (the `package-exports-file` the options name is not
-  tracked) and 317 (that file's table cannot be read).
+  tracked). 317 (that file's table cannot be read) went back to `Error::new` in the review's fix
+  round: the file is generated Rust source, and its fix is in the tree.
 - Moved: `rules/semantics/module_registry/mod.rs:113` (`table-header` not three cells).
 - Moved: `rules/semantics/owner_boundaries/mod.rs:149` (a package option with an empty package or
   name).
@@ -195,3 +196,18 @@ Tests: an inline flag in `release-subject` and in `directive-pattern` is a confi
 every commit onto T-036's tip `06d0734` (on `release/v0.2.0` at `b3b2fe3`), linear, keeping both
 sides where the release's stable-key entries met ours in the changelogs and where the tests and
 the task file sections met. One round on this tip covers T-036 too.
+2026-11-19: ticket 192 withdrawn by its pids before it started (the review came first). The
+review's fix round: the architecture's interface block is the 0.2.0 WIT (`plugin-error`, the
+finding's `key`); an end-to-end test that git's own environment error (no main reference) keeps
+its label through the runtime and the host; the rule for a file an option names, written once in
+`docs/guide/writing-a-rule.md` section 8 (missing or untracked: configuration; tracked but not
+parsing: environment for a source or generated file, configuration only for option data), which
+sends `plugins/nestjs/src/rules/semantics/wrappers/mod.rs:317` back to `Error::new`; the
+ledger exceptions file stays configuration, an unparsable tracked tsconfig stays environment.
+`gate_typescript::check_source_option` refuses, when the options are checked, an option naming a
+file the rule parses that is not JavaScript or TypeScript (`startup-file` of api-readiness,
+`registry` of migrations, `operation-enum-path` of advisory-lock-manifest), listing the accepted
+extensions, with a test for `startup-file`; `languages/typescript/src/lib.rs` `parse_source`
+keeps its environment error as the last line of defence and now says what to do. The stale
+comments of `crates/gate-host/src/plugins.rs` on `passing` and `failed` say how the kind reaches
+the user.

@@ -223,6 +223,35 @@ pub struct SyntaxError {
     pub message: String,
 }
 
+/// Checks that `path`, the value of the option `option`, names a file this library parses, so that
+/// an option naming a file of another kind is refused when the options are checked.
+///
+/// # Errors
+/// A configuration error that names the option and the extensions it accepts.
+pub fn check_source_option(option: &str, path: &str) -> Result<()> {
+    if SourceType::from_path(path).is_ok() {
+        Ok(())
+    } else {
+        Err(Error::config(format!(
+            "option `{option}` is {path:?}, which is not a JavaScript or TypeScript file; name a \
+             file ending in {}",
+            extensions()
+        )))
+    }
+}
+
+/// [`SOURCE_EXTENSIONS`] as a message lists them: `.ts, .tsx, … or .cjs`.
+fn extensions() -> String {
+    let dotted: Vec<String> = SOURCE_EXTENSIONS
+        .iter()
+        .map(|extension| format!(".{extension}"))
+        .collect();
+    match dotted.split_last() {
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        None => String::new(),
+    }
+}
+
 /// Parses one source text as the file `path` names it, outside any source, into `allocator`.
 ///
 /// # Errors
@@ -233,7 +262,13 @@ pub fn parse_source<'a>(
     text: &str,
 ) -> Result<SourceFile<'a>> {
     let source_type = SourceType::from_path(path)
-        .map_err(|_| Error::new(format!("{path} is not a JavaScript or TypeScript file")))?;
+        .map_err(|_| {
+            Error::new(format!(
+                "{path} is not a JavaScript or TypeScript file, so it cannot be parsed; the option \
+                 that names it should name a file ending in {}",
+                extensions()
+            ))
+        })?;
     let source = allocator.alloc_str(text);
     let parsed = Parser::new(allocator, source, source_type).parse();
     let lines = LineIndex::new(source);
