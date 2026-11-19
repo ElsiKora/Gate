@@ -1117,6 +1117,40 @@ fn a_pin_whose_blob_is_missing_and_cannot_be_downloaded_fails_closed_and_says_wh
 }
 
 #[test]
+fn a_refused_download_or_a_missing_credential_gets_no_admit_advice() {
+    for status in [401, 403] {
+        let server = Server::start();
+        let path = "/acme/releases/download/plugin-git-v9.9.9/git.wasm";
+        server.route(path, Route::status(status));
+        let repo = git_pinned(&server.url(path), &"d".repeat(64));
+
+        let output = repo.gate(&["check"], None, &[]);
+        assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+        let stderr = text(&output.stderr);
+        assert!(
+            stderr.contains(&format!("HTTP {status}")) && !stderr.contains("--file"),
+            "{stderr}"
+        );
+        server.stop();
+    }
+
+    // A GitHub release asset refused without a credential may be private: the advice is to set a
+    // credential, never to pin a local build.
+    let server = Server::start();
+    let url = server.url("/acme/rules/releases/download/plugin-git-v9.9.9/git.wasm");
+    let repo = git_pinned(&url, &"d".repeat(64));
+    let output = repo.gate(&["check"], Some(&server), &[]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains("was refused without a credential (HTTP 404)")
+            && !stderr.contains("--file"),
+        "{stderr}"
+    );
+    server.stop();
+}
+
+#[test]
 fn lock_set_needs_a_readable_file_and_a_declared_name_and_has_no_sha256() {
     let server = Server::start();
     let url = server.url("/acme/releases/download/plugin-git-v9.9.9/git.wasm");

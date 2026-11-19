@@ -26,9 +26,11 @@ blob through the normal path (`Fetcher::fetch`: a cache entry that still hashes 
 download verified against it) and runs that file. Nothing changes in how a pin is read: the entry
 is an ordinary pin, and once the asset is published, a machine without the blob downloads it and
 fails closed on a checksum mismatch if the published file is not the one pinned. When the blob is
-missing and the download fails (the asset is not published yet, or the URL is unreachable), the
-error names the plugin and says what to do: publish the asset, or admit the built file on this
-machine with `gate lock --set <name>=<url> --file <path>`. `--sha256` goes, with no alias: the
+missing and the asset is not found (HTTP 404 from a URL outside GitHub, or a GitHub release
+without that asset), the error names the plugin and says what to do: publish the asset, or admit
+the built file on this machine with `gate lock --set <name>=<url> --file <path>`. A refused or
+missing credential keeps its own message: the asset may be private, and a CI without a token must
+not be told to pin a local build. `--sha256` goes, with no alias: the
 release job has the file it pins, and a consumer pinning someone else's published asset uses
 `gate lock`, which downloads and hashes it. The order is checks first, then the cache, then the
 lock: an undeclared name, a URL gate does not fetch or an unreadable file fails before anything is
@@ -43,11 +45,11 @@ that differs; the supported way to check the file that will be published is `--f
 
 1. `gate lock --set <name>=<url> --file <path>`; `--set` requires `--file`; `--sha256` removed.
 2. The bytes enter the cache through the same temporary-then-rename insert as a download.
-3. The plugin load error for a missing blob whose download fails says to publish or to admit the
-   build with `--file`.
+3. The plugin load error for a missing blob whose asset is not found says to publish or to admit
+   the build with `--file`; a refused or missing credential gets no such advice.
 4. README, `docs/architecture.md` (the release flow), `docs/guide/writing-a-plugin.md` and
    `docs/guide/configuration.md` name `--file`; the core CHANGELOG lists the removal of `--sha256`
-   under Breaking.
+   under `# 0.3.0 (unreleased)` / `### Breaking Changes`.
 
 Not in scope: comparing a `--plugin` override with the pin; validating at `gate lock` time that the
 file is a component of the named plugin (`gate check` does that when it loads it).
@@ -60,12 +62,16 @@ file is a component of the named plugin (`gate check` does that when it loads it
     runs nothing;
   - a pin whose blob is missing and whose URL cannot be downloaded fails closed with a message that
     names `--file`;
+  - a download refused with HTTP 401 or 403, and a GitHub asset refused without a credential, carry
+    no `--file` advice;
   - `--set` without `--file`, and `--sha256`, are errors.
 - `cargo fmt`, `clippy -D warnings`, `cargo test`, `cargo deny` pass in one lane round.
 - The leak scan prints nothing.
 
 ## Resume point
 
-2026-11-19T18:07:00+00:00: `--file`, `Cache::admit`, the download advice, the tests, the docs and the
-CHANGELOG (Breaking) are committed; not compiled yet. Next: one lane round (fmt, clippy, test,
-deny) and each change taken out with its tests run (each must fail), then a review.
+2026-11-19T20:58:27+00:00: the review of 2c05ee4 found the trust model sound and asked for one round: the
+admit advice only when the asset is not found (a 401, a 403 or a missing credential gets none,
+with a test), the CHANGELOG entry under `# 0.3.0 (unreleased)` / `### Breaking Changes`, and the
+`bin/gate check` step in the plugin guide's release steps. Committed; not compiled yet. Round 248
+on 2c05ee4 is queued; its successor on this commit records the proof here when green.

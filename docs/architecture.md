@@ -614,8 +614,9 @@ The first readers raised these points; each is settled:
   sha256 into the pin and admits the build into the blob cache under it, runs `gate check` on that
   exact file before the asset exists, commits the lock in the release commit, tags it and uploads the
   same file as the tag's asset. The pin moves in the release commit itself. A machine without the
-  blob downloads the asset and fails closed on a checksum mismatch; while the asset is not published,
-  the error says to publish it or to admit the build with `--file`.
+  blob downloads the asset and fails closed on a checksum mismatch; when the asset is not found, the
+  error says to publish it or to admit the build with `--file`. A refused or missing credential
+  keeps its own message, since the asset may be private.
 - **Private assets.** The launcher and the core fetch only the URLs written in `gate.lock`. For a private
   repository they authenticate with, in order, `$GATE_GITHUB_TOKEN`, `$GITHUB_TOKEN`, `gh auth token`.
   A missing or insufficient credential fails closed (exit 2) with a message naming the asset, the URL

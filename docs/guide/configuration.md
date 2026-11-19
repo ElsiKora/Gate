@@ -488,8 +488,9 @@ bin/gate lock --set house=https://github.com/your-org/your-repo/releases/downloa
 
 The pin gets the sha256 of the file and the cache gets the file, so `gate check` on this machine runs
 exactly that build before the asset exists. Anywhere else, `gate check` downloads the asset and fails
-closed if it is not the pinned file; while the asset is not published, the error says to publish it
-or to admit the build with `--file`.
+closed if it is not the pinned file; when the asset is not found, the error says to publish it or to
+admit the build with `--file`. A refused or missing credential keeps its own message, since the asset
+may be private.
 
 ## ⏱ Time Budgets
 

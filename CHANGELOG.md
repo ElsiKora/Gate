@@ -8,9 +8,9 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-## Unreleased
+# 0.3.0 (unreleased)
 
-### Breaking
+### Breaking Changes
 
 - **lock:** `gate lock --set <name>=<url> --file <path>` replaces `--sha256 <hash>`, with no alias.
   The pin takes the sha256 of the file and the file enters the blob cache, so `gate check` runs
@@ -19,9 +19,12 @@ Each shared plugin keeps its own changelog next to its code.
 
 ### Features
 
-- **plugins:** a pinned plugin whose blob is not in the cache and whose download fails names the
-  plugin and says what to do: publish the asset, or admit the build with
-  `gate lock --set <name>=<url> --file <path>`.
+- **plugins:** a pinned plugin whose blob is not in the cache and whose asset is not found (HTTP
+  404 from a URL outside GitHub, or a GitHub release without that asset) says what to do: publish
+  the asset, or admit the build with `gate lock --set <name>=<url> --file <path>`. A refused or
+  missing credential keeps its own message, since the asset may be private.
+
+## Unreleased
 
 ### Documentation
 
