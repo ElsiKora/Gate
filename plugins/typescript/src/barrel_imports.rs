@@ -74,7 +74,7 @@ impl Rule for BarrelImports {
             || barrel_name == "."
             || barrel_name == ".."
         {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "barrel-name {barrel_name:?} is not a file name; write the name of a folder's \
                  barrel file, for example \"index.ts\""
             )));
@@ -143,7 +143,7 @@ fn globs(key: &str, patterns: &[String]) -> Result<GlobSet> {
                 .literal_separator(true)
                 .build()
                 .map_err(|error| {
-                    Error::new(format!(
+                    Error::config(format!(
                         "{key} glob {pattern:?} is not valid: {error}; write a glob relative to \
                          the project root, such as \"src/modules/*\""
                     ))
@@ -152,7 +152,7 @@ fn globs(key: &str, patterns: &[String]) -> Result<GlobSet> {
     }
     builder
         .build()
-        .map_err(|error| Error::new(format!("{key} globs do not build: {error}")))
+        .map_err(|error| Error::config(format!("{key} globs do not build: {error}")))
 }
 
 /// One module a file loads statically, and the names it takes from it.

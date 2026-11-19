@@ -136,7 +136,7 @@ fn plain(entry: &str) -> Result<String> {
         .split('/')
         .any(|segment| segment.is_empty() || segment == "." || segment == "..")
     {
-        return Err(Error::new(format!(
+        return Err(Error::config(format!(
             "agents/agents-block option entry = {entry:?} is not a plain project-relative path; \
              write it without a leading `/` and without `.`, `..` or empty segments, such as \
              \"AGENTS.md\" or \"docs/AGENTS.md\""
