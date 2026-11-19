@@ -18,9 +18,12 @@ CI because CI made it. Forms without a release form exempt no commit, and a comm
 takes is not a release. The patterns are searched anywhere in the message.
 
 The message being written is checked too, before the commit exists: the `commit-msg` hook passes it
-(`gate check --commit-message <file>`), and the rule reports a directive in it, as git will store it
-(without `#` comment lines and what follows the `--verbose` scissors line). A message whose whole
-text matches `release-subject` is exempt when the forms hold a release form.
+(`gate check --commit-message <file>`), and the rule reports a directive anywhere above the
+scissors line that `git commit --verbose` writes. `#` lines count: git keeps them in a message given
+with `-m` or `-F` (`git commit -m "feat(core): add x" -m "#12 done [skip ci]"` stores the directive),
+so the rule searches them too; [`git/commit-message`](commit-message.md) skips them, as commitlint
+does. A message whose whole text matches `release-subject` is exempt when the forms hold a release
+form.
 
 Scope: repository. Reads history: yes. Aspects: none.
 

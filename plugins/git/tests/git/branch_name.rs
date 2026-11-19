@@ -330,3 +330,21 @@ fn a_push_checks_the_branch_it_updates() {
     repo.set_range(&pushed, None);
     assert_eq!(found_at(&repo).len(), 1);
 }
+
+#[test]
+fn word_and_digit_classes_are_ascii_as_in_the_reference() {
+    // JavaScript without the `u` flag: `\w` is [0-9A-Za-z_], so `é` is not a word character.
+    let words = r#"{"template": ":type/:ticket-:name", "subject": "[\\w-]+"}"#;
+    assert_eq!(
+        verdict("feature/proj-1-cafe", words, false),
+        Vec::<String>::new()
+    );
+    assert_eq!(verdict("feature/proj-1-café", words, false).len(), 1);
+    let pattern = r#"{"pattern": "^feature/\\w+-\\d+$"}"#;
+    assert_eq!(
+        verdict("feature/ab-12", pattern, false),
+        Vec::<String>::new()
+    );
+    assert_eq!(verdict("feature/äb-12", pattern, false).len(), 1);
+    assert_eq!(verdict("feature/ab-١٢", pattern, false).len(), 1);
+}

@@ -50,6 +50,10 @@ where it was (`//`, `--`, `__`, `..`) is collapsed to one, and delimiters left a
 removed. So `:type/:ticket-:name` takes `feature/proj-12-login` and `feature/login`. The template's
 other characters are regular-expression source, as in the reference: `.` matches any character.
 
+`template`, `pattern` and `subject` mean what they mean in the reference, a JavaScript regular
+expression without the `u` flag: `\w`, `\d` and `\b` (and `\W`, `\D`, `\B`) are ASCII, so
+`subject = "[\\w-]+"` takes `cafe` and refuses `café`.
+
 A template and a pattern together, or neither, are refused when the configuration loads.
 
 Scope: repository. Reads history: yes (the branch, the push and whether a hook runs, through the
@@ -114,8 +118,8 @@ The rule gives the verdicts of `@elsikora/git-branch-lint` 1.2.2 (commit 9718c1a
   checks nothing there.
 - `prohibited` applies only in a hook run, and main passes outside one; the reference has no notion
   of the run and refuses `main` in CI too.
-- The patterns are Rust regular expressions: no look-around or back-references, and `\w`, `\d` and
-  `\b` are Unicode-aware. A template or subject the Rust syntax refuses is a configuration error.
+- The patterns are Rust regular expressions: no look-around or back-references. A template or
+  subject the Rust syntax refuses is a configuration error.
 - A `$` in `subject` or `types` is taken literally; the reference reads `$&`, `` $` `` and `$'` in
   them as JavaScript replacement patterns.
 

@@ -63,8 +63,9 @@ text that starts with a digit.
 
 The reference reports `header-min-length` and `scope-max-length` as warnings and the others as
 errors. The plugin's preset `git/recommended` gives the two aspects that level (and turns on
-[`git/branch-name`](branch-name.md) with the reference's default template); a level the project gives
-the whole rule does not change them:
+[`git/branch-name`](branch-name.md) with the reference's default template). The project's own
+configuration wins: a level it gives the whole rule (`"git/commit-message" = "note"`) applies to
+these two aspects too, and a level it gives an aspect wins over both:
 
 ```toml
 [project]

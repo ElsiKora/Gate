@@ -5,7 +5,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Need, Rule, Run, Scope};
 
-use crate::commit_message::written;
+use crate::commit_message::above_scissors;
 use crate::forms::Kind;
 use crate::history::{History, release_version};
 use crate::settings::{self, Settings, pattern};
@@ -58,7 +58,7 @@ impl Rule for NoCiSkip {
         let trailer = pattern("trailer-pattern", &run.options().trailer_pattern)?;
         // The message being written (the commit-msg hook), which no history holds yet.
         if let Some(message) = run.git()?.message() {
-            let message = written(&message);
+            let message = above_scissors(&message);
             let release_form = forms.iter().any(|form| form.kind == Kind::Release);
             let exempt = release_form
                 && release

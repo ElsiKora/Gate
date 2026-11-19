@@ -343,16 +343,13 @@ struct Parsed {
     footer: Option<String>,
 }
 
-const SCISSORS: &str = "# ------------------------ >8 ------------------------";
+/// The line `git commit --verbose` writes above the diff; git stores nothing from it on.
+pub(crate) const SCISSORS: &str = "# ------------------------ >8 ------------------------";
 
-/// The message as git stores it from a `commit-msg` file: the lines before the scissors line,
-/// without comment lines, trimmed.
-pub(crate) fn written(raw: &str) -> String {
-    let kept: Vec<&str> = raw
-        .lines()
-        .take_while(|line| *line != SCISSORS)
-        .filter(|line| !line.starts_with('#'))
-        .collect();
+/// The message of a `commit-msg` file above the scissors line, trimmed. Comment lines stay: git
+/// keeps them in a message given with `-m` or `-F`, so a directive in one may be stored.
+pub(crate) fn above_scissors(raw: &str) -> String {
+    let kept: Vec<&str> = raw.lines().take_while(|line| *line != SCISSORS).collect();
     kept.join("\n").trim().to_owned()
 }
 

@@ -9,7 +9,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
 use regex::Regex;
 
-use crate::settings::{Settings, pattern};
+use crate::settings::Settings;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -169,11 +169,11 @@ impl<'o> Policy<'o> {
         }
         match &options.subject {
             Subject::All(all) => {
-                pattern("subject", all)?;
+                reference("subject", all)?;
             }
             Subject::Each(each) => {
                 for (name, own) in each {
-                    pattern(&format!("subject.{name}"), own)?;
+                    reference(&format!("subject.{name}"), own)?;
                 }
             }
         }
@@ -181,7 +181,7 @@ impl<'o> Policy<'o> {
             (Some(template), None) => {
                 Matcher::Template(expressions(template, &options.types, &options.subject)?)
             }
-            (None, Some(text)) => Matcher::Pattern(pattern("pattern", text)?),
+            (None, Some(text)) => Matcher::Pattern(reference("pattern", text)?),
             _ => {
                 return Err(Error::new(
                     "git/branch-name takes exactly one of template and pattern; write a template \
@@ -298,7 +298,7 @@ fn expressions(template: &str, types: &[String], subject: &Subject) -> Result<Ve
                     source = source.replace(&token, &format!("({part})"));
                 }
             }
-            pattern("template", &format!("^{source}$"))
+            reference("template", &format!("^{source}$"))
         })
         .collect()
 }
@@ -411,5 +411,70 @@ mod tests {
         );
         assert_eq!(delimiters("--a//b__c..d-"), "a/b_c.d");
         assert_eq!(delimiters("-/-"), "");
+    }
+}
+
+/// A regular expression of git-branch-lint's policy, read as JavaScript reads one without the `u`
+/// flag: `\w`, `\d`, `\b` and their negations are ASCII, so `[\w-]+` does not take `é`.
+///
+/// # Errors
+/// When it does not compile, naming the key and the text as written.
+fn reference(key: &str, text: &str) -> Result<Regex> {
+    Regex::new(&ascii_classes(text)).map_err(|error| {
+        Error::new(format!(
+            "{key} {text:?} is not a valid regular expression: {error}"
+        ))
+    })
+}
+
+/// `text` with `\w`, `\d`, `\W`, `\D` as ASCII classes and `\b`, `\B` as ASCII boundaries; every
+/// other escape as written. Inside a class, `\w` and `\d` become their ranges.
+pub(crate) fn ascii_classes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    let mut in_class = false;
+    while let Some(character) = chars.next() {
+        match character {
+            '\\' => match chars.next() {
+                Some('w') if in_class => out.push_str("0-9A-Za-z_"),
+                Some('w') => out.push_str("[0-9A-Za-z_]"),
+                Some('d') if in_class => out.push_str("0-9"),
+                Some('d') => out.push_str("[0-9]"),
+                Some('W') => out.push_str("[^0-9A-Za-z_]"),
+                Some('D') => out.push_str("[^0-9]"),
+                Some('b') if !in_class => out.push_str(r"(?-u:\b)"),
+                Some('B') if !in_class => out.push_str(r"(?-u:\B)"),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            },
+            '[' if !in_class => {
+                in_class = true;
+                out.push(character);
+            }
+            ']' if in_class => {
+                in_class = false;
+                out.push(character);
+            }
+            _ => out.push(character),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod classes {
+    use super::ascii_classes;
+
+    #[test]
+    fn the_word_digit_and_boundary_classes_are_ascii() {
+        assert_eq!(ascii_classes(r"[\w-]+"), "[0-9A-Za-z_-]+");
+        assert_eq!(ascii_classes(r"\d+\W"), "[0-9]+[^0-9A-Za-z_]");
+        assert_eq!(ascii_classes(r"\bx\B"), r"(?-u:\b)x(?-u:\B)");
+        assert_eq!(ascii_classes(r"[^\d\W]"), "[^0-9[^0-9A-Za-z_]]");
+        // Escaped backslashes and other escapes stay as written.
+        assert_eq!(ascii_classes(r"\\w\.\s"), r"\\w\.\s");
     }
 }

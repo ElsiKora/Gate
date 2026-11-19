@@ -158,12 +158,9 @@ fn the_message_being_written_is_checked_too() {
     );
     assert_eq!(check("docs: note\n\nSkip-checks: true\n").len(), 1);
 
-    // A directive in a comment line or after the scissors is not part of the message, and the
-    // release commit carries one by design.
-    assert_eq!(
-        check("feat(core): add the thing\n# [skip ci] in a comment\n").len(),
-        0
-    );
+    // A `#` line counts: git keeps it in a message given with -m or -F. What follows the
+    // scissors line is not part of the message, and the release commit carries one by design.
+    assert_eq!(check("feat(core): add x\n\n#12 done [skip ci]").len(), 1);
     assert_eq!(
         check(
             "fix(core): mend it\n# ------------------------ >8 ------------------------\n+[skip ci]\n"
