@@ -6,7 +6,7 @@
 | Release | v0.3.0 (it replaces two options of `gate check`; with T-048) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | the T-048 tip `dc49b55`; both rebase when main moves and merge after the v0.2.1 tag |
+| Depends on | the T-048 tip `52b2935`, over `main` at `9b18b32`; both merge after the v0.2.1 tag |
 | Touches | `crates/gate-host/src/lib.rs` (the run options, `gate/budget`), `crates/gate` (the CLI), `crates/gate-host/src/config` (`[hooks]`, CI jobs), `crates/gate-host/src/sync` (hook and workflow generation, sync-state version), tests, docs, `CHANGELOG.md` |
 
 ## Goal
@@ -64,6 +64,6 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
 
 ## Resume point
 
-2026-11-19: code, tests and docs written on `task/T-052-check-time-thresholds` over the T-048 tip
-`dc49b55`; next: one lane round, then the review. On the rebase onto a main that has T-043,
-`SYNC_STATE_VERSION` becomes 7 (T-043 takes 6) and its doc line moves this change to 7.
+2026-11-19: code, tests and docs rebased over the T-048 tip `52b2935` (over `main` at `9b18b32`, which
+has T-043): `SYNC_STATE_VERSION` is 7, and the hand-written hooks section names the new budget; next:
+one lane round on the pushed tip, then the review.
