@@ -2,8 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead |
-| Release | v0.2.1 |
+| Status | design approved but for the new branch; code after T-042 merges |
+| Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
 | Depends on | `main` at `f0d7ca4`; T-042 (`prohibited-trailers`) merged first |
@@ -35,29 +35,35 @@ message being written and history.
   require `[plugins.git] options` for any other run.
 - A `--rev` run (a range without a target ref) checks nothing more than today.
 
-## Changed, for consumers
+## Breaking, for consumers
 
 A `gate check --push` that passed before can fail after the upgrade: a pushed commit whose message
 breaks the rule (made with `git commit -n`, cherry-picked, rebased or edited on the web) is now
 reported by the `pre-push` hook and by the CI job, under the same aspects as in the `commit-msg`
 hook. Such a commit is reworded before the push (`git rebase -i`), or, when already shared, given
 an exception by its commit id. Commits already on the remote ref before the push are outside the
-range and are not checked. The changelog entry goes under `Changed`.
+range and are not checked. Since it can turn a passing push into a failing one, it ships in v0.3.0
+and the changelog lists it under `Breaking`.
 
-## Open points for the lead
+## The lead's answers
 
-1. A new branch: the commits not on main (needs `main` from `[plugins.git] options`, read only for
-   this case), or the head commit alone in every case.
-2. `--rev` runs left as they are, or checked as a range too.
+2026-11-19: approved: the range's commits, oldest first, every aspect, the ignores as commitlint
+applies them, findings on the commit with its id as target and key; v0.3.0, under `Breaking`;
+`--rev` runs stay as they are. A new branch: not tied to `main`; the lead asked for what
+`git/no-ci-skip` does with a zero base, through one shared function. `git/no-ci-skip` has no such
+case: it never reads the range's base, and reads the policy history instead (`activation..main`,
+main the pushed head when the push targets a main ref, plus `main..HEAD`), which needs
+`activation` and `main`. Asked the lead: the head commit alone for a new branch, with an open item
+for both rules (the commits head adds over every remote ref), or the policy history shared.
 
 ## Done when
 
 - Tests: a push range whose commits all pass; one commit failing a form aspect and one failing
   `prohibited-trailers`, each on its commit with its target and key; a merge and a `fixup!` in the
-  range skipped by the default ignores; a new branch (with and without `main`); a `--rev` run and a
+  range skipped by the default ignores; a new branch (as the lead decides); a `--rev` run and a
   run with neither range nor message checking nothing; the message being written and a push range
   in one run.
-- The rule page (what is read, when) and the changelog under `Unreleased`, `Changed`.
+- The rule page (what is read, when) and the changelog under `Unreleased`, `Breaking`.
 - `rustfmt --edition 2024 --check` on the changed `.rs` files exits 0 before each commit.
 - fmt, clippy, test (`--no-fail-fast`), deny, build and the plugins' wasm builds exit 0 in one lane
   round on the pushed tip.
