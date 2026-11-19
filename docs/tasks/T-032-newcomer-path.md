@@ -47,6 +47,35 @@ Not in scope: `gate init`'s suggested rule and the commit-msg check (T-029).
 - The workflow change: `actionlint` and the leak scan exit 0 in the gates on the pushed commit, and
   a review.
 
+## Notes
+
+- Gate reads the working-tree content of a tracked file, so an edit to `gate.toml` needs no new
+  `git add` before `lock` or `check`; but the pre-commit hook checks the staged files, so every file
+  Gate writes or the reader edits is added again before the commit.
+- The example configurations of the rule pages (`plugins/git/rules/main-history.md`) and of
+  `docs/architecture.md` keep their placeholder commit: they are not steps to paste.
+- T-029 changes the README's and getting-started's git rule and hook lines; this task leaves them
+  to it and rebases onto main after it merges, then the stranger run is repeated on that tip.
+
+## Proof
+
+Stranger run, interim, on `55b8c5c` (2026-11-19T03:25Z): an anonymous clone of the branch; every
+fenced bash block of `README.md` and `docs/guide/getting-started.md`, read from the files, run line
+by line in a fresh repository with no token, an empty gh configuration and a fresh cache; the toml
+blocks written as given, the activation placeholder replaced by `git rev-parse HEAD` as the text
+says. Each line's exit code:
+
+| Scenario | Blocks | Commands | Exit codes |
+| --- | --- | --- | --- |
+| README, one project | install; the commands after the example; the commit | 16 | all 0 |
+| README, monorepo (pnpm workspace, an `origin`) | install; the monorepo commands; the commit | 17 | all 0 |
+| getting-started | install; lock; check; explain and list; hooks; CI; the commit | 21 | all 0 |
+
+After each scenario `bin/gate sync --check` exits 0 and `git status --short` lists nothing. The
+README's "From Source" and "Development Setup" blocks are the gates of the pushed commit.
+
 ## Resume point
 
-2026-11-19: branch `task/T-032-newcomer-path` from `59fb163`; the task file is the first commit.
+2026-11-19: written and pushed; the interim proof passes. Next: rebase onto main after T-029 merges,
+repeat the stranger run on that tip, then the gates (actionlint, leak scan) and the review of the
+workflow change.
