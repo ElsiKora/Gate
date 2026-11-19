@@ -38,20 +38,17 @@ The plugin's share must fit in it, with T-025 making the warm run cheap.
 
 ## Resume point
 
-2026-11-19, review fix round, before the rebase. The design after the review: no `self_cell` and
-no unsafe, transmute or leak anywhere. The SDK has a plugin-defined state per `check` call,
-`CallState` (an owner built from the `Call`, and a state that may borrow it), declared with `call:`
-in `plugin!` and reached by a rule through `Run::with_call`; the state parameter defaults to `()`,
-so the other six plugins are unchanged. It replaces the earlier `Run::call_cache`, which is gone;
-nothing else needed it. The nestjs state (`Nest`) owns the allocator, the call's read cache and the
-settings, and lends one TypeScript view: one parse per file and one resolution per import for the
-whole call. A file's bytes leave the read cache once the view parses it (a non-UTF-8 file keeps
-them); the semantic model is built lazily, once per parsed file, as on 59fb163. Tests: the counting
-test asserts one read per file, the parse count of the whole call against the files in scope, and
-the findings of one call equal to the per-rule findings joined in rule order, on a tree with a file
-that does not parse and one that is not UTF-8; the library tests resolve through two views with
-different tsconfigs in one call and count a view's parse. The round passed (lane ticket 191) on 99dffd7; the numbers are below. Next: the rebase onto
-`origin/release/v0.2.0` and its round.
+2026-11-19: branch `task/T-030-nestjs-speed`, two commits on `release/v0.2.0` b13c5bd
+(the call state and these numbers), then the independent review's fixes: the counting test
+asserts the exact set of parsed files and compares each rule that needs options inside a call of
+every rule; the gate-typescript parse log is behind the test-only `parse-log` feature;
+`Run::call` is gone; the bodies inside `with_call` are indented. The design: no `self_cell`, no
+unsafe, transmute or leak. The SDK has a plugin-defined state per `check` call, `CallState` (an
+owner built from the `Call`, and a state that may borrow it), declared with `call:` in `plugin!`
+and reached by a rule through `Run::with_call`; the state parameter defaults to `()`, so the other
+six plugins are unchanged. The nestjs state (`Nest`) owns the allocator, the call's read cache and
+the settings, and lends one TypeScript view: one parse per file and one resolution per import for
+the whole call. Next: the lane round on the pushed tip, then the lead merges.
 
 ## Numbers
 
