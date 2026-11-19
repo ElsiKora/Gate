@@ -2164,11 +2164,11 @@ fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_miss
         &[],
         "[plugins.git] options has no documentation, which \"git/main-history\" reads",
     );
-    // A rule the run selects by its family is checked.
+    // A rule the run selects with --rule is checked.
     git.refused(
         "",
         &format!("{NO_CI_SKIP}\n{BRANCH_NAME}"),
-        &["--rule", "git"],
+        &["--rule", "git/no-ci-skip"],
         "has no activation, which \"git/no-ci-skip\" reads",
     );
 }
