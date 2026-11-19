@@ -129,26 +129,56 @@ where
     }
 }
 
-/// An environment failure: a file that cannot be read, a configuration file that cannot be
-/// parsed. A violation of a rule is a finding, never an error.
+/// A failure of a library call: a configuration error when the `[languages.typescript]` settings
+/// do not fit the tree, an environment error when a file cannot be read or a configuration file
+/// cannot be parsed. A violation of a rule is a finding, never an error. It converts into the
+/// SDK's error with its kind kept, so a plugin passes it on with `?`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Error {
+    configuration: bool,
     message: String,
 }
 
 impl Error {
-    /// An error with a message that says what is wrong and what to do.
+    /// An environment error, with a message that says what is wrong and what to do.
     #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
+            configuration: false,
             message: message.into(),
         }
+    }
+
+    /// A configuration error: a `[languages.typescript]` setting that does not fit the tree. The
+    /// message names the setting and says what to write instead.
+    #[must_use]
+    pub fn config(message: impl Into<String>) -> Self {
+        Self {
+            configuration: true,
+            message: message.into(),
+        }
+    }
+
+    /// Whether this is a configuration error ([`Error::config`]).
+    #[must_use]
+    pub fn is_config(&self) -> bool {
+        self.configuration
     }
 
     /// The message.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
+    }
+}
+
+impl From<Error> for gate_sdk::Error {
+    fn from(error: Error) -> Self {
+        if error.configuration {
+            Self::config(error.message)
+        } else {
+            Self::new(error.message)
+        }
     }
 }
 

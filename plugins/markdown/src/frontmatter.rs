@@ -62,7 +62,7 @@ impl Rule for Frontmatter {
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
         let options = run.options();
         if options.required_keys.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "required-keys is empty; name at least one key, or turn the rule off",
             ));
         }
