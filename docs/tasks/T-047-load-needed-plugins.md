@@ -157,14 +157,19 @@ with synthetic plugins and trees:
 
 ## Resume point
 
-2026-11-19T19:09:22+00:00:
+2026-11-19T19:20:37+00:00:
 - The lead approved the design. The branch was cut from main `67bbd66`.
 - `ba462ff` holds the three tests of items 1 and 3, written before the change.
 - `a491f40` holds the change, items 1 to 4. A `sync-state` answer at a commit whose own
   configuration validates still loads every plugin of that commit (`Needed::Every` in
   `commit_plugins`), as before.
+- `93749ae` holds the two guards: the `sync-state` fallback with a generator plugin that `--rule`
+  left out, and "after `gate sync`, no check compiles again". It also holds item 5.
 - Item 6 went to T-057.
-- Lane ticket 224 runs the three tests on `ba462ff` in their own worktree; each is expected to
-  fail. Ticket 226 runs the gates on the change.
-- Next: the `sync-state` fallback test and the `gate sync` cache test, item 5, item 7's
-  measures, then the consumer measure.
+- Lane tickets:
+  - 224 runs the three tests on `ba462ff` in their own worktree; each is expected to fail.
+  - 226 runs the gates on the branch tip.
+  - 233 builds item 7's measurement binary. It is the tip plus a `GATE_T047_COMPILE` switch in
+    `Runtime::new` that is never committed.
+- Next: item 7's variants and the before/after measure, both on the consumer copy, by its
+  holder. Then the numbers here, and the setting if one helps.
