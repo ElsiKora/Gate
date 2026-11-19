@@ -4163,81 +4163,184 @@ fn with_broken_other_at_root(repo: &Repo) {
     repo.commit("a second plugin, which this core cannot load");
 }
 
-#[test]
-fn a_run_whose_rule_filter_leaves_a_plugin_out_never_loads_it() {
-    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
-    with_broken_other_at_root(&repo);
-
-    let output = repo.gate(&["check", "--rule", "hello/*"]);
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "only hello runs, so the component of other is never compiled: {}",
-        text(&output.stderr)
-    );
-    let stdout = text(&output.stdout);
-    assert!(
-        stdout.contains("error[hello/marker] apps/hello/src/main.rs:2"),
-        "{stdout}"
-    );
-
-    let output = repo.gate(&["check"]);
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "a full check needs other and fails loading it: {}",
-        text(&output.stdout)
-    );
-    assert!(
-        text(&output.stderr).contains("other"),
-        "{}",
-        text(&output.stderr)
-    );
+/// `--plugin typescript=<the built typescript plugin>`.
+fn typescript_plugin() -> String {
+    format!("typescript={}", typescript().0.display())
 }
 
-#[test]
-fn a_staged_change_loads_only_the_plugins_of_the_scopes_it_selects() {
-    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
-    let pinned = std::fs::read_to_string(repo.path().join("gate.lock")).expect("gate.lock");
-    let (spare, lock) =
-        with_unloadable_other(&repo, "[project]\nname = \"spare\"\n\n[plugins]\n", &pinned);
-    repo.write("apps/spare/gate.toml", &spare);
-    repo.write("apps/spare/notes.md", "# Spare\n");
-    repo.write("gate.lock", &lock);
-    repo.commit("a project that declares a plugin this core cannot load");
+/// `repo` with project `spare` in `apps/spare`, which alone declares plugin `typescript` (given
+/// with [`typescript_plugin`]), with `extra` after its `[plugins]` section; committed.
+fn with_spare(repo: &Repo, extra: &str) {
+    repo.write(
+        "apps/spare/gate.toml",
+        &format!(
+            "[project]\nname = \"spare\"\n\n[plugins]\ntypescript = {{ source = \"acme/rules:typescript@0.1.0\" }}\n{extra}"
+        ),
+    );
+    repo.write("apps/spare/tsconfig.json", "{}\n");
+    repo.write("apps/spare/src/index.ts", "export const spare = 1;\n");
+    repo.commit("project spare, which alone declares typescript");
+}
 
+/// Stages an edit of greeter's source only: a `--staged` check then runs the repository and
+/// greeter, not spare.
+fn stage_greeter_edit(repo: &Repo) {
     repo.write(
         "apps/hello/src/main.rs",
         "fn main() {\n    // FIXME: greet by name\n    println!(\"hello, you\");\n}\n",
     );
     repo.git(&["add", "-A"]);
-    let output = repo.gate(&["check", "--staged"]);
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "the change selects greeter and the repository, which do not declare other: {}",
-        text(&output.stderr)
-    );
-    assert!(
-        text(&output.stdout).contains("error[hello/marker] apps/hello/src/main.rs:2"),
-        "{}",
-        text(&output.stdout)
-    );
+}
 
-    repo.write("apps/spare/notes.md", "# Spare\n\nNow edited.\n");
-    repo.git(&["add", "-A"]);
-    let output = repo.gate(&["check", "--staged"]);
+/// Asserts that `gate <arguments>` in `repo` is a configuration error whose message contains
+/// `needle`.
+fn assert_config_error(repo: &Repo, arguments: &[&str], needle: &str) {
+    let output = repo.gate(arguments);
+    let message = text(&output.stderr);
     assert_eq!(
         output.status.code(),
         Some(2),
-        "a change in spare needs other and fails loading it: {}",
+        "{arguments:?}: {message}{}",
         text(&output.stdout)
+    );
+    assert!(
+        message.starts_with("gate: configuration error:") && message.contains(needle),
+        "{arguments:?}: {message}"
     );
 }
 
 #[test]
-fn a_plugin_option_its_schema_refuses_fails_sync_and_a_full_check_but_not_a_run_of_another_plugin()
-{
+fn a_generate_key_naming_no_generator_fails_a_run_that_does_not_run_its_plugin() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_spare(&repo, "\n[generate]\n\"typescript/nothing\" = {}\n");
+    let plugin = typescript_plugin();
+
+    assert_config_error(
+        &repo,
+        &["check", "--rule", "hello/*", "--plugin", &plugin],
+        "\"typescript/nothing\": plugin typescript has no generator nothing",
+    );
+    stage_greeter_edit(&repo);
+    assert_config_error(
+        &repo,
+        &["check", "--staged", "--plugin", &plugin],
+        "\"typescript/nothing\": plugin typescript has no generator nothing",
+    );
+}
+
+#[test]
+fn a_rule_id_its_plugin_does_not_declare_fails_a_run_that_does_not_run_the_plugin() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_spare(
+        &repo,
+        "\n[rules]\n\"typescript/barrel-imprts\" = \"error\"\n",
+    );
+    let plugin = typescript_plugin();
+
+    assert_config_error(
+        &repo,
+        &["check", "--rule", "hello/*", "--plugin", &plugin],
+        "\"typescript/barrel-imprts\": plugin typescript has no rule barrel-imprts",
+    );
+}
+
+#[test]
+fn a_plugin_declared_with_two_sources_fails_a_run_that_does_not_run_it() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_broken_other_at_root(&repo);
+    let lock = std::fs::read_to_string(repo.path().join("gate.lock")).expect("gate.lock");
+    let checksum = sha256(b"a component of another interface");
+    repo.write(
+        "gate.lock",
+        &format!(
+            "{lock}\n[plugins.\"acme/rules:other@0.3.0\"]\nurl = \"https://example.invalid/other-3.wasm\"\nsha256 = \"{checksum}\"\n"
+        ),
+    );
+    repo.write(
+        "apps/spare/gate.toml",
+        "[project]\nname = \"spare\"\n\n[plugins]\nother = { source = \"acme/rules:other@0.3.0\" }\n",
+    );
+    repo.write("apps/spare/notes.md", "# Spare\n");
+    repo.commit("other at another version in spare");
+
+    assert_config_error(
+        &repo,
+        &["check", "--rule", "hello/*"],
+        "plugin other is declared with 2 sources (acme/rules:other@0.2.0, acme/rules:other@0.3.0)",
+    );
+}
+
+#[test]
+fn an_exception_whose_plugin_is_not_declared_where_its_file_applies_fails_a_run_that_does_not_run_it()
+ {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    repo.write(
+        "apps/hello/gate.exceptions.toml",
+        "[[exception]]\nrule = \"typescript/barrel-imports\"\ntarget = \"src/main.rs\"\nreason = \"a test of the exception's scope\"\n",
+    );
+    with_spare(&repo, "");
+    let plugin = typescript_plugin();
+
+    assert_config_error(
+        &repo,
+        &["check", "--rule", "hello/*", "--plugin", &plugin],
+        "plugin typescript is not declared where this file applies",
+    );
+}
+
+#[test]
+fn a_rule_key_is_checked_against_a_plugin_the_run_does_not_run() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_spare(&repo, "");
+    let plugin = typescript_plugin();
+    stage_greeter_edit(&repo);
+
+    assert_config_error(
+        &repo,
+        &[
+            "check",
+            "--staged",
+            "--rule",
+            "typescript/barrel-imprts",
+            "--plugin",
+            &plugin,
+        ],
+        "--rule typescript/barrel-imprts names no configured rule",
+    );
+    let output = repo.gate(&[
+        "check",
+        "--staged",
+        "--rule",
+        "typescript/barrel-imports",
+        "--plugin",
+        &plugin,
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the key names a rule typescript declares; nothing of it runs in greeter: {}",
+        text(&output.stderr)
+    );
+}
+
+#[test]
+fn a_plugin_the_run_does_not_run_and_that_has_no_declaration_is_loaded_for_it() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_broken_other_at_root(&repo);
+
+    let output = repo.gate(&["check", "--rule", "hello/*"]);
+    let message = text(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "other never loaded, so no declaration of it is stored: the run loads it to validate, and \
+         it fails: {message}"
+    );
+    assert!(message.contains("acme/rules:other@0.2.0"), "{message}");
+}
+
+#[test]
+fn a_plugin_option_its_schema_refuses_fails_sync_and_every_check() {
     let repo = Repo::pinned("{ marker = 5 }");
     let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
     repo.write(
@@ -4256,32 +4359,71 @@ fn a_plugin_option_its_schema_refuses_fails_sync_and_a_full_check_but_not_a_run_
         "export const greeting = \"hello\";\n",
     );
     repo.commit("the typescript plugin, and an option hello's schema refuses");
-    let plugin = format!("typescript={}", typescript().0.display());
-
-    let output = repo.gate(&["check", "--rule", "typescript/*", "--plugin", &plugin]);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "hello does not load, so its options are not checked against its schema: {}",
-        text(&output.stderr)
-    );
+    let plugin = typescript_plugin();
 
     for arguments in [
+        &[
+            "check",
+            "--rule",
+            "typescript/*",
+            "--plugin",
+            plugin.as_str(),
+        ][..],
         &["check", "--plugin", plugin.as_str()][..],
         &["sync", "--plugin", plugin.as_str()][..],
     ] {
-        let output = repo.gate(arguments);
-        assert_eq!(
+        assert_config_error(&repo, arguments, "hello/marker");
+    }
+}
+
+#[test]
+fn after_gate_sync_a_check_compiles_only_the_plugins_it_runs() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_spare(&repo, "");
+    let plugin = typescript_plugin();
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let modules = repo.cache.path().join("modules");
+
+    let runs: [(&[&str], usize, &str); 3] = [
+        (
+            &["check", "--rule", "hello/*"],
+            1,
+            "--rule leaves typescript out",
+        ),
+        (
+            &["check", "--staged"],
+            1,
+            "the edit selects the repository and greeter, which do not declare typescript",
+        ),
+        (
+            &["check", "--staged"],
+            2,
+            "the edit in spare selects spare, which declares typescript",
+        ),
+    ];
+    for (index, (arguments, compiled, why)) in runs.into_iter().enumerate() {
+        match index {
+            1 => stage_greeter_edit(&repo),
+            2 => {
+                repo.git(&["reset", "-q"]);
+                repo.write("apps/spare/src/index.ts", "export const spare = 2;\n");
+                repo.git(&["add", "apps/spare"]);
+            }
+            _ => {}
+        }
+        std::fs::remove_dir_all(&modules).expect("the module cache");
+        let mut arguments = arguments.to_vec();
+        arguments.extend(["--plugin", plugin.as_str()]);
+        let output = repo.gate(&arguments);
+        assert_ne!(
             output.status.code(),
             Some(2),
             "{arguments:?}: {}",
-            text(&output.stdout)
+            text(&output.stderr)
         );
-        let message = text(&output.stderr);
-        assert!(
-            message.starts_with("gate: configuration error:") && message.contains("hello/marker"),
-            "{arguments:?}: {message}"
-        );
+        let found = compiled_modules(repo.cache.path());
+        assert_eq!(found.len(), compiled, "{arguments:?}: {why}: {found:?}");
     }
 }
 
