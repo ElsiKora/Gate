@@ -500,9 +500,9 @@ impl Cache {
         }
         let git = self.git();
         if self.directory(&git)? {
-            let named = answers::stored_blob_files(self);
+            let answered = answers::stored_blob_files(self);
             for file in derived_files(&git)? {
-                if file.path.starts_with(git.join("blobs")) && !named.contains(&file.path) {
+                if file.path.starts_with(git.join("blobs")) && !answered.contains(&file.path) {
                     entries.push(file.entry(Reason::Unnamed));
                 } else {
                     derived.push(file);
@@ -523,10 +523,11 @@ impl Cache {
         let mut left = size(&self.root).saturating_sub(removed);
         let mut over = None;
         if let Some(max) = bounds.max_size {
-            derived.sort_by(|left, right| {
-                left.used
-                    .cmp(&right.used)
-                    .then_with(|| left.path.cmp(&right.path))
+            derived.sort_by(|first, second| {
+                first
+                    .used
+                    .cmp(&second.used)
+                    .then_with(|| first.path.cmp(&second.path))
             });
             let mut candidates = derived.into_iter();
             while left > max {
@@ -538,7 +539,7 @@ impl Cache {
                 entries.push(file.entry(Reason::OverSize(max)));
             }
         }
-        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        entries.sort_by(|first, second| first.path.cmp(&second.path));
         Ok(Plan {
             entries,
             left,
