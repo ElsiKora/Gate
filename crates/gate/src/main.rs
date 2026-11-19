@@ -386,6 +386,9 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
 
     let checked = gate_host::check(Path::new("."), &request)?;
 
+    if let Some(warning) = &checked.cache_warning {
+        eprintln!("gate: warning: {warning}");
+    }
     if arguments.run.timings {
         print_timings(&checked);
     }

@@ -2316,6 +2316,48 @@ fn merge_tree_answers_are_kept_per_git_version_and_never_from_a_shallow_clone() 
 }
 
 #[test]
+fn a_cache_that_cannot_be_written_warns_once_and_the_check_still_reports() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let repo = probe_repo_for(
+        "apps/one",
+        r#""probe/git" = { level = "error", options = { is_ancestor = [["HEAD~1", "HEAD"]], sync_state = ["HEAD"] } }"#,
+    );
+    for message in ["first", "second"] {
+        repo.write("apps/one/a.txt", &format!("{message}\n"));
+        repo.commit(message);
+    }
+    // Every write goes through the cache's temporary directory: none can be made.
+    let temporary = repo.cache.path().join("tmp");
+    std::fs::create_dir_all(&temporary).expect("tmp");
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o555))
+        .expect("read-only");
+
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o755))
+        .expect("writable again");
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout)).expect("json");
+    let messages: Vec<&str> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str())
+        .collect();
+    assert!(
+        messages.contains(&"is-ancestor HEAD~1 HEAD: true"),
+        "{messages:?}"
+    );
+    let warnings: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.starts_with("gate: warning: cannot write to the cache"))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    assert!(warnings[0].contains("GATE_CACHE_DIR"), "{stderr}");
+}
+
+#[test]
 fn a_cold_history_run_computes_one_sync_state_per_commit_for_every_call_and_rule() {
     let repo = probe_repo_for(
         "apps/*",

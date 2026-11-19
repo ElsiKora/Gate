@@ -174,6 +174,9 @@ pub struct Checked {
     pub sync_states: SyncStates,
     /// The git questions about commit ids the run asked git and answered from stored answers.
     pub git_answers: GitAnswers,
+    /// What the first cache write that failed said, when one did: the check is complete, but
+    /// the next run cannot reuse its work.
+    pub cache_warning: Option<String>,
 }
 
 /// Runs `gate check` on the repository that contains `start`.
@@ -224,6 +227,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
         reads: run.ran.reads,
         sync_states: run.ran.sync_states,
         git_answers: run.ran.git_answers,
+        cache_warning: run.ran.cache_warning,
     })
 }
 

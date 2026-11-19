@@ -102,6 +102,35 @@ pub(crate) struct Ran {
     pub(crate) reads: Vec<PluginReads>,
     pub(crate) sync_states: SyncStates,
     pub(crate) git_answers: GitAnswers,
+    /// What the first cache write that failed said, when one did.
+    pub(crate) cache_warning: Option<String>,
+}
+
+/// The first cache write of a run that failed. A write is best effort: the findings do not depend
+/// on it, so its failure is one warning, not a failed check, as a bad entry read is a miss.
+#[derive(Debug, Default)]
+struct CacheWrites(Mutex<Option<String>>);
+
+impl CacheWrites {
+    /// Notes `written`'s failure, when it failed.
+    fn note(&self, written: Result<()>) {
+        if let Err(error) = written {
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get_or_insert_with(|| {
+                    format!(
+                        "cannot write to the cache ({error}); the findings are complete, but the \
+                         next run cannot reuse this run's work: free space, or set GATE_CACHE_DIR \
+                         to a writable directory"
+                    )
+                });
+        }
+    }
+
+    fn take(&self) -> Option<String> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
 }
 
 /// The `sync-state` answers of a run: how many it computed, and how many it read from the cache.
@@ -519,6 +548,7 @@ impl Loaded {
             counted: SyncStateCount::default(),
             objects: Mutex::new(None),
             merges: Mutex::new(Batch::Unstarted),
+            writes: CacheWrites::default(),
             answers: OnceLock::new(),
             facts: OnceLock::new(),
         });
@@ -570,7 +600,7 @@ impl Loaded {
             .iter()
             .map(|(_, _, _, _, plugin, request, grant)| (*plugin, request, grant))
             .collect();
-        let outcomes = self.calls(&calls, &tree, &history, &inputs)?;
+        let outcomes = self.calls(&calls, &tree, &history, &inputs, &git_history.writes);
 
         let mut ran = Ran::default();
         for ((project, settings, name, rules, _, _, _), looked) in planned.iter().zip(outcomes) {
@@ -597,24 +627,22 @@ impl Loaded {
                 invocations: outcome.invocations,
             });
         }
-        git_history.store_answers()?;
-        (ran.sync_states, ran.git_answers) = git_history.counted.read();
+        git_history.finish(&mut ran);
         Ok(ran)
     }
 
     /// Runs each of `calls` (plugin, request, grant): from the result cache when every input it
     /// recorded answers as it did, else on the worker pool, and stores what a run call answers.
     /// The outcomes are in the order of `calls`, each with whether it came from the cache.
-    ///
-    /// # Errors
-    /// Fails when a result cannot be stored.
+    /// A result that cannot be stored is noted in `writes`.
     fn calls(
         &self,
         calls: &[(&Plugin, &gate_sdk::CheckRequest, &Grant)],
         tree: &Arc<dyn Tree>,
         history: &Arc<dyn History>,
         inputs: &results::Inputs<'_>,
-    ) -> Result<Vec<Looked>> {
+        writes: &CacheWrites,
+    ) -> Vec<Looked> {
         let cache = Cache::from_env().ok();
         let keys: Vec<Sha256Sum> = calls
             .iter()
@@ -674,7 +702,7 @@ impl Loaded {
                     outcome.read_set.clone(),
                     inputs,
                 );
-                results::store(cache, &keys[*index], &stored)?;
+                writes.note(results::store(cache, &keys[*index], &stored));
             }
             outcomes[*index] = Some(Looked {
                 outcome,
@@ -682,7 +710,7 @@ impl Loaded {
                 stale: stale[*index].take(),
             });
         }
-        Ok(outcomes.into_iter().flatten().collect())
+        outcomes.into_iter().flatten().collect()
     }
 }
 
@@ -1242,6 +1270,8 @@ struct GitHistory {
     objects: Mutex<Option<Objects>>,
     /// The one `git merge-tree --stdin` that answers `merge-tree`, started on first use.
     merges: Mutex<Batch<Merges>>,
+    /// The run's cache writes that failed.
+    writes: CacheWrites,
 }
 
 /// A long-lived git process of a run.
@@ -1593,6 +1623,14 @@ impl GitHistory {
         Ok(answer)
     }
 
+    /// Stores the answers this run learned, and gives `ran` the run's counts and the cache
+    /// write that failed first.
+    fn finish(&self, ran: &mut Ran) {
+        self.writes.note(self.store_answers());
+        (ran.sync_states, ran.git_answers) = self.counted.read();
+        ran.cache_warning = self.writes.take();
+    }
+
     /// Stores the answers this run learned.
     fn store_answers(&self) -> Result<()> {
         if let Some(Some(answers)) = self.answers.get() {
@@ -1690,10 +1728,17 @@ impl GitHistory {
         }
         if computed.uses_run {
             let run_key = self.state_key(commit, Some(self.run_key()?));
-            store(&cache, &run_key, ANSWER, &computed.state)?;
-            store(&cache, &own_key, RUN_DEPENDENT, &SyncState::default())?;
+            self.writes
+                .note(store(&cache, &run_key, ANSWER, &computed.state));
+            self.writes.note(store(
+                &cache,
+                &own_key,
+                RUN_DEPENDENT,
+                &SyncState::default(),
+            ));
         } else {
-            store(&cache, &own_key, ANSWER, &computed.state)?;
+            self.writes
+                .note(store(&cache, &own_key, ANSWER, &computed.state));
         }
         Ok(computed.state)
     }
