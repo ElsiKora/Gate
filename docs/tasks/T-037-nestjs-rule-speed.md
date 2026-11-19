@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done after this cut; the rest of the cold bound is T-047 |
 | Release | 0.2.1, from the `v0.2.0` tag |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
@@ -56,14 +56,16 @@ regression check in this repository.
 
 ## Resume point
 
-2026-11-19: the first cut is in: barrel-exports, and with it every per-folder walk of the plugin.
-The shared walks (`tree::files`, `entries`, `folders`) scanned every tracked path for each folder
-they walk below; they now take the source's range of paths below the folder
-(`Source::paths_with_prefix`, answered by a binary search in the sorted sources). The review of
-d688aee asked for the test fixes of 54acbcf and the proof below. Next: the second cut, chosen from
-Gate 005's per-rule time and fuel on the consumer tree (lane ticket 205). The synthetic `added`
-figures no longer rank the rules: with one call under a second, a rule's added time moves by more
-than the rule takes alone (repeated-segment: 0.006 s alone, 1.032 s added in ticket 203).
+2026-11-19: done after this cut. The cut: barrel-exports, and with it every per-folder walk of
+the plugin. The shared walks (`tree::files`, `entries`, `folders`) scanned every tracked path for
+each folder they walk below; they now take the source's range of paths below the folder
+(`Source::paths_with_prefix`, answered by a binary search in the sorted sources). The consumer
+run (lane ticket 205, below) puts the plugin's own work at 0.98 s cold, so the target for the
+plugin's work is met. What holds the cold run over the bound is the core compiling every
+configured plugin, which T-047 takes. The synthetic `added` figures no longer rank the rules:
+with one call under a second, a rule's added time moves by more than the rule takes alone
+(repeated-segment: 0.006 s alone, 1.032 s added in ticket 203). Per-rule times on the consumer
+tree come with lane ticket 211.
 
 ## Proof
 
@@ -90,3 +92,18 @@ Lane ticket 203, `round1.sh`, one ticket for all of it:
 
 Wall times on the shared machine move with its load; the two columns ran minutes apart in one
 ticket.
+
+The consumer run, lane ticket 205, by Gate 005: `bin/gate check --rule 'nestjs/*' --timings` with
+the released 0.2.0 core and plugins (before this cut) on the lead's export of the consumer tree
+(the server project, about 10 400 files, and a small infrastructure project), network denied,
+load average about 51. Cold is a fresh cache with only the released archives and the installed
+core.
+
+| Run | Exit | Wall | Gate total | Load (wasm compile) | nestjs calls | Fuel, server and infrastructure |
+| --- | --- | --- | --- | --- | --- | --- |
+| `nestjs/*` cold | 1 | 7.12 s | 6.070 s | 4 852 ms | 981 ms (server 942 ms) | 3 980 907 205 and 111 357 603 |
+| `nestjs/*` warm | 1 | 0.49 s | 0.334 s | 87 ms | cached | cached |
+
+The exit 1 is the 0.1.0 baseline against 0.2.0's finding keys (183 stale entries), not a new
+finding. `load` compiles all seven configured plugins although `--rule` selects one; that is
+T-047's.
