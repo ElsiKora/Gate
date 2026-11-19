@@ -8,6 +8,16 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+## Unreleased
+
+### Documentation
+
+- **docs:** upgrading a baseline written by 0.1.0. A finding of a project below the repository root
+  that sits in or names one of its option files changed path and message in 0.2.0, so
+  `gate baseline prune` cannot re-key its entry and removes it. The baseline section of the
+  configuration guide gives the upgrade: prune, check, pair each reported finding with an entry prune
+  removed, and when every finding pairs, `gate baseline write` once.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/v0.1.0...v0.2.0) (2026-11-19)
 
 The plugin interface is `gate:plugin@0.2.0`, and every plugin of this repository is released at
