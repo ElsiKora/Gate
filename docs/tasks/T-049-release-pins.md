@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead |
+| Status | design approved; code after T-042 merges |
 | Release | v0.2.1 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |
@@ -15,8 +15,8 @@ A repository that releases a Gate plugin of its own pins that plugin in its own 
 `gate.lock`, and its release commit moves the pin to the new version. Today `release-files` admits a
 file whole, and only `package.json` and `package-lock.json` are limited to their version fields, so a
 release commit that also changes another plugin's pin, or the core's, passes. With this task the
-release commit may change the pin of that one plugin and nothing else in Gate's pin files; the core
-pin may move with it only when the repository says so.
+release commit may change the pin of that one plugin and nothing else in Gate's pin files; the other
+pins (the core's and every other plugin's) may move with it only when the repository says so.
 
 ## Design
 
@@ -33,9 +33,12 @@ Two options of `git/main-history`, beside `release-files`:
   options, rules) is a `release` finding keyed `<file>#beyond-pin`; a pin moved to a version other
   than the release's is `<file>#version`; a file that does not read as TOML on one side is
   `<file>#unreadable`.
-- `release-core` (boolean, `false` by default): the same commit may also move the core, the root
-  `gate.toml`'s `[gate] version` and `gate.lock`'s `[core]` table, as a plugin interface change
-  forces. It needs `release-plugin`; set alone it is a configuration error.
+- `release-all-pins` (boolean, `false` by default): the same commit may also move every other pin,
+  as a plugin interface change forces: the core (the root `gate.toml`'s `[gate] version` and
+  `gate.lock`'s `[core]` table) and each other plugin's pin (the version in its `source`, and its
+  lock entry's `url` and `sha256` under the moved key). Nothing else is admitted: options, rules,
+  and a plugin added or removed stay `#beyond-pin`. It needs `release-plugin`; set alone it is a
+  configuration error.
 
 `gate.toml` and `gate.lock` are admitted by `release-plugin`, not by `release-files`: naming either
 in `release-files` while `release-plugin` is set is a configuration error, since the file would be
@@ -45,23 +48,18 @@ alone is not seen. They are read at the parent and at the commit through the plu
 git reads (`read_at`), like `package.json`. Merge and direct commits are judged as today: the
 options widen only the release form.
 
-Open points for the lead:
-
-1. The moved pin must name the release's version (as `package.json`'s must). A consumer whose
-   plugin version differs from its release subject's version would need that dropped.
-2. `release-core` covers the core only. An interface change also moves every other plugin the
-   repository pins (`ElsiKora/Gate:git@0.1.0` to `@0.2.0`); with this design those stay
-   `#beyond-pin` findings, so such a commit needs an exception, or `release-core` widens to every
-   pin.
-3. One plugin per repository; a list is the extension if a repository releases several.
+The lead's answers (2026-11-19): the moved pin of `release-plugin` must name the release's version;
+`release-all-pins` replaces the design's `release-core`, since an interface change moves every pin
+at once and allowing only the core would leave main red; one plugin is enough, as a release commit
+has one version from its subject.
 
 ## Done when
 
 - Tests, each a pass and a fail: `gate.toml` with only the plugin's source moved, and with more;
   `gate.lock` with only the plugin's entry moved, and with more; a pin moved to another version
-  than the release's; a second plugin's pin moved; the core moved with and without
-  `release-core`; the same pin change in a non-release (direct) commit, still reported under
-  `direct`; `release-core` without `release-plugin`, and a pin file in `release-files`, as
+  than the release's; a second plugin's pin moved; the core and another plugin moved with and
+  without `release-all-pins`, and a plugin added or removed even with it; the same pin change in a
+  non-release (direct) commit, still reported under `direct`; `release-all-pins` without `release-plugin`, and a pin file in `release-files`, as
   configuration errors.
 - The rule page and the plugin changelog under `Unreleased`.
 - `rustfmt --edition 2024 --check` on the changed `.rs` files exits 0 before each commit.
@@ -73,3 +71,6 @@ Open points for the lead:
 
 2026-11-19: branch `task/T-049-release-pins` from `origin/main` at `105ca02`; this file first, with
 the design, sent to the lead before any code.
+2026-11-19: the lead approved the design with `release-all-pins` (every pin, not only the core) in
+place of `release-core`; the moved pin names the release's version; one plugin. Code starts after
+T-042 is green and merged.
