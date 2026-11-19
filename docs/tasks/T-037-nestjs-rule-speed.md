@@ -56,7 +56,37 @@ regression check in this repository.
 
 ## Resume point
 
-2026-11-19: T-030 is merged into `release/v0.2.0` (1b7fb64). The goal is restated on its numbers:
-the synthetic tree is already within 3 s natively, so the target is the consumer run in wasm. Next:
-once `v0.2.0` is tagged, rebase this branch onto the tag; queue nothing before the release round
-ends; ask the lead for the consumer run's per-rule time and fuel; then cut barrel-exports first.
+2026-11-19: the first cut is in: barrel-exports, and with it every per-folder walk of the plugin.
+The shared walks (`tree::files`, `entries`, `folders`) scanned every tracked path for each folder
+they walk below; they now take the source's range of paths below the folder
+(`Source::paths_with_prefix`, answered by a binary search in the sorted sources). The review of
+d688aee asked for the test fixes of 54acbcf and the proof below. Next: the second cut, chosen from
+Gate 005's per-rule time and fuel on the consumer tree (lane ticket 205). The synthetic `added`
+figures no longer rank the rules: with one call under a second, a rule's added time moves by more
+than the rule takes alone (repeated-segment: 0.006 s alone, 1.032 s added in ticket 203).
+
+## Proof
+
+Lane ticket 203, `round1.sh`, one ticket for all of it:
+
+- d688aee: `cargo fmt --all --check` 0; `cargo clippy --locked --workspace --all-targets -- -D
+  warnings` 0; `cargo test --locked --workspace --no-fail-fast` 0 (1015 passed, 0 failed, 7
+  ignored); `cargo build --release --locked` 0. `cargo deny --locked check` exited 1 one second in,
+  output not kept; a deny-only lane job keeps it (see below).
+- 2e5bf04, the test before the cut: `cargo test --locked -p gate-plugin-nestjs --lib
+  shared::tree::tests` exit 101, as it should (`800 paths read` for a walk below one folder of
+  four files).
+- The synthetic `measure` (`cargo test --release --locked -p gate-plugin-nestjs --test speed --
+  --ignored --exact measure --nocapture`, exit 0 both), 10 670 files, 30 rules, native release
+  build, each tree built into its own target directory:
+
+| | Before (main 89c42c7) | After (d688aee) |
+| --- | --- | --- |
+| One call of every rule | 2.164 s | 0.887 s |
+| Sum of the single-rule calls | 3.172 s | 1.593 s |
+| barrel-exports alone | 0.485 s | 0.188 s |
+| What barrel-exports adds to a parsed call | 0.611 s | 0.192 s |
+| Reads, parses, findings of one call | 10 674, 10 668, 32 488 | 10 674, 10 668, 32 488 |
+
+Wall times on the shared machine move with its load; the two columns ran minutes apart in one
+ticket.
