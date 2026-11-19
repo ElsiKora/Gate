@@ -200,9 +200,30 @@ fn parse(bytes: &[u8]) -> Option<Vec<(Question, Answer)>> {
             } else {
                 Answer::Holds(answer.get("holds")?.as_bool()?)
             };
-            Some(((kind, of), answer))
+            well_formed(kind, &of, &answer).then_some(((kind, of), answer))
         })
         .collect()
+}
+
+/// Whether `answer` is the kind of answer a `kind` question about `of` gets, every argument that
+/// names an object a full id, and a blob a full id: a line written otherwise was not written by
+/// this core, and its file is skipped.
+fn well_formed(kind: &str, of: &[String], answer: &Answer) -> bool {
+    let id = |text: &String| crate::git::is_object_id(text);
+    match (kind, of, answer) {
+        ("changed-paths", [parent, commit], Answer::Paths(_)) => id(parent) && id(commit),
+        ("tree", [commit], Answer::Tree(tree)) => id(commit) && tree.as_ref().is_none_or(id),
+        ("merge-tree", [first, second, _version], Answer::Tree(tree)) => {
+            id(first) && id(second) && tree.as_ref().is_none_or(id)
+        }
+        ("is-ancestor", [ancestor, descendant], Answer::Holds(_)) => {
+            id(ancestor) && id(descendant)
+        }
+        ("read-at", [commit, _path], Answer::Blob(blob)) => {
+            id(commit) && blob.as_ref().is_none_or(id)
+        }
+        _ => false,
+    }
 }
 
 /// The kinds of question stored.
@@ -267,7 +288,10 @@ mod tests {
                 Answer::Tree(Some("d".repeat(40))),
             ),
             (
-                ("merge-tree", vec!["e".repeat(40), "f".repeat(40)]),
+                (
+                    "merge-tree",
+                    vec!["e".repeat(40), "f".repeat(40), "git version 2.50.1".to_owned()],
+                ),
                 Answer::Tree(None),
             ),
             (
@@ -289,6 +313,23 @@ mod tests {
             .collect();
         let parsed = parse(text.join("\n").as_bytes()).expect("parses");
         assert_eq!(parsed, answers.to_vec());
+
+        // A line of the wrong shape for its kind makes its file a miss.
+        let commit = "5".repeat(40);
+        let blob = |id: Value| json!({ "blob": id });
+        for (kind, of, answer) in [
+            ("read-at", json!([commit, "a.md"]), json!({ "holds": true })),
+            ("read-at", json!([commit]), blob(Value::Null)),
+            ("read-at", json!([commit, "a.md", "b"]), blob(Value::Null)),
+            ("read-at", json!(["HEAD", "a.md"]), blob(Value::Null)),
+            ("read-at", json!([commit, "a.md"]), blob(json!("abc"))),
+            ("tree", json!([commit]), blob(Value::Null)),
+            ("is-ancestor", json!([commit, commit]), json!({ "paths": [] })),
+        ] {
+            let wrong = json!({ "kind": kind, "of": of, "answer": answer });
+            let file = format!("{}\n{wrong}\n", text[0]);
+            assert_eq!(parse(file.as_bytes()), None, "{wrong}");
+        }
         assert_eq!(
             parse(b"{\"kind\": \"tree\"}\n"),
             None,
