@@ -1084,6 +1084,8 @@ fn every_suggestion_of_a_fresh_gate_toml_uncommented_checks_clean() {
         "{uncommented}"
     );
     repo.write("gate.toml", &uncommented);
+    // As init says: gate reads tracked files only.
+    repo.git(&["add", "gate.toml", "gate.lock", "bin/gate"]);
 
     let output = repo.gate(&["lock"], Some(&server), &[]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
