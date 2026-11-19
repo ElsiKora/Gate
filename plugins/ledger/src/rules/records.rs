@@ -78,7 +78,7 @@ impl Rule for Records {
             .iter()
             .map(|source| {
                 pattern(source).map_err(|error| {
-                    Error::new(format!(
+                    Error::config(format!(
                         "ledger/records option pending-patterns has the invalid pattern {source:?}: {error}; fix or remove it"
                     ))
                 })
@@ -136,7 +136,7 @@ impl Rule for RecordStatus {
         let tree = run.tree();
 
         if options.allowed.as_ref().is_some_and(Vec::is_empty) {
-            return Err(Error::new(
+            return Err(Error::config(
                 "ledger/record-status option allowed is empty; list the allowed statuses or remove the option",
             ));
         }

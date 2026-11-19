@@ -67,7 +67,7 @@ impl Rule for Reuses {
         let options = run.options();
         let tree = run.tree();
         let generic = pattern(&options.generic_reasons).map_err(|error| {
-            Error::new(format!(
+            Error::config(format!(
                 "ledger/reuses option generic-reasons is not a valid pattern: {error}; fix it"
             ))
         })?;

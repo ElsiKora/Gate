@@ -2714,6 +2714,24 @@ fn a_nestjs_option_its_rule_refuses_is_a_configuration_error() {
     );
 }
 
+#[test]
+fn a_ledger_option_its_rule_refuses_is_a_configuration_error() {
+    // A pattern that is no regular expression: no schema can refuse it, the rule does.
+    let output = bad_option_check(
+        "gate-plugin-ledger",
+        "ledger",
+        "ledger",
+        r#""ledger/reuses" = { level = "error", options = { generic-reasons = "(" } }"#,
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("option generic-reasons is not a valid pattern"),
+        "{message}"
+    );
+}
+
 /// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the
 /// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
 fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {

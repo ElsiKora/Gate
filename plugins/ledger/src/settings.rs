@@ -103,10 +103,10 @@ pub struct Parity {
 pub fn check_path(name: &str, path: &str) -> gate_sdk::Result<()> {
     match normal_path(path) {
         Some(normal) if normal == path => Ok(()),
-        Some(normal) => Err(Error::new(format!(
+        Some(normal) => Err(Error::config(format!(
             "{name} {path:?} is not in normal form; write {normal:?}"
         ))),
-        None => Err(Error::new(format!(
+        None => Err(Error::config(format!(
             "{name} {path:?} is absolute; write it relative to the project root"
         ))),
     }
@@ -139,7 +139,7 @@ impl Settings {
             .iter()
             .find(|status| status.to_lowercase() != **status)
         {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[plugins.ledger] options closed-statuses has {status:?}; statuses are compared in lowercase, so write {:?}",
                 status.to_lowercase()
             )));
@@ -152,7 +152,7 @@ impl Settings {
                     .bytes()
                     .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit()))
         {
-            return Err(Error::new(format!(
+            return Err(Error::config(format!(
                 "[plugins.ledger] options parity.prefix {:?} must be uppercase letters and digits, such as \"CORE\"",
                 parity.prefix
             )));
