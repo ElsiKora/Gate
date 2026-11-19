@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | v0.2.0 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead reads the documents |
@@ -33,6 +33,29 @@ The rule's default stays: it follows the house commitlint configuration, where a
 - The leak scan named in the local rules prints nothing.
 - The lead has read the documents.
 
+## Proof
+
+Stranger run on `7be53b9` (2026-11-19T17:36Z to 17:39Z): an anonymous clone of this branch, the
+release page's body read from the public API, the released v0.2.0 binaries and plugins; every fenced
+bash block of `README.md` and `docs/guide/getting-started.md` run line by line as written in a fresh
+repository with no token, an empty gh configuration and a fresh cache; the toml blocks written as
+given, the activation placeholder replaced by `git rev-parse HEAD` as the text says. The commits are
+the documents' own `git commit` lines; the release page's "commit all three" is the one commit the
+run writes itself.
+
+| Scenario | Commands | Exit codes |
+| --- | --- | --- |
+| release page | 13 | all 0 |
+| README, one project (the commit-msg hook wired) | 16 | all 0 |
+| README, monorepo (pnpm workspace, an `origin`) | 17 | all 0 |
+| getting-started (hooks, then CI, each committed) | 22 | all 0 |
+
+After each scenario `bin/gate sync --check` exits 0 and `git status --short` lists nothing. The
+monorepo scenario ran twice: the first run's `gate lock` could not reach github.com (curl exit 28
+after 75 s, `gate lock` exit 2, and the two commands after it exit 2 on the missing pins); the rerun
+at 17:39Z is the one above. An earlier run on `22750cb` refused the guide's second commit,
+`chore(gate): add the CI job` (`header-case`, `subject-case`); `7be53b9` makes it lower case.
+
 ## Resume point
 
-2026-11-19: task file written. Next: the README and getting-started, then the stranger run.
+2026-11-19: written, pushed and proved on the released v0.2.0. Next: the lead's read.
