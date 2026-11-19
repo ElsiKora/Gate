@@ -8,6 +8,14 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
+## Unreleased
+
+### Changed
+
+- A wrong option, or an exceptions file the options name that is not valid TOML, ends the run as a
+  configuration error (exit 2, `configuration error`), not as an environment error. A file the rule
+  cannot read stays an environment error.
+
 # 0.1.0
 
 ### Features

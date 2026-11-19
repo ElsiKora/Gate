@@ -3,6 +3,15 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
+## Unreleased
+
+### Changed
+
+- A wrong option, a file the options name that is not tracked or cannot be read, or a
+  `[languages.typescript] tsconfig` that names an untracked file, ends the run as a configuration
+  error (exit 2, `configuration error`), not as an environment error. A source file the rule cannot
+  read or parse stays an environment error.
+
 # 0.1.0
 
 - The plugin crate: the `[plugins.nestjs] options` layout block, whose schema the plugin declares so
