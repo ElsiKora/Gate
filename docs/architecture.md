@@ -122,7 +122,7 @@ interface types {
     options-schema: string,   // JSON Schema of the rule's options
   }
   record generator-info { name: string, title: string, options-schema: string, owns: list<string> }
-  record preset { name: string, rules: string /* JSON: rule name -> {level, options} */ }
+  record preset { name: string, rules: string /* JSON: rule name -> {level, levels, options} */ }
   record plugin-info {
     name: string, version: string,
     options-schema: string,   // JSON Schema of the [plugins.<name>] options
@@ -330,7 +330,10 @@ all = ["lint", "unit"]
   `gate.toml` also holds `[project]`, `[plugins]` and project-scope rules. The same holds when a
   workspace lists `"."` as a project.
 - **Aspects** take their own norm and level inside the rule's entry: `norms = { <aspect> = "..." }`,
-  `levels = { <aspect> = "..." }`; the rule's `norm` and `level` apply to the others.
+  `levels = { <aspect> = "..." }`; the rule's `norm` and `level` apply to the others. A preset may
+  set aspect levels too; an aspect's level is, first found, the entry's level of the aspect, the
+  presets' level of the aspect, the entry's level, the family's, the presets' level of the rule.
+  `off` on the rule or its family turns every aspect off.
 - **Exceptions** live in one file beside the `gate.toml` they belong to, `gate.exceptions.toml`:
 
   ```toml

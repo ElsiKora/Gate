@@ -35,6 +35,42 @@ fn the_rules_read_history_over_the_repository() {
 }
 
 #[test]
+fn the_recommended_preset_keeps_the_references_warnings_as_warnings() {
+    let info = gate_sdk::describe(&git::PLUGIN);
+    let preset = info
+        .presets
+        .iter()
+        .find(|preset| preset.name == "recommended")
+        .expect("git/recommended");
+    let rules: serde_json::Value = serde_json::from_str(&preset.rules).expect("JSON");
+    assert_eq!(
+        rules["commit-message"]["levels"],
+        serde_json::json!({ "header-min-length": "warning", "scope-max-length": "warning" })
+    );
+    assert_eq!(
+        rules["branch-name"]["options"]["template"],
+        ":type/:ticket-:name"
+    );
+    // Every aspect the preset sets is one its rule declares.
+    for (rule, settings) in rules.as_object().expect("rules") {
+        let declared = &info
+            .rules
+            .iter()
+            .find(|info| info.name == *rule)
+            .expect("a rule of the plugin")
+            .aspects;
+        for aspect in settings["levels"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(key, _)| key)
+        {
+            assert!(declared.contains(aspect), "{rule}#{aspect}");
+        }
+    }
+}
+
+#[test]
 fn the_plugin_options_schema_requires_main_and_types_the_forms() {
     let info = gate_sdk::describe(&git::PLUGIN);
     let schema: serde_json::Value =

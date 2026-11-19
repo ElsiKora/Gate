@@ -16,6 +16,9 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   limit and the type list an option.
 - The rules read the commit message and whether a git hook runs the check through the git
   interface (`message()`, `hook()`); the generated hooks pass `--hook`.
+- The preset `git/recommended`: `git/branch-name` with the template `:type/:ticket-:name`, and
+  `git/commit-message` with `header-min-length` and `scope-max-length` as warnings, as in the
+  reference.
 
 # 0.1.0
 

@@ -22,11 +22,23 @@ pub use self::main_history::{MainHistory, Options as MainHistoryOptions};
 pub use self::no_ci_skip::{NoCiSkip, Options as NoCiSkipOptions};
 pub use self::settings::Settings;
 
+/// The `git/recommended` preset: the policies of the `ElsiKora` linters, `@elsikora/git-branch-lint`'s
+/// default branch template and commitlint's levels, whose two level-1 checks are warnings.
+const RECOMMENDED: &str = r#"{
+    "branch-name": { "options": { "template": ":type/:ticket-:name" } },
+    "commit-message": {
+        "levels": { "header-min-length": "warning", "scope-max-length": "warning" }
+    }
+}"#;
+
 gate_sdk::plugin! {
     name: "git",
     version: env!("CARGO_PKG_VERSION"),
     options: Settings,
     rules: [MainHistory, NoCiSkip, BranchName, CommitMessage],
     generators: [],
-    presets: [],
+    presets: [gate_sdk::Preset {
+        name: "recommended",
+        rules: RECOMMENDED,
+    }],
 }

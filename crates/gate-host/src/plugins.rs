@@ -531,8 +531,8 @@ fn reported(
     let preset = rules
         .iter()
         .find(|rule| rule.id == id)
-        .and_then(|rule| rule.preset);
-    let level = match settings.setting(&id, &finding.aspect).or(preset) {
+        .map(|rule| &rule.preset);
+    let level = match level(settings, &id, &finding.aspect, preset) {
         Some(Setting::Off) => return Ok(None),
         Some(Setting::On(level)) => level,
         None => Level::Error,
@@ -809,8 +809,43 @@ fn rule_id(plugin: &PluginName, rule: &str) -> Result<RuleId> {
 struct Enabled {
     id: RuleId,
     run: RuleRun,
-    /// The level its presets give it.
-    preset: Option<Setting>,
+    /// The levels its presets give it and its aspects.
+    preset: PresetLevels,
+}
+
+/// The levels presets give a rule: the rule's, and its aspects'.
+#[derive(Clone, Debug, Default)]
+struct PresetLevels {
+    level: Option<Setting>,
+    levels: BTreeMap<String, Setting>,
+}
+
+/// The level of `aspect` of rule `id`, first found: the `[rules]` entry's level of the aspect, the
+/// presets' level of the aspect, the entry's level, the family's, the presets' level of the rule.
+/// A rule or family turned `off` in `[rules]` turns off the aspects its presets set too, so a rule
+/// a preset enables can always be turned off. `None` leaves the default, `error`.
+fn level(
+    settings: &Settings,
+    id: &RuleId,
+    aspect: &str,
+    preset: Option<&PresetLevels>,
+) -> Option<Setting> {
+    let own = settings
+        .rules
+        .get(id)
+        .and_then(|entry| entry.levels.get(aspect))
+        .map(|level| level.value);
+    // The entry's level, else the family's: what `[rules]` says of the whole rule.
+    let whole = settings.setting(id, "");
+    own.or_else(|| {
+        if whole == Some(Setting::Off) {
+            return whole;
+        }
+        preset
+            .and_then(|preset| preset.levels.get(aspect).copied())
+            .or(whole)
+            .or_else(|| preset.and_then(|preset| preset.level))
+    })
 }
 
 /// The rules of `plugin` that run in this scope, with what their call carries: those whose scope
@@ -843,15 +878,21 @@ fn enabled_rules(
         if entry.is_none() && preset.is_none() && !settings.families.contains_key(name.as_str()) {
             continue;
         }
-        let level = settings
-            .setting(&id, "")
-            .or_else(|| preset.and_then(|preset| preset.level));
+        let whole = settings.setting(&id, "");
+        let level = whole.or_else(|| preset.and_then(|preset| preset.level));
+        // An aspect a preset turns on keeps the rule running, unless `[rules]` turns it off.
         let any_aspect_on = entry.is_some_and(|entry| {
             entry
                 .levels
                 .values()
                 .any(|level| matches!(level.value, Setting::On(_)))
-        });
+        }) || (whole != Some(Setting::Off)
+            && preset.is_some_and(|preset| {
+                preset
+                    .levels
+                    .values()
+                    .any(|level| matches!(level, Setting::On(_)))
+            }));
         if level == Some(Setting::Off) && !any_aspect_on {
             continue;
         }
@@ -876,16 +917,22 @@ fn enabled_rules(
                     .and_then(|options| options.value.file.clone()),
                 exceptions,
             },
-            preset: preset.and_then(|preset| preset.level),
+            preset: PresetLevels {
+                level: preset.and_then(|preset| preset.level),
+                levels: preset
+                    .map(|preset| preset.levels.clone())
+                    .unwrap_or_default(),
+            },
         });
     }
     Ok(rules)
 }
 
-/// One rule of a preset: `{ "level": .., "options": .. }`.
+/// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.
 #[derive(Debug, Default)]
 struct PresetRule {
     level: Option<Setting>,
+    levels: BTreeMap<String, Setting>,
     options: Option<Value>,
 }
 
@@ -934,10 +981,45 @@ fn presets(
                     )));
                 }
             };
+            let mut levels = BTreeMap::new();
+            match value.get("levels") {
+                None => {}
+                Some(Value::Object(table)) => {
+                    let declared = plugin
+                        .info()
+                        .rules
+                        .iter()
+                        .find(|info| info.name == rule)
+                        .map(|info| info.aspects.as_slice())
+                        .unwrap_or_default();
+                    for (aspect, level) in table {
+                        if !declared.contains(aspect) {
+                            return Err(broken(format!(
+                                "sets aspect {aspect} of rule {rule}, which the rule does not declare"
+                            )));
+                        }
+                        let Value::String(level) = level else {
+                            return Err(broken(format!(
+                                "sets aspect {aspect} of rule {rule} to the level {level}, which is not a string"
+                            )));
+                        };
+                        let level = Setting::parse(level).map_err(|error| {
+                            broken(format!("sets aspect {aspect} of rule {rule}: {error}"))
+                        })?;
+                        levels.insert(aspect.clone(), level);
+                    }
+                }
+                Some(other) => {
+                    return Err(broken(format!(
+                        "sets the levels of rule {rule} to {other}, which is not a table of aspects"
+                    )));
+                }
+            }
             rules.insert(
                 rule,
                 PresetRule {
                     level,
+                    levels,
                     options: value.get("options").cloned(),
                 },
             );

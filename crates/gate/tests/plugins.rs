@@ -1419,6 +1419,75 @@ fn a_rule_turned_off_through_its_family_needs_no_options() {
 }
 
 #[test]
+fn a_preset_sets_aspect_levels_that_only_a_level_of_the_aspect_or_off_overrides() {
+    // The project extends probe/quiet, which makes the aspect quiet of probe/aspects a warning.
+    let run = |rules: &str| {
+        let repo = probe_repo(rules);
+        let toml = std::fs::read_to_string(repo.path().join("gate.toml"))
+            .expect("gate.toml")
+            .replace(
+                "projects = [\"apps/one\"]\n",
+                "projects = [\"apps/one\"]\nextends = [\"probe/quiet\"]\n",
+            );
+        repo.write("gate.toml", &toml);
+        repo.commit("the preset sets an aspect level");
+        let plugin = format!("probe={}", probe().0.display());
+        let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+        let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+            .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+        let mut levels: Vec<(String, String)> = report["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .map(|finding| {
+                (
+                    finding["message"].as_str().unwrap_or_default().to_owned(),
+                    finding["level"].as_str().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect();
+        levels.sort();
+        (output.status.code(), levels)
+    };
+    let pair = |message: &str, level: &str| (message.to_owned(), level.to_owned());
+
+    // The preset enables the rule; the aspect it names is a warning, the other the default error.
+    let (code, levels) = run("");
+    assert_eq!(code, Some(1), "{levels:?}");
+    assert_eq!(
+        levels,
+        [
+            pair("aspect loud", "error"),
+            pair("aspect quiet", "warning")
+        ]
+    );
+
+    // A rule-wide level does not override the preset's level of an aspect.
+    let (_, levels) = run(r#""probe/aspects" = "note""#);
+    assert_eq!(
+        levels,
+        [pair("aspect loud", "note"), pair("aspect quiet", "warning")]
+    );
+
+    // A level of the aspect itself does.
+    let (_, levels) = run(r#""probe/aspects" = { level = "note", levels = { quiet = "error" } }"#);
+    assert_eq!(
+        levels,
+        [pair("aspect loud", "note"), pair("aspect quiet", "error")]
+    );
+
+    // Off on the rule turns every aspect off, the preset's too.
+    let (code, levels) = run(r#""probe/aspects" = "off""#);
+    assert_eq!(code, Some(0), "{levels:?}");
+    assert_eq!(levels, Vec::<(String, String)>::new());
+
+    // With the other aspect off, the preset's warning alone does not fail the run.
+    let (code, levels) = run(r#""probe/aspects" = { levels = { loud = "off" } }"#);
+    assert_eq!(code, Some(0), "{levels:?}");
+    assert_eq!(levels, [pair("aspect quiet", "warning")]);
+}
+
+#[test]
 fn a_call_carries_the_norms_of_every_configured_rule_of_every_plugin() {
     let repo = probe_repo(
         r#""probe/norms" = { level = "error", norm = "N-probe" }

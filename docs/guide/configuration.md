@@ -82,8 +82,12 @@ name = "server"
 | `extends` | presets to turn on, `<plugin>/<preset>`; `[rules]` then overrides any of their rules |
 
 A project file, or the root file when the root is the only project; a profile takes `extends` for a set
-of projects. A preset is a named set of rules with levels and options that a plugin may ship; none of
-the shared plugins ships one yet, so turn their rules on in `[rules]`.
+of projects. A preset is a named set of rules with levels, levels of single aspects and options that
+a plugin may ship, such as `git/recommended`. A rule's level for one aspect comes, first found, from
+`[rules]` for that aspect, from the presets for that aspect, from `[rules]` for the whole rule, from
+the rule's family, and from the presets for the whole rule; else it is `error`. So
+`"git/commit-message" = "error"` keeps the preset's warning aspects warnings, and `"off"` on a rule
+or its family turns every aspect off, the preset's too.
 
 ## `[plugins]`
 

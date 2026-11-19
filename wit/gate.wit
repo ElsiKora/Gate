@@ -54,7 +54,9 @@ interface types {
   /// `gate sync` deletes when no generator produced them.
   record generator-info { name: string, title: string, options-schema: string, owns: list<string> }
 
-  /// A named set of rule settings; `rules` is JSON: rule name -> `{ "level": .., "options": .. }`.
+  /// A named set of rule settings; `rules` is JSON: rule name -> `{ "level": .., "levels": {
+  /// <aspect>: .. }, "options": .. }`, each key optional. An aspect's level here comes after the
+  /// project's level of that aspect and before the project's level of the whole rule.
   record preset { name: string, rules: string }
 
   /// What `describe` answers.

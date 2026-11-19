@@ -62,7 +62,17 @@ A case check skips text in backquotes or quotes (`` add the `README` `` is lower
 text that starts with a digit.
 
 The reference reports `header-min-length` and `scope-max-length` as warnings and the others as
-errors. Give the two aspects that level in the rule's entry:
+errors. The plugin's preset `git/recommended` gives the two aspects that level (and turns on
+[`git/branch-name`](branch-name.md) with the reference's default template); a level the project gives
+the whole rule does not change them:
+
+```toml
+[project]
+extends = ["git/recommended"]
+```
+
+A repository whose root is not a project (a `[workspace]` root holds no `extends`) writes the levels
+in the rule's entry instead:
 
 ```toml
 [rules]
