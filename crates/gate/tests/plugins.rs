@@ -4243,14 +4243,14 @@ fn a_plugin_option_its_schema_refuses_fails_sync_and_a_full_check_but_not_a_run_
     repo.write(
         "gate.toml",
         &format!(
-            "{}\n[rules]\n\"typescript/barrel-imports\" = {{ level = \"error\" }}\n",
+            "{}\"typescript/barrel-imports\" = {{ level = \"error\" }}\n",
             toml.replace(
                 "[plugins]\n",
                 "[plugins]\ntypescript = { source = \"acme/rules:typescript@0.1.0\" }\n",
             )
         ),
     );
-    repo.write("tsconfig.json", "{}\n");
+    repo.write("apps/hello/tsconfig.json", "{}\n");
     repo.write(
         "apps/hello/src/greeting.ts",
         "export const greeting = \"hello\";\n",
