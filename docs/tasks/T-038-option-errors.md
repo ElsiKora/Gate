@@ -88,7 +88,7 @@ library errors on with `?` (`plugins/typescript/src/barrel_imports.rs:272`, 277,
 `plugins/typescript/src/parse.rs:80`), no longer through `Error::new(error.to_string())`.
 
 The nestjs sites that convert library errors, switched to the `From` in the nestjs sweep:
-`plugins/nestjs/src/shared/project.rs:29` (the helper `error`, to be removed), and its callers
+`plugins/nestjs/src/shared/project.rs:29` (the helper `error`, removed), and its callers
 `shared/project.rs:44`, `rules/semantics/native_functions.rs:177`,
 `rules/semantics/entity_descriptions.rs:125`, `rules/semantics/migrations.rs:398`,
 `rules/semantics/native_repository.rs:160`, `rules/semantics/wrappers/provenance.rs:333`,
@@ -107,7 +107,7 @@ whether editing `gate.toml` or a file the options name fixes the error. `SqlErro
 `advisory_lock_boundary/sql.rs` is the SQL reader's own error type, not an SDK error; it is not a
 site.
 
-`plugins/nestjs/src` (22 moved, 3 kept):
+`plugins/nestjs/src` (22 moved, 2 kept, 1 replaced by the library's `From`):
 
 - Moved: `shared/paths.rs` 57, 60, 63, 66 (a path or name option not in normal form).
 - Moved: `shared/pattern.rs:11` (a pattern option that is no regular expression; its two callers
@@ -131,8 +131,11 @@ site.
   `foreign-key-label`), 251 (`resolved-aliases` names an alias the layout does not define) and 494
   (a join reaches a foreign key name and `foreign-key-case` is not set).
 - Moved: `rules/structure/raw_config_access.rs:92` (`raw-imports` empty).
-- Kept: `shared/project.rs:30` (a `gate_typescript` library error: a source file that cannot be read,
-  a tsconfig that cannot be parsed).
+- Replaced: `shared/project.rs:30`, the helper `error` that made every `gate_typescript` library
+  error an environment error. It is removed; its 18 callers (listed in step two above) pass the
+  library error on with `?`, through `From<gate_typescript::Error> for gate_sdk::Error`, which keeps
+  the library's kind: an untracked configured `tsconfig` is a configuration error, a file that
+  cannot be read or parsed stays an environment error.
 - Kept: `rules/structure/package_pins.rs:130` (the npm manifest or lockfile is not JSON: a tracked
   source file, not an option).
 - Kept: `rules/structure/advisory_lock_boundary/source/shell.rs:39` (the plugin's own fixed pattern;

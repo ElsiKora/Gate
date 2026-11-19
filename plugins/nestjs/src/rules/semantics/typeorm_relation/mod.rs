@@ -456,10 +456,7 @@ impl gate_sdk::Rule for Rule {
         for path in
             tree::typescript_files(typescript.source(), &layout.source_root, &tree::UNSKIPPED)
         {
-            if let Some(file) = typescript
-                .parse(path)
-                .map_err(|failure| project::error(&failure))?
-            {
+            if let Some(file) = typescript.parse(path)? {
                 files.push((path, file));
             }
         }

@@ -611,8 +611,7 @@ impl<'a> Assets<'_, 'a> {
             if let Some(storage) = &self.patterns.storage_access
                 && self
                     .source
-                    .bytes(path)
-                    .map_err(|failure| project::error(&failure))?
+                    .bytes(path)?
                     .is_some_and(|bytes| storage.is_match(String::from_utf8_lossy(&bytes).as_ref()))
             {
                 findings.push(

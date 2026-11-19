@@ -499,9 +499,7 @@ fn scan(
     rules: &Rules<'_>,
 ) -> gate_sdk::Result<Outcome> {
     let parsed = match kind {
-        Kind::Ast => typescript
-            .parse(path)
-            .map_err(|failure| project::error(&failure))?,
+        Kind::Ast => typescript.parse(path)?,
         Kind::Sql | Kind::Shell => None,
     };
     let tree = parsed.as_deref().filter(|file| !file.fatal());

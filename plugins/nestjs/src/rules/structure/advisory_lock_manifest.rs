@@ -263,10 +263,7 @@ fn operation_enum(
     operations: &[&str],
     findings: &mut Findings,
 ) -> gate_sdk::Result<()> {
-    match typescript
-        .parse(path)
-        .map_err(|failure| project::error(&failure))?
-    {
+    match typescript.parse(path)? {
         None => findings.push(
             "operation-enum",
             path,

@@ -51,8 +51,7 @@ impl Rule for AutomatorMetadata {
         let source = project::source(run);
         let allocator = Allocator::default();
         let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)
-            .map_err(|failure| project::error(&failure))?;
+        let sources = Sources::new(&typescript, &layout.source_root)?;
         let bases = entity_bases(&sources, &policy);
         let mut entities = Vec::new();
         let mut dtos = Vec::new();

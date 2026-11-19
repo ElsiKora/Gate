@@ -160,10 +160,7 @@ impl gate_sdk::Rule for Rule {
         let allocator = Allocator::default();
         let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
 
-        let Some(file) = typescript
-            .parse(&start)
-            .map_err(|failure| project::error(&failure))?
-        else {
+        let Some(file) = typescript.parse(&start)? else {
             run.report()
                 .finding(
                     "startup-order",
