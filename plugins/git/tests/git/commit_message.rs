@@ -313,3 +313,130 @@ fn the_options_are_checked() {
         "{error}"
     );
 }
+
+/// A policy written as one header expression: eleven types, an optional lower-case scope or
+/// comma-separated scopes of `[a-z0-9-]`, an optional `!`, then `: ` and a subject. Merges and
+/// `Revert "..."` are skipped by its own ignores, and nothing else is.
+const HEADER_POLICY: &str = r#"{
+    "types": ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"],
+    "header-pattern": "^(?<type>\\w*)(?:\\((?<scope>[a-z0-9-]+(?:,[a-z0-9-]+)*)\\))?!?: (?<subject>.+)$",
+    "ignores": ["^Merge ", "^Revert \""],
+    "default-ignores": false,
+    "header-max-length": 0, "header-min-length": 0, "scope-max-length": 0,
+    "subject-max-length": 0, "subject-min-length": 0,
+    "body-max-line-length": 0, "footer-max-line-length": 0
+}"#;
+
+/// The aspects the policy keeps on; it turns the others off with `levels`.
+const POLICY_ASPECTS: &[&str] = &[
+    "header-trim",
+    "header-max-length",
+    "header-min-length",
+    "type-empty",
+    "type-case",
+    "type-enum",
+    "scope-case",
+    "subject-empty",
+];
+
+/// Whether `message` passes the policy.
+fn passes_policy(message: &str) -> bool {
+    aspects(Some(message), HEADER_POLICY)
+        .iter()
+        .all(|aspect| !POLICY_ASPECTS.contains(&aspect.as_str()))
+}
+
+#[test]
+fn a_header_pattern_with_its_own_ignores_gives_the_policy_s_verdicts() {
+    let long = format!("feat(a,b,c): {}", "word ".repeat(30).trim_end());
+    let cases: [(&str, bool); 30] = [
+        ("feat: add x", true),
+        ("feat(core): add x", true),
+        ("feat(a,b): add x", true),
+        ("feat(a-1)!: add x", true),
+        ("refactor!: drop x", true),
+        (long.as_str(), true),
+        ("feat: Add X.", true),
+        ("feat: x\nbody without a blank line", true),
+        ("# a comment\nfeat: add x", true),
+        ("\n\nfeat: add x", true),
+        ("Merge branch 'x'", true),
+        ("Merge tag 'v1'", true),
+        ("Merge commit 'abc'", true),
+        ("Merge x", true),
+        ("Revert \"feat: x\"", true),
+        ("chore(release): 1.2.3 and more", true),
+        // The reference reads the blank line after the comment as the header, as commitlint
+        // does; a policy that skips blank lines would pass it.
+        ("# a comment\n\nfeat: add x", false),
+        ("Feat: add x", false),
+        ("wip: add x", false),
+        ("feat(Core): add x", false),
+        ("feat:add x", false),
+        ("feat: ", false),
+        (" feat: add x", false),
+        ("feat(a_b): add x", false),
+        ("feat(a/b): add x", false),
+        ("feat(a b): add x", false),
+        ("feat(): add x", false),
+        ("fixup! feat: x", false),
+        ("squash! feat: x", false),
+        ("Reapply \"feat: x\"", false),
+    ];
+    for (message, passes) in cases {
+        assert_eq!(passes_policy(message), passes, "{message:?}");
+    }
+    // A header of the breaking form is read with the conventional breaking pattern first, as the
+    // reference reads it, so the header pattern's scope does not apply to it.
+    assert!(passes_policy("feat(a_b)!: add x"));
+    // The pattern is JavaScript's: `\w` is ASCII.
+    assert!(!passes_policy("féat: add x"));
+}
+
+#[test]
+fn without_the_default_ignores_a_fixup_is_checked() {
+    assert_eq!(aspects(Some("fixup! x"), "{}"), Vec::<String>::new());
+    assert_eq!(
+        aspects(Some("fixup! x"), r#"{"default-ignores": false}"#),
+        ["header-min-length", "type-empty", "scope-empty", "subject-empty"]
+    );
+    // The repository's own ignores are added to the defaults.
+    assert_eq!(
+        aspects(Some("Merge x"), r#"{"ignores": ["^Merge "]}"#),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        aspects(Some("fixup! x"), r#"{"ignores": ["^Merge "]}"#),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_header_pattern_or_an_ignore_that_cannot_work_fails_closed() {
+    let mut repo = Repo::default();
+    let root = repo.commit(&[], "init", &[("README.md", Some("# r\n"))]);
+    repo.set_ref("refs/heads/main", &root);
+    repo.set_message(Some(GOOD));
+    for (options, expected) in [
+        (
+            r#"{"header-pattern": "("}"#,
+            "git/commit-message header-pattern \"(\" is not a valid regular expression; write a \
+             JavaScript regular expression with the named groups type, scope and subject",
+        ),
+        (
+            r#"{"header-pattern": "^(?<kind>\\w+): (?<subject>.+)$"}"#,
+            "git/commit-message header-pattern \"^(?<kind>\\\\w+): (?<subject>.+)$\" has no group \
+             named type; write a JavaScript regular expression with the named groups type",
+        ),
+        (r#"{"header-pattern": "^(\\w+): (.+)$"}"#, "has no group named type"),
+        (
+            r#"{"ignores": ["["]}"#,
+            "git/commit-message ignores \"[\" is not a valid regular expression",
+        ),
+    ] {
+        let error = repo
+            .check("commit-message", "{}", options)
+            .expect_err(options);
+        assert!(error.message().contains(expected), "{options}: {error}");
+    }
+}

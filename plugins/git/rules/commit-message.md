@@ -27,9 +27,11 @@ The message is read as `commitlint --edit` reads it:
   `Merge remote-tracking branch …`, `Merged … in …`, `Merged PR …: …`, `Automatic merge…`,
   `Auto-merged … into …`), reverts (`Revert …`, `Reapply …`), `amend!`, `fixup!` and `squash!`
   commits, and a release whose header is a version (`chore(release): 1.2.0 [skip ci]`, `v1.2.3`) are
-  not checked.
+  not checked: commitlint's default ignores. `default-ignores = false` checks them too, and a message
+  one of `ignores` matches is not checked either.
 - The first line is the header: `type(scope): subject`, with a `!` before the colon for a breaking
-  change. The lines after it are the body, until a line with an issue reference (`Closes #12`, `see
+  change. A header of that breaking form is read with the conventional breaking pattern first, as
+  the reference reads it; any other header with `header-pattern`, the conventional one by default. The lines after it are the body, until a line with an issue reference (`Closes #12`, `see
   #12`) or a `BREAKING CHANGE:` note, which starts the footer.
 
 Each check is an aspect named after the commitlint rule it ports, and is reported on its own:
@@ -99,6 +101,25 @@ UTF-16 code units: a character outside the Basic Multilingual Plane, such as an 
 | `subject-min-length` | integer | `3` | The shortest subject. |
 | `body-max-line-length` | integer | `100` | The longest body line. |
 | `footer-max-line-length` | integer | `100` | The longest footer line. |
+| `header-pattern` | string | the conventional header | The header's regular expression, commitlint's `headerPattern`, with the named groups `type`, `scope` and `subject`. |
+| `ignores` | list of strings | `[]` | Regular expressions of messages that are not checked, besides the default ignores. |
+| `default-ignores` | boolean | `true` | Whether commitlint's default ignores apply. |
+
+`header-pattern` and `ignores` are JavaScript regular expressions without flags, as the reference
+reads them: `\w`, `\d` and `\b` are ASCII, and `.` matches no line terminator. An ignore is searched
+in the whole message as the hook gives it, comment lines included; anchor it with `^` to match the
+start. A header the pattern does not match names no type, so `type-empty` fails. A `header-pattern`
+that does not compile, or has no `type` group, is an error that names the option and fails the run.
+
+A policy written as one header expression, with its own messages to skip:
+
+```toml
+[rules]
+"git/commit-message" = { level = "error", options = { types = ["feat", "fix", "docs", "chore"], header-pattern = '^(?<type>\w*)(?:\((?<scope>[a-z0-9-]+(?:,[a-z0-9-]+)*)\))?!?: (?<subject>.+)$', ignores = ["^Merge ", '^Revert "'], default-ignores = false, subject-min-length = 0 }, levels = { scope-empty = "off", subject-case = "off" } }
+```
+
+With it, `feat(api,web): add x` passes and `feat(api_web): add x` fails `type-empty`; `Merge commit
+'abc'` is skipped, and `fixup! feat: x` is checked and fails.
 
 ## Example finding
 
