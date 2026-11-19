@@ -151,13 +151,15 @@ fn starting_config() -> String {
 [gate]
 version = "{VERSION}"
 
-# Add plugins and turn their rules on, then run bin/gate lock:
+# Add plugins and turn their rules on, then run bin/gate lock. For example, branch names and
+# commit messages as ElsiKora's linters check them (main names your main branch):
 #
 # [plugins]
-# git = {{ source = "ElsiKora/Gate:git@{VERSION}" }}
+# git = {{ source = "ElsiKora/Gate:git@{VERSION}", options = {{ main = ["refs/remotes/origin/main", "refs/heads/main"] }} }}
 #
 # [rules]
-# "git/commit-subject" = "error"
+# "git/branch-name" = {{ level = "error", options = {{ template = ":type/:ticket-:name" }} }}
+# "git/commit-message" = "error"
 "#
     )
 }

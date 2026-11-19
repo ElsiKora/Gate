@@ -200,7 +200,7 @@ impl RuleId {
     pub fn parse(value: &str) -> Result<Self, String> {
         let Some((plugin, rule)) = value.split_once('/') else {
             return Err(format!(
-                "{value:?} is not a rule id; write <plugin>/<rule>, for example \"git/commit-subject\""
+                "{value:?} is not a rule id; write <plugin>/<rule>, for example \"git/branch-name\""
             ));
         };
 

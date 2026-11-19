@@ -61,6 +61,21 @@ with no Node step:
      both length limits, a template and a pattern together refused at load;
    - commit messages: one pass and one fail per check, the warning aspects, a message from a file
      with a comment section (`#` lines are not part of it), and a run without a message.
+5. Added by the lead: a plugin option an enabled rule reads, missing from `[plugins.<name>] options`,
+   is a configuration error at load (exit 2) that names the rule; a rule declares the options it
+   reads, so the core checks them before anything runs. Tested.
+6. Added by the lead, from a newcomer's run of the public v0.1.0:
+   - `gate init`'s commented suggestions name `"git/commit-subject"`, a rule that does not exist;
+     uncommented, they fail with exit 2 (`plugin git options: "main" is a required property`). The
+     template suggests only rules that exist, with every option they require. The same id is the
+     example in the rule-id error (crates/gate-host/src/config/names.rs) and in the bug report
+     form (.github/ISSUE_TEMPLATE/bug_report.yml); both name a rule that exists. Test: `gate init`,
+     uncomment every suggestion, `gate lock`, `gate check` exits 0.
+   - The README's commit-msg hook runs `check --commit-message`, yet a `[skip ci]` message passed it
+     (exit 0) and was reported only by the next `gate check`, whose summary said `check (tree)`.
+     The commit-msg hook checks the message being written: `git/commit-message`, and
+     `git/no-ci-skip` reads the message too; the summary says the message was checked. Test: a bad
+     message fails the hook.
 
 ## Done when
 
