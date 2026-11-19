@@ -12,7 +12,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use gate_runtime::{
-    Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Plugin, ReadSet, Runtime, Tree,
+    Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
+    Runtime, Tree,
 };
 use gate_sdk::{Commit, CommitRange, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
@@ -69,6 +70,11 @@ pub struct PluginReads {
     pub from_cache: bool,
     /// Where the call's time went; zero for a result from the cache.
     pub time: CallTime,
+    /// The fuel the call used; zero for a result from the cache.
+    pub fuel_used: u64,
+    /// The call's invocations, each with its rules, time and fuel; none for a result from the
+    /// cache.
+    pub invocations: Vec<Invocation>,
 }
 
 /// What the plugins of a run reported.
@@ -569,6 +575,8 @@ impl Loaded {
                 read_set: outcome.read_set,
                 from_cache,
                 time: outcome.time,
+                fuel_used: outcome.fuel_used,
+                invocations: outcome.invocations,
             });
         }
         git_history.store_answers()?;
@@ -604,6 +612,8 @@ impl Loaded {
                         read_set: stored.read_set,
                         log: Vec::new(),
                         time: CallTime::default(),
+                        fuel_used: 0,
+                        invocations: Vec::new(),
                     };
                     (Ok(outcome), true)
                 })

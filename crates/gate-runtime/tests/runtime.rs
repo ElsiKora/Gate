@@ -418,6 +418,50 @@ fn a_rule_with_reads_history_gets_git_and_its_queries_are_recorded() {
 }
 
 #[test]
+fn fuel_used_is_counted_per_invocation_and_the_same_on_every_run() {
+    let runtime = runtime(Config::default());
+    let plugin = load(&runtime);
+    let mut request = call(
+        &plugin,
+        "read",
+        r#"{"paths": ["src/main.ts"]}"#,
+        tree(),
+        Grant::repository(),
+    );
+    request.request.rules.push(RuleRun {
+        name: "history".to_owned(),
+        ..RuleRun::default()
+    });
+    let first = runtime.check(&request).expect("the call runs");
+    let again = runtime.check(&request).expect("the call runs again");
+
+    let rules: Vec<&[String]> = first
+        .invocations
+        .iter()
+        .map(|run| run.rules.as_slice())
+        .collect();
+    assert_eq!(
+        rules,
+        [["read".to_owned()], ["history".to_owned()]],
+        "snapshot, then history"
+    );
+    assert!(first.invocations.iter().all(|run| run.fuel_used > 0));
+    assert_eq!(
+        first.fuel_used,
+        first
+            .invocations
+            .iter()
+            .map(|run| run.fuel_used)
+            .sum::<u64>()
+    );
+    assert!(first.fuel_used < Config::default().fuel);
+    assert_eq!(
+        first.fuel_used, again.fuel_used,
+        "fuel does not depend on the machine's load"
+    );
+}
+
+#[test]
 fn a_trap_fails_with_the_plugin_name_and_its_panic() {
     let runtime = runtime(Config::default());
     let plugin = load(&runtime);

@@ -387,30 +387,7 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
     let checked = gate_host::check(Path::new("."), &request)?;
 
     if arguments.run.timings {
-        let line = checked
-            .timings
-            .iter()
-            .map(|timing| format!("{} {} ms", timing.phase, timing.duration.as_millis()))
-            .collect::<Vec<_>>()
-            .join(", ");
-        eprintln!("timings: {line}");
-        for call in &checked.reads {
-            eprintln!("timings: {}", call_timing(call));
-        }
-        let states = checked.sync_states;
-        if states.computed + states.stored > 0 {
-            eprintln!(
-                "timings: sync-state: {} computed, {} from the cache",
-                states.computed, states.stored
-            );
-        }
-        let answers = checked.git_answers;
-        if answers.asked + answers.stored > 0 {
-            eprintln!(
-                "timings: git answers: {} asked, {} from the cache",
-                answers.asked, answers.stored
-            );
-        }
+        print_timings(&checked);
     }
 
     write_out(&checked.report.render(format)?)?;
@@ -424,8 +401,47 @@ fn workspace() -> Result<Workspace, Error> {
     Ok(workspace)
 }
 
-/// One plugin call of `--timings`: whether it ran or came from the result cache, its time, and
-/// the host's share by kind of host call, the largest first.
+/// The `--timings` lines of a check, on standard error.
+fn print_timings(checked: &gate_host::Checked) {
+    let line = checked
+        .timings
+        .iter()
+        .map(|timing| format!("{} {} ms", timing.phase, timing.duration.as_millis()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    eprintln!("timings: {line}");
+    for call in &checked.reads {
+        eprintln!("timings: {}", call_timing(call));
+        // A call of one invocation already said its time and fuel.
+        if call.invocations.len() > 1 || call.invocations.iter().any(|run| run.rules.len() > 1) {
+            for run in &call.invocations {
+                eprintln!(
+                    "timings:   rules {}: {} ms, fuel {}",
+                    run.rules.join(", "),
+                    run.elapsed.as_millis(),
+                    run.fuel_used
+                );
+            }
+        }
+    }
+    let states = checked.sync_states;
+    if states.computed + states.stored > 0 {
+        eprintln!(
+            "timings: sync-state: {} computed, {} from the cache",
+            states.computed, states.stored
+        );
+    }
+    let answers = checked.git_answers;
+    if answers.asked + answers.stored > 0 {
+        eprintln!(
+            "timings: git answers: {} asked, {} from the cache",
+            answers.asked, answers.stored
+        );
+    }
+}
+
+/// One plugin call of `--timings`: whether it ran or came from the result cache, its time, the
+/// fuel it used, and the host's share by kind of host call, the largest first.
 fn call_timing(call: &gate_host::PluginReads) -> String {
     let scope = call.project.as_deref().unwrap_or("repository");
     if call.from_cache {
@@ -438,9 +454,10 @@ fn call_timing(call: &gate_host::PluginReads) -> String {
         .map(|(kind, spent)| format!("{kind} {} ms in {}", spent.time.as_millis(), spent.calls))
         .collect::<Vec<_>>();
     let mut line = format!(
-        "call {} {scope}: ran {} ms",
+        "call {} {scope}: ran {} ms, fuel {}",
         call.plugin,
-        call.time.elapsed.as_millis()
+        call.time.elapsed.as_millis(),
+        call.fuel_used
     );
     if !host.is_empty() {
         line.push_str("; host ");

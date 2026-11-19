@@ -422,9 +422,12 @@ all = ["lint", "unit"]
   content-addressed, shared by every worktree, filled by atomic rename, safe under concurrent first use,
   and needs no network once filled.
 - `--timings` prints the time of each phase, of each plugin call and whether it ran or came from the
-  cache, the host's share of a call by kind of host call (`git.sync-state`, `tree.read`), how
-  many `sync-state` answers the run computed and read from the cache, and how many git questions
-  about commit ids it asked git and answered from stored answers;
+  cache, the fuel a call used (the same on every machine, so it compares runs on a loaded one), the
+  host's share of a call by kind of host call (`git.sync-state`, `tree.read`), and, for a call of
+  more than one rule, the time and fuel of each invocation with its rules (a call's snapshot rules
+  share one instance, so `--rule <plugin>/<rule>` gives one rule's own); then how many `sync-state`
+  answers the run computed and read from the cache, and how many git questions about commit ids it
+  asked git and answered from stored answers;
   `--budget <seconds>` warns when a run exceeds it and `--budget-fails` makes that an error (the
   generated CI jobs pass it, hooks do not); `--fail-fast` stops at the first error.
 - `--rule <id>` (repeatable, `<plugin>/*` allowed) narrows a run to those rules; exceptions and

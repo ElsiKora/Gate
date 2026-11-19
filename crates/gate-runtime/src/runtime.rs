@@ -228,6 +228,22 @@ pub struct CallOutcome {
     pub log: Vec<String>,
     /// Where the call's time went.
     pub time: CallTime,
+    /// The fuel the call used: for each invocation, the fuel it was given minus the fuel left.
+    pub fuel_used: u64,
+    /// The call's invocations: its snapshot rules run in one, its history rules in another.
+    pub invocations: Vec<Invocation>,
+}
+
+/// One invocation of a call: the rules it ran, its time and the fuel it used. The rules of one
+/// invocation share an instance, so their time and fuel are not told apart.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Invocation {
+    /// The rules it ran.
+    pub rules: Vec<String>,
+    /// From instantiation to the answer, host calls included.
+    pub elapsed: Duration,
+    /// The fuel it was given minus the fuel left.
+    pub fuel_used: u64,
 }
 
 /// Where a call's time went: in all, and in the host by kind of host call.
@@ -415,7 +431,7 @@ impl Runtime {
             history: None,
             grant: Grant::repository(),
         };
-        let (info, _, _, _) = self.invoke(&plugin, "describe", access, |bindings, store| {
+        let (info, _, _, _, _) = self.invoke(&plugin, "describe", access, |bindings, store| {
             bindings.call_describe(store)
         })?;
         plugin.info = info_from(info);
@@ -550,7 +566,8 @@ impl Runtime {
                     .join(", ")
             );
             let request = request_to_wit(&request);
-            let (answer, read_set, log, time) =
+            let names: Vec<String> = ran.iter().map(|info| info.name.clone()).collect();
+            let (answer, read_set, log, time, fuel_used) =
                 self.invoke(plugin, &label, access, |bindings, store| {
                     bindings.call_check(store, &request)
                 })?;
@@ -563,6 +580,12 @@ impl Runtime {
             }
             outcome.read_set.merge(read_set);
             outcome.log.extend(log);
+            outcome.fuel_used += fuel_used;
+            outcome.invocations.push(Invocation {
+                rules: names,
+                elapsed: time.elapsed,
+                fuel_used,
+            });
             outcome.time.merge(time);
         }
         Ok(outcome)
@@ -651,7 +674,7 @@ impl Runtime {
             grant: grant.clone(),
         };
         let label = format!("generate {name}");
-        let (answer, read_set, log, _) =
+        let (answer, read_set, log, _, _) =
             self.invoke(plugin, &label, access, |bindings, store| {
                 bindings.call_generate(store, name, &project, options)
             })?;
@@ -705,7 +728,7 @@ impl Runtime {
         label: &str,
         access: Access,
         call: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<T>,
-    ) -> Result<(T, ReadSet, Vec<String>, CallTime)> {
+    ) -> Result<(T, ReadSet, Vec<String>, CallTime, u64)> {
         let mut store = Store::new(&self.engine, State::new(access, self.config.memory_bytes));
         store.limiter(|state| &mut state.limits);
         store
@@ -740,6 +763,11 @@ impl Runtime {
             .and_then(|bindings| {
                 call(&bindings, &mut store).map_err(|error| trap(&plugin.name, &error))
             });
+        // Out of fuel leaves none: the call used all it was given.
+        let fuel_used = self
+            .config
+            .fuel
+            .saturating_sub(store.get_fuel().unwrap_or(0));
         let limit_hit = store.data().limit_hit();
         let refused = store.data().refused().map(str::to_owned);
         let (read_set, log, host) = store.into_data().into_log();
@@ -770,7 +798,7 @@ impl Runtime {
             _ => error,
         });
         match answer {
-            Ok(answer) => Ok((answer, read_set, log, time)),
+            Ok(answer) => Ok((answer, read_set, log, time, fuel_used)),
             Err(mut error) => {
                 let stderr: Vec<&str> = log
                     .iter()
