@@ -277,7 +277,7 @@ fn cache_prune_keeps_the_tools_gate_toml_pins_and_removes_the_others() {
     repo.write(
         "gate.toml",
         &format!(
-            "[gate]\nversion = \"0.1.0\"\n\n[tools.fmt]\nversion = \"1.0.0\"\ntargets.{PLATFORM} = {{ url = \"{}\", sha256 = \"{sum}\" }}\n",
+            "{ROOT}\n[tools.fmt]\nversion = \"1.0.0\"\ntargets.{PLATFORM} = {{ url = \"{}\", sha256 = \"{sum}\" }}\n",
             server.url(ROUTE)
         ),
     );

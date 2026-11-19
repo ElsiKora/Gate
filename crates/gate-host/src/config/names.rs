@@ -439,7 +439,8 @@ impl PluginSource {
     pub fn parse(value: &str) -> Result<Self, String> {
         let expected = || {
             format!(
-                "{value:?} is not a plugin source; write <owner>/<repo>:<plugin>@<version>, for example \"ElsiKora/Gate:git@0.1.0\""
+                "{value:?} is not a plugin source; write <owner>/<repo>:<plugin>@<version>, for example \"ElsiKora/Gate:git@{}\"",
+                env!("CARGO_PKG_VERSION")
             )
         };
         let (repository, rest) = value.split_once(':').ok_or_else(expected)?;
