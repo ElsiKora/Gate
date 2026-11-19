@@ -13,7 +13,9 @@ pub struct ProbeOptions {
 
 /// Reads the `paths` of its options and lists `list`, one finding per answer, and reports the
 /// plugin's `label` when it is set; reports one more finding at `at` (with aspect `aspect`) when it
-/// is set, and one at commit `commit`.
+/// is set, one at commit `commit`, and, with `at_options_file`, one at the file its options came
+/// from, whose message is what reading that file answers; with `fail`, fails with that text after
+/// reading, behind the path of its options file as the rule addresses it.
 #[derive(Debug, Default)]
 pub struct Read;
 
@@ -29,6 +31,10 @@ pub struct ReadOptions {
     aspect: String,
     #[serde(default)]
     commit: Option<String>,
+    #[serde(default)]
+    at_options_file: bool,
+    #[serde(default)]
+    fail: Option<String>,
 }
 
 impl Rule for Read {
@@ -61,8 +67,30 @@ impl Rule for Read {
         if let Some(commit) = run.options().commit.clone() {
             run.report().finding("", Location::commit(commit), "commit");
         }
-        Ok(())
+        if run.options().at_options_file {
+            report_options_file(run);
+        }
+        match run.options().fail.clone() {
+            Some(message) => {
+                let file = run.options_file().unwrap_or("no options file");
+                Err(gate_sdk::Error::new(format!("{file}: {message}")))
+            }
+            None => Ok(()),
+        }
     }
+}
+
+/// Reports a finding at the file the rule's options came from, whose message is what reading that
+/// file answers; nothing when its options came from no file.
+fn report_options_file<O>(run: &mut Run<'_, O>) {
+    let Some(file) = run.options_file().map(str::to_owned) else {
+        return;
+    };
+    let message = match run.tree().text(&file) {
+        Some(text) => format!("options file {file}: {}", text.trim()),
+        None => format!("options file {file}: none"),
+    };
+    run.report().finding("", Location::file(file), message);
 }
 
 /// Allocates far more memory than the runtime's tests allow.
@@ -409,13 +437,16 @@ impl Generator for Toml {
     }
 }
 
-/// Reports its required option `pattern`.
+/// Reports its required option `pattern`, and, with `at_options_file`, what reading the file its
+/// options came from answers, at that file.
 #[derive(Debug, Default)]
 pub struct Needs;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct NeedsOptions {
     pattern: String,
+    #[serde(default)]
+    at_options_file: bool,
 }
 
 impl Rule for Needs {
@@ -426,6 +457,9 @@ impl Rule for Needs {
     fn check(&self, run: &mut Run<'_, NeedsOptions>) -> gate_sdk::Result<()> {
         let message = format!("needs {}", run.options().pattern);
         run.report().finding("", None, message);
+        if run.options().at_options_file {
+            report_options_file(run);
+        }
         Ok(())
     }
 }

@@ -1383,6 +1383,218 @@ fn a_rule_a_preset_enables_with_its_required_option_can_be_turned_off() {
     assert_eq!(messages, Vec::<String>::new());
 }
 
+/// `gate check` with the built probe in each report format: its exit code and output, by format.
+fn probe_check_formats(repo: &Repo) -> Vec<(&'static str, Option<i32>, String)> {
+    let plugin = format!("probe={}", probe().0.display());
+    ["text", "json", "sarif"]
+        .into_iter()
+        .map(|format| {
+            let output = repo.gate(&["check", "--plugin", &plugin, "--format", format]);
+            (format, output.status.code(), text(&output.stdout))
+        })
+        .collect()
+}
+
+#[test]
+fn a_finding_in_a_nested_projects_option_file_names_its_path_once() {
+    let repo = probe_repo("");
+    repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"gate/options/probe/read.json\" }\n",
+    );
+    repo.write(
+        "apps/one/gate/options/probe/read.json",
+        "{ \"at_options_file\": true }\n",
+    );
+    repo.commit("an option file in a nested project");
+
+    // The rule addresses its option file from the project's root and can read it.
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        ["options file gate/options/probe/read.json: { \"at_options_file\": true }"]
+    );
+    for (format, code, output) in probe_check_formats(&repo) {
+        assert_eq!(code, Some(1), "{format}: {output}");
+        assert!(
+            output.contains("apps/one/gate/options/probe/read.json"),
+            "{format}: {output}"
+        );
+        assert!(!output.contains("apps/one/apps/one"), "{format}: {output}");
+    }
+}
+
+#[test]
+fn two_rules_of_one_call_each_read_and_report_at_their_own_option_file() {
+    // Both rules of the probe run in one call for `apps/one`, each with an option file of its own:
+    // each reads its own file and reports at its own repository path.
+    let repo = probe_repo("");
+    repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"gate/options/probe/read.json\" }\n\"probe/needs\" = { level = \"error\", options-file = \"gate/options/needs.json\" }\n",
+    );
+    repo.write(
+        "apps/one/gate/options/probe/read.json",
+        "{ \"at_options_file\": true }\n",
+    );
+    repo.write(
+        "apps/one/gate/options/needs.json",
+        "{ \"pattern\": \"x\", \"at_options_file\": true }\n",
+    );
+    repo.commit("two rules with option files of their own");
+
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        [
+            "needs x",
+            "options file gate/options/needs.json: { \"pattern\": \"x\", \"at_options_file\": true }",
+            "options file gate/options/probe/read.json: { \"at_options_file\": true }",
+        ]
+    );
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&text(&output.stdout)).expect("a JSON report");
+    let mut at_file: Vec<(&str, &str)> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|finding| {
+            finding["message"]
+                .as_str()
+                .is_some_and(|message| message.starts_with("options file "))
+        })
+        .filter_map(|finding| {
+            Some((
+                finding["rule"].as_str()?,
+                finding["location"]["path"].as_str()?,
+            ))
+        })
+        .collect();
+    at_file.sort_unstable();
+    assert_eq!(
+        at_file,
+        [
+            ("probe/needs", "apps/one/gate/options/needs.json"),
+            ("probe/read", "apps/one/gate/options/probe/read.json"),
+        ]
+    );
+}
+
+#[test]
+fn a_failing_rule_in_a_nested_project_names_the_project_its_paths_are_relative_to() {
+    // The plugin's error names a path as the rule addresses it, from the project's root; the core
+    // cannot rewrite the text, so its error names the project and that root.
+    let repo = probe_repo("");
+    repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"gate/options/probe/read.json\" }\n",
+    );
+    repo.write(
+        "apps/one/gate/options/probe/read.json",
+        "{ \"fail\": \"cannot use it\" }\n",
+    );
+    repo.commit("a rule that fails in a nested project");
+
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.contains(
+            "plugin probe in project one (its paths are relative to apps/one): rule read failed: gate/options/probe/read.json: cannot use it"
+        ),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_rule_reads_a_root_profiles_option_file_and_reports_at_its_repository_path() {
+    // The root's profile gives a rule of `apps/one` an option file outside the project, and the
+    // plugin declares no extra reads: the call may read that file, and only it.
+    let repo = probe_repo(
+        r#""probe/read" = { level = "error", options-file = "gate/options/probe/read.json" }"#,
+    );
+    repo.write(
+        "gate/options/probe/read.json",
+        "{ \"at_options_file\": true, \"paths\": [\"../../gate/options/probe/other.json\"] }\n",
+    );
+    repo.write("gate/options/probe/other.json", "{}\n");
+    repo.commit("an option file from the root's profile");
+
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        [
+            "../../gate/options/probe/other.json: none",
+            "options file ../../gate/options/probe/read.json: { \"at_options_file\": true, \"paths\": [\"../../gate/options/probe/other.json\"] }",
+        ]
+    );
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&text(&output.stdout)).expect("a JSON report");
+    let at_file: Vec<&str> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|finding| {
+            finding["message"]
+                .as_str()
+                .is_some_and(|message| message.starts_with("options file "))
+        })
+        .filter_map(|finding| finding["location"]["path"].as_str())
+        .collect();
+    assert_eq!(at_file, ["gate/options/probe/read.json"]);
+}
+
+#[test]
+fn a_finding_in_the_option_file_of_a_single_project_repository_names_its_path() {
+    let repo = Repo::empty();
+    let source = "acme/rules:probe@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[rules]\n\"probe/read\" = {{ level = \"error\", options-file = \"gate/options/probe/read.json\" }}\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/probe.wasm",
+            &"b".repeat(64),
+        ),
+    );
+    repo.write(
+        "gate/options/probe/read.json",
+        "{ \"at_options_file\": true }\n",
+    );
+    repo.commit("an option file at the root");
+
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        ["options file gate/options/probe/read.json: { \"at_options_file\": true }"]
+    );
+    for (format, code, output) in probe_check_formats(&repo) {
+        assert_eq!(code, Some(1), "{format}: {output}");
+        assert!(
+            output.contains("gate/options/probe/read.json"),
+            "{format}: {output}"
+        );
+        assert!(
+            !output.contains("gate/options/probe/gate/"),
+            "{format}: {output}"
+        );
+    }
+}
+
 #[test]
 fn a_rule_turned_off_through_its_family_needs_no_options() {
     // A preset enables probe/needs without its required option, the root gives it a norm only,

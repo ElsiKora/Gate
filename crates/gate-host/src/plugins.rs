@@ -31,6 +31,7 @@ use crate::fetch::{FetchConfig, Fetcher};
 use crate::findings::{Finding, Findings, Level, Location, RuleFilter, RulesRan, Span};
 use crate::git::{Git, Merges, Objects};
 use crate::lock::{Lock, Wanted};
+use crate::projects::Project;
 use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
 use crate::workspace::{RuleDeclaration, RuleScope, Workspace};
@@ -624,7 +625,11 @@ impl Loaded {
                 if rules.is_empty() {
                     continue;
                 }
-                let grant = grant(root.as_deref(), settings, name);
+                let options_files: Vec<&str> = rules
+                    .iter()
+                    .filter_map(|rule| rule.run.options_file.as_deref())
+                    .collect();
+                let grant = grant(root.as_deref(), settings, name, &options_files);
                 let request = gate_sdk::CheckRequest {
                     project: root.clone().unwrap_or_default(),
                     norms: norms(settings),
@@ -653,9 +658,12 @@ impl Loaded {
 
         let mut ran = Ran::default();
         for ((project, settings, name, rules, _, _, _), looked) in planned.iter().zip(outcomes) {
-            let outcome = looked
-                .outcome
-                .map_err(|error| Error::environment(error.to_string()))?;
+            let outcome = looked.outcome.map_err(|error| {
+                call_failed(
+                    &error,
+                    project.and_then(|name| workspace.projects().get(name)),
+                )
+            })?;
             for finding in outcome.findings {
                 if let Some(finding) = reported(name, settings, rules, *project, finding)? {
                     findings.push(finding);
@@ -799,13 +807,41 @@ fn reported(
     }))
 }
 
-/// What `plugin`'s calls in a scope may read: the project's `root` (`None`: the repository) and the
-/// extra paths the scope's declaration of the plugin reads.
-fn grant(root: Option<&str>, settings: &Settings, plugin: &PluginName) -> Grant {
+/// A failed call of a plugin as the user reads it: an environment error. A call for a project
+/// addresses every path relative to the project's root, and so does the plugin's own error text,
+/// which the core cannot rewrite (it cannot tell a path in it); so the error names the project and
+/// says its paths are relative to the project's root. A call for the repository, or for a project
+/// at the repository's root, addresses repository paths and is named as the runtime names it.
+fn call_failed(error: &gate_runtime::Error, project: Option<&Project>) -> Error {
+    match project {
+        Some(project) if !project.root.is_empty() && !error.plugin().is_empty() => {
+            Error::environment(format!(
+                "plugin {} in project {} (its paths are relative to {}): {}",
+                error.plugin(),
+                project.name,
+                project.root,
+                error.message()
+            ))
+        }
+        _ => Error::environment(error.to_string()),
+    }
+}
+
+/// What `plugin`'s calls in a scope may read: the project's `root` (`None`: the repository), the
+/// extra paths the scope's declaration of the plugin reads, and `options_files`, the repository
+/// paths of the option files of the rules the call runs: each file alone, not its directory, so a
+/// rule can read the file its options came from wherever it lies (a root profile's, outside the
+/// project).
+fn grant(
+    root: Option<&str>,
+    settings: &Settings,
+    plugin: &PluginName,
+    options_files: &[&str],
+) -> Grant {
     let Some(root) = root else {
         return Grant::repository();
     };
-    let reads: Vec<String> = settings
+    let mut reads: Vec<String> = settings
         .plugins
         .get(plugin)
         .map(|declared| {
@@ -817,6 +853,7 @@ fn grant(root: Option<&str>, settings: &Settings, plugin: &PluginName) -> Grant 
                 .collect()
         })
         .unwrap_or_default();
+    reads.extend(options_files.iter().map(|file| (*file).to_owned()));
     Grant::new(root, &reads)
 }
 
@@ -885,13 +922,17 @@ impl<'w> PluginGenerators<'w> {
         &self.overrides
     }
 
-    /// A generator call's failure as the user sees it: an environment error, as in `gate check`.
-    /// One that may pass by the next call is noted for [`PluginGenerators::had_passing_failure`].
-    fn failed(&self, error: &gate_runtime::Error) -> Error {
+    /// A generator call's failure for `project` (`None`: the repository) as the user sees it: an
+    /// environment error naming the scope, as in `gate check` (see [`call_failed`]). One that may
+    /// pass by the next call is noted for [`PluginGenerators::had_passing_failure`].
+    fn failed(&self, project: Option<&str>, error: &gate_runtime::Error) -> Error {
         if passing_call_failure(error.kind()) {
             self.passing.store(true, Ordering::Relaxed);
         }
-        Error::environment(error.to_string())
+        call_failed(
+            error,
+            project.and_then(|name| self.workspace.projects().get(name)),
+        )
     }
 
     /// What the generators that ran so far reported, as `gate/sync#<generator>` findings at level
@@ -938,7 +979,7 @@ impl<'w> PluginGenerators<'w> {
         let settings = project
             .and_then(|project| self.workspace.settings(project))
             .unwrap_or_else(|| self.workspace.repository());
-        grant(root, settings, name)
+        grant(root, settings, name, &[])
     }
 }
 
@@ -966,7 +1007,7 @@ impl Generators for PluginGenerators<'_> {
                 generator.name(),
                 &options,
             )
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error| self.failed(project, &error))?;
         let reported = output.findings.into_iter().map(|finding| Finding {
             rule: sync::SYNC_RULE.to_owned(),
             aspect: generator.to_string(),
@@ -999,7 +1040,7 @@ impl Generators for PluginGenerators<'_> {
         let (name, plugin, _) = self.plugin(generator)?;
         plugin
             .owned(generator.name(), &self.grant(project, name))
-            .map_err(|error| self.failed(&error))?
+            .map_err(|error| self.failed(project, &error))?
             .ok_or_else(|| {
                 Error::config(format!(
                     "[generate] {generator}: plugin {name} declares no generator {}",

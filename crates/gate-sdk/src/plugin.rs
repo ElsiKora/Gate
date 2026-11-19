@@ -129,6 +129,8 @@ pub struct RuleRun {
     pub name: String,
     /// JSON, already validated by the host against the rule's schema; empty means `{}`.
     pub options: String,
+    /// The tracked file the options came from. The core fills it with the repository path; the
+    /// rule receives it relative to its scope's root, as it addresses every path.
     pub options_file: Option<String>,
     pub exceptions: Vec<String>,
 }
