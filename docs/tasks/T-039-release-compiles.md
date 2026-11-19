@@ -38,3 +38,6 @@ unit test's list holds both). Test `a_warm_result_cache_reruns_the_rule_for_anot
 one message file whose text changes runs, then comes from the cache, then a bad message runs the
 rule again and fails; `git/branch-name` on main passes outside a hook, is cached, and fails when
 `--hook` is given. No native cargo run; one lane round runs fmt, clippy and test.
+2026-11-19: round 179 (7e6ac15): fmt exit 0; clippy failed on `gate-host/src/plugins.rs` `run`, 109
+lines over the limit of 100, another miss of the same merge (T-029's message and hook fields in the
+`GitHistory` literal). The literal moves into `GitHistory::new`, and `run` is 97 lines.
