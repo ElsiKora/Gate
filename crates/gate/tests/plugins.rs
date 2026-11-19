@@ -2121,6 +2121,33 @@ fn changing_one_read_file_reruns_exactly_the_calls_that_read_it() {
 }
 
 #[test]
+fn an_uncommitted_edit_reruns_the_call_even_one_git_sees_as_no_change() {
+    let repo = two_readers();
+    probe_timed(&repo);
+
+    repo.write("apps/one/a.txt", "one, edited\n");
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"], "an edit not committed counts");
+    assert!(
+        messages.contains(&"a.txt: one, edited\n".to_owned()),
+        "{messages:?}"
+    );
+
+    // With core.autocrlf, git sees an edit of line endings alone as no change; the plugin
+    // reads other bytes, so its call runs again.
+    repo.git(&["config", "core.autocrlf", "true"]);
+    repo.commit("the edit");
+    probe_timed(&repo);
+    repo.write("apps/one/a.txt", "one, edited\r\n");
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"], "a line-ending edit counts");
+    assert!(
+        messages.contains(&"a.txt: one, edited\r\n".to_owned()),
+        "{messages:?}"
+    );
+}
+
+#[test]
 fn a_moved_ref_reruns_only_the_calls_whose_read_set_holds_a_ref_answer() {
     let repo = Repo::empty();
     let source = "acme/rules:probe@0.1.0";
