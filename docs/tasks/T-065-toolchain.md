@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead's decision; no code |
+| Status | design approved by the lead (2026-11-19) with the rulings in "Decisions"; code next |
 | Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -79,8 +79,8 @@ A project picks its kind in one line, the same line and the same names as the `d
 node = { source = "ElsiKora/Gate:node@0.3.0", options = { kind = "service" } }
 ```
 
-- `kind` is required: `service`, `frontend`, `infrastructure`, `monorepo-root`, and `library` (see
-  "Open"). A missing or unknown kind is a configuration error (exit 2) that lists them. It is never
+- `kind` is required: `service`, `frontend`, `infrastructure`, `monorepo-root` or `library` (decided
+  for both plugins). A missing or unknown kind is a configuration error (exit 2) that lists them. It is never
   inferred.
 - In a monorepo each member sets its own kind, usually through a profile (`projects = ["packages/*"]`,
   `kind = "library"`). The root, listed as `"."`, sets `monorepo-root`.
@@ -112,7 +112,7 @@ file and the field, script, flag or dependency), so its fingerprint survives a c
 
 ### `node/package-manager` (repository scope)
 
-One package manager, pnpm, pinned at the repository root.
+One package manager, pnpm, pinned at the repository root (decided: one way to do each thing).
 
 | Aspect | Reported when | At | Key |
 | --- | --- | --- | --- |
@@ -162,7 +162,9 @@ One Prettier configuration, data rather than code, at the root.
 
 JSON is the one form because a rule can read it. A `.mjs` or `.cjs` configuration is code that a rule
 cannot evaluate, so its settings could never be checked. The standard settings are one set for every
-kind (see "Open", item 1).
+kind: `{ "printWidth": 120, "proseWrap": "preserve", "trailingComma": "all" }`, every other option at
+Prettier's default. They are held once, as a constant of the plugin, because the shared ESLint
+configuration fixes none (see "Decisions", item 1).
 
 ### `node/linter` (repository scope)
 
@@ -172,12 +174,14 @@ One flat ESLint configuration at the root, imported by the members and never cop
 | --- | --- | --- | --- |
 | `legacy` | an `.eslintrc*` file or an `eslintConfig` key is tracked | the file | the file |
 | `root` | no `eslint.config.mjs` is tracked at the root, or another name (`eslint.config.js`, `.cjs`, `.ts`) is used | the root | the file |
-| `shared` | option `shared` is set and the root configuration does not import that package | the root configuration | the package |
+| `shared` | the root configuration does not import the `shared` package, or imports another configuration package as a base | the root configuration | the package |
 | `detached` | a member's `eslint.config.mjs` does not import the root configuration by a relative path | the member's file | the file |
 
-Option `shared`: the package name of the organisation's shared ESLint configuration. With it, every
-repository's root imports one package, which is how two repositories stop copying the same file. The
-rule reads the import lines as text; it never evaluates the file.
+Option `shared`: the package name of the shared ESLint configuration, default `@elsikora/eslint-config`.
+A project that uses ESLint extends it, and nothing else is a base: the root configuration imports it,
+and importing another configuration package (a name `eslint-config-*` or `@<scope>/eslint-config*`) is
+`shared` too. Every repository's root then imports one package, which is how two repositories stop
+copying the same file. The rule reads the import lines as text; it never evaluates the file.
 
 ### `node/package` (project scope)
 
@@ -226,7 +230,45 @@ through an exception, which names its reason.
 Option `base`: the base's path from the repository root, default `tsconfig.base.json`. The files are
 read as JSON with comments and trailing commas, as TypeScript reads them.
 
-## 4. What a project may extend
+## 4. One command runs ESLint, Prettier and the rest
+
+Gate does not replace ESLint or Prettier. The rules above make their setup identical everywhere; the
+tools themselves run as Gate steps, with the mechanism `main` already has: `[steps]` and `[suites]` in
+`gate.toml`, run by `gate run`, and listed with `check` in the hooks and the CI job. No new mechanism.
+
+```toml
+[steps]
+format = { run = "pnpm run format" }
+lint = { run = "pnpm run lint" }
+typecheck = { run = "pnpm run typecheck" }
+test = { run = "pnpm run test", heavy = true }
+
+[suites]
+static = ["format", "lint", "typecheck"]
+all = ["format", "lint", "typecheck", "test"]
+
+[hooks]
+pre-commit = ["check --staged", "run static --staged"]
+pre-push = ["check --push", "run all --push"]
+
+[ci.github.jobs.gate]
+name = "Gate"
+run = ["check --push", "run all --push"]
+```
+
+- The step names are the standard script names, so a step is one line that calls the script. In a
+  monorepo the root's steps call the workspace runner through the root scripts; `--staged` and
+  `--push` (in a CI job, the pull request's or the push's range) limit a run to the projects the
+  change touches. CI installs pnpm and Node in the job's `setup`.
+- The shared ESLint configuration runs Prettier as an ESLint rule (`withPrettier`), with the
+  repository's `.prettierrc.json`. So `lint` also fails on unformatted code, and `format` remains the
+  step that checks the files ESLint does not lint (Markdown, YAML, JSON).
+- What `main` has today: `gate check` runs the rules; `gate run <suite>` runs the steps; a hook or a CI
+  job lists both, so the developer's commit, push and the CI job are each one command. `bin/gate check`
+  on its own does not run steps. Making it do so would be a new mechanism, which this task does not
+  add; it is the lead's call (see "Decisions", item 5).
+
+## 5. What a project may extend
 
 - A separate install root, declared in `node/package-manager.separate` with its job.
 - Scripts beyond the standard, under the name grammar and outside the synonyms.
@@ -237,7 +279,7 @@ A project may not choose another package manager, another formatter setting, a s
 linter configuration, or another name for a standard job. Those are what make repositories alike. A
 project moving to the standard uses levels, exceptions with reasons, or the baseline, as with any rule.
 
-## 5. Tests
+## 6. Tests
 
 Native SDK tests on synthetic trees, one fixture per aspect with a passing twin, plus the kinds' unit
 test. Each case is one that would let a broken change through, or block a good one.
@@ -259,9 +301,10 @@ test. Each case is one that would let a broken change through, or block a good o
   dependency `"1.0.0"` is `internal`; without a catalog, `left-pad` at two versions is one `differs`.
 - **`node/formatter`**: the standard `.prettierrc.json` passes; one key changed is `settings` at that
   key's line; `prettier.config.mjs` is `form`; a member's `.prettierrc.json` is `nested`.
-- **`node/linter`**: a root `eslint.config.mjs` importing the `shared` package passes; `.eslintrc.json`
-  is `legacy`; a member that does not import `../../eslint.config.mjs` is `detached`; without the
-  option, `shared` reports nothing.
+- **`node/linter`**: a root `eslint.config.mjs` importing the default `shared` package passes; one that
+  does not import it, or also imports `eslint-config-other`, is `shared`; with the option set to another
+  name, that name is the one required; `.eslintrc.json` is `legacy`; a member that does not import
+  `../../eslint.config.mjs` is `detached`.
 - **`node/package`**: one fixture per kind passes; a library with `private: true` is `forbidden`; a
   service without `type` is `missing`.
 - **`node/scripts`**: each synonym is reported with its standard name in the message; `lint` running
@@ -274,30 +317,34 @@ test. Each case is one that would let a broken change through, or block a good o
   the built component: `gate check` exits 0, and exits 1 with exactly the expected findings after one
   change of each kind.
 
-## Open, for the owner
+## Decisions (the lead, 2026-11-19)
 
-1. **The one Prettier setting.** The survey found five. A proposal: Prettier's defaults with
-   `printWidth: 120`, `trailingComma: "all"`, `proseWrap: "preserve"` (the setting of the repository
-   closest to this standard). Its line width, indentation and quotes are the owner's choice; the rule
-   takes whatever the plugin's constant says.
-2. **A `library` kind.** T-062 has the same open item (its item 2). The toolchain needs it: a published
-   package's `package.json` differs from a private one's in rows 2 and 3. Recommendation: add
-   `library` to both plugins, so the two read one `kind` line with one set of values.
-3. **pnpm as the one package manager.** Three of the six repositories use npm. The standard names
-   pnpm because it has the workspace catalog, which is how one version per dependency holds without a
-   rule comparing files. Moving to it is a one-shot change per repository.
-4. **The name of the shared ESLint configuration package**, for `node/linter.shared`, if the owner
-   wants every repository to import one.
+1. **Prettier.** The rule was: if the public package `@elsikora/eslint-config` fixes Prettier options
+   or ships a Prettier configuration, it is the standard and Gate holds no second copy. **It does
+   not.** Version 3.10.2 (the registry's `latest`, read from its public metadata and file listing):
+   none of its 44 ES modules sets a Prettier option, and its Prettier part only loads
+   `eslint-plugin-prettier/recommended`, which reads the project's own configuration. So the plugin
+   holds the standard: `printWidth` 120, `trailingComma` `"all"`, `proseWrap` `"preserve"`, the rest
+   at Prettier's defaults.
+2. **`library`**: a kind of this plugin and of `docs` (T-062).
+3. **pnpm** is the one package manager.
+4. **The shared ESLint configuration** is `@elsikora/eslint-config`, the default of `node/linter.shared`.
+   A project that uses ESLint extends it, and nothing else is a base.
+5. **One command.** Gate makes ESLint and Prettier identical everywhere and runs them; section 4 says
+   how, with `main`'s steps, suites, hooks and CI jobs. Whether `bin/gate check` alone should also run
+   steps is open: it is a new mechanism, outside this task.
 
 ## Done when
 
-- The lead decides on the plugin, the kinds and the four open items. Then the code goes on the tip
-  that carries `gate:plugin@0.3.0`, followed by one lane round on the pushed tip: fmt, clippy, test
-  (`--workspace --no-fail-fast`), deny and the release build exit 0, and the leak scan prints nothing.
+- The plugin, its eight rules, the kinds and a page per rule are on a branch from `main`, with the
+  tests of section 6, each failing with its change taken out.
+- One lane round on the pushed tip: fmt, clippy, test (`--workspace --no-fail-fast`), deny and the
+  release build exit 0, and the leak scan prints nothing.
 - Do not edit docs/plan.md unless the lead asks.
 
 ## Resume point
 
 2026-11-19: design written from `main` at `ec66737`, after a read-only survey of six repositories
-(two backend services, a pnpm monorepo, three frontends). Waiting for the lead's decision before any
-code.
+(two backend services, a pnpm monorepo, three frontends). The lead approved it at `c0208ba` with the
+rulings now in "Decisions"; the public `@elsikora/eslint-config` 3.10.2 was read and fixes no Prettier
+option. Next: the code on a branch from `main`, then one lane round.
