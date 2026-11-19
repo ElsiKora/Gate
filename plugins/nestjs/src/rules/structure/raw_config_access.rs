@@ -133,11 +133,7 @@ impl Rule for RawConfigAccess {
         let mut reported = Vec::new();
 
         for (index, (path, _)) in sources.iter().enumerate() {
-            if !options.approves(path)
-                && graph
-                    .reads_raw(index)
-                    .map_err(|failure| project::error(&failure))?
-            {
+            if !options.approves(path) && graph.reads_raw(index)? {
                 reported.push(*path);
             }
         }

@@ -394,10 +394,7 @@ impl Registry {
         typescript: &TypeScript<'_>,
         ordered: &[Migration],
     ) -> gate_sdk::Result<()> {
-        match typescript
-            .parse(&self.path)
-            .map_err(|failure| project::error(&failure))?
-        {
+        match typescript.parse(&self.path)? {
             Some(source) if !source.fatal() => {
                 for (line, key, message) in self.findings(&source, ordered) {
                     run.report()

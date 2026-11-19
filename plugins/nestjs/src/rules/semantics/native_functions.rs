@@ -173,8 +173,7 @@ impl gate_sdk::Rule for Rule {
         let source = project::source(run);
         let allocator = Allocator::default();
         let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)
-            .map_err(|failure| project::error(&failure))?;
+        let sources = Sources::new(&typescript, &layout.source_root)?;
         let report = run.report();
 
         for source in sources.iter() {

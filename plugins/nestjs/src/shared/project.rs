@@ -23,13 +23,6 @@ pub fn settings<O>(run: &Run<'_, O>) -> gate_sdk::Result<Settings> {
     Ok(run.language::<Settings>("typescript")?.unwrap_or_default())
 }
 
-/// A library error (a file that cannot be read, a tsconfig that cannot be parsed) as the run's
-/// error.
-#[must_use]
-pub fn error(error: &gate_typescript::Error) -> gate_sdk::Error {
-    gate_sdk::Error::new(error.to_string())
-}
-
 /// The syntax tree of `path`, or `None` when the file is not tracked or cannot be parsed: a file
 /// without a syntax tree is skipped here, because `typescript/parse` reports it.
 ///
@@ -39,8 +32,5 @@ pub fn parsed<'a>(
     typescript: &TypeScript<'a>,
     path: &str,
 ) -> gate_sdk::Result<Option<Rc<SourceFile<'a>>>> {
-    Ok(typescript
-        .parse(path)
-        .map_err(|failure| error(&failure))?
-        .filter(|file| !file.fatal()))
+    Ok(typescript.parse(path)?.filter(|file| !file.fatal()))
 }

@@ -134,8 +134,7 @@ impl Rule for ControllerOwners {
         let source = project::source(run);
         let allocator = Allocator::default();
         let typescript = TypeScript::new(&source, project::settings(run)?, &allocator);
-        let sources = Sources::new(&typescript, &layout.source_root)
-            .map_err(|failure| project::error(&failure))?;
+        let sources = Sources::new(&typescript, &layout.source_root)?;
         let mut findings = Findings::default();
 
         contract::validate(&contracts, &external, |key, message| {

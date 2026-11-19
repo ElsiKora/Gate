@@ -62,10 +62,7 @@ pub(crate) fn problem(
         )));
     }
 
-    let Some(file) = typescript
-        .parse(path)
-        .map_err(|failure| crate::shared::project::error(&failure))?
-    else {
+    let Some(file) = typescript.parse(path)? else {
         return Ok(Some(format!("names {path}, which is no tracked file")));
     };
 

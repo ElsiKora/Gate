@@ -329,8 +329,7 @@ impl<'t, 'a> Provenance<'t, 'a> {
         // Only the `.ts` sources below the source root are followed.
         let Some(target) = self
             .typescript
-            .resolve(file.path(), specifier)
-            .map_err(|failure| project::error(&failure))?
+            .resolve(file.path(), specifier)?
             .filter(|target| {
                 target.starts_with(&self.sources)
                     && !typescript_sources(std::iter::once(target.as_str())).is_empty()
