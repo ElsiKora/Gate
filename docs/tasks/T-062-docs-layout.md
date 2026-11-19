@@ -103,6 +103,25 @@ is inside. `docs/layout` never requires them, never lays them down and never rea
 own rules require their inputs (T-061). In the root kind, a `ledger/` is `unknown`, and the message
 gives the reason from the table.
 
+**The monorepo root, checked against the rules that apply there.** Is a ledger required at the root,
+or delegated to the projects? Delegated. This follows from how the core assigns paths:
+
+- A path belongs to the project with the longest root that contains it. In a workspace that does not
+  list `"."`, a root `docs/` belongs to no project, and only repository-scope rules see it. Every
+  ledger rule is project scope, and so is `docs/layout`. So today no ledger rule can require a ledger
+  at such a root, and no layout rule can check its `docs/` either.
+- For the root's `docs/` to be checked, the workspace lists `"."` as a project, with
+  `kind = "monorepo-root"`. Its subtree is every path no longer-rooted project owns: the root's
+  `docs/`, `README.md` and `AGENTS.md`.
+- That root project enables no ledger rule, whether in its own file or through a profile that matches
+  it. Each member project that changes code keeps its own ledger (`ledger/` is "same" for a service,
+  a frontend and infrastructure). A project that shares another's ledger reads it through a `reads`
+  grant, as T-061 already allows.
+- If the root project does enable a ledger rule, the two plugins disagree in plain sight: T-061
+  reports the missing ledger, and once one is added, `docs/layout#unknown` reports it with the reason.
+  Neither plugin can see the other's settings, so the fix is the root's configuration. The rule's page
+  says so.
+
 ### The index sections, side by side
 
 Each index of a laid-down entry has required level-2 sections, in this order. The rule checks them,
@@ -149,7 +168,8 @@ The moves are each project's own work after this task. This task only makes them
 ## 2. Where the standards live, and how a project picks its kind
 
 **Recommendation: the four kinds are named standards inside the `docs` plugin.** The kinds are
-`service`, `frontend`, `infrastructure` and `monorepo-root`. Each is the common base plus its
+`service` (the NestJS services today; the kind is named for the job, not the framework), `frontend`,
+`infrastructure` and `monorepo-root`. Each is the common base plus its
 differences from the tables above, as constants of the plugin. The core names no kind and no framework;
 the plugin names kinds, not frameworks.
 
@@ -320,42 +340,48 @@ The cost is one more plugin to build, pin and release. The plugin release workfl
 ## 6. `CLAUDE.md`
 
 **Decision: a `CLAUDE.md` stays forbidden, at every level and in every kind, with no exception.
-`agents/no-claude-md` moves to repository scope, so a root file is always seen.**
+`agents/no-claude-md` moves to repository scope, so that a root file is always seen. This is a
+breaking change in 0.3.0.**
 
-Claude Code's documentation (code.claude.com/docs/en/memory, read 2026-11-19) settles the question:
+Claude Code's memory page (code.claude.com/docs/en/memory, read 2026-11-19) says two things that
+settle it:
 
-- Claude Code reads `AGENTS.md` itself as the project's instructions, with no `CLAUDE.md`, import or
-  setting. A nested `AGENTS.md` loads when Claude opens a file in that directory.
-- It does this "only when you have no `CLAUDE.md` in your working directory or above it". When both
-  exist, it reads the `CLAUDE.md` files only.
+- Claude Code reads `AGENTS.md` itself, as the project's instructions, when there is no `CLAUDE.md`
+  or `CLAUDE.local.md` in the working directory or above it.
+- When both are present, it reads only the `CLAUDE.md` files by default.
 
-So a `CLAUDE.md` that is exactly `@AGENTS.md` does not make Claude Code read `AGENTS.md`, because it
-already does that. The file switches Claude Code into its `CLAUDE.md`-only mode for every directory
-below it. In a monorepo, a root import file hides every nested `AGENTS.md` that has no import file of
-its own. The rule's message, "a tracked CLAUDE.md disables AGENTS.md", is literally what the
-documentation describes. Single repositories with such an import file exist among those read for this
-design. There the file is redundant rather than harmful, and the rule makes them delete it.
+So:
+
+- **A `CLAUDE.md` that only imports `AGENTS.md`** adds nothing for current Claude Code, which reads
+  `AGENTS.md` without it.
+- **A `CLAUDE.md` with any more than that** becomes the instructions Claude Code reads in place of
+  `AGENTS.md`. Other agents never read that second set, and it drifts from the first. That drift is
+  what `agents/no-claude-md` exists to prevent.
 
 The alternatives, and why not:
 
-- **Allowing a file that is exactly `@AGENTS.md`** is an exception by its contents, and it still hides
-  every nested `AGENTS.md`.
-- **Requiring one, generated next to every `AGENTS.md`** (the `agents/adapters` generator writing it and
-  owning `**/CLAUDE.md`) would be one clean rule. But it makes every repository carry a file that
-  current Claude Code does not need, only for clients older than the version that reads `AGENTS.md`
-  itself. A repository should not encode its readers' client versions.
+- **Allowing a file that is exactly `@AGENTS.md`** is an exception by its contents, and it buys nothing
+  for a client that reads `AGENTS.md` itself.
+- **Requiring one, generated beside every `AGENTS.md`** (the `agents/adapters` generator writing and
+  owning it) would be one clean rule. But it makes every repository carry a file that only older clients
+  need. A repository should not encode the versions of the clients that read it.
 
-The hole is real. A monorepo can have a root `CLAUDE.md` that only imports `AGENTS.md`, with the rule
-enabled only for its nested projects. A project-scope rule cannot see the root file, and the root file
-is exactly what hides the nested `AGENTS.md`. So:
+**Why repository scope.** Some repositories set the rule only for their nested projects. The root
+`CLAUDE.md` belongs to no such project, so a project-scope rule never sees it, and the page reads
+`CLAUDE.md` from the working directory or above it. So:
 
 - `agents/no-claude-md` becomes a repository-scope rule. It runs once, sees every tracked path, and
   reports every `CLAUDE.md` in any case.
 - A repository-scope rule is set in the root `gate.toml`. The core already gives a configuration error
   for one set below the root. The rule's page and `docs/guide/plugins.md` say so.
-- The `.claude/rules` and `.claude/skills` adapters stay as they are. Claude Code reads them whether or
-  not a `CLAUDE.md` exists, and they carry the rule files, not the entry.
-- `CHANGELOG.md` (0.3.0, breaking): `agents/no-claude-md` moves from the projects' files to the root one.
+- The `.claude/rules` and `.claude/skills` adapters stay as they are. They carry the rule files, not the
+  entry.
+- `CHANGELOG.md` (0.3.0, Breaking Changes): `agents/no-claude-md` moves from the projects' files to the
+  root one. Delete any `CLAUDE.md` that only imports `AGENTS.md`, and move the instructions of any other
+  `CLAUDE.md` into `AGENTS.md` or a rule file.
+
+Repositories with an import-only `CLAUDE.md` exist among those read for this design. Under this rule
+they delete it, and Claude Code goes on reading their `AGENTS.md`.
 
 ## 7. Tests
 
@@ -437,6 +463,13 @@ A change that adds a difference without a reason fails here.
 - `gate check` exits 1 with one `unfilled` per seeded page;
 - with the marker lines removed, `gate check` and `gate sync --check` exit 0.
 
+**The monorepo root as a project:** a workspace that lists `"."` and `apps/a` with `kind =
+"monorepo-root"` for `"."`:
+
+- `docs/layout` for `"."` sees the root's `docs/` and not `apps/a/docs/`;
+- a root `docs/ledger/` is `unknown`, with the reason;
+- `apps/a` checks its own kind independently.
+
 **Keys:** every finding is keyed by its entry, file or section, so editing text around it never changes
 its fingerprint.
 
@@ -446,20 +479,30 @@ its fingerprint.
    from.
 2. **A fifth kind for libraries and packages**: component libraries, SDKs, and a monorepo's
    `packages/*`.
-3. **Whether `agents` and `ledger` seed their own minimum** with the same seed mechanism, after T-061:
-   an `AGENTS.md` with the block markers, a ledger manifest with the plugin's default files. Then one
-   `gate sync` lays down the whole standard, delegated entries included. It is left out here, to keep
-   each plugin's change in its own task.
+
+## Follow-up: T-063
+
+Decided by the lead (2026-11-19): after T-061, the `ledger` and `agents` plugins seed their own minimum
+through the same seed mechanism.
+
+- `ledger`: the manifest and the files it lists.
+- `agents`: `AGENTS.md` with its managed block markers, and `docs/agents/rules/`.
+
+One `gate sync` then lays down a project's whole standard, the delegated entries included. That work
+is T-063. It is not part of T-062's code.
 
 ## Done when
 
-- The lead decides on questions 1 to 6 and on the open items. Then the code goes on the tip that carries
+- The lead decides on questions 1 to 6 and on the two open items. Then the code goes on the tip that carries
   `gate:plugin@0.3.0`, followed by one lane round on the pushed tip: fmt, clippy, test
   (`--workspace --no-fail-fast`), deny and the release build exit 0, and the leak scan prints nothing.
 - Do not edit docs/plan.md unless the lead asks.
 
 ## Resume point
 
-2026-11-19: design written from `main` at `ec66737`, then reworked for the owner's two additions (a
-standard per kind; the kinds look alike, each difference with its reason). Waiting for the lead's
-decision before any code.
+2026-11-19: design written from `main` at `ec66737`. The lead approved the mechanics at `adec0b1`: the
+docs plugin and its rule, the standard as a constant, `extra`, reserved names, seeds, no manifest, and
+delegated `agents/` and `ledger/`. The revision folds in the owner's two additions (a standard per kind;
+the kinds alike, each difference with its reason), the root ledger checked against the rules that apply
+at the root, `CLAUDE.md` stated only as the memory page says, and T-063 as the follow-up. Waiting for
+the lead's decision on the revision before any code.
