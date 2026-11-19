@@ -274,14 +274,14 @@ pre-push = ["check --push"]
 ```
 
 Write the commit the git rules start after in place of `<the output of git rev-parse HEAD>`: for a
-new policy, the output of `git rev-parse HEAD`. Gate reads only tracked files, so add each new
-file before a command that reads it:
+new policy, the output of `git rev-parse HEAD`. Gate reads only tracked files, and the
+pre-commit hook only staged ones, so add each file Gate writes:
 
 ```bash
 git add gate.toml gate.lock bin/gate
 bin/gate lock                 # resolve the plugins and write their checksums to gate.lock
 bin/gate sync                 # write the git hooks
-git add .githooks
+git add gate.lock .githooks
 bin/gate check                # check the working tree
 ```
 

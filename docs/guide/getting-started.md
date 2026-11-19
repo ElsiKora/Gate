@@ -79,12 +79,13 @@ the `markdown` rules. In a monorepo, project-scope rules go in a project's `gate
 `[[profiles]]` entry of the root file; see [monorepo.md](monorepo.md#-profiles).
 
 Every plugin you add or change is resolved and pinned by `gate lock`. Gate reads only tracked files,
-so add the three files `gate init` wrote first; later edits to them are read without another
-`git add`:
+so add the three files `gate init` wrote first; add `gate.lock` again after `gate lock` changes it,
+because the pre-commit hook checks the staged files:
 
 ```bash
 git add gate.toml gate.lock bin/gate
 bin/gate lock
+git add gate.lock
 ```
 
 A run whose `gate.lock` does not match `gate.toml` fails and tells you to run `gate lock`. See
