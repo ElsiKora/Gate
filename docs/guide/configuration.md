@@ -291,6 +291,19 @@ it. Prune never adds an entry: a new finding stays reported, and prune says how 
 Prune reads the committed baseline; on a `gate/baseline.json` that git does not track it stops and
 says to run `git add gate/baseline.json` first.
 
+After moving a baseline written by 0.1.0 to 0.2.0, run `bin/gate baseline prune` first; it re-keys
+every entry it can. One kind of finding changed in 0.2.0 so that prune cannot: a finding of a project
+below the repository root that sits in one of the project's option files, or names one in its
+message. 0.2.0 names such a path once (`apps/api/gate/options/<plugin>/<file>.json`, where 0.1.0
+repeated the project's path), and a message names the file from the project's root
+(`gate/options/<plugin>/<file>.json`). The entry's fingerprint no longer matches, so prune removes it
+and prints it as removed, and the finding is reported again. Then check that nothing else is new: run
+`bin/gate check` and pair each reported finding with an entry prune printed as removed, by rule,
+aspect and message, the option file's path aside. When every reported finding pairs, run
+`bin/gate baseline write` once and commit the baseline: it accepts again exactly the findings prune
+removed. A reported finding that pairs with no removed entry is new: fix it, or make it an exception,
+before writing, since `baseline write` accepts every finding it sees.
+
 A fingerprint is the finding's rule, aspect and path with the plugin's stable key for it, or with its
 message when the plugin gives no key. With a key, a plugin may reword a message without making the
 entry stale.
