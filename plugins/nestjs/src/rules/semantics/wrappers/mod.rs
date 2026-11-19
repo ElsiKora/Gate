@@ -81,7 +81,7 @@ impl Default for MessageFactory {
 )]
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct ReporterAdapter {
-    /// The module the port class is imported from, as the import names it.
+    /// The module the port is imported from, as the import names it.
     pub module: String,
     /// The port's export name: a class the adapter class extends or an interface it implements.
     pub port: String,

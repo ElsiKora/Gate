@@ -415,6 +415,55 @@ fn own_parameters_are_named_and_reassigned_or_defaulted_ones_and_locals_are_not(
 }
 
 #[test]
+fn rest_and_property_parameters_are_named_and_destructured_or_redeclared_ones_are_not() {
+    let path = "src/modules/shelf/store.ts";
+    let text = "import { BadRequestException } from \"@nestjs/common\";\n\
+                export class ShelfStore {\n\
+                 constructor(private readonly limit: number) {\n\
+                  check();\n\
+                  throw new BadRequestException({ limit });\n\
+                 }\n\
+                 find({ id }: Query): void {\n\
+                  check();\n\
+                  throw new BadRequestException({ id });\n\
+                 }\n\
+                 redo(size: number): void {\n\
+                  check();\n\
+                  var size;\n\
+                  throw new BadRequestException({ size });\n\
+                 }\n\
+                 all(...ids: Array<string>): void {\n\
+                  check();\n\
+                  throw new BadRequestException({ ids });\n\
+                 }\n\
+                }\n";
+    let named = |scope: &str, construction: &str| {
+        format!("{path}: ShelfStore.{scope}: new BadRequestException({{ {construction} }})")
+    };
+    let lined = |line: u32, construction: &str| {
+        format!("{path}:{line}: new BadRequestException({{ {construction} }})")
+    };
+
+    assert_eq!(
+        located_targets("{}", &[], &[(path, text)]),
+        [
+            at(
+                "raw-nest-exception",
+                5,
+                Some(&named("constructor parameters limit", "limit"))
+            ),
+            at("raw-nest-exception", 9, Some(&lined(9, "id"))),
+            at("raw-nest-exception", 14, Some(&lined(14, "size"))),
+            at(
+                "raw-nest-exception",
+                18,
+                Some(&named("all parameters ids", "ids"))
+            ),
+        ]
+    );
+}
+
+#[test]
 fn a_function_scope_named_like_a_class_of_the_file_is_not_named() {
     let path = "src/runtime/shelf.ts";
     let text = "import { BadRequestException } from \"@nestjs/common\";\n\
@@ -619,6 +668,34 @@ fn a_reporter_adapter_may_implement_an_interface_port() {
             &forwards(path, 7, "report", "this.sink.report")
         )]
     );
+}
+
+#[test]
+fn a_reporter_adapter_port_is_found_among_several_aliased_generic_or_beside_a_base() {
+    let options = r#"{ "reporter-adapters": [{ "module": "@common/report", "port": "ReporterPort", "method": "report", "path-prefix": "src/infrastructure/" }] }"#;
+    let forwarder = " report(error: Error) { return this.sink.report(error); }\n}\n";
+    let several = format!(
+        "import {{ ReporterPort }} from \"@common/report\";\nimport {{ OtherPort }} from \"@common/other\";\nexport class SeveralAdapter implements OtherPort, ReporterPort {{\n{forwarder}"
+    );
+    let aliased = format!(
+        "import {{ ReporterPort as Port }} from \"@common/report\";\nexport class AliasedAdapter implements Port {{\n{forwarder}"
+    );
+    let generic = format!(
+        "import {{ ReporterPort }} from \"@common/report\";\nexport class GenericAdapter<T> implements ReporterPort<T> {{\n{forwarder}"
+    );
+    let based = format!(
+        "import {{ ReporterPort }} from \"@common/report\";\nimport {{ Base }} from \"@common/base\";\nexport class BasedAdapter extends Base implements ReporterPort {{\n{forwarder}"
+    );
+    let files = [
+        ("src/infrastructure/report/several.ts", several.as_str()),
+        ("src/infrastructure/report/aliased.ts", aliased.as_str()),
+        ("src/infrastructure/report/generic.ts", generic.as_str()),
+        ("src/infrastructure/report/based.ts", based.as_str()),
+    ];
+
+    // Each class implements the port, so each forwarder is a boundary.
+    let found = check(RULE, options, &files);
+    assert!(found.is_empty(), "{found:?}");
 }
 
 const TABLE: &str = "//! Generated.\n\

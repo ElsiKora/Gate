@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | in progress |
-| Release | v0.2.1 |
+| Release | plugin nestjs 0.3.0 |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `v0.2.0` |
@@ -43,8 +43,7 @@ Not in scope: any other aspect of the rule; nestjs speed work (T-037 runs in par
 
 ## Resume point
 
-2026-11-19T19:01:32+00:00: round 208 on 0576b2b: fmt 0, clippy 0, deny 0, test 101 with one failure, an
-assertion of the new own-parameter test that expected an exception to drop the finding; the
-plugin reports it with its target and the host matches the exception, so the assertion was wrong.
-It now checks that the scope form stays put when a line is added above and the line form moves.
-All three mutations failed as they must. Next: one lane round on the fix.
+2026-11-19T19:17:45+00:00: the review of 3262226 says merge. Its fix round is in: the release is plugin
+nestjs 0.3.0 (the `port` rename and the moved targets break), the stale "port class" doc comment,
+and tests for several, aliased and generic ports, a port beside a base class, and rest,
+property, destructured and redeclared parameters. Not compiled yet. Next: one lane round on it.
