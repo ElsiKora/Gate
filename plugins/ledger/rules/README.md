@@ -52,7 +52,7 @@ outside the project is read only when `[plugins.ledger] reads` grants it.
 
 ```toml
 [plugins.ledger]
-source = "ElsiKora/Gate:ledger@0.1.0"
+source = "ElsiKora/Gate:ledger@0.2.0"
 options = { parity = { plan = "docs/ledger/plans/core.md", prefix = "CORE", label = "Core", reference = "Upstream reference", fields = ["Parity evidence"], active-status = "in progress" } }
 ```
 

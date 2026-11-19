@@ -204,7 +204,7 @@ run `gate init`. Run these in the root of your repository; the last line removes
 files:
 
 ```bash
-version=0.1.0
+version=0.2.0
 target=aarch64-apple-darwin          # or x86_64-unknown-linux-musl
 curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/gate-${target}.tar.gz"
 curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/SHA256SUMS"
@@ -250,13 +250,13 @@ A repository with one project needs one `gate.toml` at its root:
 
 ```toml
 [gate]
-version = "0.1.0"
+version = "0.2.0"
 
 [plugins]
-markdown = { source = "ElsiKora/Gate:markdown@0.1.0" }
+markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.1.0"
+source = "ElsiKora/Gate:git@0.2.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -298,14 +298,14 @@ projects their settings through profiles; a project with needs of its own adds i
 ```toml
 # gate.toml
 [gate]
-version = "0.1.0"
+version = "0.2.0"
 
 [workspace]
 projects = "pnpm"                 # from pnpm-workspace.yaml; or a list of globs
 ignore = ["samples/**"]
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.1.0"
+source = "ElsiKora/Gate:git@0.2.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -320,7 +320,7 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 projects = ["apps/*", "packages/*"]
 
 [profiles.plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.1.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 ```
 
 ```toml
@@ -329,7 +329,7 @@ typescript = { source = "ElsiKora/Gate:typescript@0.1.0" }
 name = "server"
 
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.1.0" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.2.0" }
 
 [rules."nestjs/import-direction"]
 level = "error"

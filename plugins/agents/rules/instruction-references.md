@@ -47,7 +47,7 @@ Scope: project. Reads history: no. Aspects: `command`, `path`.
 
 ```toml
 [plugins.agents]
-source = "ElsiKora/Gate:agents@0.1.0"
+source = "ElsiKora/Gate:agents@0.2.0"
 reads = ["infrastructure/cdk", ".github/workflows"]
 ```
 

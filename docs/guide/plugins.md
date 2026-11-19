@@ -10,7 +10,7 @@ configuration says about the rule and where.
 
 ```toml
 [plugins.git]
-source = "ElsiKora/Gate:git@0.1.0"
+source = "ElsiKora/Gate:git@0.2.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -25,7 +25,7 @@ bin/gate lock
 The key (`git`) is the prefix of the plugin's rule ids. The value is a table whose `source` is
 `<owner>/<repo>:<plugin>@<version>`, with optional `options` shared by the plugin's rules, `options-file`
 and `reads` ([configuration.md](configuration.md#plugins)). A source names the asset `<plugin>.wasm` of the release tagged `plugin-<plugin>-v<version>` of that repository: here
-`git.wasm` of `plugin-git-v0.1.0` in `ElsiKora/Gate`. `gate lock` resolves it to a URL and a sha256 and
+`git.wasm` of `plugin-git-v0.2.0` in `ElsiKora/Gate`. `gate lock` resolves it to a URL and a sha256 and
 writes them to `gate.lock`. A plugin is one `.wasm` file for every platform.
 
 Project-scope rules are configured in a project's `gate.toml` or in a `[[profiles]]` entry of the root
@@ -52,7 +52,7 @@ language library, which other plugins link; see [writing-a-rule.md](writing-a-ru
 
 ```toml
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.1.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 
 [rules]
 "typescript/parse" = "error"
@@ -69,7 +69,7 @@ pushed range in `pre-push` and in CI.
 
 ```toml
 [plugins.git]
-source = "ElsiKora/Gate:git@0.1.0"
+source = "ElsiKora/Gate:git@0.2.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -93,7 +93,7 @@ that.
 
 ```toml
 [plugins]
-markdown = { source = "ElsiKora/Gate:markdown@0.1.0" }
+markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
 
 [rules]
 "markdown/local-links" = { level = "error", options = { roots = ["docs"], extra-files = ["README.md"] } }
@@ -117,7 +117,7 @@ copies the skills to `.claude/skills/`; it owns `.claude/rules/**` and `.claude/
 ```toml
 # apps/server/gate.toml
 [plugins]
-agents = { source = "ElsiKora/Gate:agents@0.1.0" }
+agents = { source = "ElsiKora/Gate:agents@0.2.0" }
 
 [rules]
 "agents/rule-registry" = { level = "error", options = { root = "docs/agents" } }
@@ -145,7 +145,7 @@ ledger's file paths, the closing statuses, the paired plan); see
 name = "docs"
 
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.1.0", options = { decisions = "ledger/decision-index.md" } }
+ledger = { source = "ElsiKora/Gate:ledger@0.2.0", options = { decisions = "ledger/decision-index.md" } }
 
 [rules]
 "ledger/decisions" = "error"
@@ -177,8 +177,8 @@ TypeScript language library.
 name = "server"
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.1.0" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.1.0", options = { layout = { source-root = "src" } } }
+typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.2.0", options = { layout = { source-root = "src" } } }
 
 [rules]
 "nestjs/barrel-exports" = "error"
@@ -205,7 +205,7 @@ GitHub Actions workflows, generated or written by hand.
 
 ```toml
 [plugins]
-ci = { source = "ElsiKora/Gate:ci@0.1.0" }
+ci = { source = "ElsiKora/Gate:ci@0.2.0" }
 
 [rules]
 "ci/actions-pinned" = "error"
