@@ -593,7 +593,7 @@ impl<'a> Assets<'_, 'a> {
                         "central-admission",
                         path,
                         None,
-                        "asset-command",
+                        "asset-command#feature",
                         format!(
                             "{path} declares a feature asset command outside central PublicAsset \
                              CREATE"
@@ -615,7 +615,7 @@ impl<'a> Assets<'_, 'a> {
                     "central-admission",
                     path,
                     None,
-                    "asset-command",
+                    "asset-command#domain",
                     format!("{path} declares a feature asset command in a business domain"),
                 );
             }

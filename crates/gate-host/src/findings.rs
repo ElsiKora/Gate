@@ -206,25 +206,26 @@ pub enum Identity<'a> {
     Message(&'a str),
 }
 
-/// The fingerprint of a finding's rule, aspect, path and identity: the first 16 bytes of the
-/// sha256 of the parts, each followed by a zero byte, as 32 hex digits. The parts are rule, aspect,
-/// path and message; or, with a key, rule, aspect, path, the word `key` and the key, so a key never
-/// gives the fingerprint of a message.
+/// The fingerprint of a finding's rule, aspect, path and identity: the first 16 bytes of a sha256,
+/// as 32 hex digits. Without a key it digests rule, aspect, path and message, each followed by a zero
+/// byte. With a key it digests the word `key`, rule, aspect, path and key, each after its length in
+/// eight bytes, big-endian; that input starts with a zero byte, which no rule id does, so a keyed
+/// fingerprint never equals an unkeyed one, and no part can run into the next.
 #[must_use]
 pub fn fingerprint(rule: &str, aspect: &str, path: &str, identity: Identity<'_>) -> String {
     let mut digest = Sha256::new();
-    let mut add = |part: &str| {
-        digest.update(part.as_bytes());
-        digest.update([0]);
-    };
-    for part in [rule, aspect, path] {
-        add(part);
-    }
     match identity {
-        Identity::Message(message) => add(message),
+        Identity::Message(message) => {
+            for part in [rule, aspect, path, message] {
+                digest.update(part.as_bytes());
+                digest.update([0]);
+            }
+        }
         Identity::Key(key) => {
-            add("key");
-            add(key);
+            for part in ["key", rule, aspect, path, key] {
+                digest.update(u64::try_from(part.len()).unwrap_or(u64::MAX).to_be_bytes());
+                digest.update(part.as_bytes());
+            }
         }
     }
     digest

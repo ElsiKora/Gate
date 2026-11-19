@@ -216,7 +216,9 @@ enum BaselineCommand {
     /// replacing it: for the first baseline. Once findings are fixed, use prune, which adds none.
     Write,
     /// Run a full check of the working tree and remove from gate/baseline.json the entries that
-    /// match no finding; it never adds one, so a new finding stays reported.
+    /// match no finding although their rule ran (an aspect set to off while its rule runs
+    /// included), and re-key the entries written without a key for findings their plugin now
+    /// keys; it never adds one, so a new finding stays reported.
     Prune,
 }
 
@@ -522,6 +524,15 @@ fn baseline_prune() -> Result<u8, Error> {
     let pruned = gate_host::prune_baseline(Path::new("."))?;
     let file = gate_host::BASELINE_FILE;
     let mut text = String::new();
+    for entry in &pruned.rekeyed {
+        let _ = writeln!(
+            text,
+            "re-keyed {} at {}: {}",
+            entry.rule_with_aspect(),
+            entry.path.as_deref().unwrap_or("(no path)"),
+            entry.key.as_deref().unwrap_or_default()
+        );
+    }
     for entry in &pruned.removed {
         let _ = writeln!(
             text,
@@ -531,13 +542,13 @@ fn baseline_prune() -> Result<u8, Error> {
             entry.message
         );
     }
-    let removed = pruned.removed.len();
-    let kept = pruned.kept;
-    if removed == 0 {
-        let _ = writeln!(text, "{file}: nothing to prune; {kept} kept");
-    } else {
-        let _ = writeln!(text, "pruned {file}: {removed} removed, {kept} kept");
-    }
+    let _ = writeln!(
+        text,
+        "{file}: re-keyed {}, removed {}, added none; {} kept",
+        pruned.rekeyed.len(),
+        pruned.removed.len(),
+        pruned.kept
+    );
     if pruned.unaccepted > 0 {
         let noun = if pruned.unaccepted == 1 {
             "finding is not in the baseline and stays"
@@ -549,11 +560,6 @@ fn baseline_prune() -> Result<u8, Error> {
             "{} {noun} reported; prune adds none",
             pruned.unaccepted
         );
-    }
-    if removed > 0 && !pruned.tracked {
-        text.push_str("gate reads tracked files only; run git add ");
-        text.push_str(file);
-        text.push('\n');
     }
     write_out(&text)?;
     Ok(0)

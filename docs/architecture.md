@@ -232,8 +232,9 @@ core does not change.
 - The key is the plugin's short, stable identity of what the finding is about within its rule,
   aspect and path (`ProviderEntity.name`, a controller's class name); it must not change when the
   message's wording does. The fingerprint is a digest of (rule, aspect, path, key) when the finding
-  has a key, otherwise of (rule, aspect, path, message), so a keyed message can be reworded, or name
-  a path differently, without breaking a baseline. A plugin gives a key whenever its message embeds a
+  has a key (each part length-prefixed, after the word `key`), otherwise of (rule, aspect, path,
+  message), so a keyed message can be reworded, or name a path differently, without breaking a
+  baseline. A plugin gives a key whenever its message embeds a
   path or a value from the options.
 - Levels: `error` fails the gate, `warning` reports, `note` informs; `off` disables. The level is
   configuration, never the plugin's choice.
@@ -633,8 +634,10 @@ The first readers raised these points; each is settled:
   question. Option data that exempts something is written as an exception, not as data.
 - **Baselines.** `gate baseline write` stores the fingerprints of today's findings in
   `gate/baseline.json`; findings in it are not reported, entries that match nothing are, so a baseline
-  only shrinks. `gate baseline prune` removes those entries and never adds one, so a fix shrinks the
-  baseline without accepting a new finding; `write` is for the first baseline.
+  only shrinks. `gate baseline prune` removes those entries (an aspect set to `off` while its rule
+  runs makes its entries stale too), re-keys an entry written before its plugin keyed the finding,
+  and never adds one, so a fix shrinks the baseline without accepting a new finding; `write` is for
+  the first baseline.
 
 **Cache and speed**
 - Compiled modules are keyed by (plugin sha256, wasmtime version, target triple). `gate cache prune

@@ -282,9 +282,14 @@ bin/gate baseline prune
 ```
 
 Once findings are fixed, prune removes their entries, the ones `gate check` reports as matching no
-finding, and prints each one it removed. It never adds an entry: a new finding stays reported, and
-prune says how many there are. `baseline write` is for the first baseline; running it again would
-accept every new finding too.
+finding although their rule ran, and prints each one. An aspect set to `off` while its rule
+runs reports nothing, so its entries are stale too, and prune deletes them. An entry written before
+its plugin gave the finding a key is re-keyed instead: when the keyed finding has the entry's old
+fingerprint (same rule, aspect, path and message), prune rewrites the entry with the key and prints
+it. Prune never adds an entry: a new finding stays reported, and prune says how many there are.
+`baseline write` is for the first baseline; running it again would accept every new finding too.
+Prune reads the committed baseline; on a `gate/baseline.json` that git does not track it stops and
+says to run `git add gate/baseline.json` first.
 
 A fingerprint is the finding's rule, aspect and path with the plugin's stable key for it, or with its
 message when the plugin gives no key. With a key, a plugin may reword a message without making the

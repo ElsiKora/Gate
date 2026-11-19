@@ -30,9 +30,10 @@ and the release to pin.
   is about (`.key(..)` in the SDK). With a key, the fingerprint that baselines and SARIF match is the
   rule, aspect, path and key, so a reworded message keeps its baseline entry; without one it is the
   rule, aspect, path and message, as before.
-- **gate:** `gate baseline prune` removes the baseline entries that match no finding, prints each one,
-  and never adds an entry, so a new finding stays reported; `gate baseline write` is for the first
-  baseline.
+- **gate:** `gate baseline prune` re-keys the baseline entries written before their plugin keyed
+  the finding, and removes the entries that match no finding although their rule ran, an aspect
+  set to `off` included; it prints each one and never adds an entry, so a new finding stays
+  reported. `gate baseline write` is for the first baseline.
 
 ### Bug Fixes
 

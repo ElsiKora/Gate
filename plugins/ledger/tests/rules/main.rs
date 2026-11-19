@@ -143,6 +143,40 @@ pub(crate) fn run(
     })
 }
 
+/// One finding's identity as baselines see it: aspect, path, line and key.
+pub(crate) type Keyed = (String, String, Option<u32>, Option<String>);
+
+/// The findings of a run that must succeed, with their keys.
+pub(crate) fn keys(rule: &str, options: &str, plugin_options: &str, files: &Files) -> Vec<Keyed> {
+    let request = CheckRequest {
+        project: String::new(),
+        rules: vec![RuleRun {
+            name: rule.to_owned(),
+            options: options.to_owned(),
+            options_file: None,
+            exceptions: Vec::new(),
+        }],
+        plugin_options: plugin_options.to_owned(),
+        languages: "{}".to_owned(),
+        norms: Vec::new(),
+    };
+    gate_sdk::check(&ledger::PLUGIN, files, &request)
+        .expect("the rule runs")
+        .into_iter()
+        .map(|finding: Finding| {
+            let Some(Location::File(location)) = finding.location else {
+                panic!("every ledger finding names a file: {:?}", finding.location);
+            };
+            (
+                finding.aspect,
+                location.path,
+                location.span.map(|span| span.line),
+                finding.key,
+            )
+        })
+        .collect()
+}
+
 /// The findings of a run that must succeed.
 pub(crate) fn findings(
     rule: &str,

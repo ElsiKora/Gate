@@ -3247,7 +3247,7 @@ fn baseline_prune_removes_only_stale_entries_and_never_adds_one() {
         text(&output.stdout),
         concat!(
             "removed probe/read at apps/one/probe: y: none\n",
-            "pruned gate/baseline.json: 1 removed, 1 kept\n",
+            "gate/baseline.json: re-keyed 0, removed 1, added none; 1 kept\n",
             "1 finding is not in the baseline and stays reported; prune adds none\n",
         )
     );
@@ -3277,7 +3277,7 @@ fn baseline_prune_removes_only_stale_entries_and_never_adds_one() {
     assert_eq!(
         text(&output.stdout),
         concat!(
-            "gate/baseline.json: nothing to prune; 1 kept\n",
+            "gate/baseline.json: re-keyed 0, removed 0, added none; 1 kept\n",
             "1 finding is not in the baseline and stays reported; prune adds none\n",
         )
     );
@@ -3300,6 +3300,98 @@ fn baseline_prune_removes_only_stale_entries_and_never_adds_one() {
     assert_eq!(
         std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file"),
         edited
+    );
+}
+
+#[test]
+fn baseline_prune_re_keys_an_entry_written_before_its_plugin_keyed_the_finding() {
+    let repo = pinned_probe_repo();
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "Thing has no owner" }"#,
+    );
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("a baseline written without keys");
+
+    // The plugin now keys the finding: the old entry matches it no more, so check reports both.
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "Thing has no owner", key = "Thing" }"#,
+    );
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let mut rules: Vec<&str> = findings
+        .iter()
+        .filter_map(|finding| finding["rule"].as_str())
+        .collect();
+    rules.sort_unstable();
+    assert_eq!(rules, ["gate/baseline", "probe/read"], "{findings:?}");
+
+    // Prune rewrites the entry with the key instead of removing it.
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        concat!(
+            "re-keyed probe/read at apps/one/a.txt: Thing\n",
+            "gate/baseline.json: re-keyed 1, removed 0, added none; 1 kept\n",
+        )
+    );
+    let written = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+    assert!(written.contains("\"key\": \"Thing\""), "{written}");
+    repo.commit("the re-keyed baseline");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "{findings:?}");
+    assert!(findings.is_empty(), "{findings:?}");
+
+    // A new finding stays reported: re-keying accepted nothing new.
+    read_with(
+        &repo,
+        r#"{ at = "a.txt", at_message = "Thing has no owner", key = "Thing", paths = ["n"] }"#,
+    );
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let messages: Vec<&str> = findings
+        .iter()
+        .filter_map(|finding| finding["message"].as_str())
+        .collect();
+    assert_eq!(messages, ["n: none"]);
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        concat!(
+            "gate/baseline.json: re-keyed 0, removed 0, added none; 1 kept\n",
+            "1 finding is not in the baseline and stays reported; prune adds none\n",
+        )
+    );
+}
+
+#[test]
+fn baseline_prune_on_an_untracked_baseline_says_to_add_it_first() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let written = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let error = text(&output.stderr);
+    assert!(
+        error.contains("gate/baseline.json exists but git does not track it")
+            && error.contains("run git add gate/baseline.json first"),
+        "{error}"
+    );
+    assert!(
+        !text(&output.stdout).contains("removed 0"),
+        "{}",
+        text(&output.stdout)
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file"),
+        written
     );
 }
 

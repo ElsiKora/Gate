@@ -122,7 +122,7 @@ impl Rule for ExceptionOwners {
                 None => findings.emit_keyed(
                     "",
                     at,
-                    format!("{rule}/{owner}"),
+                    format!("{rule}/{owner}#unlisted"),
                     format!(
                         "the exception for {rule} names the owner {owner}, which {implementation} does not list; name an open implementation record, or remove the owner"
                     ),
@@ -137,7 +137,7 @@ impl Rule for ExceptionOwners {
                         findings.emit_keyed(
                             "",
                             at,
-                            format!("{rule}/{owner}"),
+                            format!("{rule}/{owner}#closed"),
                             format!(
                                 "the exception for {rule} names the owner {owner}, {state}; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
                             ),
@@ -187,7 +187,7 @@ impl Rule for ExceptionDecisions {
                 None => findings.emit_keyed(
                     "",
                     at,
-                    format!("{rule}/{decision}"),
+                    format!("{rule}/{decision}#unlisted"),
                     format!(
                         "the exception for {rule} names the decision {decision}, which {index_path} does not list; name an accepted decision of the index"
                     ),
@@ -195,7 +195,7 @@ impl Rule for ExceptionDecisions {
                 Some(found) if found.status != "accepted" => findings.emit_keyed(
                     "",
                     at,
-                    format!("{rule}/{decision}"),
+                    format!("{rule}/{decision}#not-accepted"),
                     format!(
                         "the exception for {rule} names the decision {decision}, which is `{}`; an exception needs an accepted decision",
                         found.status

@@ -27,8 +27,10 @@ entries stale. 2 are option-file paths that change. The other 52 are
    a controller class name). The interface says it must not change when the message's wording does.
 2. The SDK's finding builder gets `.key(..)`.
 3. The host fingerprint is (rule, aspect, path, key) when a key is given, otherwise (rule, aspect,
-   path, message digest) as before. A keyed digest adds the word `key` before the key, so a key never
-   gives the fingerprint of a message of the same text. A baseline entry stores the key and checks its
+   path, message digest) as before. A keyed digest hashes the word `key`, the rule, aspect, path and
+   key, each after its length as eight big-endian bytes (review, 2026-11-19: no separator byte can
+   make two part lists collide). Its input starts with a zero byte, which no rule id does, so a key
+   never gives the fingerprint of a message of the same text. The unkeyed digest is unchanged. A baseline entry stores the key and checks its
    fingerprint against it. SARIF keeps `partialFingerprints."gate/v1"`, whose value is that
    fingerprint: unkeyed findings keep theirs. `docs/architecture.md` section 6 says so.
 4. Keys in the plugins for every finding whose message embeds a line, a column, a path or an option
@@ -39,9 +41,15 @@ entries stale. 2 are option-file paths that change. The other 52 are
    lines that build findings, and the plugins' own collectors (`Findings::push_keyed` in nestjs,
    `Findings::emit_keyed` in ledger), change; Gate 006 works in `plugins/nestjs` for T-030.
 5. `gate baseline prune`: a full run of the working tree, then the removal of the entries `gate check`
-   reports as stale (no finding matches them, and their rule ran in their scope). It prints each
-   entry it removed and how many findings stay unaccepted, never adds an entry, and rewrites the file
-   only when it removed one. `gate baseline write` stays for the first baseline, and its help says
+   reports as stale (no finding matches them, and their rule ran in their scope; an aspect set to
+   `off` while its rule runs makes its entries stale, and the help and the guide say prune deletes
+   them). An entry without a key whose fingerprint is the message fingerprint of a finding that now
+   has a key (same project, rule, aspect and path) is re-keyed: rewritten with the key, not removed,
+   so a repository upgrades without accepting anything new. It prints each entry it re-keyed or
+   removed, `re-keyed N, removed M, added none; K kept`, and how many findings stay unaccepted; it
+   never adds an entry, and rewrites the file only when it re-keyed or removed one. On a
+   `gate/baseline.json` that git does not track it exits 2 and says to run `git add` first, instead
+   of finding nothing to prune. `gate baseline write` stays for the first baseline, and its help says
    that later fixes use prune.
 6. Tests: a message change with a key keeps the fingerprint (JSON and SARIF) and the baseline entry;
    without a key it changes and the entry is stale; prune removes only stale entries, adds none,
@@ -67,6 +75,15 @@ entries stale. 2 are option-file paths that change. The other 52 are
   `record-unique`, `record-commit`, `record-closure`, `record-dependency`, `dependency-cycle`),
   `record-status`, decisions, manifest, reuses, `closing-notes`, blockers, `exception-owners`,
   `exception-decisions`, the review-progress generator's count problems.
+
+Two different checks of one aspect and path that shared a key, and were kept apart only by their
+messages, have a suffix each (review, 2026-11-19; found by a scan of every keyed finding line for one
+aspect, path and key built with two messages): nestjs `module-registry` (`#missing`, `#unknown`),
+`native-functions` (`#async`, `#unfit`), `asset-storage` central admission (`#feature`, `#domain`);
+ledger `exception-owners` (`#unlisted`, `#closed`), `exception-decisions` (`#unlisted`,
+`#not-accepted`), `reuses-planner` (`#drop`, `#name`), `record-closure` (`#open-verification`,
+`#unresolved`) and `record-counterpart` (`#no-implementation`, `#unplanned`). Collectors that build
+findings from tuples were read by hand; their checks already carry distinct suffixes.
 
 Where several findings of one check in one file have no finer subject at the line that builds them
 (nestjs `error-logging`, some `constant-files` shapes, the `advisory-lock-manifest` malformed marker,
@@ -108,6 +125,16 @@ them; a key would change nothing today, but one makes later rewording safe:
     Prune removes the fixed one's entry, prints it, keeps the other, adds nothing, and the new finding
     stays reported. A second prune changes nothing. A baseline edited by hand exits 2 and is not
     written.
+  - `baseline_prune_re_keys_an_entry_written_before_its_plugin_keyed_the_finding`: an entry written
+    without a key, against the same finding now keyed, is stale under check (exit 1); prune re-keys
+    it, check exits 0, and a finding added after stays reported.
+  - `baseline_prune_on_an_untracked_baseline_says_to_add_it_first`: exit 2, the message names
+    `git add`, and the file is not written.
+- `plugins/ledger/tests/rules/reuses.rs`: `reuses_planner_drop_and_name_have_keys_of_their_own`.
+- `crates/gate-host/tests/host/findings.rs`:
+  `a_baseline_entry_of_one_check_does_not_accept_another_check_of_the_same_subject`: the baseline
+  accepts the `#drop` finding; the `#name` finding on the same record, key and line is reported, and
+  the `#drop` entry is stale. `pruning_re_keys_an_entry_written_before_its_finding_had_a_key`.
 - `crates/gate-host/tests/host/findings.rs`:
   - `pruning_drops_exactly_the_entries_check_reports_stale`: of two equal entries one stays, an entry
     of a rule that did not run stays, a fixed finding's entry goes, and the pruned baseline leaves
@@ -126,5 +153,6 @@ them; a key would change nothing today, but one makes later rewording safe:
 
 2026-11-19: branch `task/T-034-stable-fingerprints` from T-029's `b1173fb`; the lead rebases it onto
 the release branch. Interface, SDK, host, prune, keys in all seven plugins, tests and docs written;
-round 167 was withdrawn before it ran when the scope grew; next: one lane round on the final tip,
-then the report.
+the review's fix round (separate keys for paired checks, prune re-keys, `off` documented, untracked
+baseline, length-prefixed keyed fingerprint) written; next: one lane round on the final tip, then the
+report.

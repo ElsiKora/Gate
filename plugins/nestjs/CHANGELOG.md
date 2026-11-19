@@ -12,8 +12,8 @@ a rule id, aspect, option or finding message that changes is a breaking change.
   the registry row or the service, with the check after `#` where one subject can fail several;
   never a line or column. A finding's fingerprint no longer follows its message, so an edit above
   it, a reworded message or the option file's path no longer makes a baseline entry stale. The
-  fingerprints of these findings change once, with this release: their baseline entries are
-  written again once, with `gate baseline write`, when the repository upgrades.
+  fingerprints of these findings change once, with this release; `gate baseline prune` re-keys
+  their baseline entries when the repository upgrades.
 
 # 0.1.0
 

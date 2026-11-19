@@ -569,7 +569,7 @@ impl Analysis<'_, '_> {
                 self.emit_keyed(
                     "record-counterpart",
                     &located(&verification_locations, id, verification_path),
-                    format!("{id}#unplanned"),
+                    format!("{id}#no-implementation"),
                     format!(
                         "{verification_path} contains {id} without matching {implementation_id}"
                     ),
@@ -1450,7 +1450,7 @@ impl Analysis<'_, '_> {
                         self.emit_keyed(
                             "record-closure",
                             &entry.location,
-                            format!("{}/{prerequisite}#unresolved", entry.id),
+                            format!("{}/{prerequisite}#open-verification", entry.id),
                             format!(
                                 "{} is closed while verification prerequisite {prerequisite} is open",
                                 entry.context

@@ -1,6 +1,6 @@
 //! `ledger/reuses`.
 
-use crate::{Files, IMPLEMENTATION, PARITY, error, findings, ledger, seen};
+use crate::{Files, IMPLEMENTATION, PARITY, error, findings, keys, ledger, seen};
 
 const CATALOG: &str = "docs/reference/mechanisms.md";
 const OPTIONS: &str = r#"{"catalog":"docs/reference/mechanisms.md"}"#;
@@ -167,6 +167,42 @@ fn reuses_planner_a_sole_planner_names_its_key_and_a_co_planner_does_not() {
                 "{PREFIX} is one of the records {CATALOG} names as planning event-bus; name the key, since whichever lands first builds it"
             )
         )]
+    );
+}
+
+#[test]
+fn reuses_planner_drop_and_name_have_keys_of_their_own() {
+    // Opposite violations of one record and key, on one line: a baseline entry for one must not
+    // accept the other, and the key is what tells them apart in the fingerprint.
+    let drop = tree().edit(IMPLEMENTATION, REUSES, "  - Reuses: `event-bus`");
+    let name = tree()
+        .edit(
+            CATALOG,
+            "  - Planned by: `I-BASE-002`",
+            "  - Planned by: `I-BASE-002`, `I-BASE-003`",
+        )
+        .edit(
+            IMPLEMENTATION,
+            REUSES,
+            &format!(
+                "{REUSES}\n- `I-BASE-003`: More\n  - Status: `planned`\n  - Reuses: `event-bus`"
+            ),
+        );
+    let keyed = |key: &str| {
+        (
+            "reuses-planner".to_owned(),
+            IMPLEMENTATION.to_owned(),
+            Some(12),
+            Some(key.to_owned()),
+        )
+    };
+    assert_eq!(
+        keys("reuses", OPTIONS, PARITY, &drop),
+        [keyed("I-BASE-002/event-bus#drop")]
+    );
+    assert_eq!(
+        keys("reuses", OPTIONS, PARITY, &name),
+        [keyed("I-BASE-002/event-bus#name")]
     );
 }
 

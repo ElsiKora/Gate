@@ -406,7 +406,7 @@ impl Settings {
                         ),
                     )
                     .help("decorate the method with one automator function decorator, or make it private")
-                    .key(label);
+                    .key(format!("{label}#async"));
             }
             Requirement::None | Requirement::Function => {}
             Requirement::Unfit(kind) => {
@@ -419,7 +419,7 @@ impl Settings {
                         ),
                     )
                     .help("make it an instance method with a function decorator, or make it private")
-                    .key(label);
+                    .key(format!("{label}#unfit"));
             }
         }
     }

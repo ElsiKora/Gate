@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::CORE_PLUGIN;
 use crate::error::{Error, Result};
-use crate::findings::{Finding, Identity, RulesRan, fingerprint};
+use crate::findings::{Finding, Identity, Location, RulesRan, fingerprint};
 use crate::snapshot::Snapshot;
 
 /// The baseline's path, relative to the repository root.
@@ -193,22 +193,47 @@ impl Baseline {
             .collect()
     }
 
-    /// The baseline without its stale entries ([`Baseline::stale`]) against `findings`, a full
-    /// run's findings before the baseline, and the entries it removed. It never adds an entry: a
-    /// finding no entry accepts stays reported.
+    /// The baseline pruned against `findings`, a full run's findings before the baseline. An entry
+    /// without a key that matches no finding, but whose fingerprint is the message fingerprint of a
+    /// finding that now has a key (rule, aspect, path, project and message as the entry has them),
+    /// is re-keyed: rewritten as that finding's entry. Then every stale entry
+    /// ([`Baseline::stale`]) is removed. It never adds an entry: a finding no entry accepts stays
+    /// reported.
     #[must_use]
-    pub fn pruned(&self, findings: &[Finding], ran: &RulesRan) -> (Self, Vec<BaselineEntry>) {
+    pub fn pruned(&self, findings: &[Finding], ran: &RulesRan) -> Pruned {
         let accepted = self.accept(findings);
+        let mut taken = accepted.findings.clone();
         let mut kept = Vec::new();
+        let mut rekeyed = Vec::new();
         let mut removed = Vec::new();
         for (entry, accepted) in self.entries.iter().zip(&accepted.entries) {
-            if is_stale(entry, *accepted, ran) {
+            if *accepted {
+                kept.push(entry.clone());
+                continue;
+            }
+            let now_keyed = if entry.key.is_none() {
+                findings.iter().enumerate().position(|(index, finding)| {
+                    !taken[index] && finding.key.is_some() && was_keyless(entry, finding)
+                })
+            } else {
+                None
+            };
+            if let Some(index) = now_keyed {
+                taken[index] = true;
+                let entry = BaselineEntry::of(&findings[index]);
+                kept.push(entry.clone());
+                rekeyed.push(entry);
+            } else if is_stale(entry, false, ran) {
                 removed.push(entry.clone());
             } else {
                 kept.push(entry.clone());
             }
         }
-        (Self::from_entries(kept), removed)
+        Pruned {
+            baseline: Self::from_entries(kept),
+            rekeyed,
+            removed,
+        }
     }
 
     /// The number of entries.
@@ -235,6 +260,36 @@ impl Baseline {
         text.push('\n');
         Ok(text)
     }
+}
+
+/// What [`Baseline::pruned`] did.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Pruned {
+    /// The baseline after pruning.
+    pub baseline: Baseline,
+    /// The entries re-keyed, as they are now: each was written without a key, for a finding that
+    /// now has one.
+    pub rekeyed: Vec<BaselineEntry>,
+    /// The entries removed: stale ones.
+    pub removed: Vec<BaselineEntry>,
+}
+
+/// Whether `entry`, written without a key, is `finding` as it read before its plugin keyed it: the
+/// same rule, aspect, path and project, and the entry's fingerprint is the finding's message
+/// fingerprint.
+fn was_keyless(entry: &BaselineEntry, finding: &Finding) -> bool {
+    let path = finding.location.as_ref().map_or("", Location::key);
+    entry.project == finding.project
+        && entry.rule == finding.rule
+        && entry.aspect == finding.aspect
+        && entry.path.as_deref().unwrap_or("") == path
+        && entry.fingerprint
+            == fingerprint(
+                &finding.rule,
+                &finding.aspect,
+                path,
+                Identity::Message(&finding.message),
+            )
 }
 
 /// What [`Baseline::accept`] answers: per finding, whether an entry accepts it; per entry, whether

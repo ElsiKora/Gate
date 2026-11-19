@@ -242,7 +242,7 @@ impl Registry {
             findings.push(Finding::new(
                 "registry-coverage",
                 None,
-                path.as_str(),
+                format!("{path}#missing"),
                 format!("{registry} is missing source module: {path}"),
             ));
         }
@@ -251,7 +251,7 @@ impl Registry {
             findings.push(Finding::new(
                 "registry-coverage",
                 Some(*line),
-                path.as_str(),
+                format!("{path}#unknown"),
                 format!("{registry} references unknown source module: {path}"),
             ));
         }

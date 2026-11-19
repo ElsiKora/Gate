@@ -380,9 +380,15 @@ fn pruning_drops_exactly_the_entries_check_reports_stale() {
     let baseline = Baseline::from_findings(&[old.clone(), old.clone(), gone, elsewhere]);
     let new = finding("layers/relation", "", Level::Error, "apps/n.ts", 1, "new");
 
-    let (pruned, removed) = baseline.pruned(&[old.clone(), new.clone()], &ran_all());
-    let removed: Vec<&str> = removed.iter().map(|entry| entry.message.as_str()).collect();
+    let pruned = baseline.pruned(&[old.clone(), new.clone()], &ran_all());
+    assert!(pruned.rekeyed.is_empty());
+    let removed: Vec<&str> = pruned
+        .removed
+        .iter()
+        .map(|entry| entry.message.as_str())
+        .collect();
     assert_eq!(removed, ["old", "fixed"]);
+    let pruned = pruned.baseline;
     let kept: Vec<&str> = pruned
         .entries()
         .iter()
@@ -398,6 +404,97 @@ fn pruning_drops_exactly_the_entries_check_reports_stale() {
     let mut sink = Findings::new();
     sink.extend([old, new.clone()]);
     assert_eq!(sink.finish(&[], &pruned, &ran_all()), [new]);
+}
+
+#[test]
+fn pruning_re_keys_an_entry_written_before_its_finding_had_a_key() {
+    let before = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/x.ts",
+        3,
+        "x.ts:3 User.parent",
+    );
+    let baseline = Baseline::from_findings(&[before]);
+    let mut keyed = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/x.ts",
+        3,
+        "x.ts:3 User.parent",
+    );
+    keyed.key = Some("User.parent".to_owned());
+    let mut moved = keyed.clone();
+    moved.message = "x.ts:9 User.parent".to_owned();
+    let new = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/x.ts",
+        5,
+        "x.ts:5 User.child",
+    );
+
+    // Check does not re-key: the old entry is stale and the keyed finding is new.
+    let mut sink = Findings::new();
+    sink.push(keyed.clone());
+    let reported = sink.finish(&[], &baseline, &ran_all());
+    assert_eq!(reported.len(), 2, "{reported:?}");
+
+    // Prune re-keys it, adds nothing for the new finding, and the entry then accepts the finding
+    // wherever its line moves.
+    let pruned = baseline.pruned(&[keyed.clone(), new.clone()], &ran_all());
+    assert!(pruned.removed.is_empty());
+    assert_eq!(pruned.rekeyed.len(), 1);
+    assert_eq!(pruned.rekeyed[0].key.as_deref(), Some("User.parent"));
+    assert_eq!(pruned.baseline.len(), 1);
+    let mut sink = Findings::new();
+    sink.extend([moved, new.clone()]);
+    assert_eq!(sink.finish(&[], &pruned.baseline, &ran_all()), [new]);
+}
+
+#[test]
+fn a_baseline_entry_of_one_check_does_not_accept_another_check_of_the_same_subject() {
+    // ledger/reuses-planner's two opposite violations of one record and catalog key, on one line,
+    // with the keys the plugin gives them.
+    let mut drop = finding(
+        "ledger/reuses",
+        "planner",
+        Level::Error,
+        "docs/slices.md",
+        12,
+        "drop",
+    );
+    drop.key = Some("I-BASE-002/event-bus#drop".to_owned());
+    let mut name = finding(
+        "ledger/reuses",
+        "planner",
+        Level::Error,
+        "docs/slices.md",
+        12,
+        "name",
+    );
+    name.key = Some("I-BASE-002/event-bus#name".to_owned());
+    let baseline = Baseline::from_findings(&[drop]);
+    let mut ran = RulesRan::new();
+    ran.insert(Some("server"), "ledger/reuses");
+
+    let mut sink = Findings::new();
+    sink.push(name.clone());
+    let reported = sink.finish(&[], &baseline, &ran);
+    assert_eq!(reported.len(), 2, "{reported:?}");
+    assert!(
+        reported.contains(&name),
+        "the other violation is reported: {reported:?}"
+    );
+    assert!(
+        reported
+            .iter()
+            .any(|finding| finding.rule == "gate/baseline"),
+        "and the entry of the fixed one is stale: {reported:?}"
+    );
 }
 
 #[test]

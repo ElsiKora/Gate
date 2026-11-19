@@ -460,7 +460,7 @@ impl Scope<'_> {
                 findings.emit_keyed(
                     "reuses-planner",
                     &location,
-                    format!("{}/{key}", record.id),
+                    format!("{}/{key}#drop", record.id),
                     format!(
                         "{prefix} names {key}, which it alone plans in {catalog}; it builds the mechanism, so drop the key"
                     ),
@@ -469,7 +469,7 @@ impl Scope<'_> {
                 findings.emit_keyed(
                     "reuses-planner",
                     &location,
-                    format!("{}/{key}", record.id),
+                    format!("{}/{key}#name", record.id),
                     format!(
                         "{prefix} is one of the records {catalog} names as planning {key}; name the key, since whichever lands first builds it"
                     ),
