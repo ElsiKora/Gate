@@ -51,18 +51,18 @@ impl Default for Options {
 /// `text` with each ASCII letter as the class of its two cases, so that a pattern read without
 /// flags matches it in either case.
 fn caseless(text: &str) -> String {
-    let mut pattern = String::new();
+    let mut spelled = String::new();
     for character in text.chars() {
         if character.is_ascii_alphabetic() {
-            pattern.push('[');
-            pattern.push(character.to_ascii_lowercase());
-            pattern.push(character.to_ascii_uppercase());
-            pattern.push(']');
+            spelled.push('[');
+            spelled.push(character.to_ascii_lowercase());
+            spelled.push(character.to_ascii_uppercase());
+            spelled.push(']');
         } else {
-            pattern.push(character);
+            spelled.push(character);
         }
     }
-    pattern
+    spelled
 }
 
 impl Rule for NoCiSkip {
