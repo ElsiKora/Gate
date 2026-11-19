@@ -522,6 +522,11 @@ all = ["lint", "unit"]
   repository. It reads the core's version and sha256 from `gate.lock`, downloads the archive once into
   the cache, verifies it, and runs it. CI and local machines use the same launcher. The core fetches and
   verifies plugins the same way. A checksum mismatch fails closed and deletes nothing it did not write.
+  Every download, by the core or by the launcher, has 30 s to connect, 30 s for each read, and 15
+  minutes in all, shared by its redirect hops: a server that stops sending fails it with an error
+  that names the URL and says to try again, and nothing is retried. The launcher's wget fallback has
+  the connect and read bounds but no overall limit, which wget does not offer; curl, which the
+  launcher prefers, has all three.
 - **Reproducible**: every component, the core and each plugin, is built alone (one package per cargo
   invocation) by `scripts/build-component.sh`, which resolves the checkout, the target directory and
   `CARGO_HOME` to physical paths and remaps them, sets the rustflags itself and drops the caller's

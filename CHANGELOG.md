@@ -17,6 +17,17 @@ Each shared plugin keeps its own changelog next to its code.
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run
   `gate sync`.
 
+### Bug Fixes
+
+- **host:** a download that stops sending fails within 30 s with an error that names the URL and says
+  to try again; before, `gate lock`, `gate sync` and a plugin or tool fetch waited up to 15 minutes
+  per request without a word. Each request has 30 s to resolve and connect and 30 s for each read,
+  and a download's redirect hops share one 15-minute limit.
+- **launcher:** `bin/gate` bounds its core download the same way (curl's `--connect-timeout`,
+  `--speed-time` and `--max-time` from one 15-minute deadline; wget's `--timeout`, one try), where
+  curl had no read bound and wget retried 20 times. Run `gate init` and commit `bin/gate` to take
+  the new launcher; `gate doctor` says when it differs.
+
 ### Documentation
 
 - **docs:** upgrading a baseline written by 0.1.0. A finding of a project below the repository root

@@ -17,11 +17,23 @@
 # token goes to curl in a file only this user can read, never on a command line, and only to the
 # release assets of the repository on that GitHub's API; a redirect from the API is followed
 # without it.
+#
+# Every download is bounded: 30 s to connect, it fails when no data arrives for 30 s, and the
+# whole download, every redirect hop and request included, has 15 minutes (curl only: wget has
+# no overall limit). It is made once; a failure says to try again, and nothing is retried.
 set -eu
 
 fail() {
 	printf 'gate: environment error: %s\n' "$1" >&2
 	exit 2
+}
+
+# fetch CURL-ARGUMENTS: one bounded curl request (see the header), https or http only, with
+# what is left of the download's 15 minutes ($deadline, in seconds since the epoch).
+fetch() {
+	left=$((deadline - $(date +%s)))
+	[ "$left" -gt 0 ] || fail "cannot download $asset from $url: not finished within 15 minutes; try again"
+	curl --connect-timeout 30 --speed-limit 1 --speed-time 30 --max-time "$left" --silent --show-error --proto '=https,http' "$@"
 }
 
 # checked URL WHAT: fails, naming WHAT, unless URL is https, or plain http to 127.0.0.1,
@@ -64,7 +76,7 @@ anonymous() {
 	hops=0
 	while :; do
 		checked "$hop" "the download of $asset leads to"
-		answer=$(curl --silent --show-error --proto '=https,http' --output "$2" --write-out '%{http_code} %{redirect_url}' "$hop") ||
+		answer=$(fetch --output "$2" --write-out '%{http_code} %{redirect_url}' "$hop") ||
 			return 1
 		status=${answer%% *}
 		case $status in
@@ -137,9 +149,9 @@ private() {
 	(umask 077 && printf 'Authorization: Bearer %s\nX-GitHub-Api-Version: 2022-11-28\n' "$token" >"$headers") ||
 		fail "cannot write a private file in $work"
 	release=$api/repos/$owner/$repo/releases/tags/$tag
-	status=$(curl --silent --show-error --proto '=https,http' -H "@$headers" -H 'Accept: application/vnd.github+json' \
+	status=$(fetch -H "@$headers" -H 'Accept: application/vnd.github+json' \
 		--output "$work/release.json" --write-out '%{http_code}' "$release") ||
-		fail "cannot read $release; check the network (and HTTPS_PROXY, if one is needed)"
+		fail "cannot read $release; try again, and check the network (and HTTPS_PROXY, if one is needed)"
 	[ "$status" = 200 ] ||
 		fail "cannot download $asset: $api refused $from for release $tag of $owner/$repo (HTTP $status). $help to a token that can read $owner/$repo, then run bin/gate again"
 	# The API URL of the asset named $name: its "url" and "name" sit in one stretch of the JSON
@@ -168,9 +180,9 @@ private() {
 	') || located=
 	[ -n "$located" ] ||
 		fail "release $tag of $owner/$repo has no asset $name; run gate lock with a released core, then commit gate.lock"
-	answer=$(curl --silent --show-error --proto '=https,http' -H "@$headers" -H 'Accept: application/octet-stream' \
+	answer=$(fetch -H "@$headers" -H 'Accept: application/octet-stream' \
 		--output "$work/$asset" --write-out '%{http_code} %{redirect_url}' "$located") ||
-		fail "cannot download $asset from $located; check the network (and HTTPS_PROXY, if one is needed)"
+		fail "cannot download $asset from $located; try again, and check the network (and HTTPS_PROXY, if one is needed)"
 	rm -f "$headers"
 	status=${answer%% *}
 	case $status in
@@ -178,7 +190,7 @@ private() {
 	301 | 302 | 303 | 307 | 308)
 		# The storage behind the redirect gets no token.
 		anonymous "${answer#* }" "$work/$asset" ||
-			fail "cannot download $asset from the storage $located redirects to; check the network"
+			fail "cannot download $asset from the storage $located redirects to; try again, and check the network"
 		[ "$status" = 200 ] || fail "cannot download $asset: the storage $located redirects to answered HTTP $status; try again"
 		;;
 	*) fail "cannot download $asset: $api refused $from for $located (HTTP $status). $help to a token that can read $owner/$repo, then run bin/gate again" ;;
@@ -277,9 +289,10 @@ if ! installed; then
 	if [ -n "$enterprise_web$enterprise_api" ] && { [ -z "$enterprise_web" ] || [ -z "$enterprise_api" ]; }; then
 		fail "GATE_GITHUB_URL and GATE_GITHUB_API_URL name a GitHub Enterprise together, and only one is set; set both, or neither for github.com"
 	fi
+	deadline=$(($(date +%s) + 900))
 	if command -v curl >/dev/null 2>&1; then
 		anonymous "$url" "$work/$asset" ||
-			fail "cannot download $asset from $url; check the network (and HTTPS_PROXY, if one is needed)"
+			fail "cannot download $asset from $url; try again, and check the network (and HTTPS_PROXY, if one is needed)"
 		case $status in
 		200) ;;
 		401 | 403 | 404) private "$status" ;;
@@ -291,8 +304,8 @@ if ! installed; then
 		https://*) ;;
 		*) fail "cannot download $asset from $url with wget, which bin/gate uses for https only; install curl" ;;
 		esac
-		wget --quiet --https-only --max-redirect=10 --output-document="$work/$asset" "$url" ||
-			fail "cannot download $asset from $url; check the network (and HTTPS_PROXY, if one is needed). If the release is private, install curl: bin/gate sends a token with curl only"
+		wget --quiet --https-only --max-redirect=10 --timeout=30 --tries=1 --output-document="$work/$asset" "$url" ||
+			fail "cannot download $asset from $url; try again, and check the network (and HTTPS_PROXY, if one is needed). If the release is private, install curl: bin/gate sends a token with curl only"
 	else
 		fail "neither curl nor wget is installed; install one so bin/gate can download the core"
 	fi

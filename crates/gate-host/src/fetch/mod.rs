@@ -5,6 +5,10 @@
 //! only when the checksum matches; a mismatch removes that temporary file and nothing else. Every
 //! redirect hop is checked like the first URL.
 //!
+//! Every request is bounded ([`Bounds`]): resolving and connecting, and each read of the headers
+//! and the body. A server that stops sending fails the download with an error that names the URL
+//! and says to try again; nothing is retried.
+//!
 //! GitHub: `https://github.com` and its API, and optionally one GitHub Enterprise named by both
 //! `$GATE_GITHUB_URL` and `$GATE_GITHUB_API_URL`. The core and the shared plugins of
 //! `ElsiKora/Gate` always come from github.com; every other repository comes from the Enterprise
@@ -23,7 +27,7 @@ use std::io::{Read, Write as _};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -53,6 +57,28 @@ const MAX_REDIRECTS: usize = 10;
 
 /// The most a download may be: far above any plugin or core archive.
 const MAX_DOWNLOAD: u64 = 1024 * 1024 * 1024;
+
+/// The most one download may take, every redirect hop and its body included: the outer bound on a
+/// download that trickles. Each request of the download gets what is left of it ([`within`]).
+const GLOBAL_TIMEOUT: Duration = Duration::from_mins(15);
+
+/// How long a request waits for the network before it fails.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bounds {
+    /// Resolving the host, then connecting, TLS included: each within this.
+    pub connect: Duration,
+    /// Each read, of the response headers and of the body: a server that sends nothing for this
+    /// long fails the request.
+    pub read: Duration,
+}
+
+impl Bounds {
+    /// 30 s to connect, 30 s for each read.
+    pub const DEFAULT: Self = Self {
+        connect: Duration::from_secs(30),
+        read: Duration::from_secs(30),
+    };
+}
 
 /// Checks that gate fetches `url`: `https`, or plain `http` to this machine only (`127.0.0.1`,
 /// `[::1]`, `localhost`), with no user information, quote, backslash, space or control
@@ -261,26 +287,36 @@ pub struct Fetcher {
     cache: Cache,
     /// Follows no redirect: every hop is checked here.
     agent: ureq::Agent,
+    bounds: Bounds,
     credentials: [OnceLock<Option<Credential>>; 2],
 }
 
 impl Fetcher {
-    /// A fetcher that fills `cache`.
+    /// A fetcher that fills `cache`, with the [`Bounds::DEFAULT`] bounds.
     #[must_use]
     pub fn new(config: FetchConfig, cache: Cache) -> Self {
+        Self::bounded(config, cache, Bounds::DEFAULT)
+    }
+
+    /// A fetcher that fills `cache`, each request within `bounds`.
+    #[must_use]
+    pub fn bounded(config: FetchConfig, cache: Cache, bounds: Bounds) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
             .max_redirects_will_error(false)
             .user_agent(format!("gate/{}", env!("CARGO_PKG_VERSION")))
-            .timeout_connect(Some(Duration::from_secs(30)))
-            .timeout_global(Some(Duration::from_mins(15)))
+            .timeout_resolve(Some(bounds.connect))
+            .timeout_connect(Some(bounds.connect))
+            .timeout_per_read(Some(bounds.read))
+            .timeout_global(Some(GLOBAL_TIMEOUT))
             .build()
             .new_agent();
         Self {
             config,
             cache,
             agent,
+            bounds,
             credentials: [OnceLock::new(), OnceLock::new()],
         }
     }
@@ -384,7 +420,7 @@ impl Fetcher {
         asset: &str,
     ) -> Result<Pin> {
         let which = self.for_repository(owner, repo);
-        let release = self.release(which, owner, repo, tag)?;
+        let release = self.release(which, owner, repo, tag, Instant::now() + GLOBAL_TIMEOUT)?;
         let Some(found) = release.assets.iter().find(|item| item.name == asset) else {
             let names: Vec<&str> = release
                 .assets
@@ -456,7 +492,14 @@ impl Fetcher {
         }
     }
 
-    fn release(&self, which: Which, owner: &str, repo: &str, tag: &str) -> Result<Release> {
+    fn release(
+        &self,
+        which: Which,
+        owner: &str,
+        repo: &str,
+        tag: &str,
+        deadline: Instant,
+    ) -> Result<Release> {
         let api_url = &self.endpoint(which).api_url;
         let url = format!("{api_url}/repos/{owner}/{repo}/releases/tags/{tag}");
         let what = format!("release {tag} of {owner}/{repo}");
@@ -470,9 +513,9 @@ impl Fetcher {
         if let Some(credential) = credential {
             request = request.header("Authorization", bearer(&credential.secret));
         }
-        let response = request
+        let response = within(request, deadline)
             .call()
-            .map_err(|error| transport(&what, &url, &error))?;
+            .map_err(|error| transport(&what, &url, &error, self.bounds))?;
         let status = response.status().as_u16();
         let with = credential.map_or_else(
             || "without a credential".to_owned(),
@@ -485,7 +528,7 @@ impl Fetcher {
                     .with_config()
                     .limit(64 * 1024 * 1024)
                     .read_to_string()
-                    .map_err(|error| transport(&what, &url, &error))?;
+                    .map_err(|error| transport(&what, &url, &error, self.bounds))?;
                 serde_json::from_str(&text).map_err(|error| {
                     Error::environment(format!(
                         "{url} did not answer with a GitHub release ({error}); check {API_URL_VARIABLE}"
@@ -521,17 +564,16 @@ impl Fetcher {
         &self,
         asset: &str,
         url: &str,
+        deadline: Instant,
     ) -> Result<(String, ureq::http::Response<ureq::Body>)> {
         let mut current = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
             check_url(&current).map_err(|message| {
                 Error::environment(format!("{asset}: {url} leads to {message}"))
             })?;
-            let response = self
-                .agent
-                .get(&current)
+            let response = within(self.agent.get(&current), deadline)
                 .call()
-                .map_err(|error| transport(asset, &current, &error))?;
+                .map_err(|error| transport(asset, &current, &error, self.bounds))?;
             if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
                 return Ok((current, response));
             }
@@ -555,10 +597,21 @@ impl Fetcher {
         url: &str,
         temporary: &mut Temporary,
     ) -> Result<Sha256Sum> {
-        let (_, response) = self.get_anonymous(asset, url)?;
+        let deadline = Instant::now() + GLOBAL_TIMEOUT;
+        // Every 200 answer streams into the temporary file under the same asset name, URL and bounds.
+        let save = |response: ureq::http::Response<ureq::Body>, temporary: &mut Temporary| {
+            stream(
+                asset,
+                url,
+                response.into_body().into_reader(),
+                temporary,
+                self.bounds,
+            )
+        };
+        let (_, response) = self.get_anonymous(asset, url, deadline)?;
         let status = response.status().as_u16();
         if status == 200 {
-            return stream(asset, url, response.into_body().into_reader(), temporary);
+            return save(response, temporary);
         }
         let refused = matches!(status, 401 | 403 | 404);
         let Some(github) = refused.then(|| self.github_asset(url)).flatten() else {
@@ -573,7 +626,13 @@ impl Fetcher {
                 github.owner, github.repo, TOKEN_VARIABLES[0], TOKEN_VARIABLES[1]
             )));
         };
-        let release = self.release(github.endpoint, github.owner, github.repo, github.tag)?;
+        let release = self.release(
+            github.endpoint,
+            github.owner,
+            github.repo,
+            github.tag,
+            deadline,
+        )?;
         let Some(found) = release.assets.iter().find(|item| item.name == github.name) else {
             return Err(Error::environment(format!(
                 "release {} of {}/{} has no asset {}; check the URL in gate.lock, or run gate lock again",
@@ -603,16 +662,17 @@ impl Fetcher {
             )));
         }
 
-        let response = self
+        let request = self
             .agent
             .get(&found.url)
             .header("Accept", "application/octet-stream")
             .header("X-GitHub-Api-Version", API_VERSION)
-            .header("Authorization", bearer(&credential.secret))
+            .header("Authorization", bearer(&credential.secret));
+        let response = within(request, deadline)
             .call()
-            .map_err(|error| transport(asset, &found.url, &error))?;
+            .map_err(|error| transport(asset, &found.url, &error, self.bounds))?;
         match response.status().as_u16() {
-            200 => stream(asset, url, response.into_body().into_reader(), temporary),
+            200 => save(response, temporary),
             301 | 302 | 303 | 307 | 308 => {
                 let target = location(&response)
                     .and_then(|location| resolve(&found.url, location))
@@ -622,9 +682,9 @@ impl Fetcher {
                         ))
                     })?;
                 // The redirect target is signed; the credential stays with the API.
-                let (_, response) = self.get_anonymous(asset, &target)?;
+                let (_, response) = self.get_anonymous(asset, &target, deadline)?;
                 match response.status().as_u16() {
-                    200 => stream(asset, url, response.into_body().into_reader(), temporary),
+                    200 => save(response, temporary),
                     status => Err(Error::environment(format!(
                         "cannot download {asset} from {url}: the storage GitHub redirected to answered HTTP {status}; try again later"
                     ))),
@@ -744,10 +804,41 @@ fn resolve(base: &str, location: &str) -> Option<String> {
     Some(format!("{scheme}://{directory}/{location}"))
 }
 
-fn transport(what: &str, url: &str, error: &ureq::Error) -> Error {
+fn transport(what: &str, url: &str, error: &ureq::Error, bounds: Bounds) -> Error {
+    if let ureq::Error::Timeout(timeout) = error {
+        return timed_out(what, url, *timeout, bounds);
+    }
     Error::environment(format!(
         "cannot download {what} from {url}: {error}; check the network (and HTTPS_PROXY, if one is needed)"
     ))
+}
+
+/// `request` bounded by the time left before `deadline`: every request of one download, each
+/// redirect hop and the private asset's lookup included, shares one [`GLOBAL_TIMEOUT`]. Past the
+/// deadline the request fails at once as timed out.
+fn within<B>(request: ureq::RequestBuilder<B>, deadline: Instant) -> ureq::RequestBuilder<B> {
+    request
+        .config()
+        .timeout_global(Some(deadline.saturating_duration_since(Instant::now())))
+        .build()
+}
+
+/// The one error of a request that ran out of time, whichever phase it was in. A connection
+/// that is not made in time carries the launcher's hint about the network and the proxy.
+fn timed_out(what: &str, url: &str, timeout: ureq::Timeout, bounds: Bounds) -> Error {
+    let seconds = |limit: Duration| limit.as_secs_f64();
+    let reason = match timeout {
+        ureq::Timeout::Resolve | ureq::Timeout::Connect => format!(
+            "no connection within {} s; check the network (and HTTPS_PROXY, if one is needed) and try again",
+            seconds(bounds.connect)
+        ),
+        ureq::Timeout::Global | ureq::Timeout::PerCall => format!(
+            "not finished within {} minutes; try again",
+            GLOBAL_TIMEOUT.as_secs() / 60
+        ),
+        _ => format!("no data for {} s; try again", seconds(bounds.read)),
+    };
+    Error::environment(format!("cannot download {what} from {url}: {reason}"))
 }
 
 fn stream(
@@ -755,8 +846,15 @@ fn stream(
     url: &str,
     reader: impl Read,
     temporary: &mut Temporary,
+    bounds: Bounds,
 ) -> Result<Sha256Sum> {
     let failed = |error: std::io::Error| {
+        if let Some(ureq::Error::Timeout(timeout)) = error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<ureq::Error>())
+        {
+            return timed_out(asset, url, *timeout, bounds);
+        }
         Error::environment(format!(
             "cannot download {asset} from {url}: {error}; try again"
         ))

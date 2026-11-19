@@ -19,6 +19,7 @@ pub struct Route {
     headers: Vec<(String, String)>,
     authorization: Option<String>,
     delay: Duration,
+    stall: Option<(usize, Duration)>,
 }
 
 impl Route {
@@ -30,6 +31,7 @@ impl Route {
             headers: Vec::new(),
             authorization: None,
             delay: Duration::ZERO,
+            stall: None,
         }
     }
 
@@ -60,6 +62,13 @@ impl Route {
     /// Waits this long before answering.
     pub fn delayed(mut self, delay: Duration) -> Self {
         self.delay = delay;
+        self
+    }
+
+    /// Sends the headers and the first `sent` bytes of the body, then holds the connection open
+    /// without sending anything for `hold`: a server that stops in the middle of a download.
+    pub fn stalled(mut self, sent: usize, hold: Duration) -> Self {
+        self.stall = Some((sent, hold));
         self
     }
 }
@@ -199,7 +208,13 @@ fn answer(stream: TcpStream, routes: &Mutex<HashMap<String, Route>>, log: &Mutex
     }
     head.push_str("\r\n");
     let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(&route.body);
+    if let Some((sent, hold)) = route.stall {
+        let _ = stream.write_all(&route.body[..sent.min(route.body.len())]);
+        let _ = stream.flush();
+        std::thread::sleep(hold);
+    } else {
+        let _ = stream.write_all(&route.body);
+    }
     let _ = stream.flush();
 }
 
