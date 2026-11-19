@@ -214,7 +214,12 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
   second puts `declarations/` into T-056's derived class, like `results/<plugin sha256>/`. An
   unpinned plugin's directory goes; a pinned one's entries are bounded by `--older-than` and
   `--max-size`; `declarations::read` sets the entry's last use. The interim rule in
-  `Cache::unreferenced` and its unit test then go.
+  `Cache::unreferenced` and its unit test then go. Agreed with Gate 004 against T-056's
+  `96552d0`: the declarations loop in `Cache::plan` mirrors its results loop (a child that is a
+  directory named by a sha256 in `plugins` adds its `derived_files`; anything else is
+  `Reason::Unpinned`). It sits before the `older_than` block, so both bounds see its files, and
+  `cache::touch` marks a read. Its test is a declarations case beside results in
+  `prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download`.
 - Measures, as the lead set them: after `gate sync` with the module cache emptied, plus one row
   for a first run on an empty cache, so the one-time cost is on record.
 - Next: one round on the lane. It runs the new tests on `7e904e4`, each expected to fail but the
