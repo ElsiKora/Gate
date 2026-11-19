@@ -2328,3 +2328,483 @@ fn a_projects_rule_level_wins_over_the_aspect_levels_of_git_recommended() {
         "{said}"
     );
 }
+
+/// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the
+/// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
+fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {
+    let (code, messages, ran, states, _) = probe_stale(repo);
+    (code, messages, ran, states)
+}
+
+/// For each call that ran although a result of it was stored: its scope and the changed input.
+type Stale = Vec<(String, String)>;
+
+/// [`probe_timed`], and for each call that ran although a result of it was stored, its scope and
+/// the input `--timings` names as changed, sorted.
+fn probe_stale(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>, Stale) {
+    probe_stale_from(repo, &probe().0)
+}
+
+/// [`probe_stale`] with the probe component read from `wasm`.
+fn probe_stale_from(
+    repo: &Repo,
+    wasm: &Path,
+) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>, Stale) {
+    let plugin = format!("probe={}", wasm.display());
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &plugin,
+        "--format",
+        "json",
+        "--timings",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut messages: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str().map(str::to_owned))
+        .collect();
+    messages.sort();
+    let stderr = text(&output.stderr);
+    let mut ran = Vec::new();
+    let mut stale = Vec::new();
+    let mut calls = 0;
+    for line in stderr.lines() {
+        let Some(call) = line.strip_prefix("timings: call probe ") else {
+            continue;
+        };
+        calls += 1;
+        let (scope, outcome) = call.split_once(": ").expect("scope and outcome");
+        if outcome.starts_with("ran ") {
+            ran.push(scope.to_owned());
+            if let Some((_, changed)) = outcome.split_once("; its stored result no longer holds: ")
+            {
+                stale.push((scope.to_owned(), changed.to_owned()));
+            }
+        } else {
+            assert!(outcome.starts_with("cached, checked in "), "{line}");
+        }
+    }
+    assert!(calls > 0, "--timings names each call: {stderr}");
+    ran.sort();
+    stale.sort();
+    let states = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("timings: sync-state: "))
+        .map(str::to_owned);
+    (output.status.code(), messages, ran, states, stale)
+}
+
+/// A probe repository whose two projects, `one` and `two`, each run `probe/read` on their own
+/// `a.txt` and list their own files.
+fn two_readers() -> Repo {
+    let repo = probe_repo_for(
+        "apps/*",
+        r#""probe/read" = { level = "error", options = { paths = ["a.txt"], list = "" } }"#,
+    );
+    repo.write("apps/one/a.txt", "one\n");
+    repo.write("apps/two/a.txt", "two\n");
+    repo.commit("two readers");
+    repo
+}
+
+#[test]
+fn a_second_run_on_an_unchanged_tree_runs_no_plugin_call() {
+    let repo = two_readers();
+    let (code, first, ran, _) = probe_timed(&repo);
+    assert_eq!(code, Some(1), "{first:?}");
+    assert_eq!(ran, ["one", "two"], "a cold run runs every call");
+    assert!(first.contains(&"a.txt: one\n".to_owned()), "{first:?}");
+
+    let (code, second, ran, _) = probe_timed(&repo);
+    assert_eq!(code, Some(1), "{second:?}");
+    assert!(ran.is_empty(), "a warm run runs no call: {ran:?}");
+    assert_eq!(second, first, "the stored results report the same findings");
+}
+
+#[test]
+fn changing_a_rules_options_or_the_plugins_sha256_reruns_its_calls() {
+    let repo = two_readers();
+    let (_, first, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one", "two"]);
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert!(ran.is_empty(), "warm: {ran:?}");
+
+    // Other options are another request: no stored result answers it.
+    let config =
+        std::fs::read_to_string(repo.directory.path().join("gate.toml")).expect("gate.toml");
+    repo.write(
+        "gate.toml",
+        &config.replace(r#"paths = ["a.txt"]"#, r#"paths = ["a.txt", "b.txt"]"#),
+    );
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one", "two"], "changed options rerun every call");
+    // So are other options of the plugin itself.
+    let labelled = config.replace(
+        r#"probe = { source = "acme/rules:probe@0.1.0" }"#,
+        r#"probe = { source = "acme/rules:probe@0.1.0", options = { label = "x" } }"#,
+    );
+    assert_ne!(labelled, config);
+    repo.write("gate.toml", &labelled);
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(
+        ran,
+        ["one", "two"],
+        "changed plugin options rerun every call"
+    );
+    assert!(messages.contains(&"label x".to_owned()), "{messages:?}");
+    repo.write("gate.toml", &config);
+    let (_, back, ran, _) = probe_timed(&repo);
+    assert!(
+        ran.is_empty(),
+        "the first options' results are still stored: {ran:?}"
+    );
+    assert_eq!(back, first);
+
+    // The same component with one more custom section: other bytes, another sha256.
+    let mut bytes = probe().1.clone();
+    bytes.extend_from_slice(&[0, 6, 5]);
+    bytes.extend_from_slice(b"other");
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let other = outside.path().join("probe.wasm");
+    std::fs::write(&other, &bytes).expect("write the changed component");
+    let (code, messages, ran, _, _) = probe_stale_from(&repo, &other);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(ran, ["one", "two"], "another sha256 reruns every call");
+    assert_eq!(messages, first);
+    let (_, _, ran, _, _) = probe_stale_from(&repo, &other);
+    assert!(ran.is_empty(), "and stores its own results: {ran:?}");
+}
+
+#[test]
+fn changing_one_read_file_reruns_exactly_the_calls_that_read_it() {
+    let repo = two_readers();
+    probe_timed(&repo);
+
+    repo.write("apps/one/a.txt", "one, changed\n");
+    repo.commit("change a file one reads");
+    let (_, messages, ran, _, stale) = probe_stale(&repo);
+    assert_eq!(ran, ["one"], "only the call that read the file runs");
+    assert_eq!(
+        stale,
+        [("one".to_owned(), "the file \"apps/one/a.txt\"".to_owned())],
+        "--timings names the input that changed"
+    );
+    assert!(
+        messages.contains(&"a.txt: one, changed\n".to_owned()),
+        "{messages:?}"
+    );
+    assert!(
+        messages.contains(&"a.txt: two\n".to_owned()),
+        "{messages:?}"
+    );
+
+    repo.write("apps/two/b.txt", "new\n");
+    repo.commit("add a file below what two lists");
+    let (_, messages, ran, _, stale) = probe_stale(&repo);
+    assert_eq!(ran, ["two"], "only the call whose listing changed runs");
+    assert_eq!(
+        stale,
+        [("two".to_owned(), "the listing of \"apps/two/\"".to_owned())],
+        "--timings names the listing that changed"
+    );
+    assert!(
+        messages.contains(&"list : a.txt,b.txt,gate.toml".to_owned()),
+        "{messages:?}"
+    );
+
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn an_uncommitted_edit_reruns_the_call_even_one_git_sees_as_no_change() {
+    let repo = two_readers();
+    probe_timed(&repo);
+
+    repo.write("apps/one/a.txt", "one, edited\n");
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"], "an edit not committed counts");
+    assert!(
+        messages.contains(&"a.txt: one, edited\n".to_owned()),
+        "{messages:?}"
+    );
+
+    // With core.autocrlf, git sees an edit of line endings alone as no change; the plugin
+    // reads other bytes, so its call runs again.
+    repo.git(&["config", "core.autocrlf", "true"]);
+    repo.commit("the edit");
+    probe_timed(&repo);
+    repo.write("apps/one/a.txt", "one, edited\r\n");
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"], "a line-ending edit counts");
+    assert!(
+        messages.contains(&"a.txt: one, edited\r\n".to_owned()),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn a_moved_ref_reruns_only_the_calls_whose_read_set_holds_a_ref_answer() {
+    let repo = Repo::empty();
+    let source = "acme/rules:probe@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[[profiles]]\nprojects = [\"apps/one\"]\n\n[profiles.rules]\n\"probe/history\" = \"error\"\n\n[[profiles]]\nprojects = [\"apps/two\"]\n\n[profiles.rules]\n\"probe/read\" = {{ level = \"error\", options = {{ paths = [\"a.txt\"] }} }}\n"
+        ),
+    );
+    repo.write("apps/one/gate.toml", "[project]\nname = \"one\"\n");
+    repo.write("apps/two/gate.toml", "[project]\nname = \"two\"\n");
+    repo.write("apps/two/a.txt", "two\n");
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/probe.wasm",
+            &"b".repeat(64),
+        ),
+    );
+    repo.commit("a history reader and a file reader");
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one", "two"]);
+
+    repo.git(&["branch", "other"]);
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert!(
+        ran.is_empty(),
+        "a ref no call asked about moves nothing: {ran:?}"
+    );
+
+    repo.git(&["commit", "-q", "--allow-empty", "-m", "move HEAD and main"]);
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(
+        ran,
+        ["one"],
+        "only the call that asked for HEAD and main runs"
+    );
+    assert!(messages.contains(&"log: 2".to_owned()), "{messages:?}");
+}
+
+/// The calls that ran, and the `git answers` line of `--timings`.
+fn probe_git_answers(repo: &Repo) -> (Vec<String>, Option<String>) {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--timings"]);
+    let stderr = text(&output.stderr);
+    let mut ran: Vec<String> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("timings: call probe "))
+        .filter_map(|call| call.split_once(": ran ").map(|(scope, _)| scope.to_owned()))
+        .collect();
+    ran.sort();
+    let answers = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("timings: git answers: "))
+        .map(str::to_owned);
+    (ran, answers)
+}
+
+#[test]
+fn after_main_moves_a_history_call_asks_git_only_about_the_new_commits() {
+    let repo = probe_repo_for(
+        "apps/*",
+        r#""probe/git" = { level = "error", options = { changed_paths = [["HEAD~2", "HEAD~1"], ["HEAD~1", "HEAD"]], is_ancestor = [["HEAD~1", "HEAD"]] } }"#,
+    );
+    for message in ["first", "second", "third"] {
+        repo.write("apps/one/a.txt", &format!("{message}\n"));
+        repo.commit(message);
+    }
+
+    // Two calls ask the same three questions: git answers each once, nothing is stored yet.
+    let (ran, answers) = probe_git_answers(&repo);
+    assert_eq!(ran, ["one", "two"]);
+    assert_eq!(answers.as_deref(), Some("3 asked, 0 from the cache"));
+
+    // Main moves by one commit: the calls run again; the pair of old commits is answered from
+    // the cache, git is asked about the new commit only.
+    repo.write("apps/one/a.txt", "fourth\n");
+    repo.commit("fourth");
+    let (ran, answers) = probe_git_answers(&repo);
+    assert_eq!(ran, ["one", "two"]);
+    assert_eq!(answers.as_deref(), Some("2 asked, 1 from the cache"));
+
+    // Nothing moved: no call runs, no question is asked.
+    let (ran, answers) = probe_git_answers(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+    assert_eq!(answers, None);
+}
+
+#[test]
+fn a_commit_the_clone_lacks_is_no_ancestor_until_a_fetch_brings_it() {
+    // Two commits of another repository, which this one fetches later.
+    let other = Repo::empty();
+    other.write("x.txt", "base\n");
+    let base = other.commit("base");
+    other.write("x.txt", "tip\n");
+    let tip = other.commit("tip");
+    let repo = probe_repo_for(
+        "apps/one",
+        &format!(
+            r#""probe/git" = {{ level = "error", options = {{ is_ancestor = [["{base}", "{tip}"]] }} }}"#
+        ),
+    );
+    repo.write("apps/one/a.txt", "one\n");
+    repo.commit("first");
+    let answer = |answer: &str| format!("is-ancestor {base} {tip}: {answer}");
+
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"]);
+    assert!(messages.contains(&answer("false")), "{messages:?}");
+
+    // The fetch brings both commits: the call runs again, and the no is not reused from the
+    // stored git answers.
+    let source = other.path().to_str().expect("a UTF-8 path");
+    repo.git(&["fetch", "-q", source, "main"]);
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one"]);
+    assert!(messages.contains(&answer("true")), "{messages:?}");
+
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn merge_tree_answers_are_kept_per_git_version_and_never_from_a_shallow_clone() {
+    let repo = probe_repo_for(
+        "apps/one",
+        r#""probe/git" = { level = "error", options = { merge_tree = [["main", "side"]] } }"#,
+    );
+    repo.write("apps/one/a.txt", "base\n");
+    let base = repo.commit("base");
+    repo.git(&["checkout", "-q", "-b", "side"]);
+    repo.write("apps/one/b.txt", "side\n");
+    repo.commit("side");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("apps/one/a.txt", "main\n");
+    repo.commit("main");
+    // Each run below runs the call: only the stored git answers carry over.
+    let fresh = || {
+        let _gone = std::fs::remove_dir_all(repo.cache.path().join("results"));
+        probe_git_answers(&repo).1
+    };
+
+    assert_eq!(fresh().as_deref(), Some("1 asked, 0 from the cache"));
+    assert_eq!(fresh().as_deref(), Some("0 asked, 1 from the cache"));
+
+    // Another git version may merge differently: the question is asked again.
+    let wrapper = tempfile::tempdir().expect("a directory");
+    let git = wrapper.path().join("git");
+    let real = String::from_utf8(
+        Command::new("sh")
+            .args(["-c", "command -v git"])
+            .output()
+            .expect("sh")
+            .stdout,
+    )
+    .expect("utf-8");
+    std::fs::write(
+        &git,
+        format!(
+            "#!/bin/sh\nfor last; do :; done\nif [ \"$last\" = --version ]; then echo 'git version 0.0.0.test'; exit 0; fi\nexec {} \"$@\"\n",
+            real.trim()
+        ),
+    )
+    .expect("write the wrapper");
+    std::fs::set_permissions(&git, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("make the wrapper executable");
+    let path = format!(
+        "{}:{}",
+        wrapper.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let _gone = std::fs::remove_dir_all(repo.cache.path().join("results"));
+    let plugin = format!("probe={}", probe().0.display());
+    let output = isolated(
+        Command::new(env!("CARGO_BIN_EXE_gate"))
+            .args(["check", "--plugin", &plugin, "--timings"])
+            .current_dir(repo.path())
+            .env("GATE_CACHE_DIR", repo.cache.path())
+            .env("PATH", path),
+    )
+    .output()
+    .expect("gate");
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains("timings: git answers: 1 asked, 0 from the cache"),
+        "{stderr}"
+    );
+
+    // A shallow clone may lack the merge base: nothing is read from or kept in the store.
+    std::fs::write(repo.path().join(".git/shallow"), format!("{base}\n")).expect("shallow");
+    assert_eq!(fresh(), None);
+}
+
+#[test]
+fn a_cache_that_cannot_be_written_warns_once_and_the_check_still_reports() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let repo = probe_repo_for(
+        "apps/one",
+        r#""probe/git" = { level = "error", options = { is_ancestor = [["HEAD~1", "HEAD"]], sync_state = ["HEAD"] } }"#,
+    );
+    for message in ["first", "second"] {
+        repo.write("apps/one/a.txt", &format!("{message}\n"));
+        repo.commit(message);
+    }
+    // Every write goes through the cache's temporary directory: none can be made.
+    let temporary = repo.cache.path().join("tmp");
+    std::fs::create_dir_all(&temporary).expect("tmp");
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o555))
+        .expect("read-only");
+
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o755))
+        .expect("writable again");
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout)).expect("json");
+    let messages: Vec<&str> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str())
+        .collect();
+    assert!(
+        messages.contains(&"is-ancestor HEAD~1 HEAD: true"),
+        "{messages:?}"
+    );
+    let warnings: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.starts_with("gate: warning: cannot write to the cache"))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    assert!(warnings[0].contains("GATE_CACHE_DIR"), "{stderr}");
+}
+
+#[test]
+fn a_cold_history_run_computes_one_sync_state_per_commit_for_every_call_and_rule() {
+    let repo = probe_repo_for(
+        "apps/*",
+        r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~2", "HEAD~1", "HEAD"], sync_state_log = "HEAD~3..HEAD" } }"#,
+    );
+    repo.write("apps/one/a.txt", "first\n");
+    repo.commit("first");
+    for message in ["second", "third", "fourth"] {
+        repo.write("apps/one/a.txt", &format!("{message}\n"));
+        repo.commit(message);
+    }
+
+    // Two calls (one per project), each asking every commit twice: once by name, once from the
+    // log. Each commit is computed once in the run, then read from the cache.
+    let (code, messages, ran, states) = probe_timed(&repo);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(ran, ["one", "two"]);
+    assert_eq!(states.as_deref(), Some("3 computed, 0 from the cache"));
+
+    let (_, _, ran, states) = probe_timed(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+    assert_eq!(states.as_deref(), Some("0 computed, 3 from the cache"));
+}

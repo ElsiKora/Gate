@@ -328,6 +328,9 @@ fn work_tree_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
     for path in git.paths(&["diff-files", "-z", "--name-only", "--no-renames"])? {
         to_hash.insert(path);
     }
+    // A file git converts (line endings, a filter) can change bytes while git sees no change:
+    // its id is always the hash of the bytes a plugin reads.
+    to_hash.extend(converted(git, &entries)?);
 
     let mut regular = Vec::new();
 
@@ -358,7 +361,7 @@ fn work_tree_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
     }
 
     for chunk in regular.chunks(256) {
-        let mut arguments = vec!["hash-object", "--"];
+        let mut arguments = vec!["hash-object", "--no-filters", "--"];
         arguments.extend(chunk.iter().map(String::as_str));
         let output = git.output(&arguments)?;
         let text = String::from_utf8(output)
@@ -379,6 +382,69 @@ fn work_tree_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
     }
 
     Ok(entries)
+}
+
+/// The tracked paths whose working-tree bytes git may convert on the way to or from the index:
+/// every path when `core.autocrlf` is on, else the paths an attribute converts (`text`, `eol`,
+/// `crlf`, `filter`, `ident`, `working-tree-encoding`). For these, the index id may name other
+/// bytes than the file holds, and an edit of line endings alone leaves git's view unchanged.
+fn converted(git: &Git, entries: &BTreeMap<String, BlobId>) -> Result<Vec<String>> {
+    let autocrlf = git
+        .try_text(&["config", "--get", "core.autocrlf"])?
+        .map(|value| value.to_ascii_lowercase());
+    if matches!(
+        autocrlf.as_deref(),
+        Some("true" | "yes" | "on" | "1" | "input")
+    ) {
+        return Ok(entries.keys().cloned().collect());
+    }
+    let attributes = entries
+        .keys()
+        .any(|path| path == ".gitattributes" || path.ends_with("/.gitattributes"))
+        || git
+            .try_text(&["config", "--get", "core.attributesFile"])?
+            .is_some()
+        || git
+            .try_text(&["rev-parse", "--git-path", "info/attributes"])?
+            .is_some_and(|path| git.root().join(path).is_file());
+    if !attributes {
+        return Ok(Vec::new());
+    }
+    let mut input = Vec::new();
+    for path in entries.keys() {
+        input.extend_from_slice(path.as_bytes());
+        input.push(0);
+    }
+    let output = git.output_with_input(
+        &[
+            "check-attr",
+            "-z",
+            "--stdin",
+            "text",
+            "eol",
+            "crlf",
+            "filter",
+            "ident",
+            "working-tree-encoding",
+        ],
+        &input,
+    )?;
+    let fields = split_nul(&output)?;
+    let mut converted = BTreeSet::new();
+    for triple in fields.chunks(3) {
+        if let [path, attribute, value] = triple {
+            let converts = match value.as_str() {
+                "unspecified" | "unset" => false,
+                // `-text`, `-crlf` say "never convert"; a set `filter` or `ident` converts.
+                "set" => attribute != "eol",
+                _ => true,
+            };
+            if converts {
+                converted.insert(path.clone());
+            }
+        }
+    }
+    Ok(converted.into_iter().collect())
 }
 
 fn commit_entries(git: &Git, commit: &str) -> Result<BTreeMap<String, BlobId>> {

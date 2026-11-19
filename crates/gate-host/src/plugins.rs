@@ -8,14 +8,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Instant;
 
-use gate_runtime::{Blob, Call, Grant, History, HostError, Plugin, ReadSet, Runtime, Tree};
+use gate_runtime::{
+    Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
+    Runtime, Tree,
+};
 use gate_sdk::{Commit, CommitRange, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::cache::{Cache, Sha256Sum};
+use crate::cache::answers::{Answer, Answers, Question};
+use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
     PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings,
@@ -23,7 +29,7 @@ use crate::config::{
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
 use crate::findings::{Finding, Findings, Level, Location, RuleFilter, RulesRan, Span};
-use crate::git::Git;
+use crate::git::{Git, Merges, Objects};
 use crate::lock::{Lock, Wanted};
 use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
@@ -61,6 +67,31 @@ pub struct PluginReads {
     pub plugin: String,
     /// The paths listed and read (repository paths, with blob ids) and the git queries.
     pub read_set: ReadSet,
+    /// Whether the result came from the result cache, the call not run.
+    pub from_cache: bool,
+    /// For a call that ran although a result of it was stored: the first input it recorded that
+    /// answers differently now.
+    pub stale: Option<String>,
+    /// Where the call's time went; for a result from the cache, the time spent loading it and
+    /// checking that every input it recorded answers as it did.
+    pub time: CallTime,
+    /// The fuel the call used; zero for a result from the cache.
+    pub fuel_used: u64,
+    /// The call's invocations, each with its rules, time and fuel; none for a result from the
+    /// cache.
+    pub invocations: Vec<Invocation>,
+}
+
+/// A call's outcome, and whether it came from the result cache or why it ran again.
+struct Looked {
+    outcome: gate_runtime::Result<CallOutcome>,
+    from_cache: bool,
+    stale: Option<String>,
+}
+
+/// An answer [`GitHistory::remembered`] may keep.
+fn kept(answer: Answer) -> (Answer, bool) {
+    (answer, true)
 }
 
 /// What the plugins of a run reported.
@@ -69,6 +100,53 @@ pub(crate) struct Ran {
     pub(crate) rules: usize,
     pub(crate) per_scope: RulesRan,
     pub(crate) reads: Vec<PluginReads>,
+    pub(crate) sync_states: SyncStates,
+    pub(crate) git_answers: GitAnswers,
+    /// What the first cache write that failed said, when one did.
+    pub(crate) cache_warning: Option<String>,
+}
+
+/// The first cache write of a run that failed. A write is best effort: the findings do not depend
+/// on it, so its failure is one warning, not a failed check, as a bad entry read is a miss.
+#[derive(Debug, Default)]
+struct CacheWrites(Mutex<Option<String>>);
+
+impl CacheWrites {
+    /// Notes `written`'s failure, when it failed.
+    fn note(&self, written: Result<()>) {
+        if let Err(error) = written {
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get_or_insert_with(|| {
+                    format!(
+                        "cannot write to the cache ({error}); the findings are complete, but the \
+                         next run cannot reuse this run's work: free space, or set GATE_CACHE_DIR \
+                         to a writable directory"
+                    )
+                });
+        }
+    }
+
+    fn take(&self) -> Option<String> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+}
+
+/// The `sync-state` answers of a run: how many it computed, and how many it read from the cache.
+/// Each commit counts once, however many calls and rules ask for it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SyncStates {
+    pub computed: usize,
+    pub stored: usize,
+}
+
+/// The git questions of a run about full commit ids (`tree`, `changed-paths`, `merge-tree`,
+/// `is-ancestor`): how many it asked git, and how many an earlier run's stored answers answered.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GitAnswers {
+    pub asked: usize,
+    pub stored: usize,
 }
 
 /// Loads every plugin the configuration declares: the local build `--plugin` gave for its name
@@ -204,8 +282,30 @@ fn instantiate(
     let mut plugin_schemas = BTreeMap::new();
     let mut unloadable = BTreeMap::new();
 
-    for component in fetched {
-        match compile(&runtime, &component) {
+    // Each component compiles (or loads its compiled module) and describes itself on a thread of
+    // its own: a warm run spends most of its time here, and the slowest plugin bounds it.
+    let compiled: Vec<std::result::Result<Compiled, LoadFailure>> = std::thread::scope(|scope| {
+        let runtime = &runtime;
+        let handles: Vec<_> = fetched
+            .iter()
+            .map(|component| scope.spawn(move || compile(runtime, component)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle.join().unwrap_or_else(|_| {
+                    Err(LoadFailure {
+                        error: Error::environment(
+                            "a thread loading a plugin panicked; run gate again, and report it if it recurs",
+                        ),
+                        lasting: false,
+                    })
+                })
+            })
+            .collect()
+    });
+    for (component, compiled) in fetched.into_iter().zip(compiled) {
+        match compiled {
             Ok((plugin, options, rules)) => {
                 plugin_schemas.insert(component.name.clone(), options);
                 schemas.extend(
@@ -474,14 +574,16 @@ impl Loaded {
         findings: &mut Findings,
     ) -> Result<Ran> {
         let snapshot = workspace.shared_snapshot();
+        let tree_paths: Vec<String> = snapshot.paths().map(str::to_owned).collect();
+        let changed_paths: Option<Vec<String>> = changes
+            .filter(|set| !set.everything)
+            .map(|set| set.paths.iter().cloned().collect());
         let tree: Arc<dyn Tree> = Arc::new(SnapshotTree {
-            paths: snapshot.paths().map(str::to_owned).collect(),
-            changed: changes
-                .filter(|set| !set.everything)
-                .map(|set| set.paths.iter().cloned().collect()),
+            paths: tree_paths.clone(),
+            changed: changed_paths.clone(),
             snapshot: Arc::clone(&snapshot),
         });
-        let history: Arc<dyn History> = Arc::new(GitHistory {
+        let git_history = Arc::new(GitHistory {
             git: snapshot.git().clone(),
             head: snapshot.commit().map(str::to_owned),
             range: run_git.range,
@@ -492,7 +594,14 @@ impl Loaded {
             run: OnceLock::new(),
             commit_plugins: Mutex::new(BTreeMap::new()),
             states: Mutex::new(BTreeMap::new()),
+            counted: SyncStateCount::default(),
+            objects: Mutex::new(None),
+            merges: Mutex::new(Batch::Unstarted),
+            writes: CacheWrites::default(),
+            answers: OnceLock::new(),
+            facts: OnceLock::new(),
         });
+        let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
         let mut planned = Vec::new();
         for (project, settings) in scopes(workspace) {
@@ -530,21 +639,23 @@ impl Loaded {
             }
         }
 
-        let calls: Vec<Call<'_>> = planned
+        let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
+        let inputs = results::Inputs {
+            paths: &tree_paths,
+            blob: &blob,
+            changed: changed_paths.as_deref(),
+        };
+        let calls: Vec<_> = planned
             .iter()
-            .map(|(_, _, _, _, plugin, request, grant)| Call {
-                plugin,
-                request: request.clone(),
-                tree: Arc::clone(&tree),
-                history: Some(Arc::clone(&history)),
-                grant: grant.clone(),
-            })
+            .map(|(_, _, _, _, plugin, request, grant)| (*plugin, request, grant))
             .collect();
-        let outcomes = self.runtime.check_all(&calls);
+        let outcomes = self.calls(&calls, &tree, &history, &inputs, &git_history.writes);
 
         let mut ran = Ran::default();
-        for ((project, settings, name, rules, _, _, _), outcome) in planned.iter().zip(outcomes) {
-            let outcome = outcome.map_err(|error| Error::environment(error.to_string()))?;
+        for ((project, settings, name, rules, _, _, _), looked) in planned.iter().zip(outcomes) {
+            let outcome = looked
+                .outcome
+                .map_err(|error| Error::environment(error.to_string()))?;
             for finding in outcome.findings {
                 if let Some(finding) = reported(name, settings, rules, *project, finding)? {
                     findings.push(finding);
@@ -558,9 +669,97 @@ impl Loaded {
                 project: project.map(str::to_owned),
                 plugin: name.to_string(),
                 read_set: outcome.read_set,
+                from_cache: looked.from_cache,
+                stale: looked.stale,
+                time: outcome.time,
+                fuel_used: outcome.fuel_used,
+                invocations: outcome.invocations,
             });
         }
+        git_history.finish(&mut ran);
         Ok(ran)
+    }
+
+    /// Runs each of `calls` (plugin, request, grant): from the result cache when every input it
+    /// recorded answers as it did, else on the worker pool, and stores what a run call answers.
+    /// The outcomes are in the order of `calls`, each with whether it came from the cache.
+    /// A result that cannot be stored is noted in `writes`.
+    fn calls(
+        &self,
+        calls: &[(&Plugin, &gate_sdk::CheckRequest, &Grant)],
+        tree: &Arc<dyn Tree>,
+        history: &Arc<dyn History>,
+        inputs: &results::Inputs<'_>,
+        writes: &CacheWrites,
+    ) -> Vec<Looked> {
+        let cache = Cache::from_env().ok();
+        let keys: Vec<Sha256Sum> = calls
+            .iter()
+            .map(|(plugin, request, grant)| results::key(plugin.sha256(), request, grant))
+            .collect();
+        // Why each call that had a stored result runs again.
+        let mut stale: Vec<Option<String>> = vec![None; calls.len()];
+        let mut outcomes: Vec<Option<Looked>> = keys
+            .iter()
+            .zip(&mut stale)
+            .map(|(key, stale)| {
+                let started = Instant::now();
+                let stored = results::load(cache.as_ref()?, key)?;
+                if let Some(changed) = stored.changed_input(inputs, Some(history.as_ref())) {
+                    *stale = Some(changed);
+                    return None;
+                }
+                let checked = started.elapsed();
+                let outcome = CallOutcome {
+                    findings: stored.findings,
+                    read_set: stored.read_set,
+                    log: Vec::new(),
+                    time: CallTime {
+                        elapsed: checked,
+                        ..CallTime::default()
+                    },
+                    fuel_used: 0,
+                    invocations: Vec::new(),
+                };
+                Some(Looked {
+                    outcome: Ok(outcome),
+                    from_cache: true,
+                    stale: None,
+                })
+            })
+            .collect();
+        let missed: Vec<usize> = (0..calls.len())
+            .filter(|index| outcomes[*index].is_none())
+            .collect();
+        let run: Vec<Call<'_>> = missed
+            .iter()
+            .map(|index| {
+                let (plugin, request, grant) = calls[*index];
+                Call {
+                    plugin,
+                    request: request.clone(),
+                    tree: Arc::clone(tree),
+                    history: Some(Arc::clone(history)),
+                    grant: grant.clone(),
+                }
+            })
+            .collect();
+        for (index, outcome) in missed.iter().zip(self.runtime.check_all(&run)) {
+            if let (Some(cache), Ok(outcome)) = (cache.as_ref(), outcome.as_ref()) {
+                let stored = results::Stored::new(
+                    outcome.findings.clone(),
+                    outcome.read_set.clone(),
+                    inputs,
+                );
+                writes.note(results::store(cache, &keys[*index], &stored));
+            }
+            outcomes[*index] = Some(Looked {
+                outcome,
+                from_cache: false,
+                stale: stale[*index].take(),
+            });
+        }
+        outcomes.into_iter().flatten().collect()
     }
 }
 
@@ -690,8 +889,7 @@ impl<'w> PluginGenerators<'w> {
     /// One that may pass by the next call is noted for [`PluginGenerators::had_passing_failure`].
     fn failed(&self, error: &gate_runtime::Error) -> Error {
         if passing_call_failure(error.kind()) {
-            self.passing
-                .store(true, std::sync::atomic::Ordering::Relaxed);
+            self.passing.store(true, Ordering::Relaxed);
         }
         Error::environment(error.to_string())
     }
@@ -708,7 +906,7 @@ impl<'w> PluginGenerators<'w> {
 
     /// Whether a generator call failed in a way that may pass by the next call.
     fn had_passing_failure(&self) -> bool {
-        self.passing.load(std::sync::atomic::Ordering::Relaxed)
+        self.passing.load(Ordering::Relaxed)
     }
 
     /// The loaded plugin of `item`, with its name.
@@ -1249,8 +1447,63 @@ struct GitHistory {
     run: OnceLock<std::result::Result<RunContext, Error>>,
     /// The plugins loaded for commits' own configurations, by what they were loaded from.
     commit_plugins: Mutex<BTreeMap<Sha256Sum, CommitPlugins>>,
-    /// The `sync-state` answers of this run, by commit id.
-    states: Mutex<BTreeMap<String, SyncState>>,
+    /// The `sync-state` answers of this run, by commit id, each computed once.
+    states: Mutex<BTreeMap<String, Arc<StateSlot>>>,
+    /// How many `sync-state` answers this run computed, and how many it read from the cache.
+    counted: SyncStateCount,
+    /// The stored answers to questions about full commit ids, read on first use; `None` inside
+    /// when the cache is not available.
+    answers: OnceLock<Option<Mutex<Answers>>>,
+    /// What the answers depend on beyond the commits: git's version, and whether the clone is
+    /// shallow.
+    facts: OnceLock<std::result::Result<Facts, HostError>>,
+    /// The one `git cat-file --batch` reader that answers `tree`, `changed-paths`, `read-at` and
+    /// `is-ancestor`, started on first use.
+    objects: Mutex<Option<Objects>>,
+    /// The one `git merge-tree --stdin` that answers `merge-tree`, started on first use.
+    merges: Mutex<Batch<Merges>>,
+    /// The run's cache writes that failed.
+    writes: CacheWrites,
+}
+
+/// A long-lived git process of a run.
+#[derive(Debug, Default)]
+enum Batch<T> {
+    /// Not asked yet.
+    #[default]
+    Unstarted,
+    /// Running.
+    Running(T),
+    /// Failed where a git process per question answered: this git cannot run it.
+    Unusable,
+}
+
+/// The `sync-state` answer of one commit in a run.
+type StateSlot = OnceLock<std::result::Result<SyncState, HostError>>;
+
+/// How many `sync-state` answers a run computed and how many it read from the cache.
+#[derive(Debug, Default)]
+struct SyncStateCount {
+    computed: AtomicUsize,
+    stored: AtomicUsize,
+    /// Questions about full commit ids asked of git, and answered by stored answers.
+    asked: AtomicUsize,
+    answered: AtomicUsize,
+}
+
+impl SyncStateCount {
+    fn read(&self) -> (SyncStates, GitAnswers) {
+        (
+            SyncStates {
+                computed: self.computed.load(Ordering::Relaxed),
+                stored: self.stored.load(Ordering::Relaxed),
+            },
+            GitAnswers {
+                asked: self.asked.load(Ordering::Relaxed),
+                stored: self.answered.load(Ordering::Relaxed),
+            },
+        )
+    }
 }
 
 /// The run's configuration as `sync-state` uses it, computed once per run.
@@ -1331,17 +1584,20 @@ impl History for GitHistory {
     }
 
     fn tree(&self, commit: &str) -> std::result::Result<String, HostError> {
-        let spec = format!("{commit}^{{tree}}");
-        self.git
-            .try_text(&[
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                "--end-of-options",
-                &spec,
-            ])
-            .map_err(host)?
-            .ok_or_else(|| HostError::new(format!("{commit:?} names no commit, so it has no tree")))
+        let answer = self.remembered("tree", &[commit], true, || {
+            Ok(kept(Answer::Tree(Some(
+                self.objects(|objects| objects.tree(commit))?
+                    .ok_or_else(|| {
+                        HostError::new(format!("{commit:?} names no commit, so it has no tree"))
+                    })?,
+            ))))
+        })?;
+        match answer {
+            Answer::Tree(Some(tree)) => Ok(tree),
+            _ => Err(HostError::new(format!(
+                "{commit:?} names no commit, so it has no tree"
+            ))),
+        }
     }
 
     fn merge_tree(
@@ -1349,7 +1605,18 @@ impl History for GitHistory {
         first: &str,
         second: &str,
     ) -> std::result::Result<Option<String>, HostError> {
-        self.git.merge_tree(first, second).map_err(host)
+        // git's merge may differ between versions: the version is part of the question. A
+        // shallow clone may lack the merge base: its answers are not kept for another clone.
+        let facts = self.facts()?;
+        let version = facts.version.clone();
+        let lasting = !facts.shallow;
+        let answer = self.remembered("merge-tree", &[first, second, &version], lasting, || {
+            Ok(kept(Answer::Tree(self.merge(first, second)?)))
+        })?;
+        match answer {
+            Answer::Tree(tree) => Ok(tree),
+            _ => Err(HostError::new("a stored merge-tree answer is not a tree")),
+        }
     }
 
     fn revisions(&self, range: &str) -> std::result::Result<Vec<String>, HostError> {
@@ -1405,39 +1672,21 @@ impl History for GitHistory {
         parent: &str,
         commit: &str,
     ) -> std::result::Result<Vec<String>, HostError> {
-        self.git
-            .paths(&[
-                "diff",
-                "--name-only",
-                "--no-renames",
-                "-z",
-                "--end-of-options",
-                parent,
-                commit,
-                "--",
-            ])
-            .map_err(host)
+        let answer = self.remembered("changed-paths", &[parent, commit], true, || {
+            Ok(kept(Answer::Paths(self.objects(|objects| {
+                objects.changed_paths(parent, commit)
+            })?)))
+        })?;
+        match answer {
+            Answer::Paths(paths) => Ok(paths),
+            _ => Err(HostError::new(
+                "a stored changed-paths answer is not a path list",
+            )),
+        }
     }
 
     fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
-        let spec = format!("{commit}:{path}");
-        let Some(object) = self
-            .git
-            .try_text(&[
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                "--end-of-options",
-                &spec,
-            ])
-            .map_err(host)?
-        else {
-            return Ok(None);
-        };
-        self.git
-            .output(&["cat-file", "blob", &object])
-            .map(Some)
-            .map_err(host)
+        self.objects(|objects| objects.read_at(commit, path))
     }
 
     fn is_ancestor(
@@ -1445,35 +1694,41 @@ impl History for GitHistory {
         ancestor: &str,
         descendant: &str,
     ) -> std::result::Result<bool, HostError> {
-        self.git
-            .try_text(&[
-                "merge-base",
-                "--is-ancestor",
-                "--end-of-options",
-                ancestor,
-                descendant,
-            ])
-            .map(|answer| answer.is_some())
-            .map_err(host)
+        // A shallow clone hides ancestors: its answers are not kept for another clone.
+        let lasting = !self.facts()?.shallow;
+        let answer = self.remembered("is-ancestor", &[ancestor, descendant], lasting, || {
+            // A commit this clone lacks answers no, until a fetch brings it: not kept.
+            Ok(
+                match self.objects(|objects| objects.is_ancestor(ancestor, descendant))? {
+                    Some(holds) => kept(Answer::Holds(holds)),
+                    None => (Answer::Holds(false), false),
+                },
+            )
+        })?;
+        match answer {
+            Answer::Holds(holds) => Ok(holds),
+            _ => Err(HostError::new(
+                "a stored is-ancestor answer is not a yes or no",
+            )),
+        }
     }
 
     fn sync_state(&self, commit: &str) -> std::result::Result<SyncState, HostError> {
-        if let Some(state) = self
-            .states
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(commit)
-        {
-            return Ok(state.clone());
-        }
-        let state = self.sync_state_at(commit).map_err(|error| {
-            HostError::new(format!("git.sync-state at commit {commit}: {error}"))
-        })?;
-        self.states
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(commit.to_owned(), state.clone());
-        Ok(state)
+        // One answer per commit and run, whichever call or rule asks first: a call that asks
+        // while another computes the same commit waits for that answer.
+        let slot = Arc::clone(
+            self.states
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(commit.to_owned())
+                .or_default(),
+        );
+        slot.get_or_init(|| {
+            self.sync_state_at(commit).map_err(|error| {
+                HostError::new(format!("git.sync-state at commit {commit}: {error}"))
+            })
+        })
+        .clone()
     }
 }
 
@@ -1504,7 +1759,132 @@ struct Computed {
     lasting: bool,
 }
 
+/// What git answers depend on beyond the commits they are about.
+#[derive(Clone, Debug)]
+struct Facts {
+    /// `git --version`.
+    version: String,
+    /// Whether the clone is shallow.
+    shallow: bool,
+}
+
 impl GitHistory {
+    fn facts(&self) -> std::result::Result<&Facts, HostError> {
+        self.facts
+            .get_or_init(|| {
+                let version = self.git.output(&["--version"]).map_err(host)?;
+                let shallow = self
+                    .git
+                    .try_text(&["rev-parse", "--is-shallow-repository"])
+                    .map_err(host)?;
+                Ok(Facts {
+                    version: String::from_utf8_lossy(&version).trim().to_owned(),
+                    shallow: shallow.as_deref() != Some("false"),
+                })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// The answer to a question about the full commit ids `of`: stored by an earlier run, or
+    /// asked now and kept. A question about anything else (a ref, an abbreviated id), one that
+    /// is not `lasting`, or one whose answer `ask` says not to keep, is asked and not kept.
+    fn remembered(
+        &self,
+        kind: &'static str,
+        of: &[&str],
+        lasting: bool,
+        ask: impl FnOnce() -> std::result::Result<(Answer, bool), HostError>,
+    ) -> std::result::Result<Answer, HostError> {
+        let commits = if kind == "merge-tree" { &of[..2] } else { of };
+        if !lasting || !commits.iter().all(|id| crate::git::is_object_id(id)) {
+            return ask().map(|(answer, _)| answer);
+        }
+        let question: Question = (kind, of.iter().map(|id| (*id).to_owned()).collect());
+        let Some(answers) = self.answers.get_or_init(|| {
+            Cache::from_env()
+                .ok()
+                .map(|cache| Mutex::new(Answers::load(&cache)))
+        }) else {
+            return ask().map(|(answer, _)| answer);
+        };
+        // Held while git answers: each question is asked once per run, whichever call asks first.
+        let mut answers = answers.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((answer, first_use)) = answers.get(&question) {
+            if first_use {
+                self.counted.answered.fetch_add(1, Ordering::Relaxed);
+            }
+            return Ok(answer);
+        }
+        self.counted.asked.fetch_add(1, Ordering::Relaxed);
+        let (answer, keep) = ask()?;
+        if keep {
+            answers.learn(question, answer.clone());
+        }
+        Ok(answer)
+    }
+
+    /// Stores the answers this run learned, and gives `ran` the run's counts and the cache
+    /// write that failed first.
+    fn finish(&self, ran: &mut Ran) {
+        self.writes.note(self.store_answers());
+        (ran.sync_states, ran.git_answers) = self.counted.read();
+        ran.cache_warning = self.writes.take();
+    }
+
+    /// Stores the answers this run learned.
+    fn store_answers(&self) -> Result<()> {
+        if let Some(Some(answers)) = self.answers.get() {
+            answers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .store(&Cache::from_env()?)?;
+        }
+        Ok(())
+    }
+
+    /// git's merge of `first` and `second`: through the run's `git merge-tree --stdin` when both
+    /// are full ids, else, or when it fails, by a git process of its own, which says what is wrong.
+    fn merge(&self, first: &str, second: &str) -> std::result::Result<Option<String>, HostError> {
+        let ids = crate::git::is_object_id(first) && crate::git::is_object_id(second);
+        let mut slot = self.merges.lock().unwrap_or_else(PoisonError::into_inner);
+        if ids && matches!(*slot, Batch::Unstarted) {
+            *slot = self.git.merges().map_or(Batch::Unusable, Batch::Running);
+        }
+        if let Batch::Running(merges) = &mut *slot {
+            if let Ok(answer) = merges.merge(first, second) {
+                return Ok(answer);
+            }
+            *slot = Batch::Unstarted;
+        } else {
+            return self.git.merge_tree(first, second).map_err(host);
+        }
+        let answer = self.git.merge_tree(first, second).map_err(host)?;
+        // git answered this question by itself: the batch failed for no reason of the question.
+        *slot = Batch::Unusable;
+        Ok(answer)
+    }
+
+    /// Asks the run's object reader, starting it on first use; after a failure the next question
+    /// starts a fresh reader, as the protocol may be out of step.
+    fn objects<T>(
+        &self,
+        ask: impl FnOnce(&mut Objects) -> Result<T>,
+    ) -> std::result::Result<T, HostError> {
+        let mut slot = self.objects.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.is_none() {
+            *slot = Some(Objects::new(&self.git).map_err(host)?);
+        }
+        let Some(objects) = slot.as_mut() else {
+            return Err(HostError::new("git cat-file did not start"));
+        };
+        let answer = ask(objects);
+        if answer.is_err() {
+            *slot = None;
+        }
+        answer.map_err(host)
+    }
+
     /// What `gate sync` produces at `commit` and which of it `gate sync --check` reports there.
     ///
     /// The generators run on the commit's tree with the commit's configuration and the plugins
@@ -1528,26 +1908,38 @@ impl GitHistory {
         let cache = Cache::from_env()?;
         let own_key = self.state_key(commit, None);
         match stored(&cache, &own_key)? {
-            Some((ANSWER, state)) => return Ok(state),
+            Some((ANSWER, state)) => {
+                self.counted.stored.fetch_add(1, Ordering::Relaxed);
+                return Ok(state);
+            }
             Some(_) => {
                 let run_key = self.state_key(commit, Some(self.run_key()?));
                 if let Some((_, state)) = stored(&cache, &run_key)? {
+                    self.counted.stored.fetch_add(1, Ordering::Relaxed);
                     return Ok(state);
                 }
             }
             None => {}
         }
 
+        self.counted.computed.fetch_add(1, Ordering::Relaxed);
         let computed = self.compute(commit)?;
         if !computed.lasting {
             return Ok(computed.state);
         }
         if computed.uses_run {
             let run_key = self.state_key(commit, Some(self.run_key()?));
-            store(&cache, &run_key, ANSWER, &computed.state)?;
-            store(&cache, &own_key, RUN_DEPENDENT, &SyncState::default())?;
+            self.writes
+                .note(store(&cache, &run_key, ANSWER, &computed.state));
+            self.writes.note(store(
+                &cache,
+                &own_key,
+                RUN_DEPENDENT,
+                &SyncState::default(),
+            ));
         } else {
-            store(&cache, &own_key, ANSWER, &computed.state)?;
+            self.writes
+                .note(store(&cache, &own_key, ANSWER, &computed.state));
         }
         Ok(computed.state)
     }

@@ -3,7 +3,7 @@
 //! well-named branch (`#merge`), a release commit that changes only the release files
 //! (`#release`), or a direct commit that changes only documentation (`#direct`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use gate_agents_format::parse_rule_file;
 use gate_sdk::schemars::JsonSchema;
@@ -100,7 +100,11 @@ impl Rule for MainHistory {
         let mut found = Vec::new();
         for commit in &history.mainline {
             match policy.form(commit) {
-                Some(form) => found.push((commit, policy.classify(form, commit), None)),
+                Some(form) => found.push((
+                    commit,
+                    policy.classify(form, commit, &history.on_mainline),
+                    None,
+                )),
                 None => found.push((
                     commit,
                     vec![(unmatched_aspect(commit), unmatched(commit))],
@@ -223,9 +227,10 @@ impl<'r> Policy<'r> {
         form_of(&self.forms, commit, self.release.as_ref())
     }
 
-    fn classify(&self, form: &Compiled, commit: &Commit) -> Found {
+    /// `mainline` holds the first-parent commits of main since activation.
+    fn classify(&self, form: &Compiled, commit: &Commit, mainline: &HashSet<String>) -> Found {
         match form.kind {
-            Kind::Merge => self.merge(form, commit),
+            Kind::Merge => self.merge(form, commit, mainline),
             Kind::Release => match (
                 form.runs(Check::Files),
                 commit.parents.first(),
@@ -243,7 +248,7 @@ impl<'r> Policy<'r> {
         }
     }
 
-    fn merge(&self, form: &Compiled, commit: &Commit) -> Found {
+    fn merge(&self, form: &Compiled, commit: &Commit, mainline: &HashSet<String>) -> Found {
         let short = commit.short();
         let mut found = Vec::new();
         let first = commit.parents.first();
@@ -310,8 +315,11 @@ impl<'r> Policy<'r> {
             found.push(("merge", format!("{short} has an edited merge message body")));
         }
         if let [first, second] = commit.parents.as_slice() {
-            // A second parent on main's first-parent line is an ancestor of the first parent too.
-            if form.runs(Check::Sync) && self.git.is_ancestor(second, first) {
+            // A second parent on main's first-parent line is an ancestor of the first parent: a
+            // set lookup answers it; git is asked only when the lookup misses.
+            if form.runs(Check::Sync)
+                && (mainline.contains(second) || self.git.is_ancestor(second, first))
+            {
                 found.push((
                     "merge",
                     format!("{short} is a sync merge: its second parent is already on main"),
@@ -426,10 +434,11 @@ impl<'r> Policy<'r> {
         let mut found = Vec::new();
         let rules = format!("{}/", self.options.rules_directory.trim_end_matches('/'));
         let changed = self.git.changed_paths(parent, &commit.id);
-        // What `gate sync` produces at this commit (generator outputs, tracked files under an owned
-        // glob, the core's hook and CI files), and which of it differs there. Asked only when the
-        // commit changes something.
-        let state = if changed.is_empty() {
+        // Documentation is judged by its text alone. For the other paths: what `gate sync`
+        // produces at this commit (generator outputs, tracked files under an owned glob, the
+        // core's hook and CI files), and which of it differs there. Asked only when the commit
+        // changes a path outside documentation, as most direct commits do not.
+        let state = if changed.iter().all(|file| self.documentation.is_match(file)) {
             SyncState::default()
         } else {
             self.git.sync_state(&commit.id)
@@ -440,29 +449,31 @@ impl<'r> Policy<'r> {
         let mut before: Option<SyncState> = None;
 
         for file in changed {
-            if state.drift.contains(&file) {
-                found.push((
-                    "direct",
-                    format!(
-                        "direct commit {short} changes {file}, which differs from gate sync at that commit"
-                    ),
-                ));
-            } else if state.produced.contains(&file) {
-                // Generated and in sync: it changes with its sources.
-            } else if self.git.read_at(&commit.id, &file).is_none()
-                && before
-                    .get_or_insert_with(|| self.git.sync_state(parent))
-                    .produced
-                    .contains(&file)
-            {
-                // Generated at the parent and gone with its sources: `gate sync` removes it.
-            } else if !self.documentation.is_match(&file) {
-                found.push((
-                    "direct",
-                    format!(
-                        "direct commit {short} changes code path {file}; code reaches main through a branch merge"
-                    ),
-                ));
+            if !self.documentation.is_match(&file) {
+                if state.drift.contains(&file) {
+                    found.push((
+                        "direct",
+                        format!(
+                            "direct commit {short} changes {file}, which differs from gate sync at that commit"
+                        ),
+                    ));
+                } else if state.produced.contains(&file) {
+                    // Generated and in sync: it changes with its sources.
+                } else if self.git.read_at(&commit.id, &file).is_none()
+                    && before
+                        .get_or_insert_with(|| self.git.sync_state(parent))
+                        .produced
+                        .contains(&file)
+                {
+                    // Generated at the parent and gone with its sources: `gate sync` removes it.
+                } else {
+                    found.push((
+                        "direct",
+                        format!(
+                            "direct commit {short} changes code path {file}; code reaches main through a branch merge"
+                        ),
+                    ));
+                }
             } else if file.starts_with(&rules) && is_markdown(&file) {
                 match (self.text(parent, &file), self.text(&commit.id, &file)) {
                     (Ok(before), Ok(after)) => {
