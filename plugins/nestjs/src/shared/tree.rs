@@ -27,11 +27,11 @@ pub fn distinct<'s>(paths: impl Iterator<Item = &'s str>) -> Vec<&'s str> {
     paths.filter(|path| seen.insert(*path)).collect()
 }
 
-/// The tracked files below `root` (every file when `root` is empty), in path order.
+/// The tracked files below `root` (every file when `root` is empty), in path order, from the
+/// source's range of paths below `root` ([`Source::paths_with_prefix`]): a walk below one folder
+/// reads only the paths below it.
 fn under<'s>(source: &'s dyn Source, root: &str) -> impl Iterator<Item = &'s str> + use<'s> {
-    let prefix = folder_prefix(root);
-
-    source.paths().filter(move |path| path.starts_with(&prefix))
+    source.paths_with_prefix(&folder_prefix(root))
 }
 
 /// The part of `path` below `root`.
