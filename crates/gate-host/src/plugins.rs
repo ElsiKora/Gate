@@ -1343,6 +1343,8 @@ struct GitHistory {
     merges: Mutex<Batch<Merges>>,
     /// The run's cache writes that failed.
     writes: CacheWrites,
+    /// The content of each blob `read-at` read from git this run, by id, stored at its end.
+    blobs: Mutex<BTreeMap<String, Vec<u8>>>,
     /// The generators `sync-state` ran, and those the result cache answered.
     generations: Arc<Generations>,
 }
@@ -1559,7 +1561,52 @@ impl History for GitHistory {
     }
 
     fn read_at(&self, commit: &str, path: &str) -> std::result::Result<Option<Vec<u8>>, HostError> {
-        self.objects(|objects| objects.read_at(commit, path))
+        let mut read = None;
+        let answer = self.remembered("read-at", &[commit, path], true, || {
+            match self.objects(|objects| objects.read_at(commit, path))? {
+                Some((blob, content)) => {
+                    read = Some(content);
+                    Ok(kept(Answer::Blob(Some(blob))))
+                }
+                // No such file at a commit the clone has: kept. A commit it lacks may come
+                // with a fetch: not kept.
+                None => Ok((
+                    Answer::Blob(None),
+                    self.objects(|objects| objects.has_commit(commit))?,
+                )),
+            }
+        })?;
+        let Answer::Blob(blob) = answer else {
+            return Err(HostError::new("a stored read-at answer is not a blob id"));
+        };
+        let Some(blob) = blob else {
+            return Ok(None);
+        };
+        if let Some(content) = read {
+            self.blobs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(blob, content.clone());
+            return Ok(Some(content));
+        }
+        // A stored answer: the content an earlier run stored, else git's.
+        if let Some(content) = Cache::from_env()
+            .ok()
+            .and_then(|cache| crate::cache::answers::blob(&cache, &blob))
+        {
+            return Ok(Some(content));
+        }
+        if !crate::git::is_object_id(&blob) {
+            return Err(HostError::new("a stored read-at answer names no object id"));
+        }
+        let content = self.objects(|objects| objects.blob(&blob))?;
+        if let Some(content) = &content {
+            self.blobs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(blob, content.clone());
+        }
+        Ok(content)
     }
 
     fn is_ancestor(
@@ -1665,6 +1712,7 @@ impl GitHistory {
             writes: CacheWrites::default(),
             answers: OnceLock::new(),
             facts: OnceLock::new(),
+            blobs: Mutex::new(BTreeMap::new()),
             generations: Arc::default(),
         }
     }
@@ -1696,7 +1744,11 @@ impl GitHistory {
         lasting: bool,
         ask: impl FnOnce() -> std::result::Result<(Answer, bool), HostError>,
     ) -> std::result::Result<Answer, HostError> {
-        let commits = if kind == "merge-tree" { &of[..2] } else { of };
+        let commits = match kind {
+            "merge-tree" => &of[..2],
+            "read-at" => &of[..1],
+            _ => of,
+        };
         if !lasting || !commits.iter().all(|id| crate::git::is_object_id(id)) {
             return ask().map(|(answer, _)| answer);
         }
@@ -1736,8 +1788,15 @@ impl GitHistory {
             .or_else(|| self.generations.writes.take());
     }
 
-    /// Stores the answers this run learned.
+    /// Stores the answers this run learned, after the blob contents they name.
     fn store_answers(&self) -> Result<()> {
+        let blobs = std::mem::take(&mut *self.blobs.lock().unwrap_or_else(PoisonError::into_inner));
+        if !blobs.is_empty() {
+            let cache = Cache::from_env()?;
+            for (blob, content) in &blobs {
+                crate::cache::answers::store_blob(&cache, blob, content)?;
+            }
+        }
         if let Some(Some(answers)) = self.answers.get() {
             answers
                 .lock()

@@ -854,9 +854,9 @@ fn a_run_dependent_answer_follows_the_files_the_runs_generators_read() {
     );
 }
 
-/// One `gate check --timings` with the built probe: its findings, sorted, the calls that ran, and
-/// the `--timings` line of the generators that ran and came from the cache.
-fn probe_generated(repo: &Repo) -> (Vec<String>, Vec<String>, Option<String>) {
+/// One `gate check --timings` with the built probe: its findings, sorted, the calls that ran,
+/// sorted, and its standard error.
+fn probe_timings(repo: &Repo) -> (Vec<String>, Vec<String>, String) {
     let plugin = format!("probe={}", probe().0.display());
     let output = repo.gate(&[
         "check",
@@ -883,11 +883,21 @@ fn probe_generated(repo: &Repo) -> (Vec<String>, Vec<String>, Option<String>) {
         .filter_map(|call| call.split_once(": ran ").map(|(scope, _)| scope.to_owned()))
         .collect();
     ran.sort();
-    let generated = stderr
+    (messages, ran, stderr)
+}
+
+/// The `--timings` line that starts with `prefix`, without it.
+fn timing(stderr: &str, prefix: &str) -> Option<String> {
+    stderr
         .lines()
-        .find_map(|line| line.strip_prefix("timings: generators: "))
-        .map(str::to_owned);
-    (messages, ran, generated)
+        .find_map(|line| line.strip_prefix(prefix))
+        .map(str::to_owned)
+}
+
+/// [`probe_timings`] with the line of the generators that ran and came from the cache.
+fn probe_generated(repo: &Repo) -> (Vec<String>, Vec<String>, Option<String>) {
+    let (messages, ran, stderr) = probe_timings(repo);
+    (messages, ran, timing(&stderr, "timings: generators: "))
 }
 
 #[test]
@@ -2406,6 +2416,90 @@ fn a_commit_the_clone_lacks_is_no_ancestor_until_a_fetch_brings_it() {
 
     let (_, _, ran, _) = probe_timed(&repo);
     assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn a_path_at_a_commit_the_clone_lacks_reads_none_until_a_fetch_brings_it() {
+    let other = Repo::empty();
+    other.write("apps/one/x.txt", "tip\n");
+    let tip = other.commit("tip");
+    let repo = probe_repo_for(
+        "apps/one",
+        &format!(
+            r#""probe/git" = {{ level = "error", options = {{ read_at = [["{tip}", "x.txt"]] }} }}"#
+        ),
+    );
+    repo.write("apps/one/a.txt", "one\n");
+    repo.commit("first");
+    let answer = |text: &str| format!("read-at {tip}:x.txt: {text}");
+
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, [answer("none")]);
+
+    // The fetch brings the commit: the call runs again, and the none is not reused from the
+    // stored git answers.
+    let source = other.path().to_str().expect("a UTF-8 path");
+    repo.git(&["fetch", "-q", source, "main"]);
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, [answer("tip")]);
+
+    let (_, ran, _) = probe_timings(&repo);
+    assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn read_at_answers_and_contents_are_stored_and_read_back_without_asking_git() {
+    let present = r#"["HEAD~1", "a.txt"]"#;
+    let absent = r#"["HEAD~1", "absent.txt"]"#;
+    let rule = |first: &str, second: &str| {
+        format!(
+            r#""probe/git" = {{ level = "error", options = {{ read_at = [{first}, {second}] }} }}"#
+        )
+    };
+    let repo = probe_repo(&rule(present, absent));
+    repo.write("apps/one/a.txt", "first\n");
+    repo.commit("first");
+    repo.write("apps/one/a.txt", "second\n");
+    repo.commit("second");
+    let config = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+    let expected = [
+        "read-at HEAD~1:a.txt: first",
+        "read-at HEAD~1:absent.txt: none",
+    ];
+    let answers = |stderr: &str| timing(stderr, "timings: git answers: ");
+
+    let (messages, _, stderr) = probe_timings(&repo);
+    assert_eq!(messages, expected);
+    assert_eq!(
+        answers(&stderr).as_deref(),
+        Some("2 asked, 0 from the cache")
+    );
+
+    // Other options: the call runs again, and asks git nothing.
+    repo.write(
+        "gate.toml",
+        &config.replace(&rule(present, absent), &rule(absent, present)),
+    );
+    let (messages, ran, stderr) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, expected);
+    assert_eq!(
+        answers(&stderr).as_deref(),
+        Some("0 asked, 2 from the cache")
+    );
+
+    // Without the stored content, the stored answer still reads the file, from git by its id.
+    std::fs::remove_dir_all(repo.cache.path().join("git").join("blobs")).expect("stored blobs");
+    std::fs::remove_dir_all(repo.cache.path().join("results")).expect("stored results");
+    let (messages, ran, stderr) = probe_timings(&repo);
+    assert_eq!(ran, ["one"]);
+    assert_eq!(messages, expected);
+    assert_eq!(
+        answers(&stderr).as_deref(),
+        Some("0 asked, 2 from the cache")
+    );
 }
 
 #[test]

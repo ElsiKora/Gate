@@ -8,7 +8,8 @@
 //! stored result is reused when each listed prefix lists the same paths, each read path has the
 //! same blob id (or is still untracked), the change selection is the same, and each git question
 //! that goes through a ref, or asks `sync-state`, answers what it was recorded with. A question
-//! about commit ids never changes and is not asked again.
+//! about commit ids never changes and is not asked again, except an `is-ancestor` no and a
+//! `read-at` none, which a fetch of the commit can change.
 //!
 //! A generator's output is stored the same way, under the core version, the plugin's sha256, the
 //! generator, its options and its grant, with the files it wrote beside its findings: it reads

@@ -106,7 +106,7 @@ impl Tree for Files {
 const HEAD: &str = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
 
 /// A history with one commit, which changed `apps/api/a.ts` and `apps/web/b.ts`; every path reads
-/// as its own name there.
+/// as its own name there, except a path that ends in `absent.ts`, which names no file.
 struct OneCommit;
 
 impl History for OneCommit {
@@ -147,7 +147,7 @@ impl History for OneCommit {
         Ok(vec!["apps/api/a.ts".to_owned(), "apps/web/b.ts".to_owned()])
     }
     fn read_at(&self, _: &str, path: &str) -> Result<Option<Vec<u8>>, HostError> {
-        Ok(Some(path.as_bytes().to_vec()))
+        Ok((!path.ends_with("absent.ts")).then(|| path.as_bytes().to_vec()))
     }
     fn is_ancestor(&self, _: &str, _: &str) -> Result<bool, HostError> {
         Ok(false)
@@ -844,7 +844,7 @@ fn git_takes_full_commit_ids_and_answers_only_granted_paths() {
     let runtime = runtime(Config::default());
     let plugin = load(&runtime);
     let grant = || Grant::new("apps/api", &[]);
-    let options = r#"{"read_at": [["main", "a.ts"], ["main", "../web/b.ts"], ["main", "/apps/web/b.ts"]], "changed_paths": [["main", "main"]], "sync_state": ["main"]}"#;
+    let options = r#"{"read_at": [["main", "a.ts"], ["main", "../web/b.ts"], ["main", "/apps/web/b.ts"], ["main", "absent.ts"]], "changed_paths": [["main", "main"]], "sync_state": ["main"]}"#;
     let outcome = runtime
         .check(&call(&plugin, "git", options, tree(), grant()))
         .expect("the call runs");
@@ -854,6 +854,7 @@ fn git_takes_full_commit_ids_and_answers_only_granted_paths() {
             "read-at main:a.ts: apps/api/a.ts",
             "read-at main:../web/b.ts: none",
             "read-at main:/apps/web/b.ts: none",
+            "read-at main:absent.ts: none",
             "changed-paths main main: a.ts",
             "sync-state main: produced gen/a.md,gen/c.md; drift gen/a.md",
         ]
@@ -865,13 +866,26 @@ fn git_takes_full_commit_ids_and_answers_only_granted_paths() {
         "sync-state is recorded by its commit: {:?}",
         outcome.read_set.git
     );
-    assert!(
-        outcome.read_set.git.contains_key(&GitQuery::ReadAt {
-            commit: HEAD.to_owned(),
-            path: "apps/api/a.ts".to_owned()
-        }),
-        "read-at records the repository path: {:?}",
+    let read_at = |path: &str| {
+        outcome
+            .read_set
+            .git
+            .get(&GitQuery::ReadAt {
+                commit: HEAD.to_owned(),
+                path: path.to_owned(),
+            })
+            .cloned()
+    };
+    assert_eq!(
+        read_at("apps/api/a.ts"),
+        Some(Vec::new()),
+        "read-at records the repository path, and a file found as nothing to ask again: {:?}",
         outcome.read_set.git
+    );
+    assert_eq!(
+        read_at("apps/api/absent.ts"),
+        Some(vec!["none".to_owned()]),
+        "no file is recorded as none, to ask again: a fetch can bring the commit"
     );
 
     let upper = HEAD.to_uppercase();

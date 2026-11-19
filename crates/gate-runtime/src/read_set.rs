@@ -157,12 +157,23 @@ pub fn ancestry_record(holds: bool) -> Vec<String> {
     }
 }
 
+/// What a call records for a `read-at` answer (see [`GitQuery::depends_on`]).
+#[must_use]
+pub fn read_record(found: bool) -> Vec<String> {
+    if found {
+        Vec::new()
+    } else {
+        vec!["none".to_owned()]
+    }
+}
+
 impl GitQuery {
     /// Asks `history` this question again and answers what a call records for it: for a question
     /// that goes through a ref, the commit ids (or branch name) the ref names now; for a
     /// `sync-state`, the digest of its answer; for `is-ancestor`, nothing when it holds and `no`
-    /// when it does not, since a commit the clone lacks answers no until a fetch brings it; for
-    /// another question about commit ids, nothing, since its answer never changes. A stored result
+    /// when it does not, and for `read-at`, nothing when the path names a file and `none` when
+    /// not, since a commit the clone lacks answers no until a fetch brings it; for another
+    /// question about commit ids, nothing, since its answer never changes. A stored result
     /// is reused only when every question answers as it was recorded.
     ///
     /// # Errors
@@ -179,24 +190,19 @@ impl GitQuery {
                 ancestor,
                 descendant,
             } => ancestry_record(history.is_ancestor(ancestor, descendant)?),
-            Self::Tree { .. }
-            | Self::MergeTree { .. }
-            | Self::ChangedPaths { .. }
-            | Self::ReadAt { .. } => Vec::new(),
+            Self::ReadAt { commit, path } => read_record(history.read_at(commit, path)?.is_some()),
+            Self::Tree { .. } | Self::MergeTree { .. } | Self::ChangedPaths { .. } => Vec::new(),
         })
     }
 
     /// Whether `recorded`, what a call recorded for this question, can never change, so a stored
-    /// result need not ask it again: an answer about commit ids, except an `is-ancestor` no, which
-    /// a fetch can turn into a yes.
+    /// result need not ask it again: an answer about commit ids, except an `is-ancestor` no or a
+    /// `read-at` none, which a fetch can change.
     #[must_use]
     pub fn lasting(&self, recorded: &[String]) -> bool {
         match self {
-            Self::Tree { .. }
-            | Self::MergeTree { .. }
-            | Self::ChangedPaths { .. }
-            | Self::ReadAt { .. } => true,
-            Self::IsAncestor { .. } => recorded.is_empty(),
+            Self::Tree { .. } | Self::MergeTree { .. } | Self::ChangedPaths { .. } => true,
+            Self::IsAncestor { .. } | Self::ReadAt { .. } => recorded.is_empty(),
             Self::Head
             | Self::Branch
             | Self::Range
