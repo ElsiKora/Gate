@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead; one question open (item 6); tests next |
+| Status | design approved by the lead; tests and the change pushed, gates queued |
 | Release | 0.2.1, from the `v0.2.0` tag |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
@@ -53,23 +53,12 @@ command needs is never fetched, compiled or described.
    should load; there is no second loader.
 5. **Section 9 of the architecture** says what a run loads, and which command fills the
    compiled-module cache.
-6. **The `commit-msg` hook.** The hook the guide shows is `commit-msg = ["check --commit-message"]`.
-   With no `--staged` and no `--rule`, that check is `ChangeRequest::All` on the work tree
-   (`check` in `crates/gate/src/main.rs`). It checks the tree and the message, and its summary
-   says `tree, commit message`. So under item 1 it still selects every scope, and loads every
-   plugin, not only `git`. For the cold `commit-msg` run to load only `git`, one of these must
-   hold:
-   - (a) The consumer's entry names its rules: `check --commit-message --rule 'git/*'`. There is
-     no core change, and the guide's example shows it.
-   - (b) The core runs, in a check with `--commit-message`, only the rules that declare
-     `reads-history`. The tree is the `pre-commit` hook's to check. The summary then says
-     `commit message`, and the guide's two pages change with it.
-
-   Recommendation: (b). A `commit-msg` check that checks the work tree again repeats `pre-commit`
-   on a different source (the work tree, not the index), and every repository then has to write
-   `--rule` to avoid it. With (b), there is one way: the message hook checks the message. The lead
-   decides; until then, the tests below cover item 1 and the proof's `commit-msg` row is
-   measured on the consumer's own entry.
+6. **The `commit-msg` hook stays as it is here.** The hook the guide shows is
+   `commit-msg = ["check --commit-message"]`. With no `--staged` and no `--rule`, that check is
+   `ChangeRequest::All` on the work tree (`check` in `crates/gate/src/main.rs`): it checks the
+   tree and the message, so under item 1 it still loads every plugin a scope declares. The lead
+   decided on 2026-11-19 that what it checks changes in its own task: T-057, below. This task's
+   Proof measures the `commit-msg` row as the consumer's entry stands.
 7. **wasmtime's compile settings.** Today the engine (`Runtime::new` in
    `crates/gate-runtime/src/runtime.rs`) sets neither, so it runs on wasmtime 50.0.2's defaults:
    parallel compilation on (the workspace enables the `parallel-compilation` feature, and
@@ -145,8 +134,8 @@ with synthetic plugins and trees:
   each run's exit, wall time, gate total and `load` time, with the command and the lane ticket.
   The expected change is in `load` cold: one plugin's compile instead of seven at once. How far it
   falls is what the measure says.
-- The hooks in the same table: the consumer's `commit-msg` entry, run cold with `--timings` on a
-  message file, before and after. After the change it loads only `git` (item 6).
+- The hooks in the same table: the consumer's `commit-msg` entry as it stands, run cold with
+  `--timings` on a message file, before and after (item 6).
 - The table of item 7: what is on today, each variant's `load` and `nestjs` call times cold, and
   what this task changed, with the command and the lane ticket.
 - The tests above, each failing before its change.
@@ -155,9 +144,27 @@ with synthetic plugins and trees:
   all exit 0 in the gates on the pushed commit.
 - Do not edit docs/plan.md; the lead keeps it.
 
+## Open items
+
+- **T-057, v0.3.0: a `--commit-message` check checks only the message.** The lead decided this
+  on 2026-11-19. A check with `--commit-message` runs only the rules that declare they read the
+  message being written, through `Rule::NEEDS` with the message. It does not use `reads-history`
+  for this. The tree stays with `pre-commit`, `pre-push` and CI. With item 1, that check then
+  loads only the plugins of those rules. It changes what an existing `commit-msg` hook checks, so
+  it ships in v0.3.0 and is listed under Changed in `CHANGELOG.md`. The getting-started and
+  configuration pages of the guide change with it. The writer of this task writes T-057's task
+  file after T-047.
+
 ## Resume point
 
-2026-11-19T19:04:00+00:00: the lead approved the design (load only what the run needs; `gate
-sync` loads every pinned plugin, with no flag and no "first" state; no option to load all) and
-added items 6 and 7 and the pinned trade. The branch was cut from main `67bbd66`. Next: the lead's
-answer on item 6, the tests above (each failing first), then the change, then the measures.
+2026-11-19T19:09:22+00:00:
+- The lead approved the design. The branch was cut from main `67bbd66`.
+- `ba462ff` holds the three tests of items 1 and 3, written before the change.
+- `a491f40` holds the change, items 1 to 4. A `sync-state` answer at a commit whose own
+  configuration validates still loads every plugin of that commit (`Needed::Every` in
+  `commit_plugins`), as before.
+- Item 6 went to T-057.
+- Lane ticket 224 runs the three tests on `ba462ff` in their own worktree; each is expected to
+  fail. Ticket 226 runs the gates on the change.
+- Next: the `sync-state` fallback test and the `gate sync` cache test, item 5, item 7's
+  measures, then the consumer measure.
