@@ -796,23 +796,30 @@ fn reported(
     }))
 }
 
-/// A failed call of a plugin as the user reads it: an environment error. A call for a project
-/// addresses every path relative to the project's root, and so does the plugin's own error text,
-/// which the core cannot rewrite (it cannot tell a path in it); so the error names the project and
-/// says its paths are relative to the project's root. A call for the repository, or for a project
-/// at the repository's root, addresses repository paths and is named as the runtime names it.
+/// A failed call of a plugin as the user reads it: a configuration error when the plugin answered
+/// that its options or settings cannot be used, otherwise an environment error. A call for a
+/// project addresses every path relative to the project's root, and so does the plugin's own error
+/// text, which the core cannot rewrite (it cannot tell a path in it); so the error names the
+/// project and says its paths are relative to the project's root. A call for the repository, or
+/// for a project at the repository's root, addresses repository paths and is named as the runtime
+/// names it.
 fn call_failed(error: &gate_runtime::Error, project: Option<&Project>) -> Error {
-    match project {
+    let message = match project {
         Some(project) if !project.root.is_empty() && !error.plugin().is_empty() => {
-            Error::environment(format!(
+            format!(
                 "plugin {} in project {} (its paths are relative to {}): {}",
                 error.plugin(),
                 project.name,
                 project.root,
                 error.message()
-            ))
+            )
         }
-        _ => Error::environment(error.to_string()),
+        _ => error.to_string(),
+    };
+    if error.kind() == gate_runtime::ErrorKind::Configuration {
+        Error::config(message)
+    } else {
+        Error::environment(message)
     }
 }
 
@@ -2516,6 +2523,7 @@ mod tests {
             Kind::OutOfFuel,
             Kind::OutOfMemory,
             Kind::Plugin,
+            Kind::Configuration,
         ] {
             assert!(!passing_call_failure(kind), "{kind:?}");
         }

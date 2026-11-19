@@ -255,10 +255,20 @@ fn json(text: &str, what: &str) -> Result<Value> {
 fn options<T: serde::de::DeserializeOwned>(text: &str, what: &str) -> Result<T> {
     let text = if text.trim().is_empty() { "{}" } else { text };
     serde_json::from_str(text).map_err(|error| {
-        Error::new(format!(
+        Error::config(format!(
             "the options of {what} do not match its options type: {error}"
         ))
     })
+}
+
+/// `error` of `what` (`rule <name>` or `generator <name>`), of the same kind, with `what` named.
+fn named(what: &str, error: Error) -> Error {
+    let message = if error.is_config() {
+        format!("{what}: {error}")
+    } else {
+        format!("{what} failed: {error}")
+    };
+    error.with_message(message)
 }
 
 fn run_rule<R: Rule>(host: &dyn Host, rule: &RuleRun, shared: &Shared<'_>) -> Result<Vec<Finding>> {
@@ -281,7 +291,7 @@ fn run_rule<R: Rule>(host: &dyn Host, rule: &RuleRun, shared: &Shared<'_>) -> Re
     };
     R::default()
         .check(&mut run)
-        .map_err(|error| Error::new(format!("rule {} failed: {error}", R::NAME)))?;
+        .map_err(|error| named(&what, error))?;
     Ok(run.report.into_findings())
 }
 
@@ -299,7 +309,7 @@ fn run_generator<G: Generator>(
     };
     G::default()
         .generate(&mut run)
-        .map_err(|error| Error::new(format!("generator {} failed: {error}", G::NAME)))?;
+        .map_err(|error| named(&format!("generator {}", G::NAME), error))?;
     Ok(GenerateOutput {
         files: run.files,
         findings: run.report.into_findings(),

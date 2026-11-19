@@ -48,11 +48,15 @@ A placeholder written with a `-` after it (`:ticket-`) is optional. The name may
 with any set of the optional placeholders left out; where one is left out, a delimiter repeated
 where it was (`//`, `--`, `__`, `..`) is collapsed to one, and delimiters left at either end are
 removed. So `:type/:ticket-:name` takes `feature/proj-12-login` and `feature/login`. The template's
-other characters are regular-expression source, as in the reference: `.` matches any character.
+other characters are regular-expression source, as in the reference: `.` matches any character
+but a line terminator.
 
 `template`, `pattern` and `subject` mean what they mean in the reference, a JavaScript regular
-expression without the `u` flag: `\w`, `\d` and `\b` (and `\W`, `\D`, `\B`) are ASCII, so
-`subject = "[\\w-]+"` takes `cafe` and refuses `café`.
+expression without flags, read in the subset that
+[`git/commit-message`](commit-message.md#regular-expressions) lists for its patterns: `\w`, `\d`
+and `\b` (and `\W`, `\D`, `\B`) are ASCII, so `subject = "[\\w-]+"` takes `cafe` and refuses
+`café`, and syntax of Rust's `regex` crate such as `\A` or `[[:alpha:]]` means what JavaScript
+means by it.
 
 A template and a pattern together, or neither, are refused when the configuration loads.
 
@@ -118,8 +122,8 @@ The rule gives the verdicts of `@elsikora/git-branch-lint` 1.2.2 (commit 9718c1a
   checks nothing there.
 - `prohibited` applies only in a hook run, and main passes outside one; the reference has no notion
   of the run and refuses `main` in CI too.
-- The patterns are Rust regular expressions: no look-around or back-references. A template or
-  subject the Rust syntax refuses is a configuration error.
+- The patterns are read in that subset: lookaround, backreferences and the other constructs it
+  leaves out are a configuration error that names the construct.
 - A `$` in `subject` or `types` is taken literally; the reference reads `$&`, `` $` `` and `$'` in
   them as JavaScript replacement patterns.
 

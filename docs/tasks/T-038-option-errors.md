@@ -42,6 +42,28 @@ Step two: the other plugins swept site by site, by the same rule.
 
 Each `Error::new` site moved to `Error::config`, by file:line at the commit that moves it.
 
+Step one:
+
+- SDK: `crates/gate-sdk/src/plugin.rs:258` (options that do not match the options type),
+  `crates/gate-sdk/src/rule.rs:209` (`[plugins]` options), `crates/gate-sdk/src/rule.rs:221`
+  (`[languages]` settings).
+- `plugins/git/src/settings.rs`: 50 (the `[plugins.git]` options do not match), 55 (`main` empty),
+  66 (`activation` not a full id), 76 (`release-subject` without a group), 85 (`branch-length`
+  inverted), 99 (no `activation`), 220 (a required key missing), 232 (a pattern that does not
+  compile), 250 and 256 (globs).
+- `plugins/git/src/forms.rs`: 45, 198, 208, 214, 228, 238, 246 (forms that cannot work).
+- `plugins/git/src/commit_message.rs`: 250 and 256 (`header-pattern` and `ignores` refused or not
+  compiling), 270 (no `type` group).
+- `plugins/git/src/branch_name.rs`: 166 (`min-length` above `max-length`), 187 (template and
+  pattern), 287 (a template with nothing to match), 426 and 432 (a pattern refused or not
+  compiling).
+- `examples/plugin-hello/src/lib.rs:34` (`marker` empty), the second plugin of the end-to-end test.
+
+Kept as environment errors: `plugins/git/src/history.rs:76` (no main reference exists) and
+`plugins/git/src/history.rs:83` (the activation commit is not an ancestor of main), since a fetch of
+the full history may fix either; the SDK's `are not JSON` and `has no rule` (what the core sent,
+not what the user wrote).
+
 ## Done when
 
 - fmt, clippy, test (`--no-fail-fast`), deny and build exit 0 in one lane round on the pushed tip.
@@ -51,3 +73,9 @@ Each `Error::new` site moved to `Error::config`, by file:line at the commit that
 
 2026-11-19: branch `task/T-038-option-errors` from T-036's tip `c8afefb`; this file first. No round
 until T-036's ticket 187 is green.
+2026-11-19: step one written: `plugin-error` in the WIT, `Error::config` in the SDK,
+`ErrorKind::Configuration` in the runtime, the host's label; the git plugin and the hello example
+swept; `git/branch-name` on `javascript.rs` with `ascii_classes` gone, eleven per-case tests and a
+line on its page; the end-to-end test of hello's and git's bad options (exit 2, `configuration
+error`) and a missing `--plugin` file (`environment error`). Waiting for T-036's ticket 187 before
+a round.

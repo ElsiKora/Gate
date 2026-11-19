@@ -481,5 +481,6 @@ fn a_header_pattern_or_an_ignore_that_cannot_work_fails_closed() {
             .check("commit-message", "{}", options)
             .expect_err(options);
         assert!(error.message().contains(expected), "{options}: {error}");
+        assert!(error.is_config(), "a configuration error: {options}");
     }
 }
