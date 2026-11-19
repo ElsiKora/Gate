@@ -616,11 +616,11 @@ impl Loaded {
         let changed_paths: Option<Vec<String>> = changes
             .filter(|set| !set.everything)
             .map(|set| set.paths.iter().cloned().collect());
-        let tree: Arc<dyn Tree> = Arc::new(SnapshotTree {
-            paths: tree_paths.clone(),
-            changed: changed_paths.clone(),
-            snapshot: Arc::clone(&snapshot),
-        });
+        let tree: Arc<dyn Tree> = Arc::new(SnapshotTree::new(
+            Arc::clone(&snapshot),
+            tree_paths.clone(),
+            changed_paths.clone(),
+        ));
         let git_history = Arc::new(GitHistory::new(
             &snapshot,
             workspace,
@@ -1049,11 +1049,11 @@ impl Generators for PluginGenerators<'_> {
     ) -> Result<Vec<SyncFile>> {
         let (name, plugin, loaded) = self.plugin(generator)?;
         let snapshot = self.workspace.shared_snapshot();
-        let tree = Arc::new(SnapshotTree {
-            paths: snapshot.paths().map(str::to_owned).collect(),
-            changed: None,
-            snapshot: Arc::clone(&snapshot),
-        });
+        let tree = Arc::new(SnapshotTree::new(
+            Arc::clone(&snapshot),
+            snapshot.paths().map(str::to_owned).collect(),
+            None,
+        ));
         let options = options.map_or_else(|| "{}".to_owned(), Value::to_string);
         let grant = self.grant(project, name);
         let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
@@ -1499,6 +1499,22 @@ struct SnapshotTree {
     snapshot: Arc<Snapshot>,
     paths: Vec<String>,
     changed: Option<Vec<String>>,
+}
+
+impl SnapshotTree {
+    /// The tree over `snapshot`, with its tracked `paths` in byte order, each once, as
+    /// [`Tree::paths`] promises.
+    fn new(snapshot: Arc<Snapshot>, paths: Vec<String>, changed: Option<Vec<String>>) -> Self {
+        debug_assert!(
+            paths.windows(2).all(|pair| pair[0] < pair[1]),
+            "the tracked paths are sorted by byte order, each once"
+        );
+        Self {
+            snapshot,
+            paths,
+            changed,
+        }
+    }
 }
 
 impl Tree for SnapshotTree {
