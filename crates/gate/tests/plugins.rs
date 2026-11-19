@@ -2077,6 +2077,8 @@ fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_miss
     let no_ci_skip = "\"git/no-ci-skip\" = { level = \"error\" }";
     let refused = |options: &str, rules: &str, arguments: &[&str], expected: &str| {
         repo.write("gate.toml", &config(options, rules));
+        repo.git(&["add", "-A"]);
+        repo.git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
         let mut all = vec!["check", "--plugin", plugin.as_str()];
         all.extend_from_slice(arguments);
         let output = repo.gate(&all);
@@ -2091,6 +2093,8 @@ fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_miss
     };
     let passes = |options: &str, rules: &str, arguments: &[&str]| {
         repo.write("gate.toml", &config(options, rules));
+        repo.git(&["add", "-A"]);
+        repo.git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
         let mut all = vec!["check", "--plugin", plugin.as_str()];
         all.extend_from_slice(arguments);
         let output = repo.gate(&all);
