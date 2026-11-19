@@ -128,6 +128,7 @@ impl Rule for BarrelImports {
                     finding.message,
                 )
                 .target(finding.path.clone())
+                .key(finding.key)
                 .help(help);
         }
         Ok(())
@@ -252,6 +253,8 @@ struct Found {
     path: String,
     line: usize,
     message: String,
+    /// What the finding is about, stable when the message is reworded or a path moves.
+    key: String,
     barrel: String,
     folder: String,
 }
@@ -298,6 +301,7 @@ impl<'a> Checker<'_, 'a> {
                 message: format!(
                     "{path} imports {specifier} ({target}) past the barrel {barrel} of {folder}"
                 ),
+                key: specifier.clone(),
                 barrel,
                 folder,
             });
@@ -321,6 +325,7 @@ impl<'a> Checker<'_, 'a> {
                     message: format!(
                         "{path} imports {name} from the barrel {barrel}, which does not export it"
                     ),
+                    key: format!("{name} from {specifier}"),
                     barrel: barrel.clone(),
                     folder: folder.clone(),
                 });

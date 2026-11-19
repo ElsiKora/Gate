@@ -70,7 +70,8 @@ entries stale. 2 are option-file paths that change. The other 52 are
 - agents: `rule-ids`, `rule-registry`, `skills`, `instruction-references`, `rule-enforcement`,
   `adapters`, `rule-file-size`.
 - ci: `workflow-run-target`. git: `branch-name`, `commit-message`, `main-history`.
-- markdown: `frontmatter`, `local-links`, `required-sections`. typescript: `parse`.
+- markdown: `frontmatter`, `local-links`, `required-sections`. typescript: `parse`,
+  `barrel-imports` (the specifier; the name and its specifier).
 - ledger: records (`record-counterpart`, `record-field`, `parity-fields`, `record-shape`,
   `record-unique`, `record-commit`, `record-closure`, `record-dependency`, `dependency-cycle`),
   `record-status`, decisions, manifest, reuses, `closing-notes`, blockers, `exception-owners`,
