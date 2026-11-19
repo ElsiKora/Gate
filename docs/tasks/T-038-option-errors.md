@@ -191,3 +191,7 @@ Every pattern option of the git plugin now goes through `settings::pattern`, whi
 reader for its hints, on the same translation, and its built-in patterns compile through
 `builtin`, a bug if they fail. `git/no-ci-skip`'s defaults are written without `(?i)` and `(?m)`.
 Tests: an inline flag in `release-subject` and in `directive-pattern` is a configuration error.
+2026-11-19: Gate 005's nestjs and ledger sweep merged, with its changelog entries. Rebased with
+every commit onto T-036's tip `06d0734` (on `release/v0.2.0` at `b3b2fe3`), linear, keeping both
+sides where the release's stable-key entries met ours in the changelogs and where the tests and
+the task file sections met. One round on this tip covers T-036 too.
