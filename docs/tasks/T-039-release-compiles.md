@@ -32,3 +32,9 @@ reused for a different message or a different hook state.
 ## Resume point
 
 2026-11-19: branch `task/T-039-release-compiles` from `release/v0.2.0` at `8157571`; this file first.
+2026-11-19: written. `git.message` and `git.hook` are host-call kinds; `GitQuery::Message` and
+`GitQuery::Hook` ask again in `depends_on`, are never lasting, and read back from their words (the
+unit test's list holds both). Test `a_warm_result_cache_reruns_the_rule_for_another_message_or_hook_state`:
+one message file whose text changes runs, then comes from the cache, then a bad message runs the
+rule again and fails; `git/branch-name` on main passes outside a hook, is cached, and fails when
+`--hook` is given. No native cargo run; one lane round runs fmt, clippy and test.
