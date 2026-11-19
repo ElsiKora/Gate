@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead |
+| Status | in progress (design approved by the lead, 2026-11-19) |
 | Release | v0.2.1 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | a session that did not write it |
@@ -80,6 +80,7 @@ To be written.
 
 ## Resume point
 
-2026-11-19T19:06:27+00:00: design written from `main` at `f0d7ca4`, after reading
-`crates/gate-host/src/cache/` and the prune command. Next: the lead's answer on the design; no
-code before it.
+2026-11-19T19:16:49+00:00: the lead approved the design as written; only downloads are pinned,
+results of pinned plugins included may go under a bound. Code, tests and documents are pushed; the
+first lane round (fmt, clippy, the gate-host and gate tests) is queued. Next: its result, then the
+full round with each change taken out.
