@@ -638,15 +638,15 @@ impl Objects {
         })
     }
 
-    /// The blob `<commit>:<path>` names; `None` when it names nothing.
+    /// The blob `<commit>:<path>` names, as its id and content; `None` when it names nothing.
     ///
     /// # Errors
     /// Fails when the reader protocol breaks, or the path names something that is not a file.
-    pub fn read_at(&mut self, commit: &str, path: &str) -> Result<Option<Vec<u8>>> {
+    pub fn read_at(&mut self, commit: &str, path: &str) -> Result<Option<(String, Vec<u8>)>> {
         let spec = format!("{commit}:{path}");
-        if spec.contains('\n') {
+        let object = if spec.contains('\n') {
             // The reader takes one name per line: git answers a name with a line break.
-            let Some(object) = self.git.try_text(&[
+            let Some(id) = self.git.try_text(&[
                 "rev-parse",
                 "--verify",
                 "--quiet",
@@ -656,9 +656,43 @@ impl Objects {
             else {
                 return Ok(None);
             };
-            return self.git.output(&["cat-file", "blob", &object]).map(Some);
+            self.reader.object(&id)?
+        } else {
+            self.reader.object(&spec)?
+        };
+        let Some(object) = object else {
+            return Ok(None);
+        };
+        if object.kind != "blob" {
+            return Err(Error::environment(format!(
+                "{spec:?} names a {}, not a file",
+                object.kind
+            )));
         }
-        self.reader.read_blob(&spec)
+        Ok(Some((object.id, object.content)))
+    }
+
+    /// The content of the blob `id`; `None` when the repository lacks it.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks, or `id` names something that is not a file.
+    pub fn blob(&mut self, id: &str) -> Result<Option<Vec<u8>>> {
+        match self.reader.object(id)? {
+            Some(object) if object.kind == "blob" => Ok(Some(object.content)),
+            Some(object) => Err(Error::environment(format!(
+                "{id} names a {}, not a file",
+                object.kind
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    /// Whether `name` names a commit the repository has.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks.
+    pub fn has_commit(&mut self, name: &str) -> Result<bool> {
+        Ok(self.commit(name)?.is_some())
     }
 
     /// The id of the tree of `commit`; `None` when it names no commit or tree.

@@ -436,9 +436,11 @@ all = ["lint", "unit"]
   rev-list`, left to git past 200 000 commits) go through one `git cat-file --batch` reader per run,
   not one git process per question, and `merge-tree` through one `git merge-tree --stdin`. Each
   answer about full commit ids (`tree`, `changed-paths`, `merge-tree` with git's version,
-  `is-ancestor` outside a shallow clone) is asked once per run and stored: a run writes what it
-  learned to one file under `git/answers/`, every later run reads them back, and the files are
-  merged into one when they pass sixteen. `sync-state` answers are stored by commit id. A call's
+  `is-ancestor` outside a shallow clone, `read-at` as the id of the blob, whose content is stored
+  once by that id) is asked once per run and stored, except a no or a missing file at a commit the
+  clone lacks, which a fetch can change: a run writes what it learned to one file under
+  `git/answers/`, every later run reads them back, and the files are merged into one when they
+  pass sixteen. `sync-state` answers are stored by commit id. A call's
   findings are stored with the read set that proves them (see the result cache above): answers that
   depend on refs (`head`, `branch`, `range`, `resolve`, `log` of a range with a ref) are recorded
   there by the commit ids they returned, so a moved ref re-runs the call, and the re-run asks git
