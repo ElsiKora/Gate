@@ -353,8 +353,55 @@ impl Loaded {
             &JsonSchemaValidator,
         )?;
         workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
+        self.check_needs(workspace, filter)?;
         self.check_generators(workspace)?;
         workspace.check_rule_filter(filter, &declaration)
+    }
+
+    /// Checks that in every scope the `[plugins.<name>] options` hold each key that an enabled rule
+    /// the run allows declares it reads (`gate_sdk::Rule::NEEDS`), so a missing key fails as
+    /// configuration before anything runs, naming the rule, and not when the rule runs.
+    ///
+    /// # Errors
+    /// Fails on the first missing key, naming the plugin's entry, the key and the rule; or, as a
+    /// broken plugin, on a rule whose declared needs are not a list of `{ key, when, why }`.
+    fn check_needs(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
+        let empty = Value::Object(serde_json::Map::new());
+        for (project, settings) in scopes(workspace) {
+            for (name, plugin) in &self.plugins {
+                let Some(entry) = settings.plugins.get(name) else {
+                    continue;
+                };
+                if !filter.allows_plugin(name.as_str()) {
+                    continue;
+                }
+                let options = settings.plugin_options(name).unwrap_or(&empty);
+                for rule in enabled_rules(plugin, name, settings, workspace, project)? {
+                    if !filter.allows(&rule.id.to_string()) {
+                        continue;
+                    }
+                    let Some(schema) = self.schemas.get(&(name.clone(), rule.run.name.clone()))
+                    else {
+                        continue;
+                    };
+                    for need in needs(name, &rule.run.name, schema)? {
+                        if options.get(&need.key).is_some()
+                            || need
+                                .when
+                                .as_ref()
+                                .is_some_and(|when| !when.is_valid(options))
+                        {
+                            continue;
+                        }
+                        return Err(Error::config(format!(
+                            "{}: [plugins.{name}] options has no {}, which \"{}\" reads: {}",
+                            entry.origin, need.key, rule.id, need.why
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Checks that every `[generate]` key names a generator its plugin declares. A key whose
@@ -803,6 +850,58 @@ fn rule_id(plugin: &PluginName, rule: &str) -> Result<RuleId> {
             "plugin {plugin} reported a finding of rule {rule:?}: {error}; the plugin is broken, report it to its authors"
         ))
     })
+}
+
+/// A key of the plugin's options a rule reads, as its options schema declares it.
+struct Need {
+    key: String,
+    /// The plugin's options read it when they match this; always when `None`.
+    when: Option<jsonschema::Validator>,
+    why: String,
+}
+
+/// The needs rule `rule` of `plugin` declares under `gate_sdk::NEEDS_KEYWORD` of its options
+/// schema.
+///
+/// # Errors
+/// Fails, as a broken plugin, when they are not a list of `{ "key", "when", "why" }` with a string
+/// key and reason and a JSON Schema or `null` for `when`.
+fn needs(plugin: &PluginName, rule: &str, schema: &Value) -> Result<Vec<Need>> {
+    let Some(list) = schema.get(gate_sdk::NEEDS_KEYWORD) else {
+        return Ok(Vec::new());
+    };
+    let broken = |what: String| {
+        Error::environment(format!(
+            "plugin {plugin} declares the options rule {rule} reads ({}) {what}; the plugin is broken, report it to its authors",
+            gate_sdk::NEEDS_KEYWORD
+        ))
+    };
+    let Some(list) = list.as_array() else {
+        return Err(broken("as something other than a list".to_owned()));
+    };
+    list.iter()
+        .map(|need| -> Result<Need> {
+            let text = |field: &str| {
+                need.get(field)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or_else(|| broken(format!("with an entry whose {field} is not a string")))
+            };
+            let when = match need.get("when") {
+                None | Some(Value::Null) => None,
+                Some(when) => Some(jsonschema::validator_for(when).map_err(|error| {
+                    broken(format!(
+                        "with a when that is not valid JSON Schema ({error})"
+                    ))
+                })?),
+            };
+            Ok(Need {
+                key: text("key")?,
+                when,
+                why: text("why")?,
+            })
+        })
+        .collect()
 }
 
 /// A rule that runs in a call.

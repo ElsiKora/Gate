@@ -3,10 +3,10 @@
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Rule, Run, Scope};
+use gate_sdk::{Need, Rule, Run, Scope};
 
 use crate::history::History;
-use crate::settings::{Settings, pattern};
+use crate::settings::{self, Settings, pattern};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -46,6 +46,7 @@ impl Rule for NoCiSkip {
         "No commit since activation carries a CI-skip directive except the release commit";
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
+    const NEEDS: &'static [Need] = &[settings::ACTIVATION, settings::RELEASE_SUBJECT];
 
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
         let settings = Settings::read(run)?;

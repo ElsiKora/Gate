@@ -103,7 +103,10 @@ to its `level` and `options`; a repository takes it with `extends = ["todo/recom
 the `[plugins.todo] options` every rule shares, read with `run.plugin_options()`; a plugin without
 such options names `gate_sdk::NoOptions`, which accepts only an empty table. Gate checks the
 configuration against these schemas when the plugin loads, so a missing, unknown or mistyped option
-is a configuration error before anything runs.
+is a configuration error before anything runs. A plugin option only some rules read is optional in
+the plugin's type; each rule that reads it lists it in `const NEEDS: &'static [gate_sdk::Need]`
+(the key, the JSON Schema of the plugin options under which it reads the key, and why), and Gate
+refuses a configuration that enables the rule without the key, naming the rule.
 
 The rule itself, in `src/no_bare_todo.rs`, is the subject of [writing-a-rule.md](writing-a-rule.md). A
 generator is a `#[derive(Debug, Default)]` type that implements `gate_sdk::Generator` (`NAME`, `TITLE`,

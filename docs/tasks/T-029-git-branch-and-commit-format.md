@@ -88,3 +88,10 @@ and `prohibited` applies only when a hook runs, so a CI `--push` to main passes.
 architecture §4 and §7, the plugin changelog. Native `cargo test -p gate-plugin-git` and its clippy
 pass. Open: how the two warning aspects get `warning` by default (asked the lead; the page shows
 `levels` meanwhile). Next: the 60 + 60 comparison, then a lane round.
+2026-11-19: decided (lead): a preset sets aspect levels (`levels`), after the project's aspect level
+and before its rule level; `git/recommended` gives the two warning aspects `warning`. Lengths count
+UTF-16 code units, as the references do. The native comparison (147 inputs: 69 branch names, 78
+messages) agrees on every verdict. Added (lead): a rule declares the plugin options it reads
+(`Rule::NEEDS`, `x-gate-needs` in its options schema) and the host refuses an enabled rule's missing
+key at load (exit 2), naming the rule. Next: a lane round (the host and CLI tests compile only
+there), then the comparison through the built `gate check`.

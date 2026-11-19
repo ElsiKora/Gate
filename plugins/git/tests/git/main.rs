@@ -94,6 +94,126 @@ fn the_plugin_options_schema_requires_main_and_types_the_forms() {
     assert!(schema["properties"]["forms"].is_object(), "{schema}");
 }
 
+/// The keys of `options` a host reports missing for rule `rule`: those it declares it reads, absent
+/// from `options`, whose condition `options` match.
+fn missing(rule: &str, options: &serde_json::Value) -> Vec<String> {
+    let info = gate_sdk::describe(&git::PLUGIN);
+    let rule = info
+        .rules
+        .iter()
+        .find(|info| info.name == rule)
+        .expect("declared");
+    let schema: serde_json::Value =
+        serde_json::from_str(&rule.options_schema).expect("the schema is JSON");
+    let Some(needs) = schema.get(gate_sdk::NEEDS_KEYWORD) else {
+        return Vec::new();
+    };
+    needs
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter(|need| {
+            let key = need["key"].as_str().expect("a key");
+            assert!(need["why"].is_string(), "{need}");
+            options.get(key).is_none()
+                && (need["when"].is_null()
+                    || jsonschema::validator_for(&need["when"])
+                        .expect("a JSON Schema")
+                        .is_valid(options))
+        })
+        .map(|need| need["key"].as_str().expect("a key").to_owned())
+        .collect()
+}
+
+#[test]
+fn the_history_rules_declare_the_options_they_read_by_their_forms() {
+    let main = serde_json::json!({ "main": ["refs/heads/main"] });
+    let with = |forms: serde_json::Value| {
+        let mut options = main.clone();
+        options["forms"] = forms;
+        options
+    };
+    let merge = |checks: serde_json::Value| serde_json::json!({ "kind": "merge", "parents": 2, "subject": "^Merge branch '([^']+)'$", "checks": checks });
+    let direct = serde_json::json!({ "kind": "direct", "parents": 1 });
+    let release = serde_json::json!({ "kind": "release", "parents": 1 });
+
+    // The default forms read every key.
+    assert_eq!(
+        missing("main-history", &main),
+        [
+            "activation",
+            "release-subject",
+            "branch-pattern",
+            "branch-length",
+            "dependabot",
+            "documentation"
+        ]
+    );
+    assert_eq!(
+        missing("no-ci-skip", &main),
+        ["activation", "release-subject"]
+    );
+    // Forms read the keys of their kinds and checks.
+    assert_eq!(
+        missing(
+            "main-history",
+            &with(serde_json::json!([merge(serde_json::json!(["body"]))]))
+        ),
+        ["activation"]
+    );
+    assert_eq!(
+        missing(
+            "main-history",
+            &with(serde_json::json!([merge(serde_json::json!([
+                "body", "branch"
+            ]))]))
+        ),
+        [
+            "activation",
+            "branch-pattern",
+            "branch-length",
+            "dependabot"
+        ]
+    );
+    assert_eq!(
+        missing(
+            "main-history",
+            &with(
+                serde_json::json!([{ "kind": "merge", "parents": 2, "subject": "^Merge branch '([^']+)'$" }])
+            )
+        ),
+        [
+            "activation",
+            "branch-pattern",
+            "branch-length",
+            "dependabot"
+        ]
+    );
+    assert_eq!(
+        missing("main-history", &with(serde_json::json!([direct, release]))),
+        ["activation", "release-subject", "documentation"]
+    );
+    assert_eq!(
+        missing(
+            "main-history",
+            &with(serde_json::json!([{ "kind": "direct", "parents": 1, "checks": [] }]))
+        ),
+        ["activation"]
+    );
+    assert_eq!(
+        missing("no-ci-skip", &with(serde_json::json!([direct]))),
+        ["activation"]
+    );
+    // A key that is there is not missing.
+    let mut set = main.clone();
+    set["activation"] = serde_json::json!("a".repeat(40));
+    set["release-subject"] = serde_json::json!("^v(.+)$");
+    assert_eq!(missing("no-ci-skip", &set), Vec::<String>::new());
+    // The rules of the branch and the message read none.
+    assert_eq!(missing("branch-name", &main), Vec::<String>::new());
+    assert_eq!(missing("commit-message", &main), Vec::<String>::new());
+}
+
 #[test]
 fn the_settings_are_required_and_checked() {
     let mut repo = Repo::default();

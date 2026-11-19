@@ -32,6 +32,25 @@ pub struct RuleInfo {
     pub options_schema: String,
 }
 
+/// A key of the plugin's options (`[plugins.<name>] options`) that a rule reads and the plugin's
+/// schema leaves optional, because other rules, or other configurations, do not read it. The core
+/// checks it before anything runs: when the rule is enabled, the options lack `key` and they match
+/// `when`, the run fails with a configuration error that names the rule, the key and `why`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Need {
+    /// The key, as written in the options (`activation`).
+    pub key: &'static str,
+    /// A JSON Schema the plugin's options match when the rule reads `key`; `None` for always.
+    pub when: Option<&'static str>,
+    /// What reads it and what to do, after "which <rule> reads": `"the rule reads history after
+    /// it: write the 40-hex id of the commit the policy starts after"`.
+    pub why: &'static str,
+}
+
+/// The key of the rule's options schema that carries its [`Rule::NEEDS`], an extension keyword
+/// that schema validation ignores: a list of `{ "key", "when", "why" }`.
+pub const NEEDS_KEYWORD: &str = "x-gate-needs";
+
 /// One rule. The type is built with [`Default`] for every run; its options arrive typed.
 pub trait Rule: Default + 'static {
     /// The rule's options, read from configuration with `serde`; their JSON Schema, generated
@@ -50,6 +69,8 @@ pub trait Rule: Default + 'static {
     /// The languages whose files the rule reads (`["typescript"]`), so the host can skip a run
     /// with no such file.
     const LANGUAGES: &'static [&'static str] = &[];
+    /// The keys of the plugin's options the rule reads that the plugin's schema leaves optional.
+    const NEEDS: &'static [Need] = &[];
 
     /// Checks the run's tree and reports findings; `Err` only for an environment failure.
     ///
@@ -74,9 +95,32 @@ pub trait Rule: Default + 'static {
                 .iter()
                 .map(|language| (*language).to_owned())
                 .collect(),
-            options_schema: schema::<Self::Options>(),
+            options_schema: with_needs(&schema::<Self::Options>(), Self::NEEDS),
         }
     }
+}
+
+/// `schema` with `needs` under [`NEEDS_KEYWORD`]; `schema` itself when there are none. A `when`
+/// that is not JSON is carried as a string, which the core reports as a broken plugin.
+pub(crate) fn with_needs(schema: &str, needs: &[Need]) -> String {
+    if needs.is_empty() {
+        return schema.to_owned();
+    }
+    let Ok(serde_json::Value::Object(mut object)) = serde_json::from_str(schema) else {
+        return schema.to_owned();
+    };
+    let list = needs
+        .iter()
+        .map(|need| {
+            let when = need.when.map_or(serde_json::Value::Null, |when| {
+                serde_json::from_str(when)
+                    .unwrap_or_else(|_| serde_json::Value::String(when.to_owned()))
+            });
+            serde_json::json!({ "key": need.key, "when": when, "why": need.why })
+        })
+        .collect();
+    object.insert(NEEDS_KEYWORD.to_owned(), serde_json::Value::Array(list));
+    serde_json::Value::Object(object).to_string()
 }
 
 pub(crate) fn schema<T: JsonSchema>() -> String {

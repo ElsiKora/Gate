@@ -46,7 +46,10 @@ interface types {
     reads-history: bool,
     /// The languages whose files the rule reads, e.g. `["typescript"]`; empty for none.
     languages: list<string>,
-    /// The JSON Schema of the rule's options.
+    /// The JSON Schema of the rule's options. Its key `x-gate-needs`, when present, lists as
+    /// `{ "key", "when", "why" }` the keys of the `[plugins.<name>] options` the rule reads that the
+    /// plugin's schema leaves optional: the host refuses the configuration when the rule is enabled
+    /// and the options lack `key` while matching the JSON Schema `when` (always when `null`).
     options-schema: string,
   }
 

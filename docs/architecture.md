@@ -119,7 +119,8 @@ interface types {
     name: string, title: string, aspects: list<string>, scope: scope,
     reads-history: bool,      // needs commits, not only the snapshot
     languages: list<string>,  // e.g. ["typescript"]; empty for language-free rules
-    options-schema: string,   // JSON Schema of the rule's options
+    options-schema: string,   // JSON Schema of the rule's options; its "x-gate-needs" lists the
+                              // [plugins.<name>] options the rule reads that the plugin's schema leaves optional
   }
   record generator-info { name: string, title: string, options-schema: string, owns: list<string> }
   record preset { name: string, rules: string /* JSON: rule name -> {level, levels, options} */ }
@@ -349,8 +350,11 @@ all = ["lint", "unit"]
   reason, is listed by `gate list`, and is reported by `gate/exceptions` when unused or malformed.
 - Every section is validated: unknown keys, unknown rules, `[generate]` keys that name no generator of
   their plugin, options that fail the rule's schema, `[plugins.<name>] options` that fail the schema
-  the plugin declares (a missing required option, an unknown one, a wrong type) and exceptions without
-  a reason are configuration errors that name the file and key, raised before anything runs.
+  the plugin declares (a missing required option, an unknown one, a wrong type), a plugin option an
+  enabled rule declares it reads (`NEEDS` in the SDK) missing from `[plugins.<name>] options`, and
+  exceptions without a reason are configuration errors that name the file and key, raised before
+  anything runs. A plugin option only some rules read stays optional in the plugin's schema; the rule
+  that reads it declares it, with the options it reads it under, so the error names that rule.
 - A rule that is `off` in every aspect needs no options, so a rule a preset enables can always be turned
   off; options it does carry are still validated against its schema.
 - The core's own rules (`gate/*`) take `norm` and `norms` like any rule; their level is fixed, and

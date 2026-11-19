@@ -2059,3 +2059,113 @@ fn a_missing_git_plugin_option_is_a_configuration_error_at_load() {
         "{message}"
     );
 }
+
+#[test]
+fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_missing() {
+    static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
+    let plugin = format!("git={}", git.0.display());
+    let repo = Repo::empty();
+    repo.write("README.md", "# r\n");
+    let root = repo.commit("init");
+    let release = r"release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'";
+    let config = |options: &str, rules: &str| {
+        format!(
+            "[gate]\nversion = \"0.1.0\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"]{options} }}\n\n[rules]\n{rules}\n"
+        )
+    };
+    let no_ci_skip = "\"git/no-ci-skip\" = { level = \"error\" }";
+    let refused = |options: &str, rules: &str, arguments: &[&str], expected: &str| {
+        repo.write("gate.toml", &config(options, rules));
+        let mut all = vec!["check", "--plugin", plugin.as_str()];
+        all.extend_from_slice(arguments);
+        let output = repo.gate(&all);
+        let message = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{options}: {message}");
+        assert_eq!(text(&output.stdout), "", "nothing ran");
+        assert!(
+            message.starts_with("gate: configuration error: gate.toml:")
+                && message.contains(expected),
+            "{options}: {message}"
+        );
+    };
+    let passes = |options: &str, rules: &str, arguments: &[&str]| {
+        repo.write("gate.toml", &config(options, rules));
+        let mut all = vec!["check", "--plugin", plugin.as_str()];
+        all.extend_from_slice(arguments);
+        let output = repo.gate(&all);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{options}: {}{}",
+            text(&output.stdout),
+            text(&output.stderr)
+        );
+    };
+
+    // A key every run of the rule reads, named with the rule and what to do.
+    refused(
+        &format!(", {release}"),
+        no_ci_skip,
+        &[],
+        "[plugins.git] options has no activation, which \"git/no-ci-skip\" reads: the rule reads \
+         history after it; write the 40-hex id of the commit the policy starts after",
+    );
+    // A key the default forms read: they hold a release form.
+    let activation = format!(", activation = \"{root}\"");
+    refused(
+        &activation,
+        no_ci_skip,
+        &[],
+        "[plugins.git] options has no release-subject, which \"git/no-ci-skip\" reads",
+    );
+    // The keys of main-history's default merge and direct forms.
+    refused(
+        &format!("{activation}, {release}"),
+        "\"git/main-history\" = \"error\"",
+        &[],
+        "[plugins.git] options has no branch-pattern, which \"git/main-history\" reads",
+    );
+    refused(
+        &format!(
+            "{activation}, {release}, branch-pattern = '^feature/.+$', branch-length = [5, 50], dependabot = [\"package.json\"]"
+        ),
+        "\"git/main-history\" = \"error\"",
+        &[],
+        "[plugins.git] options has no documentation, which \"git/main-history\" reads",
+    );
+
+    // Forms without a release form read no release-subject.
+    passes(
+        &format!("{activation}, forms = [{{ kind = \"direct\", parents = 1, checks = [] }}]"),
+        no_ci_skip,
+        &[],
+    );
+    // A rule that does not read a key does not need it, and neither does a rule the run leaves out.
+    passes(
+        "",
+        "\"git/branch-name\" = { level = \"error\", options = { pattern = \"^main$\" } }",
+        &[],
+    );
+    passes(
+        "",
+        &format!(
+            "{no_ci_skip}\n\"git/branch-name\" = {{ level = \"error\", options = {{ pattern = \"^main$\" }} }}"
+        ),
+        &["--rule", "git/branch-name"],
+    );
+    refused(
+        "",
+        &format!(
+            "{no_ci_skip}\n\"git/branch-name\" = {{ level = \"error\", options = {{ pattern = \"^main$\" }} }}"
+        ),
+        &["--rule", "git"],
+        "has no activation, which \"git/no-ci-skip\" reads",
+    );
+    // Off is not enabled.
+    passes(
+        "",
+        "\"git/no-ci-skip\" = \"off\"\n\"git/branch-name\" = { level = \"error\", options = { pattern = \"^main$\" } }",
+        &[],
+    );
+}

@@ -19,6 +19,9 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 - The preset `git/recommended`: `git/branch-name` with the template `:type/:ticket-:name`, and
   `git/commit-message` with `header-min-length` and `scope-max-length` as warnings, as in the
   reference.
+- The rules declare the `[plugins.git] options` keys they read (`Rule::NEEDS`), and under which
+  forms, so a key an enabled rule reads is a configuration error (exit 2) when the configuration
+  loads, naming the rule, not an error when the rule runs.
 
 # 0.1.0
 
