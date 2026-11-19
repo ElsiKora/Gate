@@ -72,7 +72,7 @@ policy = {{ run = "bin/gate check --rule=history/commits" }}
     )
     .expect("utf-8");
 
-    let full = "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n        with:\n          fetch-depth: 0\n";
+    let full = "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n";
     for (id, deep) in [
         ("all", true),
         ("named", true),

@@ -1284,8 +1284,9 @@ const SYNC_STATE: &str = "sync-state";
 /// configuration would answer differently, so answers stored before are not reused. 2: no drift
 /// under the fallback. 3: only lasting load failures stored, validation per plugin, the lower
 /// fuel default. 4: the fuel default back to 10^12, so a fuel failure stored under 10^11 is not
-/// reused.
-const SYNC_STATE_VERSION: u32 = 4;
+/// reused. 5: the generated checkout sets `persist-credentials: false`, so a workflow answered as
+/// in sync before is drift now, under the same core version until it is bumped.
+const SYNC_STATE_VERSION: u32 = 5;
 
 /// The first byte of a stored answer that holds the paths.
 const ANSWER: u8 = b'p';

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | v0.2.0 |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
@@ -44,4 +44,6 @@ plugin releases through `GATE_GITHUB_TOKEN`, not through git.
 ## Resume point
 
 2026-11-19: branch `task/T-033-checkout-no-credentials` on main `59fb163`, the first public release.
-Task file written; next: the change, the tests, the gates.
+Change, docs and tests written. `SYNC_STATE_VERSION` is 5: a stored `sync-state` answer covers the
+workflow the core writes (`sync::core_outputs`), and its key holds the core's version, which stays
+0.1.0 on main until the v0.2.0 bump. Next: the gates.

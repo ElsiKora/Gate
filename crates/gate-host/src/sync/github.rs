@@ -146,12 +146,17 @@ fn aggregate_value(runner: &str, needs: &[String]) -> Value {
     })
 }
 
-/// The checkout step, with `fetch-depth` when one is set.
+/// The checkout step, with `fetch-depth` when one is set. It keeps no credentials
+/// (`persist-credentials: false`): a token left in the clone's git configuration reaches every later
+/// step and any artifact of the workspace. No setting keeps them, since the generated jobs never
+/// push and read private plugin releases through `GATE_GITHUB_TOKEN`, not through git.
 fn checkout(github: &CiGithub, depth: Option<u64>) -> Value {
-    match depth {
-        Some(depth) => json!({ "uses": github.checkout, "with": { "fetch-depth": depth } }),
-        None => json!({ "uses": github.checkout }),
+    let mut with = Map::new();
+    if let Some(depth) = depth {
+        with.insert("fetch-depth".to_owned(), json!(depth));
     }
+    with.insert("persist-credentials".to_owned(), json!(false));
+    json!({ "uses": github.checkout, "with": with })
 }
 
 /// The `if` of a job that needs some projects: it runs when one of them changed, and also when the
