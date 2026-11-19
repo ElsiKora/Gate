@@ -153,7 +153,7 @@ impl gate_sdk::Rule for Rule {
         let options = run.options();
 
         if options.function_decorators.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "`function-decorators` is empty; name at least one automator function decorator",
             ));
         }

@@ -53,7 +53,7 @@ impl gate_sdk::Rule for Rule {
         let decorator = run.options().decorator.clone();
 
         if decorator.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "the option decorator is empty; name the decorator, for example \"@Entity\"",
             ));
         }

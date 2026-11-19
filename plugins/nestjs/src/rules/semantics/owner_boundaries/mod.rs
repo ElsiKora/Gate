@@ -146,7 +146,7 @@ impl Decorators {
             ])
         {
             if value.package.is_empty() || value.name.is_empty() {
-                return Err(gate_sdk::Error::new(format!(
+                return Err(gate_sdk::Error::config(format!(
                     "the option `{option}` has an empty package or name; name both, or leave the option out to use the layout's packages"
                 )));
             }

@@ -64,6 +64,48 @@ Kept as environment errors: `plugins/git/src/history.rs:76` (no main reference e
 the full history may fix either; the SDK's `are not JSON` and `has no rule` (what the core sent,
 not what the user wrote).
 
+## Step two: nestjs and ledger (Gate 005, branch `task/T-038-sweep-nestjs-ledger`)
+
+Each `gate_sdk::Error::new` site, by file:line at the commit that moves it; the test for each is
+whether editing `gate.toml` or a file the options name fixes the error. `SqlError::new` in
+`advisory_lock_boundary/sql.rs` is the SQL reader's own error type, not an SDK error; it is not a
+site.
+
+`plugins/nestjs/src` (22 moved, 3 kept):
+
+- Moved: `shared/paths.rs` 57, 60, 63, 66 (a path or name option not in normal form).
+- Moved: `shared/pattern.rs:11` (a pattern option that is no regular expression; its two callers
+  that pass a fixed pattern cannot fail).
+- Moved: `rules/semantics/native_functions.rs:156` (`function-decorators` empty).
+- Moved: `rules/semantics/prefix_nesting.rs:73` (`word-separator` empty).
+- Moved: `rules/semantics/entity_table_name.rs:56` (`decorator` empty).
+- Moved: `rules/semantics/package.rs:14` (a package option empty).
+- Moved: `rules/semantics/folders.rs:12` (a folder option that is the project root).
+- Moved: `rules/semantics/wrappers/mod.rs:312` (the `package-exports-file` the options name is not
+  tracked) and 317 (that file's table cannot be read).
+- Moved: `rules/semantics/module_registry/mod.rs:113` (`table-header` not three cells).
+- Moved: `rules/semantics/owner_boundaries/mod.rs:149` (a package option with an empty package or
+  name).
+- Moved: `rules/structure/import_direction.rs:133` (`contracts` empty).
+- Moved: `rules/structure/notification_egress/mod.rs:228` (the decision index `decisions` names is
+  not tracked) and 284 (`invalid`, the helper of every check of the options and of the decision
+  index's accepted decisions).
+- Moved: `rules/structure/runtime_factory.rs:57` (`contracts` empty).
+- Moved: `rules/semantics/typeorm_relation/mod.rs:242` (`foreign-key-case` without
+  `foreign-key-label`), 251 (`resolved-aliases` names an alias the layout does not define) and 494
+  (a join reaches a foreign key name and `foreign-key-case` is not set).
+- Moved: `rules/structure/raw_config_access.rs:92` (`raw-imports` empty).
+- Kept: `shared/project.rs:30` (a `gate_typescript` library error: a source file that cannot be read,
+  a tsconfig that cannot be parsed).
+- Kept: `rules/structure/package_pins.rs:130` (the npm manifest or lockfile is not JSON: a tracked
+  source file, not an option).
+- Kept: `rules/structure/advisory_lock_boundary/source/shell.rs:39` (the plugin's own fixed pattern;
+  a failure is a defect of the plugin).
+
+Test: `crates/gate/tests/plugins.rs`, `a_nestjs_option_its_rule_refuses_is_a_configuration_error`:
+`nestjs/eslint-directives` with `rule-id-pattern = "("` gives exit 2 and `gate: configuration
+error:`.
+
 ## Done when
 
 - fmt, clippy, test (`--no-fail-fast`), deny and build exit 0 in one lane round on the pushed tip.

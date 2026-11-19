@@ -110,7 +110,7 @@ impl gate_sdk::Rule for Rule {
         let options = run.options();
 
         if options.table_header.len() != 3 {
-            return Err(gate_sdk::Error::new(format!(
+            return Err(gate_sdk::Error::config(format!(
                 "the option table-header has {} cells; give exactly three: the module path, chapter and ownership headers",
                 options.table_header.len()
             )));

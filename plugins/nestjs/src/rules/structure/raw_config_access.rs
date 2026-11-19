@@ -89,7 +89,7 @@ impl Options {
     /// Checks that every path option is a normalized path relative to the project root.
     fn check_paths(&self) -> gate_sdk::Result<()> {
         if self.raw_imports.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "option `raw-imports` lists nothing; list at least one raw configuration module, or leave the rule off".to_owned(),
             ));
         }

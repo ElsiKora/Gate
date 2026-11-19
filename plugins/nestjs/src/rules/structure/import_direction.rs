@@ -130,7 +130,7 @@ impl Options {
     /// Checks that every path option is a normalized path relative to the project root.
     fn check_paths(&self) -> gate_sdk::Result<()> {
         if self.contracts.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "option `contracts` lists nothing; list at least one contract, or leave the rule off".to_owned(),
             ));
         }

@@ -70,7 +70,7 @@ impl gate_sdk::Rule for Rule {
         let options = run.options();
 
         if options.word_separator.is_empty() {
-            return Err(gate_sdk::Error::new(
+            return Err(gate_sdk::Error::config(
                 "the option word-separator is empty; set it to the text between the words of a name, such as \"-\"",
             ));
         }

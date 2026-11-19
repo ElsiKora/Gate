@@ -2678,6 +2678,42 @@ fn a_rules_bad_option_is_a_configuration_error_and_a_missing_plugin_an_environme
     );
 }
 
+/// `gate check` in a repository with one tracked TypeScript file and `[plugins.<name>]` declared,
+/// the built component of `package` (library `library`) given as `--plugin <name>=<path>`, and
+/// `[rules]` `rules`.
+fn bad_option_check(package: &str, library: &str, name: &str, rules: &str) -> Output {
+    let (path, _) = component(package, library);
+    let repo = Repo::empty();
+    repo.write("src/app/app.service.ts", "export class AppService {}\n");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.{name}]\nsource = \"acme/rules:{name}@0.1.0\"\n\n[rules]\n{rules}\n"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("{name}={}", path.display());
+    repo.gate(&["check", "--plugin", &plugin])
+}
+
+#[test]
+fn a_nestjs_option_its_rule_refuses_is_a_configuration_error() {
+    // A pattern that is no regular expression: no schema can refuse it, the rule does.
+    let output = bad_option_check(
+        "gate-plugin-nestjs",
+        "nestjs",
+        "nestjs",
+        r#""nestjs/eslint-directives" = { level = "error", options = { rule-id-pattern = "(" } }"#,
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("rule-id-pattern \"(\" is no regular expression"),
+        "{message}"
+    );
+}
+
 /// `gate check --timings` with the built probe: the exit code, the finding messages sorted, the
 /// scopes whose call ran (not from the result cache), sorted, and the `sync-state` timing line.
 fn probe_timed(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>) {
