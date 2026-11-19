@@ -104,3 +104,11 @@ passing push's `docs:` commit had no scope, which `scope-empty` requires, and th
 whose body ends in its trailer also fails `body-full-stop`. The passing push now writes
 `docs(guide):`, and the failing commit's test expects `body-full-stop` on that commit too, before
 `prohibited-trailers`. rustfmt --edition 2024 --check on the changed `.rs` files: exit 0.
+2026-11-19: lane ticket 255 on `a8fbcd1` (log `T-055/lane/run-3.log` outside the repository): fmt
+0, clippy 0, test 101 (1027 passed, 1 failed, 7 ignored), deny 0, build 0, and the eight plugins'
+wasm builds 0. The failure was the test repository's ids: `a` and the commit's order in 39 hex
+digits, so every synthetic commit had the short id `a00000000000`, and "no message names the second
+commit's short id" could not hold. The ids are now `c`, the order in 11 hex digits, then the order
+in 28: the short ids differ, and the ids still sort in commit order. The other git tests build
+their expected text from `short(&id)`, so they read the same; none matched a short id in a message
+otherwise. rustfmt --edition 2024 --check on the changed `.rs` files: exit 0.
