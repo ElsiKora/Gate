@@ -114,5 +114,17 @@
   a git process of its own answers the question, the run stops using it. Found while testing it:
   `git merge-tree` exits 1, printing nothing, for an argument that names no commit, which the host
   answered as a conflict and stored; it is an error now.
+- 2026-11-19T05:00:28+00:00: review fix round on 53f15b8. An is-ancestor or merge-tree answer is stored
+  only when git read both commits and the clone is not shallow; git's "not an ancestor" for a commit
+  the clone lacks is answered but not stored. A `git cat-file` reader that stopped is an error; a
+  failed batch read kills the child before joining its writer. A cache write that fails is one
+  warning, and the check still reports. A working-tree file's id hashes the bytes a plugin reads
+  (`hash-object --no-filters` for paths that git converts). Tests: a missing commit then a fetch,
+  merge-tree per git version and never from a shallow clone, an unwritable cache, a line-ending edit
+  under `core.autocrlf`, and changed rule options, plugin options or plugin bytes rerunning the call.
+  Each fails with its fix (or, for the last, its part of the result key) taken out. The is-ancestor
+  fix re-asked a recorded yes too, so a warm run read a stored answer per call: a stored result now
+  asks again only what can change (`GitQuery::lasting`). Not fixed:
+  `read-at` of a commit the clone lacks is still stored as absent.
 - Open: per-rule time and fuel need the plugin to say where a rule starts (an interface question,
   put to the lead); the 12 `sync-state` answers at about 4 s each.

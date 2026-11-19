@@ -2004,7 +2004,15 @@ type Stale = Vec<(String, String)>;
 /// [`probe_timed`], and for each call that ran although a result of it was stored, its scope and
 /// the input `--timings` names as changed, sorted.
 fn probe_stale(repo: &Repo) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>, Stale) {
-    let plugin = format!("probe={}", probe().0.display());
+    probe_stale_from(repo, &probe().0)
+}
+
+/// [`probe_stale`] with the probe component read from `wasm`.
+fn probe_stale_from(
+    repo: &Repo,
+    wasm: &Path,
+) -> (Option<i32>, Vec<String>, Vec<String>, Option<String>, Stale) {
+    let plugin = format!("probe={}", wasm.display());
     let output = repo.gate(&[
         "check",
         "--plugin",
@@ -2077,6 +2085,60 @@ fn a_second_run_on_an_unchanged_tree_runs_no_plugin_call() {
     assert_eq!(code, Some(1), "{second:?}");
     assert!(ran.is_empty(), "a warm run runs no call: {ran:?}");
     assert_eq!(second, first, "the stored results report the same findings");
+}
+
+#[test]
+fn changing_a_rules_options_or_the_plugins_sha256_reruns_its_calls() {
+    let repo = two_readers();
+    let (_, first, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one", "two"]);
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert!(ran.is_empty(), "warm: {ran:?}");
+
+    // Other options are another request: no stored result answers it.
+    let config =
+        std::fs::read_to_string(repo.directory.path().join("gate.toml")).expect("gate.toml");
+    repo.write(
+        "gate.toml",
+        &config.replace(r#"paths = ["a.txt"]"#, r#"paths = ["a.txt", "b.txt"]"#),
+    );
+    let (_, _, ran, _) = probe_timed(&repo);
+    assert_eq!(ran, ["one", "two"], "changed options rerun every call");
+    // So are other options of the plugin itself.
+    let labelled = config.replace(
+        r#"probe = { source = "acme/rules:probe@0.1.0" }"#,
+        r#"probe = { source = "acme/rules:probe@0.1.0", options = { label = "x" } }"#,
+    );
+    assert_ne!(labelled, config);
+    repo.write("gate.toml", &labelled);
+    let (_, messages, ran, _) = probe_timed(&repo);
+    assert_eq!(
+        ran,
+        ["one", "two"],
+        "changed plugin options rerun every call"
+    );
+    assert!(messages.contains(&"label x".to_owned()), "{messages:?}");
+    repo.write("gate.toml", &config);
+    let (_, back, ran, _) = probe_timed(&repo);
+    assert!(
+        ran.is_empty(),
+        "the first options' results are still stored: {ran:?}"
+    );
+    assert_eq!(back, first);
+
+    // The same component with one more custom section: other bytes, another sha256.
+    let mut bytes = probe().1.clone();
+    bytes.extend_from_slice(&[0, 6, 5]);
+    bytes.extend_from_slice(b"other");
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let other = outside.path().join("probe.wasm");
+    std::fs::write(&other, &bytes).expect("write the changed component");
+    let (code, messages, ran, _, _) = probe_stale_from(&repo, &other);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(ran, ["one", "two"], "another sha256 reruns every call");
+    assert_eq!(messages, first);
+    let (_, _, ran, _, _) = probe_stale_from(&repo, &other);
+    assert!(ran.is_empty(), "and stores its own results: {ran:?}");
 }
 
 #[test]
