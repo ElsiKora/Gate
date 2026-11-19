@@ -521,12 +521,20 @@ fn a_component_built_for_another_interface_fails_to_load_naming_the_interface() 
         .load("hello", empty)
         .expect_err("it has no describe");
     assert_eq!(error.kind(), ErrorKind::Load, "{error}");
+    let version = env!("CARGO_PKG_VERSION");
     assert!(
         error.to_string().contains(&format!(
-            "hello was built for another plugin interface; rebuild it or pin a release built for gate {}",
-            env!("CARGO_PKG_VERSION")
+            "hello was built for another plugin interface; this gate {version} loads plugins built for gate:plugin@0.2.0 only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {version}, released with this core), or rebuild it with gate-sdk {version}"
         )),
         "{error}"
+    );
+    // The interface the error names is the one the core is built against.
+    let wit = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../wit/gate.wit"))
+        .expect("the interface");
+    assert!(
+        wit.contains(&format!("\npackage {};\n", gate_runtime::INTERFACE)),
+        "{}",
+        gate_runtime::INTERFACE
     );
 
     let error = runtime

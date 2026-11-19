@@ -75,7 +75,10 @@ impl std::fmt::Debug for GeneratorEntry {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Preset {
     pub name: &'static str,
-    /// JSON: rule name -> `{ "level": .., "options": .. }`.
+    /// JSON: rule name -> `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`, each key
+    /// optional. A level of an aspect the rule declares applies only where the configuration gives
+    /// the rule or that aspect no level: the project's `"git/x" = "note"` makes every aspect a
+    /// note, a preset's `warning` aspect too.
     pub rules: &'static str,
 }
 

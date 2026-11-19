@@ -1419,6 +1419,77 @@ fn a_rule_turned_off_through_its_family_needs_no_options() {
 }
 
 #[test]
+fn a_preset_sets_aspect_levels_that_the_projects_own_levels_override() {
+    // The project extends probe/quiet, which makes the aspect quiet of probe/aspects a warning.
+    let run = |rules: &str| {
+        let repo = probe_repo(rules);
+        let toml = std::fs::read_to_string(repo.path().join("gate.toml"))
+            .expect("gate.toml")
+            .replace(
+                "projects = [\"apps/one\"]\n",
+                "projects = [\"apps/one\"]\nextends = [\"probe/quiet\"]\n",
+            );
+        repo.write("gate.toml", &toml);
+        repo.commit("the preset sets an aspect level");
+        let plugin = format!("probe={}", probe().0.display());
+        let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+        let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+            .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+        let mut levels: Vec<(String, String)> = report["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .map(|finding| {
+                (
+                    finding["message"].as_str().unwrap_or_default().to_owned(),
+                    finding["level"].as_str().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect();
+        levels.sort();
+        (output.status.code(), levels)
+    };
+    let pair = |message: &str, level: &str| (message.to_owned(), level.to_owned());
+
+    // The preset enables the rule; the aspect it names is a warning, the other the default error.
+    let (code, levels) = run("");
+    assert_eq!(code, Some(1), "{levels:?}");
+    assert_eq!(
+        levels,
+        [
+            pair("aspect loud", "error"),
+            pair("aspect quiet", "warning")
+        ]
+    );
+
+    // The project's own configuration wins: a rule-wide level applies to every aspect, the
+    // preset's too.
+    let (_, levels) = run(r#""probe/aspects" = "note""#);
+    assert_eq!(
+        levels,
+        [pair("aspect loud", "note"), pair("aspect quiet", "note")]
+    );
+
+    // A level of the aspect itself wins over the rule-wide one.
+    let (_, levels) = run(r#""probe/aspects" = { level = "note", levels = { quiet = "error" } }"#);
+    assert_eq!(
+        levels,
+        [pair("aspect loud", "note"), pair("aspect quiet", "error")]
+    );
+
+    // Off on the rule turns every aspect off, the preset's too.
+    let (code, levels) = run(r#""probe/aspects" = "off""#);
+    assert_eq!(code, Some(0), "{levels:?}");
+    assert_eq!(levels, Vec::<(String, String)>::new());
+
+    // Where [rules] gives the rule no level, the preset's aspect level holds: with the other
+    // aspect off, its warning alone does not fail the run.
+    let (code, levels) = run(r#""probe/aspects" = { levels = { loud = "off" } }"#);
+    assert_eq!(code, Some(0), "{levels:?}");
+    assert_eq!(levels, [pair("aspect quiet", "warning")]);
+}
+
+#[test]
 fn a_call_carries_the_norms_of_every_configured_rule_of_every_plugin() {
     let repo = probe_repo(
         r#""probe/norms" = { level = "error", norm = "N-probe" }
@@ -1988,5 +2059,272 @@ fn a_missing_git_plugin_option_is_a_configuration_error_at_load() {
             && message.contains("plugin git options: ")
             && message.contains("\"main\" is a required property"),
         "{message}"
+    );
+}
+
+/// A repository with the git plugin built from this tree, for checking `[plugins.git] options`.
+struct GitOptions {
+    repo: Repo,
+    plugin: String,
+    /// The repository's first commit, an activation commit.
+    root: String,
+}
+
+const RELEASE_SUBJECT: &str = r"release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'";
+const NO_CI_SKIP: &str = "\"git/no-ci-skip\" = { level = \"error\" }";
+const BRANCH_NAME: &str =
+    "\"git/branch-name\" = { level = \"error\", options = { pattern = \"^main$\" } }";
+
+impl GitOptions {
+    fn new() -> Self {
+        static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+        let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
+        let repo = Repo::empty();
+        repo.write("README.md", "# r\n");
+        let root = repo.commit("init");
+        Self {
+            repo,
+            plugin: format!("git={}", git.0.display()),
+            root,
+        }
+    }
+
+    /// `gate check` with `arguments` on a committed configuration of `[plugins.git] options`
+    /// `main` and then `options`, and `[rules]` `rules`.
+    fn check(&self, options: &str, rules: &str, arguments: &[&str]) -> Output {
+        self.repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"]{options} }}\n\n[rules]\n{rules}\n"
+            ),
+        );
+        self.repo.git(&["add", "-A"]);
+        self.repo
+            .git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
+        let mut all = vec!["check", "--plugin", self.plugin.as_str()];
+        all.extend_from_slice(arguments);
+        self.repo.gate(&all)
+    }
+
+    fn refused(&self, options: &str, rules: &str, arguments: &[&str], expected: &str) {
+        let output = self.check(options, rules, arguments);
+        let message = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{options}: {message}");
+        assert_eq!(text(&output.stdout), "", "nothing ran");
+        assert!(
+            message.starts_with("gate: configuration error: gate.toml:")
+                && message.contains(expected),
+            "{options}: {message}"
+        );
+    }
+
+    fn passes(&self, options: &str, rules: &str, arguments: &[&str]) {
+        let output = self.check(options, rules, arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{options}: {}{}",
+            text(&output.stdout),
+            text(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn a_git_option_an_enabled_rule_reads_is_a_configuration_error_at_load_when_missing() {
+    let git = GitOptions::new();
+    // A key every run of the rule reads, named with the rule and what to do.
+    git.refused(
+        &format!(", {RELEASE_SUBJECT}"),
+        NO_CI_SKIP,
+        &[],
+        "[plugins.git] options has no activation, which \"git/no-ci-skip\" reads: the rule reads \
+         history after it; write the 40-hex id of the commit the policy starts after",
+    );
+    // A key the default forms read: they hold a release form.
+    let activation = format!(", activation = \"{}\"", git.root);
+    git.refused(
+        &activation,
+        NO_CI_SKIP,
+        &[],
+        "[plugins.git] options has no release-subject, which \"git/no-ci-skip\" reads",
+    );
+    // The keys of main-history's default merge and direct forms.
+    git.refused(
+        &format!("{activation}, {RELEASE_SUBJECT}"),
+        "\"git/main-history\" = \"error\"",
+        &[],
+        "[plugins.git] options has no branch-pattern, which \"git/main-history\" reads",
+    );
+    git.refused(
+        &format!(
+            "{activation}, {RELEASE_SUBJECT}, branch-pattern = '^feature/.+$', branch-length = [5, 50], dependabot = [\"package.json\"]"
+        ),
+        "\"git/main-history\" = \"error\"",
+        &[],
+        "[plugins.git] options has no documentation, which \"git/main-history\" reads",
+    );
+    // A rule the run selects with --rule is checked.
+    git.refused(
+        "",
+        &format!("{NO_CI_SKIP}\n{BRANCH_NAME}"),
+        &["--rule", "git/no-ci-skip"],
+        "has no activation, which \"git/no-ci-skip\" reads",
+    );
+}
+
+#[test]
+fn a_git_option_no_enabled_rule_reads_may_be_missing() {
+    let git = GitOptions::new();
+    // Forms without a release form read no release-subject.
+    git.passes(
+        &format!(
+            ", activation = \"{}\", forms = [{{ kind = \"direct\", parents = 1, checks = [] }}]",
+            git.root
+        ),
+        NO_CI_SKIP,
+        &[],
+    );
+    // A rule that does not read a key does not need it, nor does a rule the run leaves out or
+    // one that is off.
+    git.passes("", BRANCH_NAME, &[]);
+    git.passes(
+        "",
+        &format!("{NO_CI_SKIP}\n{BRANCH_NAME}"),
+        &["--rule", "git/branch-name"],
+    );
+    git.passes(
+        "",
+        &format!("\"git/no-ci-skip\" = \"off\"\n{BRANCH_NAME}"),
+        &[],
+    );
+}
+
+#[test]
+fn the_commit_msg_hook_checks_the_message_being_written() {
+    let git = GitOptions::new();
+    let repo = &git.repo;
+    repo.write(
+        "bin/gate",
+        &format!(
+            "#!/bin/sh\nexec '{}' \"$@\" --plugin '{}'\n",
+            env!("CARGO_BIN_EXE_gate").replace('\'', "'\\''"),
+            git.plugin.replace('\'', "'\\''")
+        ),
+    );
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = repo.path().join("bin/gate");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"], activation = \"{}\", {RELEASE_SUBJECT} }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n{NO_CI_SKIP}\n\n[hooks]\ncommit-msg = [\"check --commit-message\"]\n",
+            git.root
+        ),
+    );
+    // Committed before the hooks exist, so this commit runs none.
+    repo.commit("chore(core): configure gate");
+    let output = repo.gate(&["sync", "--plugin", &git.plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+
+    // `git commit` runs the generated hook, which runs bin/gate with the message file.
+    // Each paragraph is one -m, as git takes them.
+    let commit = |paragraphs: &[&str]| {
+        repo.write("work.txt", &paragraphs.join("\n"));
+        repo.git(&["add", "-A"]);
+        let mut arguments = vec!["commit", "-q"];
+        for paragraph in paragraphs {
+            arguments.extend(["-m", paragraph]);
+        }
+        let output = isolated(
+            Command::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(&arguments),
+        )
+        .env("GATE_CACHE_DIR", repo.cache.path())
+        .output()
+        .expect("git");
+        (
+            output.status.success(),
+            format!("{}{}", text(&output.stdout), text(&output.stderr)),
+        )
+    };
+
+    let (committed, said) = commit(&["feat(core): add the thing [skip ci]"]);
+    assert!(!committed, "a CI-skip directive fails the hook: {said}");
+    assert!(
+        said.contains("the commit message carries the forbidden CI-skip directive [skip ci]")
+            && said.contains("gate check (tree, commit message): "),
+        "{said}"
+    );
+    // git keeps a `#` line given with -m, so the directive in it would be stored.
+    let (committed, said) = commit(&["feat(core): add x", "#12 done [skip ci]"]);
+    assert!(!committed, "a directive in a # line fails the hook: {said}");
+    assert!(
+        said.contains("the commit message carries the forbidden CI-skip directive [skip ci]"),
+        "{said}"
+    );
+    let (committed, said) = commit(&["Added the thing"]);
+    assert!(!committed, "a message out of form fails the hook: {said}");
+    assert!(said.contains("git/commit-message#type-empty"), "{said}");
+    let (committed, said) = commit(&["feat(core): add the thing"]);
+    assert!(committed, "a good message passes the hook: {said}");
+}
+
+#[test]
+fn a_projects_rule_level_wins_over_the_aspect_levels_of_git_recommended() {
+    let git = GitOptions::new();
+    let repo = &git.repo;
+    let message = repo.path().join("message.txt");
+    std::fs::write(&message, "ci(a): x\n").expect("message");
+    let message = message.display().to_string();
+    let check = |rules: &str| {
+        repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [\"git/recommended\"]\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n{rules}\n"
+            ),
+        );
+        repo.git(&["add", "gate.toml"]);
+        repo.git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
+        let output = repo.gate(&[
+            "check",
+            "--plugin",
+            &git.plugin,
+            "--commit-message",
+            &message,
+        ]);
+        (output.status.code(), text(&output.stdout))
+    };
+    let at = |level: &str, aspect: &str| format!("{level}[git/commit-message#{aspect}]");
+
+    // The preset makes header-min-length a warning; subject-min-length keeps the default error.
+    let (code, said) = check("");
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains(&at("warning", "header-min-length"))
+            && said.contains(&at("error", "subject-min-length")),
+        "{said}"
+    );
+    // A level the project gives the whole rule applies to every aspect, the preset's too.
+    let (code, said) = check("\"git/commit-message\" = \"note\"");
+    assert_eq!(code, Some(0), "{said}");
+    assert!(
+        said.contains(&at("note", "header-min-length"))
+            && said.contains(&at("note", "subject-min-length")),
+        "{said}"
+    );
+    // A level the project gives the aspect wins over both.
+    let (code, said) = check(
+        "\"git/commit-message\" = { level = \"note\", levels = { header-min-length = \"error\" } }",
+    );
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains(&at("error", "header-min-length"))
+            && said.contains(&at("note", "subject-min-length")),
+        "{said}"
     );
 }

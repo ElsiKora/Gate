@@ -58,6 +58,7 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 [rules]
 "git/no-ci-skip" = "error"
+"git/commit-message" = "error"
 ```
 
 A plugin entry is a table whose `source` is `<owner>/<repo>:<plugin>@<version>`: the asset
@@ -143,6 +144,10 @@ worktree of the clone shares it. Commit `.githooks/`. The hooks call `bin/gate`,
 the pinned version; they never skip themselves on an environment variable. A hook may also run one of
 your steps, for example `run format` to check the staged files. `budget` makes a hook that takes longer
 than 10 seconds warn. On a fresh clone, `bin/gate doctor` tells you when `gate sync` has not run yet.
+
+The `commit-msg` hook checks the message being written, before the commit exists: with the rules
+above, `git/commit-message` checks its form and `git/no-ci-skip` refuses a CI-skip directive in it.
+Its summary says so: `gate check (tree, commit message): ...`.
 
 ## 6. Add the CI Job
 

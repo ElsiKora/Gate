@@ -577,12 +577,12 @@ fn sync_writes_the_hooks_byte_stable_and_sets_the_hooks_path() {
 
     assert_eq!(
         repo.read(".githooks/pre-commit"),
-        format!("#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --staged --budget 30\n")
+        format!("#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --staged --budget 30 --hook\n")
     );
     assert_eq!(
         repo.read(".githooks/commit-msg"),
         format!(
-            "#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --commit-message \"$1\" --budget 30\n"
+            "#!/bin/sh\n{MARKER}\nset -e\nbin/gate check --commit-message \"$1\" --budget 30 --hook\n"
         )
     );
     assert_eq!(
@@ -592,7 +592,7 @@ fn sync_writes_the_hooks_byte_stable_and_sets_the_hooks_path() {
              while read -r local_ref local_sha remote_ref remote_sha; do\n\
              \x20 [ -n \"$local_sha\" ] || continue\n\
              \x20 [ \"$local_sha\" != 0000000000000000000000000000000000000000 ] || continue\n\
-             \x20 bin/gate check --push \"$remote_sha..$local_sha\" --target-ref \"$remote_ref\" --budget 30 </dev/null\n\
+             \x20 bin/gate check --push \"$remote_sha..$local_sha\" --target-ref \"$remote_ref\" --budget 30 --hook </dev/null\n\
              done <<EOF\n$refs\nEOF\n"
         )
     );
@@ -1264,6 +1264,10 @@ fn ci_steps_refuse_if_before_the_gate_commands_and_a_directory_on_an_action() {
             "pre-push = [\"check --push --target-ref refs/heads/main\"]",
             "remove --target-ref; the hook or the job passes it with --push",
         ),
+        (
+            "pre-commit = [\"check --staged --hook\"]",
+            "remove --hook; the generated hooks pass it to every check, and a job is not a hook",
+        ),
     ] {
         let repo = with_root(&format!("\n[hooks]\n{hooks}\n"));
         let output = repo.gate(&["sync"]);
@@ -1279,6 +1283,7 @@ fn ci_steps_refuse_if_before_the_gate_commands_and_a_directory_on_an_action() {
         "check --commit-message",
         "check --commit-message=message.txt",
         "check --push=main..topic",
+        "check --hook",
     ] {
         let repo = with_root(&format!(
             "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"{run}\"]\n"
@@ -1287,6 +1292,8 @@ fn ci_steps_refuse_if_before_the_gate_commands_and_a_directory_on_an_action() {
         assert_eq!(output.status.code(), Some(2), "{run}");
         let expected = if run == "check --commit-message" {
             "jobs.lint: \"check --commit-message\": a job has no commit message file; --commit-message belongs in a [hooks] commit-msg entry"
+        } else if run == "check --hook" {
+            "jobs.lint: \"check --hook\": remove --hook; the generated hooks pass it to every check, and a job is not a hook"
         } else {
             "without a value; the hook or the job supplies it"
         };
@@ -1364,7 +1371,7 @@ fn a_push_flag_anywhere_in_an_entry_gets_the_range_and_only_in_pre_push() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     assert!(
         repo.read(".githooks/pre-push").contains(
-            "  bin/gate check --push \"$remote_sha..$local_sha\" --target-ref \"$remote_ref\" --fail-fast </dev/null\n"
+            "  bin/gate check --push \"$remote_sha..$local_sha\" --target-ref \"$remote_ref\" --fail-fast --hook </dev/null\n"
         ),
         "{}",
         repo.read(".githooks/pre-push")
@@ -1447,7 +1454,7 @@ fn every_pushed_ref_is_checked_even_when_a_call_reads_its_input() {
     assert_eq!(
         repo.read("calls.log"),
         format!(
-            "check --push {base}..{one} --target-ref refs/heads/one\ncheck --push {base}..{two} --target-ref refs/heads/two\n"
+            "check --push {base}..{one} --target-ref refs/heads/one --hook\ncheck --push {base}..{two} --target-ref refs/heads/two --hook\n"
         ),
         "each pushed ref, with the remote ref it goes to"
     );

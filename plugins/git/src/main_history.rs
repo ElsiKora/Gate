@@ -9,13 +9,13 @@ use gate_agents_format::parse_rule_file;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::serde_json::{self, Value};
-use gate_sdk::{Git, Result, Rule, Run, Scope, SyncState};
+use gate_sdk::{Git, Need, Result, Rule, Run, Scope, SyncState};
 use globset::GlobSet;
 use regex::Regex;
 
 use crate::forms::{Check, Compiled, Kind, form_of, place, subject};
 use crate::history::{Commit, History, release_version};
-use crate::settings::{Settings, globs, pattern, required};
+use crate::settings::{self, Settings, globs, pattern, required};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -82,6 +82,14 @@ impl Rule for MainHistory {
     const ASPECTS: &'static [&'static str] = &["direct", "merge", "release"];
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
+    const NEEDS: &'static [Need] = &[
+        settings::ACTIVATION,
+        settings::RELEASE_SUBJECT,
+        settings::BRANCH_KEYS[0],
+        settings::BRANCH_KEYS[1],
+        settings::BRANCH_KEYS[2],
+        settings::DOCUMENTATION,
+    ];
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let settings = Settings::read(run)?;

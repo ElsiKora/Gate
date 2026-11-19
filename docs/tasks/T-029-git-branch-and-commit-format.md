@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | planned |
+| Status | in progress |
 | Release | v0.2.0 |
 | Writer | "Gate 002: plugin form spike" |
 | Reviewer | a separate review session |
@@ -61,6 +61,21 @@ with no Node step:
      both length limits, a template and a pattern together refused at load;
    - commit messages: one pass and one fail per check, the warning aspects, a message from a file
      with a comment section (`#` lines are not part of it), and a run without a message.
+5. Added by the lead: a plugin option an enabled rule reads, missing from `[plugins.<name>] options`,
+   is a configuration error at load (exit 2) that names the rule; a rule declares the options it
+   reads, so the core checks them before anything runs. Tested.
+6. Added by the lead, from a newcomer's run of the public v0.1.0:
+   - `gate init`'s commented suggestions name `"git/commit-subject"`, a rule that does not exist;
+     uncommented, they fail with exit 2 (`plugin git options: "main" is a required property`). The
+     template suggests only rules that exist, with every option they require. The same id is the
+     example in the rule-id error (crates/gate-host/src/config/names.rs) and in the bug report
+     form (.github/ISSUE_TEMPLATE/bug_report.yml); both name a rule that exists. Test: `gate init`,
+     uncomment every suggestion, `gate lock`, `gate check` exits 0.
+   - The README's commit-msg hook runs `check --commit-message`, yet a `[skip ci]` message passed it
+     (exit 0) and was reported only by the next `gate check`, whose summary said `check (tree)`.
+     The commit-msg hook checks the message being written: `git/commit-message`, and
+     `git/no-ci-skip` reads the message too; the summary says the message was checked. Test: a bad
+     message fails the hook.
 
 ## Done when
 
@@ -77,3 +92,33 @@ with no Node step:
 ## Resume point
 
 2026-11-18: planned; branch `task/T-029-git-branch-and-commit-format`.
+2026-11-18: branch from `release/v0.1.0` `d30ecb8` (rebase on its tip after the v0.1.0 short round).
+The references are read: git-branch-lint `9718c1a` (template policy, lint use case, default
+configuration) and commitlint 20.5.3 with config-conventional 20.5.3, the conventionalcommits preset
+9.3.1 and conventional-commits-parser 6.4.0, installed outside the repository for the comparison.
+Decided (lead): the generated hook scripts pass `--hook`, the plugin interface answers `hook()`,
+and `prohibited` applies only when a hook runs, so a CI `--push` to main passes.
+2026-11-18: done on the branch: the interface (`message()`, `hook()`, the hooks' `--hook`),
+`git/branch-name` templates, `git/commit-message` (one aspect per commitlint rule), both pages,
+architecture §4 and §7, the plugin changelog. Native `cargo test -p gate-plugin-git` and its clippy
+pass. Open: how the two warning aspects get `warning` by default (asked the lead; the page shows
+`levels` meanwhile). Next: the 60 + 60 comparison, then a lane round.
+2026-11-19: decided (lead): a preset sets aspect levels (`levels`), after the project's aspect level
+and before its rule level; `git/recommended` gives the two warning aspects `warning`. Lengths count
+UTF-16 code units, as the references do. The native comparison (147 inputs: 69 branch names, 78
+messages) agrees on every verdict. Added (lead): a rule declares the plugin options it reads
+(`Rule::NEEDS`, `x-gate-needs` in its options schema) and the host refuses an enabled rule's missing
+key at load (exit 2), naming the rule. Next: a lane round (the host and CLI tests compile only
+there), then the comparison through the built `gate check`.
+2026-11-19: rebased on the public main `59fb163` (the plugin changelog's entries moved under
+Unreleased, above its 0.1.0). The first lane round on the old base failed clippy only
+(`too_many_lines` in the missing-option test, now two tests); it was withdrawn for the move. Next: the
+lane round on the rebased tip, then the comparison through the built `gate check`.
+2026-11-19: round 158 on `b01fbf7`: fmt 0, clippy 0, test 101 (the init test locked before staging
+gate.toml; fixed), deny 0, build 0, the git component 0, and the comparison through the built
+`gate check`: 147 of 147 verdicts the same. Review round (lead's decisions): no-ci-skip searches `#`
+lines of the message being written; `\w`, `\d`, `\b` are ASCII in branch-name patterns, as in the
+reference; the changelog says what now fails under 0.2.0 defaults; the interface is
+`gate:plugin@0.2.0`; the project's own `[rules]` levels win over a preset's aspect levels.
+2026-11-19: round 164 on `b1173fb`: fmt 0, clippy 0; the needs test passed `--rule git`, which the
+command line refuses (`--rule` takes `<plugin>/<rule>` only); it now selects `git/no-ci-skip`.

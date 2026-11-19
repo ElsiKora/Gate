@@ -126,6 +126,10 @@ struct CheckArgs {
     /// The commit message file under review (the commit-msg hook passes "$1").
     #[arg(long, value_name = "FILE")]
     commit_message: Option<PathBuf>,
+    /// A git hook starts this run; the generated hooks pass it, so rules that apply only while a
+    /// developer works (a prohibited branch name) know they do.
+    #[arg(long)]
+    hook: bool,
     /// Run only this rule, <plugin>/<rule>, or every rule of a plugin, <plugin>/*. Repeatable.
     #[arg(long = "rule", value_name = "ID", value_parser = RuleFilter::parse)]
     rules: Vec<RuleKey>,
@@ -353,6 +357,7 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
         no_overrides: arguments.no_overrides,
         list_changed_projects: arguments.list_changed_projects,
         commit_message,
+        hook: arguments.hook,
         rules: RuleFilter::new(arguments.rules.clone()),
     };
 

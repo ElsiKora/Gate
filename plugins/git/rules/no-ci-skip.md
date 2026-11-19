@@ -17,6 +17,14 @@ single-parent commit whose whole message matches `release-subject`. Release tool
 CI because CI made it. Forms without a release form exempt no commit, and a commit an earlier form
 takes is not a release. The patterns are searched anywhere in the message.
 
+The message being written is checked too, before the commit exists: the `commit-msg` hook passes it
+(`gate check --commit-message <file>`), and the rule reports a directive anywhere above the
+scissors line that `git commit --verbose` writes. `#` lines count: git keeps them in a message given
+with `-m` or `-F` (`git commit -m "feat(core): add x" -m "#12 done [skip ci]"` stores the directive),
+so the rule searches them too; [`git/commit-message`](commit-message.md) skips them, as commitlint
+does. A message whose whole text matches `release-subject` is exempt when the forms hold a release
+form.
+
 Scope: repository. Reads history: yes. Aspects: none.
 
 ## Options
@@ -43,7 +51,16 @@ error git/no-ci-skip commit 7c1e0f9a2b3d4c5e6f7a8b9c0d1e2f3a4b5c6d7e
   rebase -i); a skipped run leaves main unchecked
 ```
 
-The finding's target is the commit's full id.
+The finding's target is the commit's full id. In the `commit-msg` hook:
+
+```text
+error git/no-ci-skip
+  the commit message carries the forbidden CI-skip directive [skip ci]
+  help: reword the message without the directive; a skipped run leaves main unchecked
+```
+
+There the finding has no location, since the commit does not exist yet; its target is the message's
+first line.
 
 ## How to fix it
 

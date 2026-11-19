@@ -106,8 +106,9 @@ required by what reads it, and the error names the reader:
 
 The plugin declares these keys as the schema of its options, so Gate checks them when the plugin
 loads: a missing `main`, an unknown key (in a form too) or a value of the wrong type is a
-configuration error before anything runs. A key only a rule, form or check needs is checked when it
-runs.
+configuration error before anything runs. So is a key the table names as read by an enabled rule,
+form or check: the rules declare the keys they read, and under which forms, so the error names the
+rule and the key (`[plugins.git] options has no activation, which "git/no-ci-skip" reads: …`).
 
 The rule's own options:
 

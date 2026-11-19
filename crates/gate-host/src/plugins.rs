@@ -353,8 +353,55 @@ impl Loaded {
             &JsonSchemaValidator,
         )?;
         workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
+        self.check_needs(workspace, filter)?;
         self.check_generators(workspace)?;
         workspace.check_rule_filter(filter, &declaration)
+    }
+
+    /// Checks that in every scope the `[plugins.<name>] options` hold each key that an enabled rule
+    /// the run allows declares it reads (`gate_sdk::Rule::NEEDS`), so a missing key fails as
+    /// configuration before anything runs, naming the rule, and not when the rule runs.
+    ///
+    /// # Errors
+    /// Fails on the first missing key, naming the plugin's entry, the key and the rule; or, as a
+    /// broken plugin, on a rule whose declared needs are not a list of `{ key, when, why }`.
+    fn check_needs(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
+        let empty = Value::Object(serde_json::Map::new());
+        for (project, settings) in scopes(workspace) {
+            for (name, plugin) in &self.plugins {
+                let Some(entry) = settings.plugins.get(name) else {
+                    continue;
+                };
+                if !filter.allows_plugin(name.as_str()) {
+                    continue;
+                }
+                let options = settings.plugin_options(name).unwrap_or(&empty);
+                for rule in enabled_rules(plugin, name, settings, workspace, project)? {
+                    if !filter.allows(&rule.id.to_string()) {
+                        continue;
+                    }
+                    let Some(schema) = self.schemas.get(&(name.clone(), rule.run.name.clone()))
+                    else {
+                        continue;
+                    };
+                    for need in needs(name, &rule.run.name, schema)? {
+                        if options.get(&need.key).is_some()
+                            || need
+                                .when
+                                .as_ref()
+                                .is_some_and(|when| !when.is_valid(options))
+                        {
+                            continue;
+                        }
+                        return Err(Error::config(format!(
+                            "{}: [plugins.{name}] options has no {}, which \"{}\" reads: {}",
+                            entry.origin, need.key, rule.id, need.why
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Checks that every `[generate]` key names a generator its plugin declares. A key whose
@@ -422,7 +469,7 @@ impl Loaded {
         workspace: &Workspace,
         selection: &Selection,
         changes: Option<&ChangeSet>,
-        range: Option<CommitRange>,
+        run_git: RunGit,
         filter: &RuleFilter,
         findings: &mut Findings,
     ) -> Result<Ran> {
@@ -437,7 +484,9 @@ impl Loaded {
         let history: Arc<dyn History> = Arc::new(GitHistory {
             git: snapshot.git().clone(),
             head: snapshot.commit().map(str::to_owned),
-            range,
+            range: run_git.range,
+            message: run_git.message,
+            hook: run_git.hook,
             overrides: Arc::clone(&self.overrides),
             run_workspace: workspace.clone(),
             run: OnceLock::new(),
@@ -529,8 +578,8 @@ fn reported(
     let preset = rules
         .iter()
         .find(|rule| rule.id == id)
-        .and_then(|rule| rule.preset);
-    let level = match settings.setting(&id, &finding.aspect).or(preset) {
+        .map(|rule| &rule.preset);
+    let level = match level(settings, &id, &finding.aspect, preset) {
         Some(Setting::Off) => return Ok(None),
         Some(Setting::On(level)) => level,
         None => Level::Error,
@@ -803,12 +852,92 @@ fn rule_id(plugin: &PluginName, rule: &str) -> Result<RuleId> {
     })
 }
 
+/// A key of the plugin's options a rule reads, as its options schema declares it.
+struct Need {
+    key: String,
+    /// The plugin's options read it when they match this; always when `None`.
+    when: Option<jsonschema::Validator>,
+    why: String,
+}
+
+/// The needs rule `rule` of `plugin` declares under `gate_sdk::NEEDS_KEYWORD` of its options
+/// schema.
+///
+/// # Errors
+/// Fails, as a broken plugin, when they are not a list of `{ "key", "when", "why" }` with a string
+/// key and reason and a JSON Schema or `null` for `when`.
+fn needs(plugin: &PluginName, rule: &str, schema: &Value) -> Result<Vec<Need>> {
+    let Some(list) = schema.get(gate_sdk::NEEDS_KEYWORD) else {
+        return Ok(Vec::new());
+    };
+    let broken = |what: String| {
+        Error::environment(format!(
+            "plugin {plugin} declares the options rule {rule} reads ({}) {what}; the plugin is broken, report it to its authors",
+            gate_sdk::NEEDS_KEYWORD
+        ))
+    };
+    let Some(list) = list.as_array() else {
+        return Err(broken("as something other than a list".to_owned()));
+    };
+    list.iter()
+        .map(|need| -> Result<Need> {
+            let text = |field: &str| {
+                need.get(field)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or_else(|| broken(format!("with an entry whose {field} is not a string")))
+            };
+            let when = match need.get("when") {
+                None | Some(Value::Null) => None,
+                Some(when) => Some(jsonschema::validator_for(when).map_err(|error| {
+                    broken(format!(
+                        "with a when that is not valid JSON Schema ({error})"
+                    ))
+                })?),
+            };
+            Ok(Need {
+                key: text("key")?,
+                when,
+                why: text("why")?,
+            })
+        })
+        .collect()
+}
+
 /// A rule that runs in a call.
 struct Enabled {
     id: RuleId,
     run: RuleRun,
-    /// The level its presets give it.
-    preset: Option<Setting>,
+    /// The levels its presets give it and its aspects.
+    preset: PresetLevels,
+}
+
+/// The levels presets give a rule: the rule's, and its aspects'.
+#[derive(Clone, Debug, Default)]
+struct PresetLevels {
+    level: Option<Setting>,
+    levels: BTreeMap<String, Setting>,
+}
+
+/// The level of `aspect` of rule `id`, first found: the `[rules]` entry's level of the aspect, the
+/// entry's level of the whole rule, the family's, then the presets' level of the aspect and of the
+/// rule. The project's own configuration wins over a preset: a level `[rules]` gives the whole rule
+/// (`off` included) applies to every aspect, and a preset's aspect level applies only where
+/// `[rules]` sets none. `None` leaves the default, `error`.
+fn level(
+    settings: &Settings,
+    id: &RuleId,
+    aspect: &str,
+    preset: Option<&PresetLevels>,
+) -> Option<Setting> {
+    let own = settings
+        .rules
+        .get(id)
+        .and_then(|entry| entry.levels.get(aspect))
+        .map(|level| level.value);
+    // The entry's level, else the family's: what `[rules]` says of the whole rule.
+    own.or_else(|| settings.setting(id, ""))
+        .or_else(|| preset.and_then(|preset| preset.levels.get(aspect).copied().or(preset.level)))
 }
 
 /// The rules of `plugin` that run in this scope, with what their call carries: those whose scope
@@ -841,15 +970,21 @@ fn enabled_rules(
         if entry.is_none() && preset.is_none() && !settings.families.contains_key(name.as_str()) {
             continue;
         }
-        let level = settings
-            .setting(&id, "")
-            .or_else(|| preset.and_then(|preset| preset.level));
+        let whole = settings.setting(&id, "");
+        let level = whole.or_else(|| preset.and_then(|preset| preset.level));
+        // An aspect a preset turns on keeps the rule running, unless `[rules]` turns it off.
         let any_aspect_on = entry.is_some_and(|entry| {
             entry
                 .levels
                 .values()
                 .any(|level| matches!(level.value, Setting::On(_)))
-        });
+        }) || (whole != Some(Setting::Off)
+            && preset.is_some_and(|preset| {
+                preset
+                    .levels
+                    .values()
+                    .any(|level| matches!(level, Setting::On(_)))
+            }));
         if level == Some(Setting::Off) && !any_aspect_on {
             continue;
         }
@@ -874,16 +1009,22 @@ fn enabled_rules(
                     .and_then(|options| options.value.file.clone()),
                 exceptions,
             },
-            preset: preset.and_then(|preset| preset.level),
+            preset: PresetLevels {
+                level: preset.and_then(|preset| preset.level),
+                levels: preset
+                    .map(|preset| preset.levels.clone())
+                    .unwrap_or_default(),
+            },
         });
     }
     Ok(rules)
 }
 
-/// One rule of a preset: `{ "level": .., "options": .. }`.
+/// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.
 #[derive(Debug, Default)]
 struct PresetRule {
     level: Option<Setting>,
+    levels: BTreeMap<String, Setting>,
     options: Option<Value>,
 }
 
@@ -932,10 +1073,45 @@ fn presets(
                     )));
                 }
             };
+            let mut levels = BTreeMap::new();
+            match value.get("levels") {
+                None => {}
+                Some(Value::Object(table)) => {
+                    let declared = plugin
+                        .info()
+                        .rules
+                        .iter()
+                        .find(|info| info.name == rule)
+                        .map(|info| info.aspects.as_slice())
+                        .unwrap_or_default();
+                    for (aspect, level) in table {
+                        if !declared.contains(aspect) {
+                            return Err(broken(format!(
+                                "sets aspect {aspect} of rule {rule}, which the rule does not declare"
+                            )));
+                        }
+                        let Value::String(level) = level else {
+                            return Err(broken(format!(
+                                "sets aspect {aspect} of rule {rule} to the level {level}, which is not a string"
+                            )));
+                        };
+                        let level = Setting::parse(level).map_err(|error| {
+                            broken(format!("sets aspect {aspect} of rule {rule}: {error}"))
+                        })?;
+                        levels.insert(aspect.clone(), level);
+                    }
+                }
+                Some(other) => {
+                    return Err(broken(format!(
+                        "sets the levels of rule {rule} to {other}, which is not a table of aspects"
+                    )));
+                }
+            }
             rules.insert(
                 rule,
                 PresetRule {
                     level,
+                    levels,
                     options: value.get("options").cloned(),
                 },
             );
@@ -1042,12 +1218,28 @@ fn location(location: gate_sdk::Location) -> Location {
 }
 
 /// The repository's history as the plugin runtime reads it.
+/// What a run's git interface answers about the run itself, beyond its snapshot: the range of
+/// `--rev` or `--push`, the message of `--commit-message` and whether a hook started it.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RunGit {
+    /// The run's range under `--rev` or `--push`.
+    pub(crate) range: Option<CommitRange>,
+    /// The commit message under review.
+    pub(crate) message: Option<String>,
+    /// A git hook started the run.
+    pub(crate) hook: bool,
+}
+
 struct GitHistory {
     git: Git,
     /// The commit of the run's snapshot: the `--rev` commit, or `HEAD`.
     head: Option<String>,
     /// The run's range under `--rev` or `--push`.
     range: Option<CommitRange>,
+    /// The commit message under review (`--commit-message`).
+    message: Option<String>,
+    /// A git hook started the run (`--hook`).
+    hook: bool,
     /// The run's `--plugin` builds, used again for the generators at another commit.
     overrides: Arc<Overrides>,
     /// The run's workspace: its configuration answers `sync-state` at a commit whose own
@@ -1124,6 +1316,14 @@ impl History for GitHistory {
 
     fn range(&self) -> std::result::Result<Option<CommitRange>, HostError> {
         Ok(self.range.clone())
+    }
+
+    fn message(&self) -> std::result::Result<Option<String>, HostError> {
+        Ok(self.message.clone())
+    }
+
+    fn hook(&self) -> std::result::Result<bool, HostError> {
+        Ok(self.hook)
     }
 
     fn resolve(&self, rev: &str) -> std::result::Result<Option<String>, HostError> {

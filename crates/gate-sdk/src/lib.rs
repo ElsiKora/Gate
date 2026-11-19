@@ -77,7 +77,8 @@ pub use self::plugin::{
 };
 pub use self::report::{FileLocation, Finding, Location, Report, Span};
 pub use self::rule::{
-    Generate, GeneratedFile, Generator, GeneratorInfo, Rule, RuleInfo, Run, Scope,
+    Generate, GeneratedFile, Generator, GeneratorInfo, NEEDS_KEYWORD, Need, Rule, RuleInfo, Run,
+    Scope,
 };
 pub use self::tree::Tree;
 

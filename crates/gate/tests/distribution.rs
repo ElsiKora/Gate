@@ -1023,3 +1023,85 @@ fn cache_prune_lists_then_removes_only_what_no_lock_pins() {
         ]
     );
 }
+
+/// The git plugin built from this tree for wasm32-wasip2, as its release would carry it.
+fn git_component() -> Vec<u8> {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("gate-plugin-git");
+    let status = Command::new(env!("CARGO"))
+        .current_dir(&workspace)
+        .args([
+            "build",
+            "--locked",
+            "--release",
+            "-p",
+            "gate-plugin-git",
+            "--target",
+            "wasm32-wasip2",
+        ])
+        .env("CARGO_TARGET_DIR", &target)
+        .status()
+        .expect("cargo runs");
+    assert!(status.success(), "gate-plugin-git builds for wasm32-wasip2");
+    std::fs::read(target.join("wasm32-wasip2/release/git.wasm")).expect("the component exists")
+}
+
+#[test]
+fn every_suggestion_of_a_fresh_gate_toml_uncommented_checks_clean() {
+    let server = Server::start();
+    core_release(&server, &core_archive(), Duration::ZERO);
+    let wasm = git_component();
+    let tag = format!("plugin-git-v{VERSION}");
+    let download = format!("/ElsiKora/Gate/releases/download/{tag}/git.wasm");
+    server.serve(&download, wasm.clone());
+    server.serve(
+        &format!("/repos/ElsiKora/Gate/releases/tags/{tag}"),
+        release_json(&[(
+            "git.wasm",
+            &server.url("/repos/ElsiKora/Gate/releases/assets/9"),
+            &server.url(&download),
+            Some(&sha256(&wasm)),
+        )]),
+    );
+    let repo = Repo::new();
+    let output = repo.gate(&["init"], Some(&server), &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+
+    // A newcomer uncomments every suggested line: the tables and the entries in them.
+    let fresh = repo.read("gate.toml");
+    let uncommented: String = fresh
+        .lines()
+        .map(|line| match line.strip_prefix("# ") {
+            Some(rest) if rest.starts_with('[') || rest.contains(" = ") => rest,
+            _ => line,
+        })
+        .fold(String::new(), |mut text, line| {
+            let _ = writeln!(text, "{line}");
+            text
+        });
+    assert!(
+        uncommented.contains("\n[plugins]\n") && uncommented.contains("\n[rules]\n"),
+        "{uncommented}"
+    );
+    repo.write("gate.toml", &uncommented);
+    // As init says: gate reads tracked files only.
+    repo.git(&["add", "gate.toml", "gate.lock", "bin/gate"]);
+
+    let output = repo.gate(&["lock"], Some(&server), &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit();
+    let output = repo.gate(&["check"], Some(&server), &[]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert!(
+        text(&output.stdout).contains("gate check (tree): 2 rules, 0 errors"),
+        "every suggested rule ran: {}",
+        text(&output.stdout)
+    );
+    server.stop();
+}

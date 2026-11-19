@@ -2,7 +2,7 @@
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Error, Result};
+use gate_sdk::{Error, Need, Result};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use regex::Regex;
 
@@ -135,6 +135,81 @@ impl Settings {
             .transpose()
     }
 }
+
+/// The options of `[plugins.git]` match this when their forms (or the default forms) hold a
+/// release form.
+const RELEASE_FORM: &str = r#"{"anyOf": [
+    {"not": {"required": ["forms"]}},
+    {"properties": {"forms": {"contains": {
+        "required": ["kind"], "properties": {"kind": {"const": "release"}}
+    }}}}
+]}"#;
+
+/// The options match this when their forms (or the default forms) hold a merge form that runs the
+/// branch check.
+const BRANCH_CHECK: &str = r#"{"anyOf": [
+    {"not": {"required": ["forms"]}},
+    {"properties": {"forms": {"contains": {
+        "required": ["kind"], "properties": {"kind": {"const": "merge"}},
+        "anyOf": [
+            {"not": {"required": ["checks"]}},
+            {"properties": {"checks": {"contains": {"const": "branch"}}}}
+        ]
+    }}}}
+]}"#;
+
+/// The options match this when their forms (or the default forms) hold a direct form that runs
+/// the files check.
+const FILES_CHECK: &str = r#"{"anyOf": [
+    {"not": {"required": ["forms"]}},
+    {"properties": {"forms": {"contains": {
+        "required": ["kind"], "properties": {"kind": {"const": "direct"}},
+        "anyOf": [
+            {"not": {"required": ["checks"]}},
+            {"properties": {"checks": {"contains": {"const": "files"}}}}
+        ]
+    }}}}
+]}"#;
+
+/// The history rules read the history after `activation`.
+pub(crate) const ACTIVATION: Need = Need {
+    key: "activation",
+    when: None,
+    why: "the rule reads history after it; write the 40-hex id of the commit the policy starts \
+          after",
+};
+
+/// A release form matches the release commits by `release-subject`.
+pub(crate) const RELEASE_SUBJECT: Need = Need {
+    key: "release-subject",
+    when: Some(RELEASE_FORM),
+    why: "the release form (one of the default forms when forms is absent) matches the release \
+          commits by it; set it, or write forms without a release form",
+};
+
+/// The keys the branch check of a merge form reads.
+pub(crate) const BRANCH_KEYS: [Need; 3] = [
+    branch_key("branch-pattern"),
+    branch_key("branch-length"),
+    branch_key("dependabot"),
+];
+
+const fn branch_key(key: &'static str) -> Need {
+    Need {
+        key,
+        when: Some(BRANCH_CHECK),
+        why: "the branch check of a merge form (the default merge form runs it) reads it; set \
+              it, or remove branch from the merge form's checks",
+    }
+}
+
+/// The key the files check of a direct form reads.
+pub(crate) const DOCUMENTATION: Need = Need {
+    key: "documentation",
+    when: Some(FILES_CHECK),
+    why: "the files check of a direct form (the default direct form runs it) reads it; set it, \
+          or remove files from the direct form's checks",
+};
 
 /// A key of `[plugins.git] options` that `reader` (a rule, or a check of a form) needs.
 ///

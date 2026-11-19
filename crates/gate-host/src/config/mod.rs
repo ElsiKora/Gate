@@ -1203,6 +1203,14 @@ pub fn check_gate_command(command: &str) -> std::result::Result<(), String> {
     }
     if words
         .iter()
+        .any(|word| *word == "--hook" || word.starts_with("--hook="))
+    {
+        return Err(format!(
+            "{command:?}: remove --hook; the generated hooks pass it to every check, and a job is not a hook"
+        ));
+    }
+    if words
+        .iter()
         .any(|word| *word == "--target-ref" || word.starts_with("--target-ref="))
     {
         return Err(format!(

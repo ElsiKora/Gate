@@ -82,8 +82,14 @@ name = "server"
 | `extends` | presets to turn on, `<plugin>/<preset>`; `[rules]` then overrides any of their rules |
 
 A project file, or the root file when the root is the only project; a profile takes `extends` for a set
-of projects. A preset is a named set of rules with levels and options that a plugin may ship; none of
-the shared plugins ships one yet, so turn their rules on in `[rules]`.
+of projects. A preset is a named set of rules with levels, levels of single aspects and options that
+a plugin may ship, such as `git/recommended`. The project's own configuration wins over a preset. A
+rule's level for one aspect comes, first found, from `[rules]` for that aspect, from `[rules]` for
+the whole rule, from the rule's family, from the presets for that aspect, and from the presets for
+the whole rule; else it is `error`. So a level `[rules]` gives the whole rule applies to all its
+aspects, the ones a preset sets too: with `extends = ["git/recommended"]`,
+`"git/commit-message" = "note"` reports `header-min-length` as a note, and `"off"` turns every aspect
+off. A preset's aspect levels apply only where `[rules]` sets no level for that rule or aspect.
 
 ## `[plugins]`
 
@@ -374,7 +380,11 @@ budget = 10
 Each git hook runs the listed `gate` commands in order: `check ...`, `run <step or suite> [--staged |
 --push]` or `sync --check`, with no shell syntax. `--push` (in `pre-push` only) and `--commit-message`
 (in `commit-msg` and the other hooks that receive a message file) take no value: the hook passes the
-pushed ranges or the message file. A `run` entry passes the hook's arguments to its steps (`-- "$@"`)
+pushed ranges or the message file; a `check` with a message file checks the message being written
+(the rules that read it, such as `git/commit-message`), and its summary says `commit message`. Every
+`check` a hook runs also gets `--hook`, so rules that apply only
+while a developer works (a prohibited branch name) know a hook started them; an entry, of a hook or a
+job, does not write `--hook` itself. A `run` entry passes the hook's arguments to its steps (`-- "$@"`)
 and, in `pre-push`, the pushed refs on their standard input (`--stdin`). `budget` applies
 `--budget <seconds>` to hook runs: a hook that takes longer warns, it does not fail. `gate sync` writes
 the hooks to `.githooks/` and sets `core.hooksPath` once per clone; every worktree of the clone shares

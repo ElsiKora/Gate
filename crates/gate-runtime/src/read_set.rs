@@ -36,13 +36,15 @@ pub enum GitQuery {
     SyncState {
         commit: String,
     },
+    Message,
+    Hook,
 }
 
 impl GitQuery {
     /// The bytes of the strings the question holds.
     pub(crate) fn bytes(&self) -> usize {
         match self {
-            Self::Head | Self::Branch | Self::Range => 0,
+            Self::Head | Self::Branch | Self::Range | Self::Message | Self::Hook => 0,
             Self::Resolve { rev: one }
             | Self::Tree { commit: one }
             | Self::Log { range: one }
@@ -82,7 +84,7 @@ pub struct ReadSet {
     /// Whether the call asked for the run's change selection.
     pub changed: bool,
     /// What the call asked git, each with the commit ids (or, for `branch`, the name; for `range`,
-    /// base, head and the pushed ref) its answer depended on: an answer that goes through a ref (`head`, `branch`, `range`, `resolve`, `log`
+    /// base, head and the pushed ref; for `message`, the message; for `hook`, `true` or `false`) its answer depended on: an answer that goes through a ref (`head`, `branch`, `range`, `resolve`, `log`
     /// of a range) records what the ref named, so a moved ref re-runs the call. An answer about
     /// commit ids never changes and records nothing.
     pub git: BTreeMap<GitQuery, Vec<String>>,

@@ -145,6 +145,8 @@ pub struct CheckRequest {
     /// The commit message under review (`--commit-message <file>`, read by the caller), for the
     /// rules that check it.
     pub commit_message: Option<String>,
+    /// A git hook started the run (`--hook`, which the generated hooks pass).
+    pub hook: bool,
     /// The rules the run is narrowed to (`--rule`); empty: every rule.
     pub rules: RuleFilter,
 }
@@ -361,7 +363,11 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
                 &workspace,
                 &selection,
                 changes.as_ref(),
-                range,
+                plugins::RunGit {
+                    range,
+                    message: request.commit_message.clone(),
+                    hook: request.hook,
+                },
                 &request.rules,
                 &mut findings,
             )?
@@ -369,7 +375,12 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     };
     phase("plugins", at);
 
-    let mode = mode(&source, changes.as_ref(), &request.changes);
+    let mode = mode(
+        &source,
+        changes.as_ref(),
+        &request.changes,
+        request.commit_message.is_some(),
+    );
     Ok(Run {
         workspace,
         selection,
@@ -489,8 +500,15 @@ fn over_budget(elapsed: Duration, budget: Duration, fails: bool) -> Finding {
     }
 }
 
-fn mode(source: &Source, changes: Option<&ChangeSet>, request: &ChangeRequest) -> String {
-    match (request, changes) {
+/// What the run checked, for the summary: the tree, the change or the revision, then `, commit
+/// message` when the run checked the message being written (`--commit-message`).
+fn mode(
+    source: &Source,
+    changes: Option<&ChangeSet>,
+    request: &ChangeRequest,
+    message: bool,
+) -> String {
+    let checked = match (request, changes) {
         (ChangeRequest::Push { .. } | ChangeRequest::Staged, Some(set)) => set.description.clone(),
         (ChangeRequest::Since(_), Some(set)) => match source {
             Source::WorkTree => set.description.clone(),
@@ -500,6 +518,11 @@ fn mode(source: &Source, changes: Option<&ChangeSet>, request: &ChangeRequest) -
             Source::Commit(revision) => format!("rev {}", short(revision)),
             other => other.to_string(),
         },
+    };
+    if message {
+        format!("{checked}, commit message")
+    } else {
+        checked
     }
 }
 

@@ -95,10 +95,10 @@ Alternatives weighed and not taken:
 
 ## 4. Plugin interface
 
-The interface is a WIT package, `gate:plugin@0.1.0`, in [`wit/`](../wit). Sketch:
+The interface is a WIT package, `gate:plugin@0.2.0`, in [`wit/`](../wit). Sketch:
 
 ```wit
-package gate:plugin@0.1.0;
+package gate:plugin@0.2.0;
 
 interface types {
   enum level { error, warning, note }
@@ -119,10 +119,11 @@ interface types {
     name: string, title: string, aspects: list<string>, scope: scope,
     reads-history: bool,      // needs commits, not only the snapshot
     languages: list<string>,  // e.g. ["typescript"]; empty for language-free rules
-    options-schema: string,   // JSON Schema of the rule's options
+    options-schema: string,   // JSON Schema of the rule's options; its "x-gate-needs" lists the
+                              // [plugins.<name>] options the rule reads that the plugin's schema leaves optional
   }
   record generator-info { name: string, title: string, options-schema: string, owns: list<string> }
-  record preset { name: string, rules: string /* JSON: rule name -> {level, options} */ }
+  record preset { name: string, rules: string /* JSON: rule name -> {level, levels, options} */ }
   record plugin-info {
     name: string, version: string,
     options-schema: string,   // JSON Schema of the [plugins.<name>] options
@@ -172,6 +173,8 @@ interface git {       // granted only to rules that declare reads-history
   is-ancestor: func(ancestor: string, descendant: string) -> bool;
   sync-state: func(commit: string) -> sync-state;         // what gate sync produces at that commit,
                                                            // and which of it differs
+  message: func() -> option<string>;                       // the --commit-message file's text
+  hook: func() -> bool;                                    // a git hook runs the check (--hook)
 }
 
 world plugin {
@@ -260,6 +263,8 @@ source = "ElsiKora/Gate:markdown@0.1.0"
 
 [rules]
 "git/no-ci-skip" = { level = "error", norm = "RULE-GIT-001" }
+"git/branch-name" = { options = { template = ":type/:ticket-:name" } }
+"git/commit-message" = { levels = { header-min-length = "warning", scope-max-length = "warning" } }
 
 [hooks]
 pre-commit = ["check --staged"]
@@ -326,7 +331,10 @@ all = ["lint", "unit"]
   `gate.toml` also holds `[project]`, `[plugins]` and project-scope rules. The same holds when a
   workspace lists `"."` as a project.
 - **Aspects** take their own norm and level inside the rule's entry: `norms = { <aspect> = "..." }`,
-  `levels = { <aspect> = "..." }`; the rule's `norm` and `level` apply to the others.
+  `levels = { <aspect> = "..." }`; the rule's `norm` and `level` apply to the others. A preset may
+  set aspect levels too. The project's configuration wins over a preset: an aspect's level is, first
+  found, the entry's level of the aspect, the entry's level, the family's, the presets' level of
+  the aspect, the presets' level of the rule.
 - **Exceptions** live in one file beside the `gate.toml` they belong to, `gate.exceptions.toml`:
 
   ```toml
@@ -342,8 +350,11 @@ all = ["lint", "unit"]
   reason, is listed by `gate list`, and is reported by `gate/exceptions` when unused or malformed.
 - Every section is validated: unknown keys, unknown rules, `[generate]` keys that name no generator of
   their plugin, options that fail the rule's schema, `[plugins.<name>] options` that fail the schema
-  the plugin declares (a missing required option, an unknown one, a wrong type) and exceptions without
-  a reason are configuration errors that name the file and key, raised before anything runs.
+  the plugin declares (a missing required option, an unknown one, a wrong type), a plugin option an
+  enabled rule declares it reads (`NEEDS` in the SDK) missing from `[plugins.<name>] options`, and
+  exceptions without a reason are configuration errors that name the file and key, raised before
+  anything runs. A plugin option only some rules read stays optional in the plugin's schema; the rule
+  that reads it declares it, with the options it reads it under, so the error names that rule.
 - A rule that is `off` in every aspect needs no options, so a rule a preset enables can always be turned
   off; options it does carry are still validated against its schema.
 - The core's own rules (`gate/*`) take `norm` and `norms` like any rule; their level is fixed, and

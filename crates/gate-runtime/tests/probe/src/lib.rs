@@ -430,6 +430,25 @@ impl Rule for Needs {
     }
 }
 
+/// Reports one finding of each of its aspects, `loud` and `quiet`.
+#[derive(Debug, Default)]
+pub struct Aspects;
+
+impl Rule for Aspects {
+    type Options = gate_sdk::NoOptions;
+    const NAME: &'static str = "aspects";
+    const TITLE: &'static str = "Reports one finding of each aspect";
+    const ASPECTS: &'static [&'static str] = &["loud", "quiet"];
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        for aspect in Self::ASPECTS {
+            run.report()
+                .finding(aspect, None, format!("aspect {aspect}"));
+        }
+        Ok(())
+    }
+}
+
 /// Reports the norms its call carries.
 #[derive(Debug, Default)]
 pub struct Norms;
@@ -499,7 +518,7 @@ gate_sdk::plugin! {
     name: "probe",
     version: env!("CARGO_PKG_VERSION"),
     options: ProbeOptions,
-    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms],
+    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects],
     generators: [Write, Toml],
     presets: [
         gate_sdk::Preset {
@@ -509,6 +528,10 @@ gate_sdk::plugin! {
         gate_sdk::Preset {
             name: "needs-level",
             rules: r#"{"needs": {"level": "error"}}"#,
+        },
+        gate_sdk::Preset {
+            name: "quiet",
+            rules: r#"{"aspects": {"levels": {"quiet": "warning"}}}"#,
         },
     ],
 }
