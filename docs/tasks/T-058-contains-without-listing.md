@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | v0.2.1 (core only; no interface, SDK or plugin change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
@@ -96,8 +96,14 @@ fixture (`Fixture::list` filters a `BTreeMap`, which costs the native tests only
 
 ## Resume point
 
-2026-11-19T19:22:42+00:00: the lead approved the design (the `../` prefixes keep the scan, each path in the
-range passes the grant check, the table covers a root's neighbours and the repository root with
-`""`). `Grant::list` and `Grant::scan`, the runtime's `paths` over them, the two tests and the
-CHANGELOG are committed; not compiled yet. Next: one lane round after tickets 219 and 232, with
-each change taken out.
+2026-11-19T21:22:28+00:00: lane ticket 245 on fd1205d (`round-inner.sh`: fmt, clippy, test, deny, the count,
+then each change taken out) is green: `cargo fmt --all --check` exit 0, `cargo clippy --locked
+--workspace --all-targets -- -D warnings` exit 0, `cargo test --locked --workspace --no-fail-fast`
+exit 0 (1016 passed, 0 failed), `cargo deny --locked check` exit 0. The count, from
+`cargo test -p gate-runtime --lib -- --exact
+grant::tests::a_probe_examines_the_paths_that_start_with_it_not_the_tree --nocapture`: 1000 probes
+of 20000 paths take 17000 steps by the listing and 20000000 paths by the scan. Each change taken
+out fails its test with exit 101: no range search (the count), the `../` prefixes taking the range
+(the table, a root with read paths outside it, prefix `""`), the range not under the root (the
+table, a nested root, prefix `src`). Ticket 236 on a90b87d stopped at clippy
+(`manual_bit_width`), fixed in fd1205d. Next: the review.
