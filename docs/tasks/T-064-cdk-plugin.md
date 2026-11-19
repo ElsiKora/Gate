@@ -185,7 +185,7 @@ Example findings:
 error cdk/stack-names#topic lib/stack/data/aurora-postgres.stack.ts
   lib/stack/data/aurora-postgres.stack.ts: the stack's directory is data but its file is aurora-postgres; one topic names both
 error cdk/environment#account lib/validation/target.constant.ts:4
-  "123456789012" is an account id; read the account from the configuration file
+  the string literal is a 12-digit account id; read the account from the configuration file
 error cdk/removal-policy#destroy lib/construct/storage/artifact-bucket.construct.ts:31
   RemovalPolicy.DESTROY is unconditional; make it one branch of a choice that keeps the data otherwise
 ```
@@ -257,7 +257,7 @@ through the built component.
   context key fails beside passing feature flags; `^2.180.0` fails, `2.180.0` and `catalog:` pass; a
   missing `test` script fails.
 - **`cdk/environment`**: a 12-digit literal in a constant, in a template literal's text and in a
-  tracked JSON file each fail, `"000000000000"` passes; `eu-west-1` fails, `us-east-1` passes, and
+  tracked JSON file each fail, the all-zero placeholder passes; `eu-west-1` fails, `us-east-1` passes, and
   passes when `regions` lists it; `tryGetContext("brandName")` fails, `"configuration"` passes;
   `process.env.CDK_DEFAULT_ACCOUNT` in `bin/` fails, in `lib/config/` passes;
   `deploy/staging.config.json` tracked fails, `staging.config.example.json` passes.
