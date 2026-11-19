@@ -492,7 +492,7 @@ impl Cache {
             for (path, name) in children(&results)? {
                 let pinned = Sha256Sum::parse(&name).is_ok_and(|sum| plugins.contains(&sum));
                 if pinned && self.directory(&path)? {
-                    derived.extend(self.derived_files(&path)?);
+                    derived.extend(derived_files(&path)?);
                 } else {
                     entries.push(Entry::at(path, Reason::Unpinned)?);
                 }
@@ -501,7 +501,7 @@ impl Cache {
         let git = self.git();
         if self.directory(&git)? {
             let named = answers::stored_blob_files(self);
-            for file in self.derived_files(&git)? {
+            for file in derived_files(&git)? {
                 if file.path.starts_with(git.join("blobs")) && !named.contains(&file.path) {
                     entries.push(file.entry(Reason::Unnamed));
                 } else {
@@ -510,7 +510,7 @@ impl Cache {
             }
         }
         if let Some(days) = bounds.older_than {
-            let limit = Duration::from_hours(24 * days);
+            let limit = Duration::from_secs(days.saturating_mul(24 * 60 * 60));
             derived.retain(|file| {
                 let old = now.duration_since(file.used).unwrap_or_default() > limit;
                 if old {
@@ -544,40 +544,6 @@ impl Cache {
             left,
             over,
         })
-    }
-
-    /// Every file below `directory`, with its last use; no symbolic link is followed, and a link
-    /// counts as a file.
-    fn derived_files(&self, directory: &Path) -> Result<Vec<Derived>> {
-        let mut files = Vec::new();
-        let mut directories = vec![directory.to_path_buf()];
-        while let Some(directory) = directories.pop() {
-            for (path, _) in children(&directory)? {
-                let metadata = match fs::symlink_metadata(&path) {
-                    Ok(metadata) => metadata,
-                    // A run removed it meanwhile (an answer file it merged).
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                    Err(error) => {
-                        return Err(Error::environment(format!(
-                            "cannot read {}: {error}",
-                            path.display()
-                        )));
-                    }
-                };
-                if metadata.is_dir() {
-                    directories.push(path);
-                    continue;
-                }
-                // Unreadable times count as now: the file is kept as recent.
-                let used = metadata.modified().unwrap_or_else(|_| SystemTime::now());
-                files.push(Derived {
-                    path,
-                    bytes: metadata.len(),
-                    used,
-                });
-            }
-        }
-        Ok(files)
     }
 
     /// Whether `path` is a directory: `false` when it does not exist.
@@ -632,6 +598,40 @@ impl Cache {
         }
         Ok(())
     }
+}
+
+/// Every file below `directory`, with its last use; no symbolic link is followed, and a link
+/// counts as a file.
+fn derived_files(directory: &Path) -> Result<Vec<Derived>> {
+    let mut files = Vec::new();
+    let mut directories = vec![directory.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        for (path, _) in children(&directory)? {
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                // A run removed it meanwhile (an answer file it merged).
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(Error::environment(format!(
+                        "cannot read {}: {error}",
+                        path.display()
+                    )));
+                }
+            };
+            if metadata.is_dir() {
+                directories.push(path);
+                continue;
+            }
+            // Unreadable times count as now: the file is kept as recent.
+            let used = metadata.modified().unwrap_or_else(|_| SystemTime::now());
+            files.push(Derived {
+                path,
+                bytes: metadata.len(),
+                used,
+            });
+        }
+    }
+    Ok(files)
 }
 
 /// How long ago `path` was last modified; zero when that cannot be read, so it counts as recent.

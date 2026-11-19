@@ -98,11 +98,12 @@ struct PruneArgs {
 fn parse_size(value: &str) -> Result<u64, String> {
     let wrong =
         || format!("{value:?} is not a size; write a whole number and M or G, such as 512M or 2G");
-    let (digits, unit) = value.split_at(value.len().saturating_sub(1));
-    let factor: u64 = match unit {
-        "M" => 1 << 20,
-        "G" => 1 << 30,
-        _ => return Err(wrong()),
+    let (digits, factor) = if let Some(digits) = value.strip_suffix('M') {
+        (digits, 1_u64 << 20)
+    } else if let Some(digits) = value.strip_suffix('G') {
+        (digits, 1_u64 << 30)
+    } else {
+        return Err(wrong());
     };
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(wrong());
