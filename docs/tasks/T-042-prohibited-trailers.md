@@ -62,3 +62,17 @@ trailers, since a trailer stays in history whatever the header says. Tests: a un
 block, and the lead's four (refused co-author, the same text outside the block, a trailer no
 pattern matches, a pattern that cannot work). Rule page (aspect, option, section, difference) and
 the plugin changelog under `Unreleased`. rustfmt --edition 2024 --check on both files: exit 0.
+2026-11-19: Proof of `2dc41a1`, lane ticket 206 (17:40:03 to 17:56:54 UTC, log
+`T-042/lane/run-1.log` outside the repository): fmt 0, clippy 0, `cargo test --locked --workspace
+--no-fail-fast` 0 (1018 passed, 0 failed, 7 ignored, summed from its `test result:` lines), deny 0
+(advisories, bans, licenses, sources ok), `cargo build --release --locked` 0, and the wasm32-wasip2
+release build of each of the eight plugins 0. The lead confirmed that an ignored message is still
+checked for trailers.
+2026-11-19: the review's fix round. The rule page and the changelog say the option reads the
+message being written (the `commit-msg` hook's), so a commit made without the hook is not checked.
+A trailing old-style `Conflicts:` block (and the trailing comment and empty lines) is dropped before
+the trailer block is found, as git's `ignored_log_message_bytes` drops it. An empty pattern is a
+configuration error. The option's example is `^[Cc]o-[Aa]uthored-[Bb]y: `. The comment-line case
+moved to the refusing test, where it fails without the comment filter: a `#` line inside the block
+would make it prose. A `#` line can never be a trailer, so no passing case depends on that filter.
+rustfmt --edition 2024 --check on the changed files: exit 0.

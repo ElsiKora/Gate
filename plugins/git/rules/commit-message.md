@@ -107,12 +107,13 @@ UTF-16 code units: a character outside the Basic Multilingual Plane, such as an 
 | `header-pattern` | string | the conventional header | The header's regular expression, commitlint's `headerPattern`, with the named groups `type`, `scope` and `subject`. |
 | `ignores` | list of strings | `[]` | Regular expressions of messages that are not checked, besides the default ignores. |
 | `default-ignores` | boolean | `true` | Whether commitlint's default ignores apply. |
-| `prohibited-trailers` | list of strings | `[]` | Regular expressions of the trailers a message may not carry. |
+| `prohibited-trailers` | list of strings | `[]` | Regular expressions of the trailers the message being written may not carry. |
 
 ### Regular expressions
 
-`header-pattern`, `ignores` and `prohibited-trailers` are read as JavaScript reads a regular expression without flags,
-which is how the reference reads them. Every pattern option of the git plugin is read the same way:
+`header-pattern`, `ignores` and `prohibited-trailers` are read as JavaScript reads a regular
+expression without flags, which is how the reference reads the first two. Every pattern option of
+the git plugin is read the same way:
 `template`, `pattern` and `subject` of [`git/branch-name`](branch-name.md), `directive-pattern` and
 `trailer-pattern` of [`git/no-ci-skip`](no-ci-skip.md), and `release-subject`, `branch-pattern` and
 a form's `subject` in `[plugins.git] options` (see [`git/main-history`](main-history.md)). The
@@ -165,9 +166,13 @@ With it, `feat(api,web): add x` passes and `feat(api_web): add x` fails `type-em
 
 `prohibited-trailers` refuses trailers, the `Token: value` lines at the end of a message, such as a
 co-author a repository does not accept; commitlint can require a trailer (`trailer-exists`) but
-not refuse one. The trailers are found as `git interpret-trailers` finds them:
+not refuse one. Like every check of this rule it reads the message of the commit being made, the
+one the `commit-msg` hook passes: a commit made without the hook (`git commit -n`, a cherry-pick,
+a rebase, an edit in a web interface) is not checked, and neither is a commit already in history.
+The trailers are found as `git interpret-trailers` finds them:
 
-- They are the message's last paragraph, never its first (the title), with comment lines and the
+- They are the message's last paragraph, never its first (the title), with comment lines, a
+  trailing old-style `Conflicts:` block (`Conflicts:` and the tab-indented paths after it) and the
   scissors section left out.
 - That paragraph is a trailer block when each of its lines is a trailer or continues the one above
   it (starts with white space), or when it holds a line git writes itself (`Signed-off-by: `,
@@ -178,8 +183,8 @@ not refuse one. The trailers are found as `git interpret-trailers` finds them:
 
 Each pattern is searched in each trailer, and every trailer one matches is a finding that names it.
 The same text elsewhere in the message, in the body or a paragraph above the last, is not a
-trailer and passes. Every message is checked, an ignored one (a merge, a `fixup!`) included, since
-a trailer stays in history whatever the header says. A pattern has no flags, so a token is spelled
+trailer and passes. An ignored message (a merge, a `fixup!`) is checked too, since a trailer stays
+in history whatever the header says. A pattern has no flags, so a token is spelled
 in both cases where both are expected:
 
 ```toml
@@ -189,8 +194,8 @@ in both cases where both are expected:
 
 With it, a message ending in `Co-Authored-By: Example Agent` fails, one ending in
 `Co-authored-by: A Person` passes, and so does a body line `Co-authored-by: Example Agent` with
-prose after it. A pattern that does not compile is an error that names the option and fails the
-run.
+prose after it. A pattern that does not compile, and an empty one, which would refuse every
+trailer, are errors that name the option and fail the run.
 
 ## Example finding
 

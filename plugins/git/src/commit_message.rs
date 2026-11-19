@@ -58,9 +58,9 @@ pub struct Options {
     /// reapplies, `amend!`, `fixup!` and `squash!` commits, and a release whose header is a
     /// version.
     pub default_ignores: bool,
-    /// Regular expressions of the trailers a message may not carry, each searched in every trailer
-    /// of the message's trailer block, written `Token: value`. Every message is checked, an
-    /// ignored one included.
+    /// Regular expressions of the trailers the message being written may not carry, each searched
+    /// in every trailer of its trailer block, written `Token: value`. An ignored message is
+    /// checked too.
     pub prohibited_trailers: Vec<String>,
 }
 
@@ -236,6 +236,12 @@ impl Patterns {
             .prohibited_trailers
             .iter()
             .map(|text| {
+                if text.is_empty() {
+                    return Err(Error::config(format!(
+                        "git/commit-message prohibited-trailers has an empty pattern, which \
+                         refuses every trailer; {WRITE_TRAILER}"
+                    )));
+                }
                 javascript("prohibited-trailers", text, WRITE_TRAILER)
                     .map(|pattern| (text.clone(), pattern))
             })
@@ -282,7 +288,7 @@ const WRITE_IGNORE: &str = "write a JavaScript regular expression without lookar
 /// What to write in `prohibited-trailers`.
 const WRITE_TRAILER: &str = "write a JavaScript regular expression without lookaround or \
                              backreferences that the trailers to refuse match, written Token: \
-                             value, such as \"^Co-authored-by: \"";
+                             value, such as \"^[Cc]o-[Aa]uthored-[Bb]y: \"";
 
 /// `text`, the value of `option`, read as JavaScript reads it and compiled.
 ///
@@ -521,15 +527,40 @@ fn separator(line: &str) -> Option<usize> {
     None
 }
 
+/// Where the log message of `lines` ends, as git's `ignored_log_message_bytes` finds it: before
+/// the trailing run of comment lines, empty lines and an old-style `Conflicts:` block, whose paths
+/// are indented by a tab.
+fn log_end(lines: &[&str]) -> usize {
+    let mut start = None;
+    let mut conflicts = false;
+    for (at, line) in lines.iter().enumerate() {
+        if line.starts_with('#') || line.is_empty() {
+            start.get_or_insert(at);
+        } else if *line == "Conflicts:" {
+            conflicts = true;
+            start.get_or_insert(at);
+        } else if !(conflicts && line.starts_with('\t')) {
+            start = None;
+            conflicts = false;
+        }
+    }
+    start.unwrap_or(lines.len())
+}
+
 /// The trailers of `message` as `git interpret-trailers` finds them, each unfolded and written
 /// `Token: value`. They are the lines of its last paragraph, never the first (the title), when
 /// every line of it is a trailer or continues one (starts with white space), or when it holds a
-/// line of [`GIT_GENERATED`] and at least a quarter of its lines are trailers. Comment lines and
-/// what follows the scissors line are not part of the message.
+/// line of [`GIT_GENERATED`] and at least a quarter of its lines are trailers. Comment lines, a
+/// trailing old-style `Conflicts:` block and what follows the scissors line are not part of the
+/// message.
 fn trailers(message: &str) -> Vec<String> {
-    let kept: Vec<&str> = lines(message)
+    let above: Vec<&str> = lines(message)
         .into_iter()
         .take_while(|line| *line != SCISSORS)
+        .collect();
+    let kept: Vec<&str> = above[..log_end(&above)]
+        .iter()
+        .copied()
         .filter(|line| !line.starts_with('#'))
         .collect();
     let blank = |line: &&str| trim_git(line).is_empty();
@@ -1257,6 +1288,15 @@ mod tests {
                 "feat: x\n\nCo-authored-by: B\n# a comment\n\n\n{SCISSORS}\n\nOther: E\n"
             )),
             ["Co-authored-by: B"]
+        );
+        // A trailing old-style Conflicts: block is not part of the message, as in git.
+        assert_eq!(
+            trailers("feat: x\n\nCo-authored-by: A\n\nConflicts:\n\ta.rs\n"),
+            ["Co-authored-by: A"]
+        );
+        assert_eq!(
+            trailers("feat: x\n\nCo-authored-by: A\n\nConflicts:\n\ta.rs\nmore\n"),
+            none
         );
         assert_eq!(
             trailers("feat: x\r\n\r\nCo-authored-by: B\r\n"),

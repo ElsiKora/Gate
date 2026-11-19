@@ -520,6 +520,18 @@ fn a_prohibited_trailer_in_the_trailer_block_fails_and_is_named() {
         aspects(Some(two), NO_AGENT),
         ["prohibited-trailers", "prohibited-trailers"]
     );
+    // A comment line in the block is not part of it: kept, it would be prose, and the block no
+    // trailer block. A trailing old-style Conflicts: block is not part of the message, as in git.
+    for message in [
+        "feat(core): add the thing\n\nThe body says why.\n\nCo-authored-by: Example Agent\n# a note\nReviewed-by: A Person\n",
+        "feat(core): add the thing\n\nThe body says why.\n\nCo-authored-by: Example Agent\n\nConflicts:\n\tsrc/a.rs\n\tsrc/b.rs\n",
+    ] {
+        assert_eq!(
+            refused(message, NO_AGENT),
+            ["Co-authored-by: Example Agent"],
+            "{message:?}"
+        );
+    }
 }
 
 #[test]
@@ -531,8 +543,6 @@ fn the_same_text_outside_the_trailer_block_passes() {
         "feat(core): add the thing\n\nThe body says why.\nCo-authored-by: Example Agent\n",
         // The title.
         "Co-authored-by: Example Agent\n",
-        // A comment line.
-        "feat(core): add the thing\n\nReviewed-by: A Person\n# Co-authored-by: Example Agent\n",
     ] {
         assert_eq!(
             refused(message, NO_AGENT),
@@ -565,6 +575,11 @@ fn a_prohibited_trailer_pattern_that_cannot_work_fails_closed() {
             "git/commit-message prohibited-trailers \"(\" is not a valid regular expression; \
              write a JavaScript regular expression without lookaround or backreferences that the \
              trailers to refuse match",
+        ),
+        (
+            r#"{"prohibited-trailers": [""]}"#,
+            "git/commit-message prohibited-trailers has an empty pattern, which refuses every \
+             trailer",
         ),
         (
             r#"{"prohibited-trailers": ["^Co-authored-by: (?!Person)"]}"#,
