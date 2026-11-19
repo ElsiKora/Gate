@@ -71,4 +71,9 @@ positional groups, the regular-expression mapping of `ignores` and the `subject-
 `ignores = ["WIP"]` skips a message with `WIP` in its body (`wip x` as the header, so that the
 skip shows), `^WIP` anchors at the message's start only, and a scope `é` under `\w+` fails where
 `e` passes, in place of the `féat` case. The read set records the message's SHA-256 instead of the
-message, in the separate commit `3723123` (`fix(runtime)`), with a test of a 65 MiB message.
+message, in the separate commit `077a4e2` (`fix(runtime)`), with a test of a 65 MiB message.
+2026-11-19: ticket 187 (c8afefb): fmt 1, clippy 101, test 0, deny 1, build 0, wasm 0. Deny was
+the wasmtime advisories, fixed on the release by T-040. Clippy (`single_match_else` at
+`javascript.rs:50` and `:189`, `format_push_string` at `:293`) and the two rustfmt layouts are
+fixed in `a0f155c`. Rebased onto `release/v0.2.0` at `b3b2fe3`, which renamed every commit (the
+`fix(runtime)` commit is now `077a4e2`). The next round runs on T-038's tip, which holds this tip.
