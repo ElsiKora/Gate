@@ -18,8 +18,9 @@
 # release assets of the repository on that GitHub's API; a redirect from the API is followed
 # without it.
 #
-# Every download is bounded: 30 s to connect, and it fails when no data arrives for 30 s. It is
-# made once; a failure says to try again, and nothing is retried.
+# Every download is bounded: 30 s to connect, it fails when no data arrives for 30 s, and the
+# whole download, every redirect hop and request included, has 15 minutes (curl only: wget has
+# no overall limit). It is made once; a failure says to try again, and nothing is retried.
 set -eu
 
 fail() {
@@ -27,9 +28,12 @@ fail() {
 	exit 2
 }
 
-# fetch CURL-ARGUMENTS: one bounded curl request (see the header), https or http only.
+# fetch CURL-ARGUMENTS: one bounded curl request (see the header), https or http only, with
+# what is left of the download's 15 minutes ($deadline, in seconds since the epoch).
 fetch() {
-	curl --connect-timeout 30 --speed-limit 1 --speed-time 30 --silent --show-error --proto '=https,http' "$@"
+	left=$((deadline - $(date +%s)))
+	[ "$left" -gt 0 ] || fail "cannot download $asset from $url: not finished within 15 minutes; try again"
+	curl --connect-timeout 30 --speed-limit 1 --speed-time 30 --max-time "$left" --silent --show-error --proto '=https,http' "$@"
 }
 
 # checked URL WHAT: fails, naming WHAT, unless URL is https, or plain http to 127.0.0.1,
@@ -285,6 +289,7 @@ if ! installed; then
 	if [ -n "$enterprise_web$enterprise_api" ] && { [ -z "$enterprise_web" ] || [ -z "$enterprise_api" ]; }; then
 		fail "GATE_GITHUB_URL and GATE_GITHUB_API_URL name a GitHub Enterprise together, and only one is set; set both, or neither for github.com"
 	fi
+	deadline=$(($(date +%s) + 900))
 	if command -v curl >/dev/null 2>&1; then
 		anonymous "$url" "$work/$asset" ||
 			fail "cannot download $asset from $url; try again, and check the network (and HTTPS_PROXY, if one is needed)"

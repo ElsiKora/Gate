@@ -140,6 +140,49 @@ fn a_server_that_never_answers_fails_within_its_read_bound() {
 }
 
 #[test]
+fn a_server_that_never_completes_the_connection_fails_within_its_connect_bound() {
+    // A listener that takes the TCP connection and never speaks TLS. The TLS handshake is part of
+    // connecting, so the connect bound ends it, on any machine and without the network.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("address");
+    let _accepting = std::thread::spawn(move || {
+        if let Ok((stream, _)) = listener.accept() {
+            std::thread::sleep(Duration::from_secs(30));
+            drop(stream);
+        }
+    });
+    let server = Server::start();
+    let cache_dir = tempfile::tempdir().expect("cache");
+    let cache = Cache::at(cache_dir.path());
+    let pin = Pin {
+        url: format!("https://{address}/git.wasm"),
+        sha256: sum(&sha256(PLUGIN)),
+    };
+    let bounds = Bounds {
+        connect: Duration::from_secs(1),
+        read: Duration::from_secs(5),
+    };
+
+    let started = Instant::now();
+    let error = Fetcher::bounded(config(&server, None), cache.clone(), bounds)
+        .fetch("git.wasm", &pin)
+        .expect_err("a connection that is never made");
+    let waited = started.elapsed();
+
+    assert!(waited < Duration::from_secs(10), "failed after {waited:?}");
+    assert_eq!(error.kind(), ErrorKind::Environment);
+    let message = error.message();
+    assert_eq!(
+        message,
+        format!(
+            "cannot download git.wasm from {}: no connection within 1 s; check the network (and HTTPS_PROXY, if one is needed) and try again",
+            pin.url
+        ),
+    );
+    assert_eq!(cache.get(&pin.sha256).expect("read"), None);
+}
+
+#[test]
 fn a_slow_server_that_answers_within_the_bound_is_not_cut() {
     let server = Server::start();
     server.route(

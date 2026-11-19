@@ -27,7 +27,7 @@ use std::io::{Read, Write as _};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -58,7 +58,8 @@ const MAX_REDIRECTS: usize = 10;
 /// The most a download may be: far above any plugin or core archive.
 const MAX_DOWNLOAD: u64 = 1024 * 1024 * 1024;
 
-/// The most one request may take, its body included: the outer bound on a download that trickles.
+/// The most one download may take, every redirect hop and its body included: the outer bound on a
+/// download that trickles. Each request of the download gets what is left of it ([`within`]).
 const GLOBAL_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// How long a request waits for the network before it fails.
@@ -419,7 +420,7 @@ impl Fetcher {
         asset: &str,
     ) -> Result<Pin> {
         let which = self.for_repository(owner, repo);
-        let release = self.release(which, owner, repo, tag)?;
+        let release = self.release(which, owner, repo, tag, Instant::now() + GLOBAL_TIMEOUT)?;
         let Some(found) = release.assets.iter().find(|item| item.name == asset) else {
             let names: Vec<&str> = release
                 .assets
@@ -491,7 +492,14 @@ impl Fetcher {
         }
     }
 
-    fn release(&self, which: Which, owner: &str, repo: &str, tag: &str) -> Result<Release> {
+    fn release(
+        &self,
+        which: Which,
+        owner: &str,
+        repo: &str,
+        tag: &str,
+        deadline: Instant,
+    ) -> Result<Release> {
         let api_url = &self.endpoint(which).api_url;
         let url = format!("{api_url}/repos/{owner}/{repo}/releases/tags/{tag}");
         let what = format!("release {tag} of {owner}/{repo}");
@@ -505,7 +513,7 @@ impl Fetcher {
         if let Some(credential) = credential {
             request = request.header("Authorization", bearer(&credential.secret));
         }
-        let response = request
+        let response = within(request, deadline)
             .call()
             .map_err(|error| transport(&what, &url, &error, self.bounds))?;
         let status = response.status().as_u16();
@@ -556,15 +564,14 @@ impl Fetcher {
         &self,
         asset: &str,
         url: &str,
+        deadline: Instant,
     ) -> Result<(String, ureq::http::Response<ureq::Body>)> {
         let mut current = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
             check_url(&current).map_err(|message| {
                 Error::environment(format!("{asset}: {url} leads to {message}"))
             })?;
-            let response = self
-                .agent
-                .get(&current)
+            let response = within(self.agent.get(&current), deadline)
                 .call()
                 .map_err(|error| transport(asset, &current, &error, self.bounds))?;
             if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
@@ -590,7 +597,8 @@ impl Fetcher {
         url: &str,
         temporary: &mut Temporary,
     ) -> Result<Sha256Sum> {
-        let (_, response) = self.get_anonymous(asset, url)?;
+        let deadline = Instant::now() + GLOBAL_TIMEOUT;
+        let (_, response) = self.get_anonymous(asset, url, deadline)?;
         let status = response.status().as_u16();
         if status == 200 {
             return stream(
@@ -614,7 +622,13 @@ impl Fetcher {
                 github.owner, github.repo, TOKEN_VARIABLES[0], TOKEN_VARIABLES[1]
             )));
         };
-        let release = self.release(github.endpoint, github.owner, github.repo, github.tag)?;
+        let release = self.release(
+            github.endpoint,
+            github.owner,
+            github.repo,
+            github.tag,
+            deadline,
+        )?;
         let Some(found) = release.assets.iter().find(|item| item.name == github.name) else {
             return Err(Error::environment(format!(
                 "release {} of {}/{} has no asset {}; check the URL in gate.lock, or run gate lock again",
@@ -644,12 +658,13 @@ impl Fetcher {
             )));
         }
 
-        let response = self
+        let request = self
             .agent
             .get(&found.url)
             .header("Accept", "application/octet-stream")
             .header("X-GitHub-Api-Version", API_VERSION)
-            .header("Authorization", bearer(&credential.secret))
+            .header("Authorization", bearer(&credential.secret));
+        let response = within(request, deadline)
             .call()
             .map_err(|error| transport(asset, &found.url, &error, self.bounds))?;
         match response.status().as_u16() {
@@ -669,7 +684,7 @@ impl Fetcher {
                         ))
                     })?;
                 // The redirect target is signed; the credential stays with the API.
-                let (_, response) = self.get_anonymous(asset, &target)?;
+                let (_, response) = self.get_anonymous(asset, &target, deadline)?;
                 match response.status().as_u16() {
                     200 => stream(
                         asset,
@@ -806,22 +821,32 @@ fn transport(what: &str, url: &str, error: &ureq::Error, bounds: Bounds) -> Erro
     ))
 }
 
-/// The one error of a request that ran out of time, whichever phase it was in.
+/// `request` bounded by the time left before `deadline`: every request of one download, each
+/// redirect hop and the private asset's lookup included, shares one [`GLOBAL_TIMEOUT`]. Past the
+/// deadline the request fails at once as timed out.
+fn within<B>(request: ureq::RequestBuilder<B>, deadline: Instant) -> ureq::RequestBuilder<B> {
+    request
+        .config()
+        .timeout_global(Some(deadline.saturating_duration_since(Instant::now())))
+        .build()
+}
+
+/// The one error of a request that ran out of time, whichever phase it was in. A connection
+/// that is not made in time carries the launcher's hint about the network and the proxy.
 fn timed_out(what: &str, url: &str, timeout: ureq::Timeout, bounds: Bounds) -> Error {
     let seconds = |bound: Duration| bound.as_secs_f64();
-    let waited = match timeout {
-        ureq::Timeout::Resolve | ureq::Timeout::Connect => {
-            format!("no connection within {} s", seconds(bounds.connect))
-        }
+    let reason = match timeout {
+        ureq::Timeout::Resolve | ureq::Timeout::Connect => format!(
+            "no connection within {} s; check the network (and HTTPS_PROXY, if one is needed) and try again",
+            seconds(bounds.connect)
+        ),
         ureq::Timeout::Global | ureq::Timeout::PerCall => format!(
-            "not finished within {} minutes",
+            "not finished within {} minutes; try again",
             GLOBAL_TIMEOUT.as_secs() / 60
         ),
-        _ => format!("no data for {} s", seconds(bounds.read)),
+        _ => format!("no data for {} s; try again", seconds(bounds.read)),
     };
-    Error::environment(format!(
-        "cannot download {what} from {url}: {waited}; try again"
-    ))
+    Error::environment(format!("cannot download {what} from {url}: {reason}"))
 }
 
 fn stream(

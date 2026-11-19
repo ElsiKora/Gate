@@ -62,17 +62,21 @@ short.
    `timeout_per_read(Some(READ_TIMEOUT))`, 30 s: it restarts on every transport read and covers the
    TLS handshake, the response headers and the body, so it is the one mechanism for a stall in any
    phase. `timeout_resolve` (30 s) joins `timeout_connect` (30 s), which does not cover local name
-   resolution. `timeout_global` stays as the outer bound on a download that trickles. The bounds are
+   resolution. The 15-minute global bound stays as the outer bound on a download that trickles, as
+   one budget for the whole download: a deadline set once, each redirect hop and the private
+   asset's lookup given what is left of it (review, 2026-11-19). The bounds are
    constants of the fetch module; the fetcher carries them so a test can shorten them. No environment
    variable, no retry.
 2. One message for a timeout, wherever it surfaces: a `ureq::Error::Timeout` from `call()` (in
    `transport`) and an `io::Error` of kind `TimedOut` from the body reader (in `stream`) both read
-   `cannot download <what> from <url>: no data for <n> s; try again` (the phase in the message when
-   ureq names one). Other transport errors keep today's messages. A failed download leaves nothing in
+   `cannot download <what> from <url>: no data for <n> s; try again`; a resolve or connect timeout
+   reads `no connection within <n> s; check the network (and HTTPS_PROXY, if one is needed) and try
+   again`, as the launcher says (review, 2026-11-19). Other transport errors keep today's messages. A failed download leaves nothing in
    the cache and removes its temporary file, as today.
 3. The launcher: every `curl` call (`anonymous`, the release lookup, the private asset) gets
-   `--connect-timeout 30 --speed-limit 1 --speed-time 30`, curl's own stall bound; `wget` gets
-   `--timeout=30 --tries=1`. The failure message names the URL and says to try again. No loop.
+   `--connect-timeout 30 --speed-limit 1 --speed-time 30`, curl's own stall bound, and `--max-time`
+   with what is left of one 15-minute deadline for the download; `wget` gets `--timeout=30
+   --tries=1`, and has no overall limit, which section 12 says (review, 2026-11-19). The failure message names the URL and says to try again. No loop.
 4. `docs/architecture.md` section 12 says that every download has a 30 s connect and read bound and
    fails rather than waits; `CHANGELOG.md` gets the entry.
 
@@ -85,6 +89,8 @@ short.
   holds no blob and no temporary file afterwards.
 - A route delayed less than the bound still downloads and verifies (the bound does not cut a slow
   but live server).
+- A listener that accepts the TCP connection and never speaks TLS, with a 1 s connect bound, fails
+  within 10 s with exactly the connect message (review, 2026-11-19).
 - `crates/gate/tests/distribution.rs`: the launcher against a core route that stops sending fails
   with exit 2 and the URL in its message, and installs nothing. curl's bound is 30 s, so this test
   takes about 30 s; it is the only slow one.
@@ -100,11 +106,7 @@ short.
 
 ## Resume point
 
-2026-11-19: branch `task/T-046-download-timeout` on main `105ca02`. Written: `Bounds` in the fetch
-module (30 s to resolve and connect, 30 s per read through ureq's `timeout_per_read`, the 15-minute
-global bound kept), one timeout message from `call()` and from the body reader; the launcher's
-`fetch` wrapper (curl `--connect-timeout 30 --speed-limit 1 --speed-time 30`) for all three curl
-calls and wget `--timeout=30 --tries=1`, each failure saying to try again; the fixture route
-`Route::stalled`; host tests for a stall in the body, a server that never answers and a slow server
-within the bound; the launcher test for a core download that stops; architecture section 12 and the
-changelog. Next: one lane round (fmt, clippy, test, deny, build), then review.
+2026-11-19: 1e96a8e reviewed; the four review points fixed: the connect message keeps the proxy
+hint; one 15-minute deadline per download in the core (`within`) and in the launcher (`--max-time`
+from `$deadline`); wget's missing overall limit in section 12; the connect-phase test. Next: one
+lane round on the fix commit, its exit codes in a Proof section.
