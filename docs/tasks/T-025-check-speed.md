@@ -87,6 +87,23 @@
   - Then: `tree`, `changed-paths` (a diff of trees read object by object), `read-at` and
     `is-ancestor` (a commit-graph walk by generation) through one `git cat-file --batch` reader per
     run. Whole history: 258.02 s wall (with tests running beside it), 12.21 s user.
-- Lane ticket 143 ran on 68cc1d8: fmt, clippy, test (892 passed, 0 failed) and deny exit 0.
+- Lane ticket 143 on 68cc1d8: fmt, clippy, test (892 passed, 0 failed), deny and release exit 0;
+  the four new tests each exit 101 on c32848a. Its cold and warm runs on the first consumer's copy
+  exited 2: the copy still pinned 0.1.0-rc.1 (moved to 0.1.0 since).
+- c4fa527, 1bf05dd: the reader diffs trees one level per round trip, keeps trees for the run, and
+  loads the ancestry with one `git rev-list --parents`. The reference's calls as single git
+  processes on the second copy at load about 150: 130 s wall, 37 s user and sys.
+- d198ed0: answers about full commit ids (tree, changed-paths, merge-tree, is-ancestor) are stored
+  in `git/answers/`, so a history call that reruns because main moved asks git only about the new
+  commits; `--timings` prints the count. Lane ticket 147 (per plugin cold and warm on both copies,
+  main moved by one commit, the reference's calls) and 148 (the five gates) are queued on d198ed0.
+- Found: the branch's nestjs plugin fails the second copy's check, "hit the fuel limit of
+  100000000000 units" (the default since bfd86c4, on main and release/v0.1.0); sent to the lead.
+  Each nestjs rule builds its own TypeScript instance and parses its files again: alone, the
+  costly rules take 0.6 to 2.5 s CPU each (`/usr/bin/time`, one `--rule nestjs/<r>` per run). A
+  parse shared by a call's rules is the fix, in `plugins/nestjs` and the TypeScript library, which
+  this task's touch list leaves out: put to the lead.
+- Wall times on this machine are about five times CPU time (18 cores, load average about 100);
+  compare CPU.
 - Open: per-rule time needs the plugin to say where a rule starts (an interface question, put to the
   lead); the 12 `sync-state` answers at about 4 s each; `merge-tree` is one git process per merge.
