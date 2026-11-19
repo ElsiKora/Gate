@@ -1343,6 +1343,9 @@ struct GitHistory {
     merges: Mutex<Batch<Merges>>,
     /// The run's cache writes that failed.
     writes: CacheWrites,
+    /// What the snapshots of the commits `sync-state` reads share: listings, blob contents, a
+    /// reader.
+    snapshots: Arc<crate::snapshot::Shared>,
     /// The content of each blob `read-at` read from git this run, by id, stored at its end.
     blobs: Mutex<BTreeMap<String, Vec<u8>>>,
     /// The generators `sync-state` ran, and those the result cache answered.
@@ -1713,6 +1716,7 @@ impl GitHistory {
             answers: OnceLock::new(),
             facts: OnceLock::new(),
             blobs: Mutex::new(BTreeMap::new()),
+            snapshots: Arc::default(),
             generations: Arc::default(),
         }
     }
@@ -1909,7 +1913,11 @@ impl GitHistory {
 
     /// [`GitHistory::sync_state_at`] without the cache.
     fn compute(&self, commit: &str) -> Result<Computed> {
-        let snapshot = Snapshot::open(&self.git, Source::Commit(commit.to_owned()))?;
+        let snapshot = Snapshot::open_shared(
+            &self.git,
+            Source::Commit(commit.to_owned()),
+            &self.snapshots,
+        )?;
         if snapshot.read(crate::config::FILE_NAME)?.is_none() {
             return Ok(Computed {
                 state: SyncState::default(),
@@ -1928,9 +1936,10 @@ impl GitHistory {
         }
 
         let context = self.run_context()?;
-        let workspace = self.run_workspace.with_snapshot(Snapshot::open(
+        let workspace = self.run_workspace.with_snapshot(Snapshot::open_shared(
             &self.git,
             Source::Commit(commit.to_owned()),
+            &self.snapshots,
         )?);
         let generators = PluginGenerators::with_loaded(
             &workspace,
