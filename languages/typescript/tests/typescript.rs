@@ -521,3 +521,47 @@ fn a_view_reads_each_file_for_its_parse_once_and_keeps_the_parse() {
     assert_eq!(source.reads_for_parse.get(), 1);
     assert_eq!(source.reads.get(), 0);
 }
+
+#[test]
+fn the_paths_with_a_prefix_are_the_paths_that_start_with_it_in_every_source() {
+    let paths = [
+        "package.json",
+        "src/a.ts",
+        "src/ab/x.ts",
+        "src/a/index.ts",
+        "src/a/b/c.ts",
+        "src/a/b/d.ts",
+        "src/b/e.ts",
+        "test/a.spec.ts",
+    ];
+    let memory = MemorySource::new(paths.iter().map(|path| (*path, "")));
+    let read = gate_typescript::ReadSource::new(
+        paths.iter().map(|path| (*path).to_owned()).collect(),
+        |_| Some(Vec::new()),
+    );
+    let sorted: Vec<String> = memory.paths().map(str::to_owned).collect();
+
+    for prefix in [
+        "", "src/", "src/a/", "src/a/b/", "src/ab/", "src/a", "src/z/", "zz",
+    ] {
+        let expected: Vec<&str> = memory
+            .paths()
+            .filter(|path| path.starts_with(prefix))
+            .collect();
+        assert_eq!(
+            memory.paths_with_prefix(prefix).collect::<Vec<_>>(),
+            expected,
+            "memory, {prefix:?}"
+        );
+        assert_eq!(
+            read.paths_with_prefix(prefix).collect::<Vec<_>>(),
+            expected,
+            "read, {prefix:?}"
+        );
+        assert_eq!(
+            gate_typescript::sorted_with_prefix(&sorted, prefix).collect::<Vec<_>>(),
+            expected,
+            "sorted, {prefix:?}"
+        );
+    }
+}

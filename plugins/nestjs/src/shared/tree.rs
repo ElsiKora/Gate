@@ -27,11 +27,11 @@ pub fn distinct<'s>(paths: impl Iterator<Item = &'s str>) -> Vec<&'s str> {
     paths.filter(|path| seen.insert(*path)).collect()
 }
 
-/// The tracked files below `root` (every file when `root` is empty), in path order.
+/// The tracked files below `root` (every file when `root` is empty), in path order, from the
+/// source's range of paths below `root` ([`Source::paths_with_prefix`]): a walk below one folder
+/// reads only the paths below it.
 fn under<'s>(source: &'s dyn Source, root: &str) -> impl Iterator<Item = &'s str> + use<'s> {
-    let prefix = folder_prefix(root);
-
-    source.paths().filter(move |path| path.starts_with(&prefix))
+    source.paths_with_prefix(&folder_prefix(root))
 }
 
 /// The part of `path` below `root`.
@@ -141,4 +141,95 @@ pub fn is_test_scenario(layout: &Layout, path: &str) -> bool {
         .test_scenario_suffixes
         .iter()
         .any(|suffix| path.ends_with(suffix.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gate_typescript::{Source, sorted_with_prefix};
+
+    use super::{UNSKIPPED, entries, files, folders};
+
+    /// A sorted source that counts the paths it hands out through [`Source::paths`] and through
+    /// [`Source::paths_with_prefix`], apart.
+    struct Counting {
+        paths: Vec<String>,
+        through_paths: Cell<usize>,
+        through_prefix: Cell<usize>,
+    }
+
+    impl Counting {
+        fn new(modules: usize) -> Self {
+            let mut paths: Vec<String> = (0..modules)
+                .flat_map(|module| {
+                    ["index.ts", "a.ts", "b/index.ts", "b/c.ts"]
+                        .map(|file| format!("src/m{module:03}/{file}"))
+                })
+                .collect();
+            paths.sort_unstable();
+            Self {
+                paths,
+                through_paths: Cell::new(0),
+                through_prefix: Cell::new(0),
+            }
+        }
+    }
+
+    impl Source for Counting {
+        fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_> {
+            Box::new(
+                self.paths
+                    .iter()
+                    .map(String::as_str)
+                    .inspect(|_| self.through_paths.set(self.through_paths.get() + 1)),
+            )
+        }
+
+        fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
+            Box::new(
+                sorted_with_prefix(&self.paths, prefix)
+                    .inspect(|_| self.through_prefix.set(self.through_prefix.get() + 1)),
+            )
+        }
+
+        fn bytes(&self, _path: &str) -> gate_typescript::Result<Option<Rc<[u8]>>> {
+            Ok(None)
+        }
+    }
+
+    /// What this proves: every walk goes through the source's paths below its folder
+    /// ([`Source::paths_with_prefix`]) and never through the list of every path, and is handed
+    /// only the paths below the folder. How many paths a source scans to answer is the source's
+    /// own: the sorted ones search their list (`gate-typescript`'s `sorted_with_prefix`).
+    #[test]
+    fn a_walk_below_one_folder_is_handed_only_the_paths_below_it() {
+        let source = Counting::new(200);
+
+        let found = entries(&source, "src/m007", &UNSKIPPED);
+        assert_eq!(
+            found.into_iter().collect::<Vec<_>>(),
+            [
+                ("a.ts".to_owned(), false),
+                ("b".to_owned(), true),
+                ("index.ts".to_owned(), false)
+            ]
+        );
+        assert_eq!(source.through_prefix.get(), 4);
+
+        source.through_prefix.set(0);
+        let below: Vec<&str> = files(&source, "src/m007/b", &UNSKIPPED).collect();
+        assert_eq!(below, ["src/m007/b/c.ts", "src/m007/b/index.ts"]);
+        assert_eq!(source.through_prefix.get(), 2);
+
+        // The folders of the tree, then each folder's entries: the 800 paths once for the
+        // folders, then each path once per folder above it (4 per module, 2 more per `b`).
+        source.through_prefix.set(0);
+        for folder in folders(&source, "src", &UNSKIPPED) {
+            let _ = entries(&source, &folder, &UNSKIPPED);
+        }
+        assert_eq!(source.through_prefix.get(), 800 + 200 * 4 + 200 * 2);
+        assert_eq!(source.through_paths.get(), 0, "a walk read every path");
+    }
 }

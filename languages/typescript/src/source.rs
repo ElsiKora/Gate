@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::Bound;
 use std::rc::Rc;
 
 use serde::Deserialize;
@@ -13,6 +14,15 @@ use serde::Deserialize;
 pub trait Source {
     /// Every tracked path, in sorted order.
     fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_>;
+
+    /// The tracked paths that start with `prefix`, in sorted order: the files below a folder when
+    /// `prefix` ends with `/`, every path when it is empty. The default filters [`Self::paths`]; a
+    /// source that keeps its paths sorted answers from the range that starts at `prefix`, so a walk
+    /// below one folder does not read the paths of every other.
+    fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
+        let prefix = prefix.to_owned();
+        Box::new(self.paths().filter(move |path| path.starts_with(&prefix)))
+    }
 
     /// The contents of one tracked file; `None` for a path that is not tracked.
     ///
@@ -50,6 +60,21 @@ pub trait Source {
     }
 }
 
+/// The paths of the sorted `paths` that start with `prefix`, in order, found by a binary search
+/// rather than a scan: what [`Source::paths_with_prefix`] answers for a source that keeps its paths
+/// in a sorted list.
+pub fn sorted_with_prefix<'p>(
+    paths: &'p [String],
+    prefix: &str,
+) -> impl Iterator<Item = &'p str> + use<'p> {
+    let start = paths.partition_point(|path| path.as_str() < prefix);
+    let prefix = prefix.to_owned();
+    paths[start..]
+        .iter()
+        .map(String::as_str)
+        .take_while(move |path| path.starts_with(&prefix))
+}
+
 /// A [`Source`] held in memory: for tests, and for a plugin that already holds its files.
 #[derive(Clone, Debug, Default)]
 pub struct MemorySource {
@@ -76,6 +101,16 @@ impl MemorySource {
 impl Source for MemorySource {
     fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_> {
         Box::new(self.files.keys().map(String::as_str))
+    }
+
+    fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
+        let prefix = prefix.to_owned();
+        Box::new(
+            self.files
+                .range::<str, _>((Bound::Included(prefix.as_str()), Bound::Unbounded))
+                .map(|(path, _)| path.as_str())
+                .take_while(move |path| path.starts_with(&prefix)),
+        )
     }
 
     fn bytes(&self, path: &str) -> Result<Option<Rc<[u8]>>> {
@@ -124,6 +159,10 @@ where
 {
     fn paths(&self) -> Box<dyn Iterator<Item = &str> + '_> {
         Box::new(self.paths.iter().map(String::as_str))
+    }
+
+    fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
+        Box::new(sorted_with_prefix(&self.paths, prefix))
     }
 
     fn bytes(&self, path: &str) -> Result<Option<Rc<[u8]>>> {

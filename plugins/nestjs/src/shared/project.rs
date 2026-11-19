@@ -153,6 +153,10 @@ impl Source for CallSource<'_> {
         Box::new(self.paths.iter().map(String::as_str))
     }
 
+    fn paths_with_prefix(&self, prefix: &str) -> Box<dyn Iterator<Item = &str> + '_> {
+        Box::new(gate_typescript::sorted_with_prefix(&self.paths, prefix))
+    }
+
     fn bytes(&self, path: &str) -> gate_typescript::Result<Option<Rc<[u8]>>> {
         if let Some(known) = self.read.borrow().get(path) {
             return Ok(known.clone());
@@ -207,4 +211,67 @@ pub fn parsed<'a>(
     path: &str,
 ) -> gate_sdk::Result<Option<Rc<SourceFile<'a>>>> {
     Ok(typescript.parse(path)?.filter(|file| !file.fatal()))
+}
+
+#[cfg(test)]
+mod tests {
+    use gate_sdk::{Tree, TreeHost};
+    use gate_typescript::Source;
+
+    use super::CallSource;
+
+    /// A host whose tracked paths come unsorted, with names that sort around `/`.
+    struct Paths;
+
+    const PATHS: [&str; 8] = [
+        "src/ab/x.ts",
+        "src/a/b.ts",
+        "src/a.ts",
+        "src/a-b/c.ts",
+        "src/a/c/d.ts",
+        "package.json",
+        "src/a0/e.ts",
+        "test/a.ts",
+    ];
+
+    impl TreeHost for Paths {
+        fn list(&self, prefix: &str) -> Vec<String> {
+            PATHS
+                .iter()
+                .filter(|path| path.starts_with(prefix))
+                .map(|path| (*path).to_owned())
+                .collect()
+        }
+
+        fn read(&self, _path: &str) -> Option<Vec<u8>> {
+            None
+        }
+
+        fn changed(&self) -> Option<Vec<String>> {
+            None
+        }
+    }
+
+    #[test]
+    fn the_call_source_answers_a_prefix_with_the_paths_that_start_with_it() {
+        let source = CallSource::new(Tree::new(&Paths));
+
+        for prefix in [
+            "", "src/", "src/a/", "src/a", "src/a-", "src/ab/", "src/z/", "zz",
+        ] {
+            let expected: Vec<&str> = source
+                .paths()
+                .filter(|path| path.starts_with(prefix))
+                .collect();
+            assert_eq!(
+                source.paths_with_prefix(prefix).collect::<Vec<_>>(),
+                expected,
+                "{prefix:?}"
+            );
+        }
+        assert_eq!(
+            source.paths_with_prefix("src/a/").collect::<Vec<_>>(),
+            ["src/a/b.ts", "src/a/c/d.ts"]
+        );
+    }
 }

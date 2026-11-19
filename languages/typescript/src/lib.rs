@@ -40,7 +40,9 @@ use oxc_span::SourceType;
 
 pub use self::lines::LineIndex;
 use self::resolver::Resolver;
-pub use self::source::{Error, MemorySource, ReadSource, Result, Settings, Source};
+pub use self::source::{
+    Error, MemorySource, ReadSource, Result, Settings, Source, sorted_with_prefix,
+};
 
 /// The extensions of the files [`TypeScript::files`] lists, including `.d.ts`; they compare
 /// case-sensitively, as the TypeScript compiler and oxc read them.
