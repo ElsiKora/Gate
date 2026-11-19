@@ -1,0 +1,303 @@
+# T-065: One Node toolchain standard per kind, checked by a `node` plugin
+
+| Field | Value |
+| --- | --- |
+| Status | design, waiting for the lead's decision; no code |
+| Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
+| Writer | "Gate 003: host foundations" |
+| Reviewer | a separate review session |
+| Depends on | `main` at `ec66737`; the kind names and the `kind` option of T-062, so that both plugins read one line the same way |
+| Touches | a new `plugins/node` (eight rules, the kinds as constants, one page per rule), `Cargo.toml` (the workspace member), `docs/guide/plugins.md`, `CHANGELOG.md` |
+
+## Goal
+
+Every JavaScript or TypeScript project sets up its toolchain the same way: one package manager, pinned;
+one Node version, pinned; one version per dependency; one formatter configuration and one linter
+configuration per repository, imported rather than copied; one TypeScript base that every
+configuration extends; and one script name per job. The standard differs by kind (a service, a
+frontend, infrastructure, a library, a monorepo root) only where a kind's nature demands it, and each
+difference carries its reason. A person who knows one repository's toolchain knows every other's.
+
+## What was read for this design
+
+Six repositories, read-only: tracked files listed and files read at `HEAD`, nothing run. No name,
+path or text of theirs is in this repository.
+
+- **Two backend services.** Each has three independent npm projects (the service, an infrastructure
+  project, a load test) with three lockfiles and three different `engines.node` ranges. Their ESLint,
+  Prettier and infrastructure TypeScript files are byte-identical between the two repositories:
+  copied, not shared.
+- **A pnpm monorepo** with 57 `package.json` and 97 `tsconfig*.json` files. It pins the package
+  manager in `packageManager`, the Node version in a version file that agrees with `engines`, and one
+  exact version per tool in the workspace catalog. One strict TypeScript base is extended by almost
+  every configuration, the packages import the root ESLint configuration, and every package has the
+  same four scripts. The exceptions are two projects moved in from the backends, which keep their own
+  TypeScript, ESLint and Prettier files, and a spike with its own workspace and lockfile.
+- **Three frontends**: one React application in JavaScript built with Vite, one React application in
+  TypeScript built with webpack, and one Next.js application. None pins Node or the package manager,
+  one tracks no lockfile, all three use ESLint 8 with a legacy configuration, and all three use `^`
+  ranges.
+
+The divergences that matter for the standard:
+
+| Subject | What differs |
+| --- | --- |
+| Formatting | Five Prettier settings: indentation of one space, two spaces or tabs; a print width of 100, 120 or 480; single and double quotes; trailing commas "all" and "es5". Two of them sit inside one monorepo. |
+| Script names | `format` checks in some projects and writes in others. Type checking is `typecheck` or `lint:types`, and one package has both. Lint is `lint`, `lint:ts` or both with the same command, and one `lint` rewrites files. |
+| Pinning | One repository of six has a Node version file and a `packageManager` field. No frontend declares `engines`. |
+| Versions | `^` ranges everywhere except the monorepo's catalog. `@types/node` majors 20, 25 and 26; TypeScript 5.1, 5.2 and 6.0; ESLint 8 and 10 side by side. |
+| TypeScript | Outside the monorepo no configuration extends a base. `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` are on only in the monorepo's base; one frontend turns `noUnusedLocals` off. |
+| Sharing | Configuration travels by copy: identical files across two repositories, into a monorepo's member, and across seven members of one monorepo. |
+
+## 1. The plugin: a new `node` plugin
+
+**Recommendation: a new plugin, `node`, that owns the toolchain files**: `package.json`, the lockfile,
+the workspace file, the Node version file, `.npmrc`, the Prettier and ESLint configurations, and the
+`tsconfig*.json` files. The alternative, rules in `typescript`, is not recommended:
+
+- The subject is the toolchain, not the language. One of the three frontends is JavaScript; it needs
+  the same package manager, Node version, versions, scripts and formatter rules, and has no use for a
+  TypeScript parser.
+- `typescript` is about source code (every file parses; imports through barrels). Folding the
+  toolchain into it would make a project that wants its imports checked take the toolchain standard
+  too, and the reverse. One plugin, one subject; a project turns each on alone (the T-062 argument
+  for a separate `docs` plugin).
+- The kinds must look alike. In one plugin, the side-by-side table below is one source file, and a
+  difference without a reason fails a unit test.
+- `tsconfig*.json` is a configuration file, read as JSON with comments. Its rule needs no parser
+  from `gate-typescript`. The rule declares the language `typescript`, so it receives
+  `[languages.typescript]` (the tsconfig path) like every plugin that declares it.
+
+The core names no framework, no package manager and no tool; the plugin does, as plugins may.
+
+## 2. The kinds: one table, alike, differences with reasons
+
+A project picks its kind in one line, the same line and the same names as the `docs` plugin (T-062):
+
+```toml
+[plugins]
+node = { source = "ElsiKora/Gate:node@0.3.0", options = { kind = "service" } }
+```
+
+- `kind` is required: `service`, `frontend`, `infrastructure`, `monorepo-root`, and `library` (see
+  "Open"). A missing or unknown kind is a configuration error (exit 2) that lists them. It is never
+  inferred.
+- In a monorepo each member sets its own kind, usually through a profile (`projects = ["packages/*"]`,
+  `kind = "library"`). The root, listed as `"."`, sets `monorepo-root`.
+
+A cell is **same** (as in every other kind), **absent** (not in this kind) or a value that differs, and
+every cell that is not "same" has its reason. The rows are what the project-scope rules check.
+
+| # | Subject | Service | Frontend | Infrastructure | Library | Monorepo root | Reason for each cell that is not "same" |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `name`, `version`, `license`, `type: "module"` | same | same | same | same | same | |
+| 2 | `private: true` | same | same | same | absent, with `publishConfig` | same | Library: a published package must not be private, and says where it is published. |
+| 3 | `exports`, `files`, `sideEffects`, `repository` | absent | absent | absent | required | absent | Library: what a consumer may import and what the tarball holds; nothing else is published. |
+| 4 | `engines.node` | same | same | same | same | same | |
+| 5 | scripts `build`, `lint`, `lint:fix`, `typecheck`, `test` | same | same | same | same | same | In a monorepo root each delegates to the workspace runner; the names do not change. |
+| 6 | scripts `format`, `format:fix` | same | same | same | absent in a workspace member | same | Formatting is repository-wide with one configuration (section 3, `node/formatter`); a member that formats itself would format part of the tree with the root's settings anyway. |
+| 7 | script `dev` | absent | required | absent | absent | absent | Frontend: a development server is part of the job. The others have no single such command; a service's `start:*` scripts are its own. |
+| 8 | `typecheck` | same, when the project tracks a `tsconfig*.json` | same | same | same | same | A JavaScript project has nothing to type-check; the row applies only where TypeScript is configured. |
+| 9 | `tsconfig` `module` / `moduleResolution` | `NodeNext` | `ESNext` / `Bundler` | `NodeNext` | `NodeNext` | `NodeNext` | Frontend: a bundler resolves the imports, so `Bundler` is the resolution that matches what runs. |
+| 10 | the strict TypeScript flags (section 3) | same | same | same | same | same | |
+
+A unit test of the plugin's constants keeps the kinds alike: the rows are the same set in every kind,
+and every cell that is not "same" has a non-empty reason.
+
+## 3. The rules
+
+Eight rules. The five repository-scope rules see every `package.json` and configuration file of the
+repository once; the three project-scope rules read the project's kind. Every finding has a key (the
+file and the field, script, flag or dependency), so its fingerprint survives a change of wording.
+
+### `node/package-manager` (repository scope)
+
+One package manager, pnpm, pinned at the repository root.
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `field` | the root `package.json` has no `packageManager`, or it is not `pnpm@<x.y.z>` | the root `package.json` | `packageManager` |
+| `lockfile` | `pnpm-lock.yaml` is not tracked at the root, or a lockfile of another manager (`package-lock.json`, `yarn.lock`, `bun.lock`, `bun.lockb`, `npm-shrinkwrap.json`) is tracked anywhere | the lockfile, or the root | the file |
+| `nested` | a `pnpm-lock.yaml` or `pnpm-workspace.yaml` is tracked below the root, outside a declared separate root | the file | the file |
+| `members` | a tracked `package.json` is in no workspace package glob of `pnpm-workspace.yaml` and not under a declared separate root (only when the root has a workspace file) | the `package.json` | the file |
+| `save-exact` | the root `.npmrc` is not tracked, or does not set `save-exact=true` | `.npmrc` | `save-exact` |
+
+Option `separate`: a list of `{ path, job }`, each a directory that is its own install (a spike, a load
+test) with its own lockfile and workspace file. It is the one extension, declared with its job like
+T-062's `extra`. A separate root is checked by every rule as a repository of its own.
+
+### `node/node-version` (repository scope)
+
+One Node version, in one file, that every `engines.node` admits.
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `file` | `.nvmrc` is not tracked at the root, or does not hold one exact version `x.y.z` | `.nvmrc` | `.nvmrc` |
+| `form` | a second form is tracked: `.node-version`, a `nodejs` line in `.tool-versions`, `volta.node` in a `package.json` | the file | the file |
+| `engines` | the root `package.json` has no `engines.node`, or its range does not admit the `.nvmrc` version, or admits an earlier major | the root `package.json` | `engines.node` |
+| `differs` | another `package.json` declares an `engines.node` other than the root's | the `package.json` | `engines.node` |
+
+### `node/dependency-versions` (repository scope)
+
+One version per dependency, written exactly.
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `range` | a version in `dependencies`, `devDependencies` or `optionalDependencies` is not exact (`^`, `~`, `*`, `x`, `latest`, a range, a tag) | the `package.json`, the line | the dependency |
+| `catalog` | in a workspace, an external dependency of a member is not `catalog:` | the line | the dependency |
+| `internal` | in a workspace, a dependency on a member is not `workspace:*` | the line | the dependency |
+| `differs` | one dependency has two versions across the repository's `package.json` files (only without a catalog) | each line but the first in path order | the dependency |
+
+`peerDependencies` may hold ranges in every kind: a peer range is what the consumer is allowed to bring.
+
+### `node/formatter` (repository scope)
+
+One Prettier configuration, data rather than code, at the root.
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `form` | the configuration is anything other than a root `.prettierrc.json`: another file name, a `prettier` key in a `package.json`, or none | the file | the file |
+| `nested` | a Prettier configuration is tracked below the root | the file | the file |
+| `settings` | a key of `.prettierrc.json` differs from the standard, or the file holds a key the standard does not set | `.prettierrc.json`, the line | the key |
+
+JSON is the one form because a rule can read it. A `.mjs` or `.cjs` configuration is code that a rule
+cannot evaluate, so its settings could never be checked. The standard settings are one set for every
+kind (see "Open", item 1).
+
+### `node/linter` (repository scope)
+
+One flat ESLint configuration at the root, imported by the members and never copied.
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `legacy` | an `.eslintrc*` file or an `eslintConfig` key is tracked | the file | the file |
+| `root` | no `eslint.config.mjs` is tracked at the root, or another name (`eslint.config.js`, `.cjs`, `.ts`) is used | the root | the file |
+| `shared` | option `shared` is set and the root configuration does not import that package | the root configuration | the package |
+| `detached` | a member's `eslint.config.mjs` does not import the root configuration by a relative path | the member's file | the file |
+
+Option `shared`: the package name of the organisation's shared ESLint configuration. With it, every
+repository's root imports one package, which is how two repositories stop copying the same file. The
+rule reads the import lines as text; it never evaluates the file.
+
+### `node/package` (project scope)
+
+The `package.json` of the project, against its kind (rows 1 to 4 and 9 of section 2).
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `missing` | a field the kind requires is absent | the `package.json` | the field |
+| `forbidden` | a field the kind marks absent is present (`private: true` in a library; `workspaces` where pnpm owns the workspace) | the line | the field |
+| `value` | a field holds another value than the kind's (`type` other than `"module"`) | the line | the field |
+
+### `node/scripts` (project scope)
+
+One name per job (rows 5 to 8).
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `missing` | a script the kind requires is absent | the `package.json` | the script |
+| `synonym` | a script has a name whose job has a standard name: `lint:types`, `type-check`, `tsc`, `check-types` (`typecheck`); `format:check`, `prettier:check` (`format`); `prettier:fix`, `prettier:write`, `format:write` (`format:fix`); `lint:ts`, `eslint` (`lint`); `lint:ts:fix`, `eslint:fix` (`lint:fix`) | the line | the script |
+| `writes` | a script without `:fix` passes `--fix` or `--write`. A bare name checks; `<name>:fix` writes. | the line | the script |
+| `misplaced` | `format` or `format:fix` in a workspace member (row 6) | the line | the script |
+| `name` | a script name is not kebab-case segments joined by `:` | the line | the script |
+
+A project's other scripts (`start:api`, `migration:create`) are its own and need no declaration: the
+script table is already where a script states its job, unlike a `docs/` directory, which is why T-062
+asks for `extra` and this rule does not.
+
+### `node/tsconfig` (project scope, language `typescript`)
+
+One base per repository; every configuration reaches it; no configuration weakens it.
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `base` | a `tsconfig*.json` does not reach the repository's base through its `extends` chain | the file | the file |
+| `weakened` | a configuration sets a standard flag to a weaker value (`strict: false`, `noUncheckedIndexedAccess: false`) | the line | the flag |
+| `flags` | the base lacks a standard flag (checked by the project that owns the base) | the base | the flag |
+| `resolution` | `module` or `moduleResolution` differs from the kind's (row 9) | the line | the flag |
+| `copy` | a configuration repeats the base's flags instead of extending it (no `extends`, and it sets three or more standard flags) | the file | the file |
+
+The standard flags: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+`noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `useUnknownInCatchVariables`,
+`forceConsistentCasingInFileNames`, `isolatedModules` and `verbatimModuleSyntax`, all `true`. A project
+may add any other flag (decorators, `paths`, `jsx`) and may be stricter. It may not be weaker except
+through an exception, which names its reason.
+
+Option `base`: the base's path from the repository root, default `tsconfig.base.json`. The files are
+read as JSON with comments and trailing commas, as TypeScript reads them.
+
+## 4. What a project may extend
+
+- A separate install root, declared in `node/package-manager.separate` with its job.
+- Scripts beyond the standard, under the name grammar and outside the synonyms.
+- TypeScript flags beyond the standard, and stricter values of the standard ones.
+- Dependencies, of course, at one exact version each.
+
+A project may not choose another package manager, another formatter setting, a second formatter or
+linter configuration, or another name for a standard job. Those are what make repositories alike. A
+project moving to the standard uses levels, exceptions with reasons, or the baseline, as with any rule.
+
+## 5. Tests
+
+Native SDK tests on synthetic trees, one fixture per aspect with a passing twin, plus the kinds' unit
+test. Each case is one that would let a broken change through, or block a good one.
+
+- **The kinds** (a unit test of the constants): the rows are the same in every kind; every cell that
+  is not "same" has a reason; `format` is absent only in a workspace member; the synonym table names
+  only standard targets.
+- **Configuration**: `kind` missing, or `"backend"`, exits 2 listing the five; a `separate` entry
+  without `job`, or with a path outside the repository, exits 2 naming the key.
+- **`node/package-manager`**: a root with `pnpm@9.1.0`, `pnpm-lock.yaml` and `save-exact=true` passes;
+  `packageManager` absent, or `pnpm@^9`, is `field`; a `package-lock.json` in a member is `lockfile`; a
+  nested `pnpm-lock.yaml` is `nested` unless its directory is declared `separate`; a `package.json`
+  outside every workspace glob is `members`.
+- **`node/node-version`**: `.nvmrc` `24.11.0` with `engines.node` `>=24.11.0 <25` passes; `.nvmrc` `24`
+  is `file`; `engines` `>=22` is `engines` (admits an earlier major); a member with `>=24` is `differs`;
+  a `.node-version` beside `.nvmrc` is `form`.
+- **`node/dependency-versions`**: `"1.2.3"` passes and `"^1.2.3"`, `"~1.2.3"`, `"*"`, `"latest"` are each
+  `range`; a peer `"^18"` passes; in a workspace, `"1.2.3"` in a member is `catalog` and a member
+  dependency `"1.0.0"` is `internal`; without a catalog, `left-pad` at two versions is one `differs`.
+- **`node/formatter`**: the standard `.prettierrc.json` passes; one key changed is `settings` at that
+  key's line; `prettier.config.mjs` is `form`; a member's `.prettierrc.json` is `nested`.
+- **`node/linter`**: a root `eslint.config.mjs` importing the `shared` package passes; `.eslintrc.json`
+  is `legacy`; a member that does not import `../../eslint.config.mjs` is `detached`; without the
+  option, `shared` reports nothing.
+- **`node/package`**: one fixture per kind passes; a library with `private: true` is `forbidden`; a
+  service without `type` is `missing`.
+- **`node/scripts`**: each synonym is reported with its standard name in the message; `lint` running
+  `eslint --fix .` is `writes`; `format` in a workspace member is `misplaced`; a frontend without
+  `dev` is `missing`; `start:api` passes.
+- **`node/tsconfig`**: a chain `tsconfig.build.json` -> `tsconfig.json` -> base passes; a file with no
+  `extends` and four standard flags is `copy` and `base`; `strict: false` in a member is `weakened`; a
+  frontend with `NodeNext` is `resolution`; comments and trailing commas parse.
+- **End to end**, once: a synthetic pnpm workspace with a root, a service and a library, run through
+  the built component: `gate check` exits 0, and exits 1 with exactly the expected findings after one
+  change of each kind.
+
+## Open, for the owner
+
+1. **The one Prettier setting.** The survey found five. A proposal: Prettier's defaults with
+   `printWidth: 120`, `trailingComma: "all"`, `proseWrap: "preserve"` (the setting of the repository
+   closest to this standard). Its line width, indentation and quotes are the owner's choice; the rule
+   takes whatever the plugin's constant says.
+2. **A `library` kind.** T-062 has the same open item (its item 2). The toolchain needs it: a published
+   package's `package.json` differs from a private one's in rows 2 and 3. Recommendation: add
+   `library` to both plugins, so the two read one `kind` line with one set of values.
+3. **pnpm as the one package manager.** Three of the six repositories use npm. The standard names
+   pnpm because it has the workspace catalog, which is how one version per dependency holds without a
+   rule comparing files. Moving to it is a one-shot change per repository.
+4. **The name of the shared ESLint configuration package**, for `node/linter.shared`, if the owner
+   wants every repository to import one.
+
+## Done when
+
+- The lead decides on the plugin, the kinds and the four open items. Then the code goes on the tip
+  that carries `gate:plugin@0.3.0`, followed by one lane round on the pushed tip: fmt, clippy, test
+  (`--workspace --no-fail-fast`), deny and the release build exit 0, and the leak scan prints nothing.
+- Do not edit docs/plan.md unless the lead asks.
+
+## Resume point
+
+2026-11-19: design written from `main` at `ec66737`, after a read-only survey of six repositories
+(two backend services, a pnpm monorepo, three frontends). Waiting for the lead's decision before any
+code.
