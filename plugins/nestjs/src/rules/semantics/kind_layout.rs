@@ -87,8 +87,8 @@ impl Default for Options {
     }
 }
 
-/// One finding before it is reported: aspect, path, message and help.
-type Pending = (&'static str, String, String, String);
+/// One finding before it is reported: aspect, path, key, message and help.
+type Pending = (&'static str, String, Option<&'static str>, String, String);
 
 impl gate_sdk::Rule for Rule {
     type Options = Options;
@@ -161,10 +161,15 @@ impl gate_sdk::Rule for Rule {
             }
         }
 
-        for (aspect, path, message, help) in pending {
-            run.report()
+        for (aspect, path, key, message, help) in pending {
+            let reported = run
+                .report()
                 .finding(aspect, Location::file(path), message)
                 .help(help);
+
+            if let Some(key) = key {
+                reported.key(key);
+            }
         }
 
         Ok(())
@@ -220,6 +225,7 @@ impl Judge<'_> {
             pending.push((
                 "nested-kind-folder",
                 folder.to_owned(),
+                None,
                 format!("{folder} nests a kind folder inside a role folder"),
                 "move the kind folder out of the role folder".to_owned(),
             ));
@@ -229,6 +235,7 @@ impl Judge<'_> {
             pending.push((
                 "mixed-kind-folder",
                 folder.to_owned(),
+                None,
                 format!("{folder} nests a {inner} kind folder inside a {outer} kind folder"),
                 format!("move the {inner} folder out of the {outer} folder"),
             ));
@@ -245,6 +252,7 @@ impl Judge<'_> {
             pending.push((
                 "utility-placement",
                 folder.to_owned(),
+                Some("utility-folder"),
                 format!(
                     "{folder} is a utility folder outside {utility_root}; helpers there are function/<name>.function.ts files"
                 ),
@@ -288,6 +296,7 @@ impl Judge<'_> {
             pending.push((
                 "controller-placement",
                 path.to_owned(),
+                None,
                 format!(
                     "{path} is inside a controller kind folder; controller.ts belongs at the owning resource root"
                 ),
@@ -302,6 +311,7 @@ impl Judge<'_> {
             pending.push((
                 "controller-placement",
                 path.to_owned(),
+                None,
                 format!(
                     "{path} uses a prefixed controller filename; use controller.ts at the owning resource root"
                 ),
@@ -326,6 +336,7 @@ impl Judge<'_> {
             pending.push((
                 "owner-file-placement",
                 path.to_owned(),
+                None,
                 format!(
                     "{path} is inside a {folder} folder; {name} belongs at the owning resource root"
                 ),
@@ -351,6 +362,7 @@ impl Judge<'_> {
             pending.push((
                 "subscriber-placement",
                 path.to_owned(),
+                None,
                 format!("{path} is a subscriber outside a subscriber kind folder"),
                 format!("move the subscriber into a {subscriber} folder"),
             ));
@@ -360,6 +372,7 @@ impl Judge<'_> {
             pending.push((
                 "subscriber-name",
                 path.to_owned(),
+                None,
                 format!(
                     "{path} names a subscriber by framework layer or lifecycle instead of responsibility"
                 ),
@@ -418,6 +431,7 @@ impl Judge<'_> {
         pending.push((
             "unit-namespace",
             path.to_owned(),
+            Some("namespace"),
             format!("{path} omits the {modules} namespace; use {target}"),
             format!("move the test to {target}"),
         ));

@@ -302,16 +302,18 @@ pub(super) struct Finding {
     line: u32,
     message: String,
     target: Option<String>,
+    key: String,
 }
 
 impl Finding {
-    fn new(aspect: &'static str, path: &str, line: u32, message: String) -> Self {
+    fn new(aspect: &'static str, path: &str, line: u32, key: String, message: String) -> Self {
         Self {
             aspect,
             path: path.to_owned(),
             line,
             message,
             target: None,
+            key,
         }
     }
 }
@@ -510,6 +512,7 @@ impl gate_sdk::Rule for Rule {
                 "foreign-key-reuse",
                 path,
                 *line,
+                foreign_key.clone(),
                 format!(
                     "foreign key name {} is reused across owner relations: {}",
                     quote(&foreign_key),
@@ -530,7 +533,8 @@ impl gate_sdk::Rule for Rule {
                     Location::line(finding.path, finding.line as usize),
                     finding.message,
                 )
-                .help(help(finding.aspect));
+                .help(help(finding.aspect))
+                .key(finding.key);
 
             if let Some(target) = finding.target {
                 reported.target(target);

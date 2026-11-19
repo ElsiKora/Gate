@@ -265,9 +265,10 @@ fn catalog(
         }
 
         if !problems.is_empty() {
-            findings.emit(
+            findings.emit_keyed(
                 "catalog-entry",
                 &At::line(path, entry.line),
+                entry.key.clone(),
                 format!(
                     "the shared mechanism {}: {}",
                     entry.key,
@@ -371,9 +372,10 @@ impl Scope<'_> {
 
         match found.as_slice() {
             [] => {
-                findings.emit(
+                findings.emit_keyed(
                     "reuses-missing",
                     &record.location,
+                    format!("{}#missing", record.id),
                     format!(
                         "{prefix} is open but has no Reuses field; name the catalog keys of {} it reuses, or write `none; <why no catalog entry applies>`",
                         self.path
@@ -383,9 +385,10 @@ impl Scope<'_> {
             }
             [(index, value)] => Some((at(*index), *value)),
             [_, (index, _), ..] => {
-                findings.emit(
+                findings.emit_keyed(
                     "reuses-missing",
                     &at(*index),
+                    format!("{}#repeated", record.id),
                     format!("{prefix} repeats its Reuses field; keep one"),
                 );
                 None
@@ -407,9 +410,10 @@ impl Scope<'_> {
             let reason = captures[1].trim();
 
             if reason.split_whitespace().count() < words || self.patterns.generic.is_match(reason) {
-                findings.emit(
+                findings.emit_keyed(
                     "reuses-missing",
                     &location,
+                    format!("{}#reason", record.id),
                     format!(
                         "{prefix} gives no specific reason for reusing nothing; say why no entry of {catalog} applies, in at least {words} words"
                     ),
@@ -418,15 +422,17 @@ impl Scope<'_> {
         } else if self.patterns.keys.is_match(value) {
             for key in listed(value, self.patterns) {
                 if named.contains(&key) {
-                    findings.emit(
+                    findings.emit_keyed(
                         "reuses-missing",
                         &location,
+                        format!("{}/{key}#twice", record.id),
                         format!("{prefix} names {key} twice in its Reuses field"),
                     );
                 } else if !self.mechanisms.contains_key(&key) {
-                    findings.emit(
+                    findings.emit_keyed(
                         "reuses-unknown",
                         &location,
+                        format!("{}/{key}", record.id),
                         format!("{prefix} reuses {key}, which {catalog} does not list"),
                     );
                 }
@@ -434,9 +440,10 @@ impl Scope<'_> {
                 named.insert(key);
             }
         } else {
-            findings.emit(
+            findings.emit_keyed(
                 "reuses-missing",
                 &location,
+                format!("{}#value", record.id),
                 format!(
                     "{prefix} has the Reuses value {value:?}; write backticked catalog keys separated by commas, or `none; <reason>`"
                 ),
@@ -450,17 +457,19 @@ impl Scope<'_> {
             }
 
             if planners.len() == 1 && named.contains(key) {
-                findings.emit(
+                findings.emit_keyed(
                     "reuses-planner",
                     &location,
+                    format!("{}/{key}", record.id),
                     format!(
                         "{prefix} names {key}, which it alone plans in {catalog}; it builds the mechanism, so drop the key"
                     ),
                 );
             } else if planners.len() > 1 && !named.contains(key) {
-                findings.emit(
+                findings.emit_keyed(
                     "reuses-planner",
                     &location,
+                    format!("{}/{key}", record.id),
                     format!(
                         "{prefix} is one of the records {catalog} names as planning {key}; name the key, since whichever lands first builds it"
                     ),

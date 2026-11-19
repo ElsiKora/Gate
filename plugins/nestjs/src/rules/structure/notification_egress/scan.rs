@@ -71,10 +71,11 @@ impl<'a> Scan<'_, 'a> {
                 platform_loaded.extend(self.platform_module(&specifier));
 
                 if let Some(family) = self.unclassified_family(&specifier) {
-                    findings.push(
+                    findings.push_keyed(
                         "unclassified-package",
                         source.path.as_str(),
                         Some(line),
+                        specifier.as_str(),
                         format!(
                             "{} loads {specifier} of the package family {family}, which the \
                              nestjs/notification-egress policy does not classify; list it as an \
@@ -124,7 +125,13 @@ impl<'a> Scan<'_, 'a> {
                      owner or register its root with a class and an accepted decision"
                 ),
             };
-            findings.push("unclassified-egress", path.as_str(), Some(*line), message);
+            findings.push_keyed(
+                "unclassified-egress",
+                path.as_str(),
+                Some(*line),
+                "egress",
+                message,
+            );
         }
     }
 
@@ -173,10 +180,11 @@ impl<'a> Scan<'_, 'a> {
                     .map(|index| self.options.owners[*index].root.as_str())
                     .collect::<Vec<_>>()
                     .join(", ");
-                findings.push(
+                findings.push_keyed(
                     "direct-notification",
                     source.path.as_str(),
                     Some(line),
+                    what.as_str(),
                     format!(
                         "{} loads {what} of the {class} owner {roots}; a notification leaves \
                          only through a class extending {}, so send it from a {label}",
@@ -204,10 +212,11 @@ impl<'a> Scan<'_, 'a> {
             });
 
             if !sends {
-                findings.push(
+                findings.push_keyed(
                     "stale-owner",
                     path,
                     line,
+                    format!("{}#owner", owner.root),
                     format!(
                         "the egress owner {} has no tracked source file that uses an egress \
                          point; remove it",
@@ -221,10 +230,11 @@ impl<'a> Scan<'_, 'a> {
                     .get(&index)
                     .is_some_and(|paths| paths.contains(&sender.path))
                 {
-                    findings.push(
+                    findings.push_keyed(
                         "stale-owner",
                         path,
                         line,
+                        format!("{}:{}#sender", owner.root, sender.path),
                         format!(
                             "the sender {} of the egress owner {} is not tracked or loads \
                              nothing of that owner; remove it",
@@ -256,7 +266,7 @@ impl<'a> Scan<'_, 'a> {
 
         for (index, platform) in self.options.egress.platform.iter().enumerate() {
             if !platform_loaded.contains(&index) {
-                findings.push(
+                findings.push_keyed(
                     "stale-owner",
                     path,
                     line(
@@ -264,6 +274,7 @@ impl<'a> Scan<'_, 'a> {
                         egress_start,
                         &format!("\"{}\"", platform.module),
                     ),
+                    format!("{}#platform", platform.module),
                     format!(
                         "the platform client {} is loaded by no source file; remove it",
                         platform.module
@@ -290,10 +301,11 @@ impl<'a> Scan<'_, 'a> {
             .collect();
 
         if transport_files.is_empty() {
-            findings.push(
+            findings.push_keyed(
                 "stale-owner",
                 path,
                 line(egress_text, egress_start, &transport.root),
+                format!("{}#transport-root", transport.root),
                 format!(
                     "the transport root {} has no tracked source file; remove it",
                     transport.root
@@ -309,10 +321,11 @@ impl<'a> Scan<'_, 'a> {
             });
 
             if !declared {
-                findings.push(
+                findings.push_keyed(
                     "stale-owner",
                     path,
                     line(egress_text, egress_start, &format!("\"{symbol}\"")),
+                    format!("{symbol}#transport-symbol"),
                     format!(
                         "the transport symbol {symbol} is declared by no file below {}; remove it",
                         transport.root
@@ -334,7 +347,7 @@ impl<'a> Scan<'_, 'a> {
             });
 
             if !loaded {
-                findings.push(
+                findings.push_keyed(
                     "stale-owner",
                     path,
                     line(
@@ -342,6 +355,7 @@ impl<'a> Scan<'_, 'a> {
                         egress_start + transport_start,
                         &format!("\"{module}\""),
                     ),
+                    format!("{module}#transport-module"),
                     format!(
                         "the transport module {module} is loaded by no file below {}; remove it",
                         transport.root

@@ -70,8 +70,8 @@ struct Policy<'r> {
     options: &'r Options,
 }
 
-/// The findings of one commit: aspect and message.
-type Found = Vec<(&'static str, String)>;
+/// The findings of one commit: aspect, message and key.
+type Found = Vec<(&'static str, String, String)>;
 
 impl Rule for MainHistory {
     type Options = Options;
@@ -107,16 +107,17 @@ impl Rule for MainHistory {
                 )),
                 None => found.push((
                     commit,
-                    vec![(unmatched_aspect(commit), unmatched(commit))],
+                    vec![(unmatched_aspect(commit), unmatched(commit), "form".into())],
                     Some(UNMATCHED_HELP),
                 )),
             }
         }
 
         for (commit, findings, unmatched) in found {
-            for (aspect, message) in findings {
+            for (aspect, message, key) in findings {
                 run.report()
                     .finding(aspect, commit.location(), message)
+                    .key(key)
                     .target(commit.id.clone())
                     .help(unmatched.unwrap_or_else(|| help(aspect)));
             }
@@ -272,6 +273,7 @@ impl<'r> Policy<'r> {
                     "{short} subject {:?} names no branch: capture 1 of its form's subject is empty",
                     subject(&commit.message)
                 ),
+                "branch#unnamed".to_owned(),
             ));
         }
         if let Some((branches, Some(name))) = branch {
@@ -291,6 +293,7 @@ impl<'r> Policy<'r> {
                     found.push((
                         "merge",
                         format!("{short} merges a Dependabot branch that changes {file}"),
+                        format!("{file}#dependabot"),
                     ));
                 }
             } else if !named {
@@ -300,6 +303,7 @@ impl<'r> Policy<'r> {
                         "{short} merges branch {name}, which neither matches branch-pattern within \
                          branch-length nor starts with {prefix}"
                     ),
+                    format!("{name}#branch"),
                 ));
             }
         }
@@ -312,7 +316,11 @@ impl<'r> Policy<'r> {
                 .skip(1)
                 .any(|line| !line.trim().is_empty())
         {
-            found.push(("merge", format!("{short} has an edited merge message body")));
+            found.push((
+                "merge",
+                format!("{short} has an edited merge message body"),
+                "body".to_owned(),
+            ));
         }
         if let [first, second] = commit.parents.as_slice() {
             // A second parent on main's first-parent line is an ancestor of the first parent: a
@@ -323,6 +331,7 @@ impl<'r> Policy<'r> {
                 found.push((
                     "merge",
                     format!("{short} is a sync merge: its second parent is already on main"),
+                    "sync".to_owned(),
                 ));
             }
             if form.runs(Check::Tree)
@@ -334,6 +343,7 @@ impl<'r> Policy<'r> {
                     format!(
                         "{short} differs from git's conflict-free merge of its parents; the merge commit adds its own change"
                     ),
+                    "tree".to_owned(),
                 ));
             }
         }
@@ -349,7 +359,11 @@ impl<'r> Policy<'r> {
             .iter()
             .filter(|file| !self.options.release_files.contains(file))
         {
-            found.push(("release", format!("release commit {short} changes {file}")));
+            found.push((
+                "release",
+                format!("release commit {short} changes {file}"),
+                format!("{file}#release-files"),
+            ));
         }
 
         if changed.iter().any(|file| file == "package-lock.json") {
@@ -375,6 +389,7 @@ impl<'r> Policy<'r> {
                             format!(
                                 "release commit {short} changes package-lock.json beyond its version fields"
                             ),
+                            "package-lock.json#beyond-version".to_owned(),
                         ));
                     }
                 }
@@ -385,6 +400,7 @@ impl<'r> Policy<'r> {
                 _ => found.push((
                     "release",
                     format!("release commit {short} has an unreadable package-lock.json"),
+                    "package-lock.json#unreadable".to_owned(),
                 )),
             }
         }
@@ -405,6 +421,7 @@ impl<'r> Policy<'r> {
                             format!(
                                 "release commit {short} sets version {released:?}, not {version}"
                             ),
+                            "package.json#version".to_owned(),
                         ));
                     }
                     for value in [&mut before, &mut after] {
@@ -416,12 +433,14 @@ impl<'r> Policy<'r> {
                         found.push((
                             "release",
                             format!("release commit {short} changes package.json beyond version"),
+                            "package.json#beyond-version".to_owned(),
                         ));
                     }
                 }
                 _ => found.push((
                     "release",
                     format!("release commit {short} has an unreadable package.json"),
+                    "package.json#unreadable".to_owned(),
                 )),
             }
         }
@@ -456,6 +475,7 @@ impl<'r> Policy<'r> {
                         format!(
                             "direct commit {short} changes {file}, which differs from gate sync at that commit"
                         ),
+                        format!("{file}#sync"),
                     ));
                 } else if state.produced.contains(&file) {
                     // Generated and in sync: it changes with its sources.
@@ -472,6 +492,7 @@ impl<'r> Policy<'r> {
                         format!(
                             "direct commit {short} changes code path {file}; code reaches main through a branch merge"
                         ),
+                        format!("{file}#code"),
                     ));
                 }
             } else if file.starts_with(&rules) && is_markdown(&file) {
@@ -484,6 +505,7 @@ impl<'r> Policy<'r> {
                                 format!(
                                     "direct commit {short} changes rule Enforcement/Status lines in {file}; that is code"
                                 ),
+                                format!("{file}#enforcement"),
                             ));
                         }
                     }
@@ -492,6 +514,7 @@ impl<'r> Policy<'r> {
                         format!(
                             "direct commit {short} changes {file}, which is not UTF-8 text; its Enforcement/Status lines cannot be compared"
                         ),
+                        format!("{file}#not-text"),
                     )),
                 }
             }

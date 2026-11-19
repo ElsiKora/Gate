@@ -148,10 +148,16 @@ impl Generator for ReviewProgress {
                 );
         }
         for problem in problems {
-            run.report()
-                .finding("", at(&path, problem.line), problem.message)
+            let finding = run
+                .report()
+                .finding("", at(&path, problem.line), problem.message);
+            finding
                 .target(path.clone())
                 .help("correct the roadmap; the table is written from what could be read");
+
+            if let Some(key) = problem.key {
+                finding.key(key);
+            }
         }
         write_block(run, &path, &text, BLOCK, &inner);
         Ok(())
@@ -184,6 +190,7 @@ fn queue_pairs(model: &Model, ledger: &Ledger, problems: &mut Vec<Problem>) -> [
         problems.push(Problem {
             line: Some(*line),
             message,
+            key: None,
         });
     }
     pairs
@@ -280,6 +287,8 @@ struct Feature {
 struct Problem {
     line: Option<usize>,
     message: String,
+    /// A stable identity of what the problem is about, for a message that names an option value.
+    key: Option<String>,
 }
 
 /// What a roadmap says.
@@ -359,6 +368,7 @@ fn parse(text: &str, grammar: &Grammar, options: &Options) -> Model {
                     line: Some(number),
                     message: "the `Counts:` line must directly follow the journal heading"
                         .to_owned(),
+                    key: None,
                 });
             }
             parse_counts(&mut model, grammar, options, entry, line, number);
@@ -375,6 +385,7 @@ fn parse(text: &str, grammar: &Grammar, options: &Options) -> Model {
                 model.problems.push(Problem {
                     line: Some(number),
                     message: format!("{} has a second `- Review:` line", current.id),
+                    key: None,
                 });
             } else {
                 current.review = Some(captures[1].to_owned());
@@ -403,6 +414,7 @@ fn parse_counts(
         model.problems.push(Problem {
             line: Some(number),
             message: "a `Counts:` line belongs only to a Decision Journal entry".to_owned(),
+            key: None,
         });
         return;
     };
@@ -410,6 +422,7 @@ fn parse_counts(
         model.problems.push(Problem {
             line: Some(number),
             message: format!("the line is not `{}`", grammar.counts_form),
+            key: Some(format!("{}#counts-form", model.entries[position].heading)),
         });
         return;
     };
@@ -424,6 +437,7 @@ fn parse_counts(
                 "use `1 answer`, `<n> answers`, and `0 answers` only with {}",
                 grammar.zero_form
             ),
+            key: Some(format!("{}#counts-plural", model.entries[position].heading)),
         });
         return;
     }
@@ -436,6 +450,7 @@ fn parse_counts(
                 "the journal entry `{}` has a second `Counts:` line",
                 current.heading
             ),
+            key: None,
         });
     } else {
         current.counts = Some(Counts { answers, kind });
@@ -455,16 +470,19 @@ fn validate(model: &mut Model, options: &Options) {
             model.problems.push(Problem {
                 line: Some(feature.line),
                 message: format!("{} appears twice in the inventory", feature.id),
+                key: None,
             });
         }
         match feature.review.as_deref() {
             None => model.problems.push(Problem {
                 line: Some(feature.line),
                 message: format!("{} has no `- Review: `<status>`` line", feature.id),
+                key: None,
             }),
             Some(status) if !is_review(options, status) => model.problems.push(Problem {
                 line: Some(feature.line),
                 message: format!("{} has unknown review status `{status}`", feature.id),
+                key: None,
             }),
             Some(_) => {}
         }
@@ -478,6 +496,7 @@ fn validate(model: &mut Model, options: &Options) {
                     "the journal entry `{}` has no `Counts:` line",
                     entry.heading
                 ),
+                key: None,
             }),
             Some(counts) if is_feature(&counts.kind) && !known.contains(&counts.kind) => {
                 model.problems.push(Problem {
@@ -486,6 +505,7 @@ fn validate(model: &mut Model, options: &Options) {
                         "`Counts:` names {} which is not in the inventory",
                         counts.kind
                     ),
+                    key: None,
                 });
             }
             Some(_) => {}

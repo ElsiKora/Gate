@@ -7,13 +7,13 @@ a rule id, aspect, option or finding message that changes is a breaking change.
 
 ### Changed
 
-- `nestjs/field-inventory` (every aspect whose message names a path or an option value) and
-  `nestjs/controller-owners` (every aspect) give each finding a stable key: the field
-  (`Class.member`), the controller class, the registry row's path or the service, with the check
-  after `#` where one subject can fail several. Their fingerprints no longer follow the message, so
-  the option file's path or a line number in a message no longer makes a baseline entry stale. The
-  fingerprints of these findings change once, with this release: their baseline entries are written
-  again once, with `gate baseline write`, when the repository upgrades.
+- Every rule whose message names a line, a path or an option value gives each such finding a
+  stable key: the field (`Class.member`), the class, the symbol, the import specifier, the module,
+  the registry row or the service, with the check after `#` where one subject can fail several;
+  never a line or column. A finding's fingerprint no longer follows its message, so an edit above
+  it, a reworded message or the option file's path no longer makes a baseline entry stale. The
+  fingerprints of these findings change once, with this release: their baseline entries are
+  written again once, with `gate baseline write`, when the repository upgrades.
 
 # 0.1.0
 

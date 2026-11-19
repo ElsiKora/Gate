@@ -67,9 +67,9 @@ pub(super) struct Chapters<'o> {
 }
 
 impl Chapters<'_> {
-    /// The line and message of every checked row of `text`, the registry, that does not link one
-    /// local chapter.
-    pub fn missing(&self, text: &str) -> Vec<(usize, String)> {
+    /// The line, key and message of every checked row of `text`, the registry, that does not link
+    /// one local chapter.
+    pub fn missing(&self, text: &str) -> Vec<(usize, String, String)> {
         let source = crate::layout::folder_prefix(self.source_root);
         let documentation = crate::layout::folder_prefix(self.documentation_root);
         let mut missing = Vec::new();
@@ -89,6 +89,7 @@ impl Chapters<'_> {
             {
                 missing.push((
                     row.line,
+                    row.owner.clone(),
                     format!(
                         "{} {} must link one local documentation chapter",
                         self.registry, row.owner

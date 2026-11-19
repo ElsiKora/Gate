@@ -131,9 +131,10 @@ impl Rule for Decisions {
                 } else {
                     index_path
                 };
-                findings.emit(
+                findings.emit_keyed(
                     "decision-coverage",
                     &At::file(missing),
+                    format!("{id}#missing"),
                     format!("{missing} is missing decision {id}"),
                 );
                 continue;
@@ -150,9 +151,10 @@ impl Rule for Decisions {
             }
 
             if !tree.contains(&join(&[&options.ledger_root, &covered.canonical])) {
-                findings.emit(
+                findings.emit_keyed(
                     "decision-canonical-file",
                     &covered.location,
+                    id.clone(),
                     format!(
                         "{id} references missing canonical file {}",
                         covered.canonical
@@ -164,14 +166,16 @@ impl Rule for Decisions {
                 let adr = join(&[&options.adr_directory, reference]);
 
                 match linked.get(&adr) {
-                    None => findings.emit(
+                    None => findings.emit_keyed(
                         "decision-coverage",
                         &covered.location,
+                        format!("{id}/{reference}#missing-adr"),
                         format!("{id} references missing ADR {adr}"),
                     ),
-                    Some(linked) if !linked.contains(id) => findings.emit(
+                    Some(linked) if !linked.contains(id) => findings.emit_keyed(
                         "decision-coverage",
                         &At::file(&adr),
+                        format!("{id}#unlinked"),
                         format!("{adr} must link {id}"),
                     ),
                     Some(_) => {}
@@ -204,9 +208,10 @@ fn linked_ids(
 
         for section in &options.adr_sections {
             if lines.iter().filter(|line| **line == section).count() != 1 {
-                findings.emit(
+                findings.emit_keyed(
                     "adr-sections",
                     &At::file(&path),
+                    section.clone(),
                     format!("{path} must contain exactly one {section}"),
                 );
             }
@@ -224,9 +229,10 @@ fn linked_ids(
             .collect();
 
         if ids.is_empty() {
-            findings.emit(
+            findings.emit_keyed(
                 "adr-linked-ids",
                 &At::file(&path),
+                "linked-ids".to_owned(),
                 format!("{path} must link ledger decision IDs"),
             );
         }
@@ -301,9 +307,10 @@ impl Reader<'_> {
             let id = row.id;
 
             if !self.statuses.contains(&row.status) {
-                findings.emit(
+                findings.emit_keyed(
                     "decision-status",
                     &location,
+                    id.clone(),
                     format!(
                         "{path} contains invalid decision status {} for {id}",
                         row.status
@@ -312,9 +319,10 @@ impl Reader<'_> {
             }
 
             if rows.rows.contains_key(&id) {
-                findings.emit(
+                findings.emit_keyed(
                     "record-unique",
                     &location,
+                    id.clone(),
                     format!("{path} contains duplicate decision {id}"),
                 );
             } else {
@@ -341,9 +349,10 @@ impl Reader<'_> {
 }
 
 fn malformed(findings: &mut Findings, location: &At, path: &str, line: &str) {
-    findings.emit(
+    findings.emit_keyed(
         "record-shape",
         location,
+        line.to_owned(),
         format!("{path} contains malformed decision row: {line}"),
     );
 }

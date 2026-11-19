@@ -168,10 +168,11 @@ impl gate_sdk::Rule for Rule {
 
             run.report()
                 .finding(finding.aspect, location, finding.message)
-                .help(help);
+                .help(help)
+                .key(finding.key);
         }
 
-        for (line, message) in unlinked {
+        for (line, key, message) in unlinked {
             run.report()
                 .finding(
                     "owner-chapter",
@@ -180,7 +181,8 @@ impl gate_sdk::Rule for Rule {
                 )
                 .help(format!(
                     "link the row's chapter cell to exactly one Markdown chapter below {documentation_root}/"
-                ));
+                ))
+                .key(key);
         }
 
         Ok(())

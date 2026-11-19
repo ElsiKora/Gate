@@ -213,7 +213,8 @@ impl gate_sdk::Rule for Rule {
                         .help(format!(
                             "decorate the class with {}({{ {}: ... }})",
                             settings.service.decorator, settings.options.entity_option
-                        ));
+                        ))
+                        .key(name);
                 }
 
                 if repository_service {
@@ -230,7 +231,8 @@ impl gate_sdk::Rule for Rule {
                         .help(format!(
                             "decorate the class with {}({{ {}: ... }})",
                             settings.service.decorator, settings.options.entity_option
-                        ));
+                        ))
+                        .key(name);
                 }
 
                 let native_members = is_native || repository_service;
@@ -309,7 +311,8 @@ impl Settings {
                             "{path}:{line} {label} carries {function} outside a native Crud Automator service"
                         ),
                     )
-                    .help("move the method into a native service, or remove the decorator");
+                    .help("move the method into a native service, or remove the decorator")
+                    .key(format!("{label}#{function}"));
             }
 
             if index > 0 {
@@ -321,7 +324,8 @@ impl Settings {
                             "{path}:{line} {label} carries more than one Crud Automator function decorator"
                         ),
                     )
-                    .help("keep one function decorator on the method");
+                    .help("keep one function decorator on the method")
+                    .key(format!("{label}#{function}"));
             }
 
             if !self.explicit_mode(source, *call) {
@@ -333,7 +337,8 @@ impl Settings {
                             "{path}:{line} {label} carries {function} without an explicit transaction: {{ mode }}"
                         ),
                     )
-                    .help("name the transaction mode in the decorator's options");
+                    .help("name the transaction mode in the decorator's options")
+                    .key(format!("{label}#{function}"));
             }
 
             if !matches!(element, ClassElement::MethodDefinition(method) if asynchronous_method(method))
@@ -346,7 +351,8 @@ impl Settings {
                             "{path}:{line} {label} carries {function} but is no asynchronous method, and the decorator makes every call return a Promise"
                         ),
                     )
-                    .help("make the method asynchronous, or remove the decorator");
+                    .help("make the method asynchronous, or remove the decorator")
+                    .key(format!("{label}#{function}"));
             }
 
             if *function == custom && private(element) {
@@ -365,7 +371,8 @@ impl Settings {
                             "{path}:{line} {label} is private and carries {custom}; a participant inside its owner is an {step}"
                         ),
                     )
-                    .help(format!("decorate the private participant with {step}"));
+                    .help(format!("decorate the private participant with {step}"))
+                    .key(format!("{label}#{function}"));
             }
         }
 
@@ -398,7 +405,8 @@ impl Settings {
                             self.options.function_decorators.join(" or ")
                         ),
                     )
-                    .help("decorate the method with one automator function decorator, or make it private");
+                    .help("decorate the method with one automator function decorator, or make it private")
+                    .key(label);
             }
             Requirement::None | Requirement::Function => {}
             Requirement::Unfit(kind) => {
@@ -410,7 +418,8 @@ impl Settings {
                             "{path}:{line} {label} is a non-private {kind} of a native service, which cannot be a Crud Automator function"
                         ),
                     )
-                    .help("make it an instance method with a function decorator, or make it private");
+                    .help("make it an instance method with a function decorator, or make it private")
+                    .key(label);
             }
         }
     }

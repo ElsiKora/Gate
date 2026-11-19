@@ -96,7 +96,8 @@ impl Rule for RuntimeFactory {
                         Location::file(path),
                         format!("{path} is required for the native {class} role contract"),
                     )
-                    .help("restore the start file or remove its contract");
+                    .help("restore the start file or remove its contract")
+                    .key("required");
                 continue;
             }
 
@@ -122,7 +123,8 @@ impl Rule for RuntimeFactory {
                         .help(format!(
                             "construct the application with {class}.{method}, as the role's \
                              contract says"
-                        ));
+                        ))
+                        .key(format!("{method}#missing"));
                 }
             }
 
@@ -138,7 +140,8 @@ impl Rule for RuntimeFactory {
                         )
                         .help(format!(
                             "use only the role's {class} methods, or add {method} to its contract"
-                        ));
+                        ))
+                        .key(format!("{method}#unlisted"));
                 }
             }
         }

@@ -75,6 +75,7 @@ impl Rule for LocalLinks {
                             Location::line(&page, destination.line),
                             format!("{page} links to missing file: {}", destination.url),
                         )
+                        .key(destination.url.as_str())
                         .target(format!("{page}:{}", destination.url))
                         .help(
                             "point the link at a tracked file or directory, relative to the page; \

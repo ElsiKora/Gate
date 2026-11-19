@@ -375,10 +375,11 @@ impl<'a> Assets<'_, 'a> {
                             .chain([element.span().start])
                             .min()
                             .unwrap_or_default();
-                        findings.push(
+                        findings.push_keyed(
                             "persisted-image-key",
                             path,
                             Some(file.line(start)),
+                            name.as_str(),
                             format!(
                                 "{path} persists image-like field {name}; persisted image \
                                  references must end in Key"
@@ -407,19 +408,21 @@ impl<'a> Assets<'_, 'a> {
             };
 
             if loads(&tokens, &self.options.cloudfront_package) {
-                findings.push(
+                findings.push_keyed(
                     "cloudfront-cdk-only",
                     path,
                     None,
+                    "import",
                     format!("{path} imports CloudFront at runtime; CloudFront is CDK-only"),
                 );
             }
 
             if !path.starts_with(&infrastructure) && loads(&tokens, &self.options.s3_package) {
-                findings.push(
+                findings.push_keyed(
                     "s3-sdk-placement",
                     path,
                     None,
+                    "import",
                     format!("{path} imports the S3 SDK outside infrastructure"),
                 );
             }
@@ -434,10 +437,11 @@ impl<'a> Assets<'_, 'a> {
         let upper_case = &self.patterns.upper_case;
 
         if !self.source.contains(adapter) {
-            findings.push(
+            findings.push_keyed(
                 "s3-adapter-required",
                 adapter,
                 None,
+                "required",
                 format!("{adapter} is required once central PublicAsset admission exists"),
             );
             return Ok(());
@@ -445,10 +449,11 @@ impl<'a> Assets<'_, 'a> {
 
         // A constant file without a syntax tree is reported by the parse rule, not as missing.
         match project::parsed(self.typescript, constant)? {
-            None if !self.source.contains(constant) => findings.push(
+            None if !self.source.contains(constant) => findings.push_keyed(
                 "s3-policy-constant",
                 constant,
                 None,
+                "missing",
                 format!("{constant} must own public-asset S3 policy constants"),
             ),
             Some(file)
@@ -456,10 +461,11 @@ impl<'a> Assets<'_, 'a> {
                     .iter()
                     .any(|name| upper_case.is_match(name.as_str())) =>
             {
-                findings.push(
+                findings.push_keyed(
                     "s3-policy-constant",
                     constant,
                     None,
+                    "bag",
                     format!("{constant} must declare the owned UPPER_CASE S3 policy constant bag"),
                 );
             }
@@ -472,10 +478,11 @@ impl<'a> Assets<'_, 'a> {
 
         for name in top_level_const_names(&file.program().body) {
             if upper_case.is_match(name.as_str()) {
-                findings.push(
+                findings.push_keyed(
                     "s3-policy-constant",
                     adapter,
                     None,
+                    name.as_str(),
                     format!(
                         "{adapter} declares top-level UPPER_CASE const {name}; public-asset S3 \
                          policy constants belong in {constant}"
@@ -491,10 +498,11 @@ impl<'a> Assets<'_, 'a> {
                 .iter()
                 .find(|[key, value]| *key == assignment.key && *value == assignment.value)
             {
-                findings.push(
+                findings.push_keyed(
                     "s3-sdk-enum",
                     adapter,
                     Some(file.line(assignment.offset)),
+                    format!("{key}.{value}#literal"),
                     format!("{adapter} uses literal {key}: \"{value}\"; use {key}.{value}"),
                 );
             }
@@ -507,20 +515,22 @@ impl<'a> Assets<'_, 'a> {
             .collect();
 
         for alias in aliases {
-            findings.push(
+            findings.push_keyed(
                 "s3-sdk-enum",
                 adapter,
                 None,
+                alias.as_str(),
                 format!("{adapter} declares {alias}; use HttpStatus enum members"),
             );
         }
 
         for [object, property] in &self.options.required_members {
             if !tokens.members.contains(&(object.clone(), property.clone())) {
-                findings.push(
+                findings.push_keyed(
                     "s3-sdk-enum",
                     adapter,
                     None,
+                    format!("{object}.{property}#required"),
                     format!("{adapter} must use {object}.{property}"),
                 );
             }
@@ -549,10 +559,11 @@ impl<'a> Assets<'_, 'a> {
 
                 if tokens.any_name(|name| options.admission_names.iter().any(|known| known == name))
                 {
-                    findings.push(
+                    findings.push_keyed(
                         "central-admission",
                         path,
                         None,
+                        "admission",
                         format!(
                             "{path} admits public-asset bytes outside the central internal \
                              PublicAsset resource"
@@ -565,10 +576,11 @@ impl<'a> Assets<'_, 'a> {
                     .iter()
                     .any(|text| self.patterns.image_route.is_match(text.as_str()))
                 {
-                    findings.push(
+                    findings.push_keyed(
                         "central-admission",
                         path,
                         None,
+                        "image-route",
                         format!(
                             "{path} declares a feature image route outside central PublicAsset \
                              CREATE"
@@ -577,10 +589,11 @@ impl<'a> Assets<'_, 'a> {
                 }
 
                 if asset_command(&tokens) {
-                    findings.push(
+                    findings.push_keyed(
                         "central-admission",
                         path,
                         None,
+                        "asset-command",
                         format!(
                             "{path} declares a feature asset command outside central PublicAsset \
                              CREATE"
@@ -598,10 +611,11 @@ impl<'a> Assets<'_, 'a> {
             if let Some((_, tokens)) = self.tokens(path)?
                 && asset_command(&tokens)
             {
-                findings.push(
+                findings.push_keyed(
                     "central-admission",
                     path,
                     None,
+                    "asset-command",
                     format!("{path} declares a feature asset command in a business domain"),
                 );
             }
@@ -615,10 +629,11 @@ impl<'a> Assets<'_, 'a> {
                     .map_err(|failure| project::error(&failure))?
                     .is_some_and(|bytes| storage.is_match(String::from_utf8_lossy(&bytes).as_ref()))
             {
-                findings.push(
+                findings.push_keyed(
                     "domain-storage-access",
                     path,
                     None,
+                    "storage",
                     format!("{path} consumes public-asset storage from a business domain"),
                 );
             }

@@ -4,10 +4,19 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:typescript@<ver
 
 ## Unreleased
 
+### Added
+
 - `typescript/barrel-imports`: a file outside a folder with a barrel (`barrel-name`, `index.ts` by
   default) imports from that folder only through its barrel (`#deep-path`), and only names the
   barrel exports, through `export *` and renames (`#not-exported`). Kind children of an owner
   folder (`owners`) import each other directly; importers `exempt` matches are not checked.
+
+### Changed
+
+- `typescript/parse` gives each finding whose message names a line, a path or an option value a
+  stable key (what it is about, never a line or column), so an edit above a finding or a reworded
+  message keeps its fingerprint. These findings' fingerprints change once, with this release: their
+  baseline entries are written again once, with `gate baseline write`, when the repository upgrades.
 
 # 0.1.0
 

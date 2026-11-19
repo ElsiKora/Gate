@@ -332,7 +332,8 @@ fn baseline(run: &mut Run<'_, Options>, generated: &str, ordered: &[Migration]) 
                     migration.class, first.class
                 ),
             )
-            .help(format!("fold the change into {}", first.class));
+            .help(format!("fold the change into {}", first.class))
+            .key(migration.class.as_str());
     }
 }
 
@@ -398,13 +399,14 @@ impl Registry {
             .map_err(|failure| project::error(&failure))?
         {
             Some(source) if !source.fatal() => {
-                for (line, message) in self.findings(&source, ordered) {
+                for (line, key, message) in self.findings(&source, ordered) {
                     run.report()
                         .finding("registry", location(&self.path, line), message)
                         .help(format!(
                             "import every generated migration from {} and list them in {} in timestamp order",
                             self.import, self.constant
-                        ));
+                        ))
+                        .key(key);
                 }
             }
             Some(_) => {}
@@ -422,13 +424,13 @@ impl Registry {
         Ok(())
     }
 
-    /// The registry findings: the migrations imported from the generated folder and the order of
-    /// the registry constant.
+    /// The registry findings, each with its key: the migrations imported from the generated folder
+    /// and the order of the registry constant.
     fn findings(
         &self,
         source: &SourceFile<'_>,
         ordered: &[Migration],
-    ) -> Vec<(Option<u32>, String)> {
+    ) -> Vec<(Option<u32>, &'static str, String)> {
         let expected: Vec<&str> = ordered
             .iter()
             .map(|migration| migration.class.as_str())
@@ -463,6 +465,7 @@ impl Registry {
         if imported.is_empty() {
             return vec![(
                 None,
+                "imports#missing",
                 format!(
                     "The migration registry must import the migrations explicitly from {}",
                     self.import
@@ -481,6 +484,7 @@ impl Registry {
         let Some(registered) = registered else {
             return vec![(
                 None,
+                "constant#missing",
                 format!(
                     "The migration registry must declare {} as an explicit array",
                     self.constant
@@ -497,6 +501,7 @@ impl Registry {
         {
             findings.push((
                 None,
+                "imports#mismatch",
                 "The migration registry imports do not match the generated migrations".to_owned(),
             ));
         }
@@ -513,6 +518,7 @@ impl Registry {
         if listed != expected {
             findings.push((
                 Some(source.line(registered.span.start)),
+                "constant#order",
                 format!(
                     "{} does not match the timestamp-ordered generated migrations",
                     self.constant

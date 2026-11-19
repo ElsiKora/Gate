@@ -103,7 +103,8 @@ impl gate_sdk::Rule for Rule {
                             "{directory} has {count} {kind} sharing \"{prefix}\"; nest them under {directory}/{prefix}"
                         ),
                     )
-                    .help(format!("move the {kind} into {directory}/{prefix}"));
+                    .help(format!("move the {kind} into {directory}/{prefix}"))
+                    .key(format!("{prefix}#{}", kind.replace(' ', "-")));
             }
         }
 

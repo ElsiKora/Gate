@@ -58,6 +58,21 @@ fn error(report: &mut Report, file: &RuleFile, line: Option<usize>, message: imp
         .help(HELP);
 }
 
+/// [`error`] with a key, for a message that embeds a path or a parser position.
+fn error_keyed(
+    report: &mut Report,
+    file: &RuleFile,
+    line: Option<usize>,
+    message: impl Into<String>,
+    key: &str,
+) {
+    report
+        .finding("", at(&file.path, line), message)
+        .target(file.path.clone())
+        .help(HELP)
+        .key(key);
+}
+
 /// Checks the front matter; `false` when the rest of the file cannot be judged.
 fn front_matter<'a>(
     file: &'a RuleFile,
@@ -65,11 +80,12 @@ fn front_matter<'a>(
     report: &mut Report,
 ) -> bool {
     if let Some(problem) = &file.frontmatter_error {
-        error(
+        error_keyed(
             report,
             file,
             Some(1),
             format!("frontmatter is not valid YAML: {problem}"),
+            "frontmatter#yaml",
         );
         return false;
     }
@@ -87,11 +103,12 @@ fn front_matter<'a>(
     match file.area() {
         Some(area) if AREA.as_ref().is_some_and(|pattern| pattern.is_match(area)) => {
             if let Some(other) = areas.insert(area, &file.path) {
-                error(
+                error_keyed(
                     report,
                     file,
                     line("area"),
                     format!("area {area} is already declared by {other}"),
+                    area,
                 );
             }
         }

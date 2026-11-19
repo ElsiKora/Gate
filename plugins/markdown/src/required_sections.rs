@@ -94,6 +94,7 @@ impl Rule for RequiredSections {
                     Location::file(&page),
                     format!("{page} is missing module documentation section: {section}"),
                 )
+                .key(section.as_str())
                 .target(format!("{page}:{section}"))
                 .help(format!(
                     "add a `## {section}` heading with its content, outside code fences and HTML \

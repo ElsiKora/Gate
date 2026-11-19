@@ -43,6 +43,7 @@ impl Rule for RuleIds {
                             Location::line(&file.path, rule.line),
                             format!("{} is already defined in {other}", rule.id),
                         )
+                        .key(rule.id.as_str())
                         .target(rule.id.clone())
                         .help("give the new rule the next free number of its area");
                 }

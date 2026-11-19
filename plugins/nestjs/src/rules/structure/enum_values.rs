@@ -117,6 +117,7 @@ impl Rule for EnumValues {
                          with its decision"
                     ),
                 )
+                .key(target.as_str())
                 .target(target)
                 .help("rename the value to match the pattern");
         }

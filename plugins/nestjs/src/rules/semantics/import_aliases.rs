@@ -93,6 +93,7 @@ impl gate_sdk::Rule for Rule {
                     findings.push((
                         "entity-enum-barrel",
                         path,
+                        format!("{specifier}#enum-file"),
                         format!(
                             "{path} loads the enum file {specifier}; import the enum through its owner's enum barrel"
                         ),
@@ -105,6 +106,7 @@ impl gate_sdk::Rule for Rule {
                     findings.push((
                         "entity-enum-barrel",
                         path,
+                        format!("{specifier}#own-barrel"),
                         format!(
                             "{path} loads its own resource's enum barrel through {specifier}; import it as {barrel}"
                         ),
@@ -116,6 +118,7 @@ impl gate_sdk::Rule for Rule {
                     findings.push((
                         "owner-alias",
                         path,
+                        specifier.clone(),
                         format!("{path} loads {specifier}; use a canonical source-owner alias"),
                         "load the other owner through its alias".to_owned(),
                     ));
@@ -123,10 +126,11 @@ impl gate_sdk::Rule for Rule {
             }
         }
 
-        for (aspect, path, message, help) in findings {
+        for (aspect, path, key, message, help) in findings {
             run.report()
                 .finding(aspect, Location::file(path), message)
-                .help(help);
+                .help(help)
+                .key(key);
         }
 
         Ok(())

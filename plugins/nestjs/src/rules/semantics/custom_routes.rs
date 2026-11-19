@@ -125,7 +125,8 @@ impl gate_sdk::Rule for Rule {
                             "{path} uses the raw Nest {name} route decorator; declare custom handlers with {replacement}"
                         ),
                     )
-                    .help(format!("declare the handler with {replacement}"));
+                    .help(format!("declare the handler with {replacement}"))
+                    .key(name);
             }
         }
 

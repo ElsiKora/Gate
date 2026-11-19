@@ -92,19 +92,21 @@ impl Rule for AutomatorMetadata {
         }
 
         for decorator in unclassified {
-            findings.push(
+            findings.push_keyed(
                 "controller-decorator",
                 decorator.path,
                 Some(decorator.line),
+                decorator.key,
                 decorator.message,
             );
         }
 
         for decorator in specialized {
-            findings.push(
+            findings.push_keyed(
                 "entity-property-decorator",
                 decorator.path,
                 Some(decorator.line),
+                decorator.key,
                 decorator.message,
             );
         }
@@ -197,10 +199,11 @@ fn compare(inventory: &str, entries: &[Entry], aspect: &'static str, findings: &
 
     for (key, (count, first)) in keys {
         if count != 1 {
-            findings.push(
+            findings.push_keyed(
                 "inventory-identity",
                 first.path.as_str(),
                 Some(first.line),
+                format!("{inventory}:{key}"),
                 format!(
                     "automator metadata {inventory} inventory contains {count} entries for {key}"
                 ),
@@ -215,10 +218,11 @@ fn compare(inventory: &str, entries: &[Entry], aspect: &'static str, findings: &
         let (expected, actual) = (expected.json(), entry.actual.json());
 
         if actual != expected {
-            findings.push(
+            findings.push_keyed(
                 aspect,
                 entry.path.as_str(),
                 Some(entry.line),
+                entry.key.as_str(),
                 format!(
                     "automator metadata {inventory} {} expected {expected}; received {actual}",
                     entry.key
@@ -239,10 +243,11 @@ fn owners(routes: &[Entry], findings: &mut Findings) {
         };
 
         if items.len() != 1 {
-            findings.push(
+            findings.push_keyed(
                 "route-owner",
                 entry.path.as_str(),
                 Some(entry.line),
+                entry.key.as_str(),
                 format!(
                     "automator metadata routes {} must have exactly one owner; received {}",
                     entry.key,
@@ -267,11 +272,12 @@ fn stale(
         entries.iter().map(|entry| entry.key.clone()).collect()
     };
     let (entity_keys, dto_keys, route_keys) = (keys(entities), keys(dtos), keys(routes));
-    let mut stale: Vec<(String, String)> = Vec::new();
+    let mut stale: Vec<(String, String, String)> = Vec::new();
     let mut missing = |name: &str, key: &str, inventory: &str, observed: &BTreeSet<String>| {
         if !observed.contains(key) {
             stale.push((
                 key.to_owned(),
+                format!("{name}:{key}"),
                 format!(
                     "automator metadata policy {name} entry {key} has no matching {inventory} \
                      source entry"
@@ -309,7 +315,7 @@ fn stale(
         .map_or_else(|| "gate.toml".to_owned(), str::to_owned);
     let text = run.tree().text(&file).unwrap_or_default();
 
-    for (key, message) in stale {
+    for (key, id, message) in stale {
         let quoted = format!("\"{key}\"");
         let location = text
             .lines()
@@ -320,6 +326,7 @@ fn stale(
             );
         run.report()
             .finding("policy-key", location, message)
-            .help("remove the entry, or correct its key to an existing member");
+            .help("remove the entry, or correct its key to an existing member")
+            .key(id);
     }
 }

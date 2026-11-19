@@ -113,10 +113,11 @@ impl Rule for BarrelExports {
 
         for path in tree::typescript_files(&source, &layout.source_root, typescript.settings()) {
             if path.ends_with(options.entrypoint_suffix.as_str()) && !private.contains(path) {
-                findings.push(
+                findings.push_keyed(
                     "runtime-entrypoint",
                     path,
                     None,
+                    "entrypoint",
                     format!("{path} is not an approved private runtime entrypoint"),
                 );
             }
@@ -195,10 +196,11 @@ impl<'r> Barrels<'r, '_> {
             let barrel = self.barrel(&folder);
 
             if !self.source.contains(&barrel) {
-                findings.push(
+                findings.push_keyed(
                     "missing",
                     &barrel,
                     None,
+                    "folder",
                     format!("{folder} must expose an {barrel_name} barrel"),
                 );
                 continue;
@@ -231,10 +233,11 @@ impl<'r> Barrels<'r, '_> {
                 };
 
                 if !exported.contains(&specifier) {
-                    findings.push(
+                    findings.push_keyed(
                         "explicit-export",
                         &barrel,
                         None,
+                        specifier.as_str(),
                         format!("{barrel} must export {specifier}"),
                     );
                 }
@@ -265,10 +268,11 @@ impl<'r> Barrels<'r, '_> {
             let barrel = self.barrel(folder);
 
             if !self.source.contains(&barrel) {
-                findings.push(
+                findings.push_keyed(
                     "missing",
                     &barrel,
                     None,
+                    "kind-folder",
                     format!("{folder} is a kind folder and must expose an {barrel_name} barrel"),
                 );
                 continue;
@@ -288,10 +292,11 @@ impl<'r> Barrels<'r, '_> {
                 let specifier = format!("./{}", &entry[..entry.len() - ".ts".len()]);
 
                 if !exported.contains(&specifier) {
-                    findings.push(
+                    findings.push_keyed(
                         "explicit-export",
                         &barrel,
                         None,
+                        specifier.as_str(),
                         format!("{barrel} must export {specifier}"),
                     );
                 }
@@ -345,10 +350,11 @@ impl<'r> Barrels<'r, '_> {
                 });
 
             if let Some(start) = owned {
-                findings.push(
+                findings.push_keyed(
                     "reexport-only",
                     barrel,
                     Some(file.line(start)),
+                    "owned-code",
                     format!(
                         "{barrel} must contain only re-export declarations; code owners require \
                          their own files"
@@ -379,10 +385,11 @@ impl<'r> Barrels<'r, '_> {
                     && !barrel.starts_with(&test_prefix)
                     && self.private.contains(target)
                 {
-                    findings.push(
+                    findings.push_keyed(
                         "private-entrypoint",
                         barrel,
                         line,
+                        specifier,
                         format!(
                             "{barrel} must not expose the private {} entrypoint",
                             private_specifier(folder, target)
@@ -409,10 +416,11 @@ impl<'r> Barrels<'r, '_> {
                 });
 
                 if !inside {
-                    findings.push(
+                    findings.push_keyed(
                         "wildcard",
                         barrel,
                         line,
+                        specifier,
                         format!(
                             "{barrel} re-exports {specifier} with a wildcard; use named file \
                              exports or a child-folder wildcard"

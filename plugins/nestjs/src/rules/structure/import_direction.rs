@@ -230,10 +230,11 @@ impl Rule for ImportDirection {
 
                 for specifier in specifiers {
                     if forbids(&layout, contract, path, specifier) {
-                        findings.push(
+                        findings.push_keyed(
                             contract.aspect.name(),
                             path,
                             None,
+                            specifier.as_str(),
                             format!(
                                 "{path} loads {specifier} outside its {directory} dependency contract"
                             ),

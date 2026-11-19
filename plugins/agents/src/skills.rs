@@ -26,8 +26,8 @@ const FIELDS: [&str; 6] = [
 #[derive(Debug, Default)]
 pub struct Skills;
 
-/// The findings of one run: path, line and message.
-type Found = Vec<(String, Option<usize>, String)>;
+/// The findings of one run: path, line, message and key.
+type Found = Vec<(String, Option<usize>, String, Option<&'static str>)>;
 
 impl Rule for Skills {
     type Options = RootOptions;
@@ -47,6 +47,7 @@ impl Rule for Skills {
                     skill.directory.clone(),
                     None,
                     "a skill directory needs SKILL.md".to_owned(),
+                    None,
                 ));
                 continue;
             };
@@ -57,6 +58,7 @@ impl Rule for Skills {
                         manifest,
                         Some(1),
                         "SKILL.md starts with YAML frontmatter".to_owned(),
+                        None,
                     ));
                     continue;
                 }
@@ -65,12 +67,18 @@ impl Rule for Skills {
                         manifest,
                         Some(1),
                         format!("frontmatter is not valid YAML: {error}"),
+                        Some("frontmatter#yaml"),
                     ));
                     continue;
                 }
             };
             let Some(entries) = block.data.mapping() else {
-                found.push((manifest, Some(1), "frontmatter is not a mapping".to_owned()));
+                found.push((
+                    manifest,
+                    Some(1),
+                    "frontmatter is not a mapping".to_owned(),
+                    None,
+                ));
                 continue;
             };
             for (key, _) in entries {
@@ -80,32 +88,34 @@ impl Rule for Skills {
                         manifest.clone(),
                         Some(key.line),
                         format!("`{name}` is not an Agent Skills field"),
+                        None,
                     ));
                 }
             }
             fields(&skill.name, &block.data, &manifest, &mut found);
         }
 
-        for (path, line, message) in found {
-            run.report()
-                .finding("", at(&path, line), message)
-                .target(path.clone())
-                .help(
-                    "write SKILL.md as the Agent Skills specification says: front matter with a \
+        for (path, line, message, key) in found {
+            let finding = run.report().finding("", at(&path, line), message);
+            if let Some(key) = key {
+                finding.key(key);
+            }
+            finding.target(path.clone()).help(
+                "write SKILL.md as the Agent Skills specification says: front matter with a \
                      name equal to the directory and a description",
-                );
+            );
         }
         Ok(())
     }
 }
 
 fn fields(directory: &str, data: &Node, manifest: &str, found: &mut Found) {
-    let mut push = |line: Option<usize>, message: String| {
-        found.push((manifest.to_owned(), line, message));
+    let mut push = |line: Option<usize>, message: String, key: Option<&'static str>| {
+        found.push((manifest.to_owned(), line, message, key));
     };
 
     match data.get("name").and_then(Node::scalar) {
-        None => push(Some(1), "name is required".to_owned()),
+        None => push(Some(1), "name is required".to_owned(), None),
         Some(name) => {
             let line = data.get("name").map(|node| node.line);
             let well_formed = SKILL_NAME
@@ -115,12 +125,14 @@ fn fields(directory: &str, data: &Node, manifest: &str, found: &mut Found) {
                 push(
                     line,
                     "name is 1-64 lowercase letters, digits and single hyphens".to_owned(),
+                    None,
                 );
             }
             if name != directory {
                 push(
                     line,
                     format!("name `{name}` differs from the directory `{directory}`"),
+                    Some("name#directory"),
                 );
             }
         }
@@ -132,6 +144,7 @@ fn fields(directory: &str, data: &Node, manifest: &str, found: &mut Found) {
         _ => push(
             data.get("description").map(|node| node.line).or(Some(1)),
             "description is required and has 1-1024 characters".to_owned(),
+            None,
         ),
     }
 
@@ -143,6 +156,7 @@ fn fields(directory: &str, data: &Node, manifest: &str, found: &mut Found) {
         push(
             Some(node.line),
             "compatibility is a string of at most 500 characters".to_owned(),
+            None,
         );
     }
 
@@ -156,6 +170,7 @@ fn fields(directory: &str, data: &Node, manifest: &str, found: &mut Found) {
         push(
             Some(node.line),
             "metadata maps strings to strings".to_owned(),
+            None,
         );
     }
 
@@ -163,7 +178,7 @@ fn fields(directory: &str, data: &Node, manifest: &str, found: &mut Found) {
         if let Some(node) = data.get(field)
             && node.scalar().is_none()
         {
-            push(Some(node.line), format!("{field} is a string"));
+            push(Some(node.line), format!("{field} is a string"), None);
         }
     }
 }

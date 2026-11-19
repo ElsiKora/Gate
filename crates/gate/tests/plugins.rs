@@ -3302,3 +3302,41 @@ fn baseline_prune_removes_only_stale_entries_and_never_adds_one() {
         edited
     );
 }
+
+#[test]
+fn a_finding_that_names_its_line_keeps_its_fingerprint_when_an_edit_above_moves_it() {
+    let repo = pinned_probe_repo();
+    repo.write(
+        "apps/one/x.ts",
+        "export const a = 1;\nexport class Thing {}\n",
+    );
+    read_with(&repo, r#"{ at = "x.ts", line_of = "class Thing" }"#);
+    let (_, findings) = check_json(&repo);
+    assert_eq!(
+        findings[0]["message"],
+        serde_json::json!("x.ts:2 class Thing")
+    );
+    let before = only_fingerprint(&repo);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+
+    // An unrelated edit above the finding moves it, and its message, two lines down.
+    repo.write(
+        "apps/one/x.ts",
+        "// a comment above\nexport const a = 1;\n\nexport class Thing {}\n",
+    );
+    repo.commit("an edit above the finding");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "the baseline still accepts it: {findings:?}");
+    assert!(findings.is_empty(), "{findings:?}");
+
+    repo.git(&["rm", "-q", "gate/baseline.json"]);
+    repo.commit("no baseline");
+    let (_, findings) = check_json(&repo);
+    assert_eq!(
+        findings[0]["message"],
+        serde_json::json!("x.ts:4 class Thing")
+    );
+    assert_eq!(only_fingerprint(&repo), before);
+}

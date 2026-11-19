@@ -15,10 +15,11 @@ pub(super) fn report(file: &SourceFile<'_>, path: &str, names: &[String], findin
         let name = declaration.id.name.as_str();
 
         if names.iter().any(|known| known == name) {
-            findings.push(
+            findings.push_keyed(
                 "error-string-shim",
                 path,
                 Some(file.line(declaration.id.span.start)),
+                name,
                 format!(
                     "{path} declares {name}, a local copy of the installed Crud Automator enum; use its installed members and record a missing action as a follow-up"
                 ),

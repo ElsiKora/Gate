@@ -364,14 +364,17 @@ struct Blockers<'b> {
     locations: &'b HashMap<String, At>,
 }
 
-/// One record definition: a context for messages and the location of its first definition.
+/// One record definition: its identifier, a context for messages and the location of its first
+/// definition.
 struct Entry {
+    id: String,
     context: String,
     location: At,
 }
 
 fn entry(path: &str, id: &str, locations: &HashMap<String, At>) -> Entry {
     Entry {
+        id: id.to_owned(),
         context: format!("{path} {id}"),
         location: located(locations, id, path),
     }
@@ -437,6 +440,10 @@ struct Analysis<'a, 't> {
 impl Analysis<'_, '_> {
     fn emit(&mut self, aspect: &str, at: &At, message: String) {
         self.findings.emit(aspect, at, message);
+    }
+
+    fn emit_keyed(&mut self, aspect: &str, at: &At, key: String, message: String) {
+        self.findings.emit_keyed(aspect, at, key, message);
     }
 
     fn settings(&self) -> &Settings {
@@ -524,9 +531,10 @@ impl Analysis<'_, '_> {
 
         for id in &plan_ids {
             if !implementation_set.contains(id) {
-                self.emit(
+                self.emit_keyed(
                     "record-counterpart",
                     &At::file(implementation_path),
+                    format!("{id}#missing"),
                     format!("{implementation_path} is missing {id}"),
                 );
             }
@@ -534,9 +542,10 @@ impl Analysis<'_, '_> {
             let verification_id = counterpart(id, "I-", "V-");
 
             if !verification_set.contains(&verification_id) {
-                self.emit(
+                self.emit_keyed(
                     "record-counterpart",
                     &At::file(verification_path),
+                    format!("{verification_id}#missing"),
                     format!("{verification_path} is missing {verification_id} for {id}"),
                 );
             }
@@ -544,9 +553,10 @@ impl Analysis<'_, '_> {
 
         for id in &implementation_ids {
             if !plan_set.contains(id) {
-                self.emit(
+                self.emit_keyed(
                     "record-counterpart",
                     &located(&implementation_locations, id, implementation_path),
+                    format!("{id}#unplanned"),
                     format!("{implementation_path} contains {id} without a matching plan heading"),
                 );
             }
@@ -556,9 +566,10 @@ impl Analysis<'_, '_> {
             let implementation_id = counterpart(id, "V-", "I-");
 
             if !plan_set.contains(&implementation_id) {
-                self.emit(
+                self.emit_keyed(
                     "record-counterpart",
                     &located(&verification_locations, id, verification_path),
+                    format!("{id}#unplanned"),
                     format!(
                         "{verification_path} contains {id} without matching {implementation_id}"
                     ),
@@ -668,9 +679,10 @@ impl Analysis<'_, '_> {
                             .as_deref()
                             .is_some_and(|value| !p.full_oid.is_match(value))
                     {
-                        self.emit(
+                        self.emit_keyed(
                             "parity-fields",
                             &entry.location,
+                            format!("{}/{reference}#full-oid", entry.id),
                             format!("{} must use a full {reference} OID", entry.context),
                         );
                     }
@@ -729,9 +741,10 @@ impl Analysis<'_, '_> {
             );
 
             if mapped.as_deref() != Some(expected.as_str()) {
-                self.emit(
+                self.emit_keyed(
                     "record-counterpart",
                     &entry.location,
+                    format!("{}#verification-map", entry.id),
                     format!("{} must map exactly to {expected}", entry.context),
                 );
             }
@@ -824,13 +837,18 @@ impl Analysis<'_, '_> {
             let location = located(&plan_locations, id, plan_path);
 
             if let Some(allowed) = self.tracking.allowed {
-                for (path, status) in &states {
+                for ((path, status), role) in
+                    states
+                        .iter()
+                        .zip(["plan", "implementation", "verification"])
+                {
                     if let Some(status) = status.as_deref().filter(|status| !status.is_empty())
                         && !allowed.iter().any(|candidate| candidate == status)
                     {
-                        self.emit(
+                        self.emit_keyed(
                             "record-status",
                             &location,
+                            format!("{id}#unsupported-{role}"),
                             format!("{id} has unsupported Status {status} in {path}"),
                         );
                     }
@@ -846,9 +864,10 @@ impl Analysis<'_, '_> {
                 && !implementation.is_empty()
                 && plan != implementation
             {
-                self.emit(
+                self.emit_keyed(
                     "record-commit",
                     &location,
+                    format!("{id}#differ"),
                     format!("{id} commits differ: plan={plan}, implementation={implementation}"),
                 );
             }
@@ -881,9 +900,10 @@ impl Analysis<'_, '_> {
             }
 
             if !flatten(plan_commits.get(id)).is_some_and(|commit| p.full_oid.is_match(&commit)) {
-                self.emit(
+                self.emit_keyed(
                     "record-commit",
                     &located(&plan_locations, id, plan_path),
+                    format!("{id}#plan-oid"),
                     format!("{plan_path} {id} is closed without a backticked 40-hex Commit OID"),
                 );
             }
@@ -891,9 +911,10 @@ impl Analysis<'_, '_> {
             if !flatten(implementation_commits.get(id))
                 .is_some_and(|commit| p.full_oid.is_match(&commit))
             {
-                self.emit(
+                self.emit_keyed(
                     "record-commit",
                     &located(&implementation_locations, id, implementation_path),
+                    format!("{id}#implementation-oid"),
                     format!(
                         "{implementation_path} {id} is closed without a backticked 40-hex Commit OID"
                     ),
@@ -903,9 +924,10 @@ impl Analysis<'_, '_> {
             let verification_id = counterpart(id, "I-", "V-");
 
             if self.is_pending(flatten(verification_notes.get(&verification_id)).as_deref()) {
-                self.emit(
+                self.emit_keyed(
                     "record-closure",
                     &located(&verification_locations, &verification_id, verification_path),
+                    format!("{verification_id}#notes"),
                     format!(
                         "{verification_path} {verification_id} is closed without concrete verification notes"
                     ),
@@ -920,9 +942,10 @@ impl Analysis<'_, '_> {
                 };
 
                 if !status.is_some_and(|status| settings.is_closed(status)) {
-                    self.emit(
+                    self.emit_keyed(
                         "record-closure",
                         &located(&implementation_locations, id, implementation_path),
+                        format!("{id}/{dependency}#unresolved"),
                         format!(
                             "{implementation_path} {id} is closed with unresolved dependency {dependency}"
                         ),
@@ -967,9 +990,10 @@ impl Analysis<'_, '_> {
         name: &str,
     ) -> Vec<String> {
         if matches.is_empty() {
-            self.emit(
+            self.emit_keyed(
                 "record-shape",
                 &At::file(path),
+                format!("{name}#none"),
                 format!("{path} must contain at least one {name}"),
             );
         }
@@ -980,18 +1004,20 @@ impl Analysis<'_, '_> {
                 .iter()
                 .find(|candidate| !keys.contains(&candidate.key()))
                 .map_or_else(|| At::file(path), Match::locate);
-            self.emit(
+            self.emit_keyed(
                 "record-shape",
                 &location,
+                format!("{name}#malformed"),
                 format!("{path} contains malformed {name} definitions"),
             );
         }
 
         for found in matches {
             if trim(found.group(2)).is_empty() {
-                self.emit(
+                self.emit_keyed(
                     "record-shape",
                     &found.locate(),
+                    format!("{}#title", found.group(1)),
                     format!("{path} {} must have a non-empty title", found.group(1)),
                 );
             }
@@ -1011,9 +1037,10 @@ impl Analysis<'_, '_> {
         }
 
         if let Some(found) = duplicate {
-            self.emit(
+            self.emit_keyed(
                 "record-unique",
                 &found.locate(),
+                format!("{name}#duplicate"),
                 format!("{path} contains duplicate {name} IDs"),
             );
         }
@@ -1037,9 +1064,10 @@ impl Analysis<'_, '_> {
             return Some(value.clone());
         }
 
-        self.emit(
+        self.emit_keyed(
             aspect,
             &entry.location,
+            format!("{}/{label}#required", entry.id),
             format!(
                 "{} must contain exactly one non-empty {label} field",
                 entry.context
@@ -1061,9 +1089,10 @@ impl Analysis<'_, '_> {
             [] => None,
             [value] if !value.is_empty() => Some(value.clone()),
             _ => {
-                self.emit(
+                self.emit_keyed(
                     "record-field",
                     &entry.location,
+                    format!("{}/{label}#duplicate", entry.id),
                     format!(
                         "{} must not contain duplicate or empty {label} fields",
                         entry.context
@@ -1100,9 +1129,10 @@ impl Analysis<'_, '_> {
         let parsed = self.backticked(value);
 
         if parsed.is_none() {
-            self.emit(
+            self.emit_keyed(
                 "record-field",
                 &entry.location,
+                format!("{}/{label}#backticked", entry.id),
                 format!(
                     "{} {label} must be one non-empty backticked value",
                     entry.context
@@ -1146,9 +1176,10 @@ impl Analysis<'_, '_> {
 
         for dependency in &dependencies {
             if !seen.insert(dependency.clone()) {
-                self.emit(
+                self.emit_keyed(
                     "record-dependency",
                     &entry.location,
+                    format!("{}/{dependency}#duplicate", entry.id),
                     format!(
                         "{} contains duplicate dependency {dependency}",
                         entry.context
@@ -1163,9 +1194,10 @@ impl Analysis<'_, '_> {
             };
 
             if !known {
-                self.emit(
+                self.emit_keyed(
                     "record-dependency",
                     &entry.location,
+                    format!("{}/{dependency}#unknown", entry.id),
                     format!(
                         "{} references unknown dependency {dependency}",
                         entry.context
@@ -1191,9 +1223,10 @@ impl Analysis<'_, '_> {
         }
 
         if !self.patterns.dependency_list.is_match(value) {
-            self.emit(
+            self.emit_keyed(
                 "record-dependency",
                 &entry.location,
+                format!("{}/Blocked by#format", entry.id),
                 format!(
                     "{} Blocked by must be none or a comma-separated list of backticked I-* or F-* IDs",
                     entry.context
@@ -1251,9 +1284,10 @@ impl Analysis<'_, '_> {
                 let start = path.iter().position(|item| item == id).unwrap_or(0);
                 let mut cycle: Vec<&str> = path[start..].iter().map(String::as_str).collect();
                 cycle.push(id);
-                self.emit(
+                self.emit_keyed(
                     "dependency-cycle",
                     &located(locations, id, file),
+                    cycle.join(" -> "),
                     format!(
                         "{file} contains a cycle reachable from a {label} slice: {}",
                         cycle.join(" -> ")
@@ -1265,9 +1299,10 @@ impl Analysis<'_, '_> {
         }
 
         if !statuses.contains_key(id) {
-            self.emit(
+            self.emit_keyed(
                 "record-dependency",
                 &located(locations, id, file),
+                format!("{id}#unreadable-status"),
                 format!("{file} {id} is reachable from {label} without a readable Status"),
             );
         }
@@ -1348,9 +1383,10 @@ impl Analysis<'_, '_> {
                 && !phases.is_empty()
                 && !phases.iter().any(|allowed| allowed == phase)
             {
-                self.emit(
+                self.emit_keyed(
                     "record-field",
                     &entry.location,
+                    format!("{}/Phase#unsupported", entry.id),
                     format!("{} uses unsupported Phase {phase}", entry.context),
                 );
             }
@@ -1392,9 +1428,10 @@ impl Analysis<'_, '_> {
             let entry = entry(path, id, locations);
 
             if self.is_pending(evidence.get(id).cloned().flatten().as_deref()) {
-                self.emit(
+                self.emit_keyed(
                     "record-closure",
                     &entry.location,
+                    format!("{}/Exit evidence#placeholder", entry.id),
                     format!(
                         "{} is closed without non-placeholder Exit evidence",
                         entry.context
@@ -1410,9 +1447,10 @@ impl Analysis<'_, '_> {
                     if !status.is_some_and(|status| settings.is_closed(status))
                         || self.is_pending(notes.map(String::as_str))
                     {
-                        self.emit(
+                        self.emit_keyed(
                             "record-closure",
                             &entry.location,
+                            format!("{}/{prerequisite}#unresolved", entry.id),
                             format!(
                                 "{} is closed while verification prerequisite {prerequisite} is open",
                                 entry.context
@@ -1433,9 +1471,10 @@ impl Analysis<'_, '_> {
                 };
 
                 if open {
-                    self.emit(
+                    self.emit_keyed(
                         "record-closure",
                         &entry.location,
+                        format!("{}/{prerequisite}#unresolved", entry.id),
                         format!(
                             "{} is closed with unresolved prerequisite {prerequisite}",
                             entry.context
@@ -1459,9 +1498,10 @@ impl Analysis<'_, '_> {
         };
 
         if !p.blocker_prerequisites.is_match(value) {
-            self.emit(
+            self.emit_keyed(
                 "record-dependency",
                 &entry.location,
+                format!("{}/Prerequisite links#format", entry.id),
                 format!(
                     "{} Prerequisite links must be none or a comma-separated list of backticked I/F/V/PB IDs",
                     entry.context
@@ -1479,9 +1519,10 @@ impl Analysis<'_, '_> {
 
         for prerequisite in &found {
             if !seen.insert(prerequisite) {
-                self.emit(
+                self.emit_keyed(
                     "record-dependency",
                     &entry.location,
+                    format!("{}/{prerequisite}#duplicate", entry.id),
                     format!(
                         "{} contains duplicate prerequisite {prerequisite}",
                         entry.context
@@ -1496,9 +1537,10 @@ impl Analysis<'_, '_> {
                 || (prerequisite.starts_with("PB-") && blockers.contains(prerequisite));
 
             if !known {
-                self.emit(
+                self.emit_keyed(
                     "record-dependency",
                     &entry.location,
+                    format!("{}/{prerequisite}#unknown", entry.id),
                     format!(
                         "{} references unknown prerequisite {prerequisite}",
                         entry.context

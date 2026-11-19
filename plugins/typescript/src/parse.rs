@@ -113,6 +113,7 @@ impl Rule for Parse {
                             first.map_or("syntax error", |error| error.message.as_str())
                         ),
                     )
+                    .key("parse")
                     .target(path.clone())
                     .help(
                         "fix the syntax error so the file parses; if the file is not source code, \
