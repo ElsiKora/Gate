@@ -386,9 +386,9 @@ fn a_header_pattern_with_its_own_ignores_gives_the_policy_s_verdicts() {
     for (message, passes) in cases {
         assert_eq!(passes_policy(message), passes, "{message:?}");
     }
-    // A header of the breaking form is read with the conventional breaking pattern first, as the
-    // reference reads it, so the header pattern's scope does not apply to it.
-    assert!(passes_policy("feat(a_b)!: add x"));
+    // The header pattern alone decides the header, a breaking `!` included.
+    assert!(passes_policy("feat(a)!: add x"));
+    assert!(!passes_policy("feat(a_b)!: add x"));
     // The pattern is JavaScript's: `\w` is ASCII.
     assert!(!passes_policy("féat: add x"));
 }

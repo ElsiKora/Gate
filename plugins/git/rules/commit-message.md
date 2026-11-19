@@ -30,8 +30,10 @@ The message is read as `commitlint --edit` reads it:
   not checked: commitlint's default ignores. `default-ignores = false` checks them too, and a message
   one of `ignores` matches is not checked either.
 - The first line is the header: `type(scope): subject`, with a `!` before the colon for a breaking
-  change. A header of that breaking form is read with the conventional breaking pattern first, as
-  the reference reads it; any other header with `header-pattern`, the conventional one by default. The lines after it are the body, until a line with an issue reference (`Closes #12`, `see
+  change. A custom `header-pattern` alone decides the header, so the `!` is the pattern's to allow;
+  without one, a breaking header is read with the conventional breaking pattern first, as the
+  reference reads it. The lines after it are the body, until a line with an issue reference
+  (`Closes #12`, `see
   #12`) or a `BREAKING CHANGE:` note, which starts the footer.
 
 Each check is an aspect named after the commitlint rule it ports, and is reported on its own:

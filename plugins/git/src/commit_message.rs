@@ -49,9 +49,9 @@ pub struct Options {
     /// The longest footer line; a line with a URL is never too long (`footer-max-line-length`).
     pub footer_max_line_length: usize,
     /// The header's regular expression (`headerPattern` of the parser), with the named groups
-    /// `type`, `scope` and `subject`; unset, the conventional one. A header of the breaking form
-    /// (`type(scope)!: subject`) is read with the conventional breaking pattern first, as the
-    /// reference reads it.
+    /// `type`, `scope` and `subject`. It alone decides the header, a breaking `!` included; unset,
+    /// a breaking header (`type(scope)!: subject`) is read with the conventional breaking pattern
+    /// first, as the reference reads it, and any other with the conventional pattern.
     pub header_pattern: Option<String>,
     /// Regular expressions of messages that are not checked (`ignores`), besides the default ones.
     pub ignores: Vec<String>,
@@ -169,8 +169,9 @@ type Failure = (&'static str, String, String);
 
 /// The expressions the checks use.
 struct Patterns {
-    /// `conventional-changelog-conventionalcommits`' header with `!`, tried first.
-    breaking: Regex,
+    /// `conventional-changelog-conventionalcommits`' header with `!`, tried first; none under a
+    /// custom `header-pattern`, which decides the header alone.
+    breaking: Option<Regex>,
     /// Its header, or `header-pattern`.
     header: Regex,
     /// The messages `ignores` skips.
@@ -209,11 +210,16 @@ impl Patterns {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        Ok(Self {
-            breaking: pattern(
+        let breaking = if options.header_pattern.is_some() {
+            None
+        } else {
+            Some(pattern(
                 "the header pattern",
                 &format!(r"^(?<type>[0-9A-Za-z_]*)(?:\((?<scope>{any}*)\))?!: (?<subject>{any}*)$"),
-            )?,
+            )?)
+        };
+        Ok(Self {
+            breaking,
             header,
             ignores,
             quoted: pattern(
@@ -474,7 +480,8 @@ impl Parsed {
         if let Some(header) = rest.next().filter(|header| !header.is_empty()) {
             let captures = patterns
                 .breaking
-                .captures(header)
+                .as_ref()
+                .and_then(|breaking| breaking.captures(header))
                 .or_else(|| patterns.header.captures(header));
             if let Some(captures) = captures {
                 let group = |name| {
