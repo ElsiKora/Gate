@@ -148,10 +148,10 @@ impl Pins {
             let (Some(was), Some(now)) = (source(old.get_mut(name)), source(Some(entry))) else {
                 continue;
             };
-            let (Some((plugin, from)), Some((same, to))) = (owned(was), owned(now)) else {
+            let (Some((plugin, from)), Some((other, to))) = (owned(was), owned(now)) else {
                 continue;
             };
-            if plugin != same || from == to || !self.movable(&plugin) {
+            if plugin != other || from == to || !self.movable(&plugin) {
                 continue;
             }
             if plugin == self.plugin {
@@ -198,22 +198,22 @@ impl Pins {
             beyond |= was
                 .iter()
                 .any(|(version, entry)| now.get(version).is_some_and(|kept| kept != entry));
-            let gone: Vec<&Value> = was
+            let removed: Vec<&Value> = was
                 .iter()
                 .filter(|(version, _)| !now.contains_key(*version))
                 .map(|(_, entry)| entry)
                 .collect();
-            let came: Vec<(&String, &Value)> = now
+            let added: Vec<(&String, &Value)> = now
                 .iter()
                 .filter(|(version, _)| !was.contains_key(*version))
                 .collect();
-            beyond |= gone.len() != came.len()
-                || gone
+            beyond |= removed.len() != added.len()
+                || removed
                     .iter()
-                    .zip(&came)
-                    .any(|(gone, (_, came))| stripped(gone) != stripped(came));
+                    .zip(&added)
+                    .any(|(removed, (_, added))| stripped(removed) != stripped(added));
             if name == self.plugin {
-                moved.extend(came.into_iter().map(|(version, _)| version.clone()));
+                moved.extend(added.into_iter().map(|(version, _)| version.clone()));
             }
         }
         beyond
