@@ -90,9 +90,10 @@ pub struct ReadSet {
     /// Whether the call asked for the run's change selection.
     pub changed: bool,
     /// What the call asked git, each with the commit ids (or, for `branch`, the name; for `range`,
-    /// base, head and the pushed ref; for `message`, the message; for `hook`, `true` or `false`) its answer depended on: an answer that goes through a ref (`head`, `branch`, `range`, `resolve`, `log`
-    /// of a range) records what the ref named, so a moved ref re-runs the call. An answer about
-    /// commit ids never changes and records nothing.
+    /// base, head and the pushed ref; for `message`, the message's SHA-256; for `hook`, `true` or
+    /// `false`) its answer depended on: an answer that goes through a ref (`head`, `branch`,
+    /// `range`, `resolve`, `log` of a range) records what the ref named, so a moved ref re-runs the
+    /// call. An answer about commit ids never changes and records nothing.
     pub git: BTreeMap<GitQuery, Vec<String>>,
 }
 
@@ -140,10 +141,24 @@ pub(crate) fn sync_state_digest(state: &SyncState) -> String {
         hasher.update(path.as_bytes());
         hasher.update([0]);
     }
-    hasher
-        .finalize()
+    hex(&hasher.finalize())
+}
+
+/// What a call records for a `message` answer: the SHA-256 of the message, nothing without one.
+/// Under `git commit --verbose` the message file holds the diff, so the read set keeps a digest
+/// rather than the text.
+pub(crate) fn message_digest(message: Option<&str>) -> Vec<String> {
+    message
+        .map(|message| hex(&Sha256::digest(message.as_bytes())))
+        .into_iter()
+        .collect()
+}
+
+/// `bytes` as lower-case hex.
+fn hex(bytes: &[u8]) -> String {
+    bytes
         .iter()
-        .fold(String::with_capacity(64), |mut text, byte| {
+        .fold(String::with_capacity(bytes.len() * 2), |mut text, byte| {
             let _ = write!(text, "{byte:02x}");
             text
         })
@@ -162,10 +177,10 @@ pub fn ancestry_record(holds: bool) -> Vec<String> {
 impl GitQuery {
     /// Asks `history` this question again and answers what a call records for it: for a question
     /// that goes through a ref, the commit ids (or branch name) the ref names now; for a
-    /// `sync-state`, the digest of its answer; for `is-ancestor`, nothing when it holds and `no`
-    /// when it does not, since a commit the clone lacks answers no until a fetch brings it; for
-    /// another question about commit ids, nothing, since its answer never changes. A stored result
-    /// is reused only when every question answers as it was recorded.
+    /// `sync-state` or the `message`, the digest of its answer; for `is-ancestor`, nothing when it
+    /// holds and `no` when it does not, since a commit the clone lacks answers no until a fetch
+    /// brings it; for another question about commit ids, nothing, since its answer never changes.
+    /// A stored result is reused only when every question answers as it was recorded.
     ///
     /// # Errors
     /// Fails when the core cannot answer.
@@ -177,7 +192,7 @@ impl GitQuery {
             Self::Resolve { rev } => history.resolve(rev)?.into_iter().collect(),
             Self::Log { range } => history.revisions(range)?,
             Self::SyncState { commit } => vec![sync_state_digest(&history.sync_state(commit)?)],
-            Self::Message => history.message()?.into_iter().collect(),
+            Self::Message => message_digest(history.message()?.as_deref()),
             Self::Hook => vec![history.hook()?.to_string()],
             Self::IsAncestor {
                 ancestor,

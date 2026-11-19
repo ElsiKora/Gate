@@ -27,9 +27,13 @@ The message is read as `commitlint --edit` reads it:
   `Merge remote-tracking branch …`, `Merged … in …`, `Merged PR …: …`, `Automatic merge…`,
   `Auto-merged … into …`), reverts (`Revert …`, `Reapply …`), `amend!`, `fixup!` and `squash!`
   commits, and a release whose header is a version (`chore(release): 1.2.0 [skip ci]`, `v1.2.3`) are
-  not checked.
+  not checked: commitlint's default ignores. `default-ignores = false` checks them too, and a message
+  one of `ignores` matches is not checked either.
 - The first line is the header: `type(scope): subject`, with a `!` before the colon for a breaking
-  change. The lines after it are the body, until a line with an issue reference (`Closes #12`, `see
+  change. A custom `header-pattern` alone decides the header, so the `!` is the pattern's to allow;
+  without one, a breaking header is read with the conventional breaking pattern first, as the
+  reference reads it. The lines after it are the body, until a line with an issue reference
+  (`Closes #12`, `see
   #12`) or a `BREAKING CHANGE:` note, which starts the footer.
 
 Each check is an aspect named after the commitlint rule it ports, and is reported on its own:
@@ -99,6 +103,57 @@ UTF-16 code units: a character outside the Basic Multilingual Plane, such as an 
 | `subject-min-length` | integer | `3` | The shortest subject. |
 | `body-max-line-length` | integer | `100` | The longest body line. |
 | `footer-max-line-length` | integer | `100` | The longest footer line. |
+| `header-pattern` | string | the conventional header | The header's regular expression, commitlint's `headerPattern`, with the named groups `type`, `scope` and `subject`. |
+| `ignores` | list of strings | `[]` | Regular expressions of messages that are not checked, besides the default ignores. |
+| `default-ignores` | boolean | `true` | Whether commitlint's default ignores apply. |
+
+### Regular expressions
+
+`header-pattern` and `ignores` are read as JavaScript reads a regular expression without flags,
+which is how the reference reads them. The rule reads this subset of that syntax:
+
+- Characters, `.`, `^`, `$`, `|`, the quantifiers `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}`, each
+  with a lazy `?`, the groups `(...)`, `(?:...)` and `(?<name>...)`, and classes `[...]` and
+  `[^...]` with ranges.
+- The escapes `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `\b`, `\B`, `\n`, `\r`, `\t`, `\v`, `\f`, `\0`,
+  `\xHH`, `\uHHHH` (a surrogate pair included) and `\cA` to `\cZ`. `\w`, `\d` and `\b` are ASCII,
+  `\s` is JavaScript's white space, and `.` matches no line terminator.
+- Any other escaped character is that character: `\.`, `\<`, `\A`, `\z` and `\pL` match `.`, `<`,
+  `A`, `z` and `pL`. Inside a class every character is literal, so `[[:alpha:]]`, `&&`, `--` and
+  `~~` are characters there, as in JavaScript, and a `{` that does not make a quantifier is a `{`.
+- Not read, and an error that names the construct and the option: lookaround (`(?=`, `(?!`,
+  `(?<=`, `(?<!`), backreferences (`\1`, `\k<name>`), octal escapes, other `(?` groups such as
+  inline flags, the empty classes `[]` and `[^]`, and a lone surrogate.
+- A character outside the Basic Multilingual Plane, such as an emoji, is one character to `.` and
+  to a class, where JavaScript without the `u` flag sees two.
+
+commitlint's `headerPattern` names its groups by position, through `headerCorrespondence`; here
+the groups are named. The conventional preset's pattern and the form this option takes:
+
+```text
+commitlint:     ^(\w*)(?:\((.*)\))?!?: (.*)$   with headerCorrespondence type, scope, subject
+header-pattern: ^(?<type>\w*)(?:\((?<scope>.*)\))?!?: (?<subject>.*)$
+```
+
+A header the pattern does not match names no type, so `type-empty` fails. A pattern with no
+`subject` group names no subject, so `subject-empty` fails on every message, as in commitlint. A
+`header-pattern` that does not compile, or has no `type` group, is an error that names the option
+and fails the run.
+
+commitlint's `ignores` are functions of the message. Here each one is a regular expression, which
+is this rule's mapping of them: it is searched in the whole message as the hook gives it, body and
+comment lines included, so `WIP` skips `feat: x` with `WIP` in its body. `^` anchors at the start
+of the message only, not at each line: `^WIP` skips `WIP: x` but not a body line `WIP`.
+
+A policy written as one header expression, with its own messages to skip:
+
+```toml
+[rules]
+"git/commit-message" = { level = "error", options = { types = ["feat", "fix", "docs", "chore"], header-pattern = '^(?<type>\w*)(?:\((?<scope>[a-z0-9-]+(?:,[a-z0-9-]+)*)\))?!?: (?<subject>.+)$', ignores = ["^Merge ", '^Revert "'], default-ignores = false, subject-min-length = 0 }, levels = { scope-empty = "off", subject-case = "off" } }
+```
+
+With it, `feat(api,web): add x` passes and `feat(api_web): add x` fails `type-empty`; `Merge commit
+'abc'` is skipped, and `fixup! feat: x` is checked and fails.
 
 ## Example finding
 
