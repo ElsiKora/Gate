@@ -211,3 +211,9 @@ extensions, with a test for `startup-file`; `languages/typescript/src/lib.rs` `p
 keeps its environment error as the last line of defence and now says what to do. The stale
 comments of `crates/gate-host/src/plugins.rs` on `passing` and `failed` say how the kind reaches
 the user.
+2026-11-19: ticket 193 (d20eefa): fmt 1, clippy 0, test 101, deny 0, build 0, wasm 0. fmt: three
+layouts, fixed in `4641baa`. test: only `-p gate-plugin-ledger --test rules`, four tests that
+expected "rule <name> failed:" and "generator <name> failed:" for option errors the sweep made
+configuration errors, which the SDK names without "failed"; fixed in `7fbcb61`. Every other
+target passed, the new end-to-end tests included. `rustfmt --edition 2024 --check` on every
+changed `.rs` file exits 0 before the next round.
