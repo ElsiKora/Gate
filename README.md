@@ -14,8 +14,9 @@
 </p>
 
 > [!NOTE]
-> `v0.1.0` is the first release: the core, the plugin runtime, the Rust SDK, the launcher and seven
-> shared plugins. What changes from one release to the next is in the [changelog](CHANGELOG.md).
+> `v0.2.0` is the current release: the core, the plugin runtime, the Rust SDK, the launcher and
+> seven shared plugins. What changes from one release to the next is in the
+> [changelog](CHANGELOG.md).
 
 ## 💡 Highlights
 
@@ -285,8 +286,16 @@ git add gate.lock .githooks
 bin/gate check                # check the working tree
 ```
 
-Then commit the files you added. The `commit-msg` hook checks the message being written, before the
-commit exists: its form (`git/commit-message`) and no CI-skip directive (`git/no-ci-skip`).
+Then commit the files you added:
+
+```bash
+git commit -m "chore(gate): add gate"
+```
+
+The `commit-msg` hook checks the message being written, before the commit exists: its form
+`<type>(<scope>): <subject>` (`git/commit-message`, where a scope is required by default; the
+[rule page](plugins/git/rules/commit-message.md) explains how to change that) and no CI-skip
+directive (`git/no-ci-skip`).
 
 The [getting started guide](docs/guide/getting-started.md) walks through it.
 
@@ -348,7 +357,12 @@ bin/gate lock                               # pin the plugins the new files name
 git add gate.lock
 bin/gate list --origin                      # projects, plugins and rules, and where each came from
 bin/gate check --changed --base origin/main # only the projects a change touches, and their dependents
+git commit -m "chore(gate): add gate"
 ```
+
+Once `gate sync` wires the hooks, the `commit-msg` hook checks `<type>(<scope>): <subject>`, a scope
+is required by default, and the [rule page](plugins/git/rules/commit-message.md) explains how to
+change that.
 
 The [monorepo guide](docs/guide/monorepo.md) covers discovery, ownership, profiles and change
 selection.

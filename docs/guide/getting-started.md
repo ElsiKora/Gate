@@ -147,17 +147,21 @@ budget = 10
 ```bash
 bin/gate sync
 git add gate.toml .githooks
+git commit -m "chore(gate): add gate"
 ```
 
 `gate sync` writes the hooks into `.githooks/` and sets `core.hooksPath` once for the clone; every
-worktree of the clone shares it. Commit `.githooks/`. The hooks call `bin/gate`, so every developer runs
-the pinned version; they never skip themselves on an environment variable. A hook may also run one of
-your steps, for example `run format` to check the staged files. `budget` makes a hook that takes longer
-than 10 seconds warn. On a fresh clone, `bin/gate doctor` tells you when `gate sync` has not run yet.
+worktree of the clone shares it, and the commit adds `.githooks/`. The hooks call `bin/gate`, so
+every developer runs the pinned version; they never skip themselves on an environment variable. A
+hook may also run one of your steps, for example `run format` to check the staged files. `budget`
+makes a hook that takes longer than 10 seconds warn. On a fresh clone, `bin/gate doctor` tells you
+when `gate sync` has not run yet.
 
 The `commit-msg` hook checks the message being written, before the commit exists: with the rules
 above, `git/commit-message` checks its form and `git/no-ci-skip` refuses a CI-skip directive in it.
-Its summary says so: `gate check (tree, commit message): ...`.
+Its summary says so: `gate check (tree, commit message): ...`. The form is
+`<type>(<scope>): <subject>`, a scope is required by default, and the
+[rule page](../../plugins/git/rules/commit-message.md) explains how to change that.
 
 ## 6. Add the CI Job
 
@@ -175,15 +179,17 @@ run = ["check --push --format github"]
 ```bash
 bin/gate sync
 git add gate.toml .github/workflows/gate.yml
+git commit -m "chore(gate): add the CI job"
 ```
 
-`gate sync` writes the workflow file; commit it. `checkout` pins the checkout action by its full commit
-id. The workflow's generated first job runs `gate sync --check`, which fails when the hooks or the
-workflow drift from `gate.toml`, and lists the projects the change touches. In a job, `--push` takes no
-value: the job passes the pull request's or the push's range. Generated `check` commands run with
-`--no-overrides`, so no plugin can be swapped in CI, and, when the job sets `budget = <seconds>`, with
-`--budget <seconds> --budget-fails`, so a run over it fails. With `--format github` findings show as
-annotations on the pull request; with `--format sarif` you can upload them to code scanning.
+`gate sync` writes the workflow file, and the commit adds it. `checkout` pins the checkout action by
+its full commit id. The workflow's generated first job runs `gate sync --check`, which fails when
+the hooks or the workflow drift from `gate.toml`, and lists the projects the change touches. In a
+job, `--push` takes no value: the job passes the pull request's or the push's range. Generated
+`check` commands run with `--no-overrides`, so no plugin can be swapped in CI, and, when the job
+sets `budget = <seconds>`, with `--budget <seconds> --budget-fails`, so a run over it fails. With
+`--format github` findings show as annotations on the pull request; with `--format sarif` you can
+upload them to code scanning.
 
 ## Next Steps
 
