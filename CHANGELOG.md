@@ -17,6 +17,14 @@ Each shared plugin keeps its own changelog next to its code.
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run
   `gate sync`.
 
+### Performance
+
+- **runtime:** a plugin's listing of a prefix (`Tree::contains`, `Tree::under`) is a binary search
+  of the sorted snapshot instead of a scan of every tracked path: a probe takes the search and the
+  paths that start with it. The answers and the recorded read set are unchanged, and plugins
+  built for 0.2.0 get it without a rebuild. A prefix that can match the `../` form of a read path
+  outside the project still lists by a scan.
+
 ### Documentation
 
 - **docs:** upgrading a baseline written by 0.1.0. A finding of a project below the repository root

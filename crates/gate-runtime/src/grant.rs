@@ -156,6 +156,62 @@ impl Grant {
         parts.extend(path.split('/').skip(common));
         parts.join("/")
     }
+
+    /// The listing of the plugin prefix `prefix` over `paths`, the snapshot's tracked paths sorted:
+    /// the granted paths whose plugin form starts with `prefix`, in plugin form and sorted, with
+    /// the number of steps it took (paths examined and binary-search steps).
+    ///
+    /// A path inside the root is `<root>/<plugin form>`, so the listing is the range of `paths`
+    /// that starts with `<root>/<prefix>`, found by a binary search; each path in it still passes
+    /// the grant and prefix checks. Only a prefix that can match the `..` form of a read path
+    /// outside the root lists by a scan of every path.
+    #[must_use]
+    pub fn list(&self, paths: &[String], prefix: &str) -> (Vec<String>, usize) {
+        let Some(start) = self.range_start(prefix) else {
+            return self.scan(paths, prefix);
+        };
+        let first = paths.partition_point(|path| path.as_str() < start.as_str());
+        let search =
+            usize::try_from(usize::BITS - paths.len().leading_zeros()).unwrap_or(usize::MAX);
+        let mut examined = 0;
+        let listed = paths[first..]
+            .iter()
+            .inspect(|_| examined += 1)
+            .take_while(|path| path.starts_with(start.as_str()))
+            .filter(|path| self.allows(path))
+            .map(|path| self.to_plugin(path))
+            .filter(|path| path.starts_with(prefix))
+            .collect();
+        (listed, search + examined)
+    }
+
+    /// [`Grant::list`] by a scan of every path, the only way to find the `..` forms of read paths
+    /// outside the root.
+    #[must_use]
+    pub fn scan(&self, paths: &[String], prefix: &str) -> (Vec<String>, usize) {
+        let mut listed: Vec<String> = paths
+            .iter()
+            .filter(|path| self.allows(path))
+            .map(|path| self.to_plugin(path))
+            .filter(|path| path.starts_with(prefix))
+            .collect();
+        listed.sort();
+        (listed, paths.len())
+    }
+
+    /// The repository string every path a listing of `prefix` answers starts with: `None` when
+    /// `prefix` can match the `..` form of a read path outside the root (`""`, `.`, `..`, `../`
+    /// and what follows it), which only a scan finds.
+    fn range_start(&self, prefix: &str) -> Option<String> {
+        if self.root.is_empty() {
+            return Some(prefix.to_owned());
+        }
+        let outside = self.reads.iter().any(|read| !within(read, &self.root));
+        if outside && ("../".starts_with(prefix) || prefix.starts_with("../")) {
+            return None;
+        }
+        Some(format!("{}/{prefix}", self.root))
+    }
 }
 
 /// Whether `path` is `directory` or below it; everything is below the empty directory.
@@ -234,6 +290,125 @@ fn normalize(path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{Grant, has_git_segment, is_core_path, is_relative_glob, owns_everything};
+
+    /// Synthetic tracked paths, sorted, with siblings of `apps/api` that sort just before
+    /// (`apps/api-old`, `apps/api.d`) and just after (`apps/api2`) its subtree.
+    fn tracked() -> Vec<String> {
+        let mut paths: Vec<String> = [
+            ".github/workflows/ci.yml",
+            "README.md",
+            "apps/api-old/src/main.ts",
+            "apps/api.d/x",
+            "apps/api/..foo",
+            "apps/api/.github/a.yml",
+            "apps/api/a/b",
+            "apps/api/package.json",
+            "apps/api/package.json5",
+            "apps/api/src/main.ts",
+            "apps/api/src/server.ts",
+            "apps/api/srcs/x.ts",
+            "apps/api2/src/main.ts",
+            "apps/web/src/main.ts",
+            "docs/ledger/a.md",
+            "docs/ledgers/b.md",
+            "docs/other.md",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn a_listing_answers_what_a_scan_of_every_path_answers() {
+        let paths = tracked();
+        let grants = [
+            ("the repository", Grant::repository()),
+            ("a nested root", Grant::new("apps/api", &[])),
+            ("a parent root", Grant::new("apps", &[])),
+            (
+                "a root with a read path inside it",
+                Grant::new("apps/api", &["apps/api/src".to_owned()]),
+            ),
+            (
+                "a root with read paths outside it",
+                Grant::new(
+                    "apps/api",
+                    &["docs/ledger".to_owned(), ".github".to_owned()],
+                ),
+            ),
+        ];
+        let prefixes = [
+            "",
+            "src",
+            "src/",
+            "sr",
+            ".github/",
+            ".",
+            "..",
+            "../",
+            "../../docs/le",
+            "../../.github/",
+            "./x",
+            "a/../b",
+            "..f",
+            "package.json",
+            "api",
+            "api2",
+            "apps/api",
+            "apps/api/",
+            "../api2",
+        ];
+        for (name, grant) in &grants {
+            for prefix in prefixes {
+                assert_eq!(
+                    grant.list(&paths, prefix).0,
+                    grant.scan(&paths, prefix).0,
+                    "{name}, prefix {prefix:?}"
+                );
+            }
+        }
+
+        // The cases the table must cover answer something, so equal answers are not empty ones.
+        let nested = Grant::new("apps/api", &[]);
+        assert_eq!(
+            nested.list(&paths, "src").0,
+            ["src/main.ts", "src/server.ts", "srcs/x.ts"]
+        );
+        assert_eq!(nested.list(&paths, "").0.len(), 8);
+        assert_eq!(Grant::repository().list(&paths, "").0, paths);
+        let outside = &grants[4].1;
+        assert_eq!(
+            outside.list(&paths, "../../docs/le").0,
+            ["../../docs/ledger/a.md"]
+        );
+        assert_eq!(outside.list(&paths, "").0.len(), 10);
+    }
+
+    #[test]
+    fn a_probe_examines_the_paths_that_start_with_it_not_the_tree() {
+        let mut paths: Vec<String> = (0..20_000)
+            .map(|index| format!("apps/app{}/src/file{index}.ts", index % 40))
+            .collect();
+        paths.sort();
+        let grant = Grant::new("apps/app7", &["docs/ledger".to_owned()]);
+        let probes: Vec<String> = (0..1_000)
+            .map(|index| format!("src/file{}.ts", 7 + 40 * (index % 500)))
+            .collect();
+
+        let (mut listed, mut scanned) = (0, 0);
+        for probe in &probes {
+            let (answer, steps) = grant.list(&paths, probe);
+            assert!(answer.contains(probe), "{probe}");
+            listed += steps;
+            scanned += grant.scan(&paths, probe).1;
+        }
+        println!("1000 probes of 20000 paths: listing {listed} steps, scan {scanned} paths");
+        assert_eq!(scanned, 1_000 * 20_000);
+        // A probe takes the binary search (15 steps) and the few paths that start with it.
+        assert!(listed <= 1_000 * 32, "{listed}");
+    }
 
     #[test]
     fn project_grant_maps_and_refuses() {

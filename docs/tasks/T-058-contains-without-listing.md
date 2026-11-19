@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead |
+| Status | in progress |
 | Release | v0.2.1 (core only; no interface, SDK or plugin change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
@@ -69,11 +69,14 @@ Two other designs are out, because each one breaks a constraint:
    whether the fast path applies.
 2. An equivalence test compares the fast answer with the scan, and the read set with the one the
    scan records, over this table:
-   - grants: the repository root, a nested root, a root with a read path inside it, and a root with
-     read paths outside it;
-   - prefixes: `""`, `src`, `src/`, `sr`, `.github/`, `.`, `..`, `../`, `../../docs/le`, `./x`,
-     `a/../b`, a path equal to a file, and a path equal to the root's sibling (`apps/api2` beside
-     `apps/api`).
+   - grants: the repository root, a nested root, a parent root, a root with a read path inside it,
+     and a root with read paths outside it; each path in the range still passes the grant check.
+     A grant has no exclusion (`allows` is "inside the root or a read path"), so no path inside
+     `<root>/` can be refused; the nearest case, siblings that sort just before and just after the
+     root's range (`apps/api-old`, `apps/api.d`, `apps/api2`), is in the table;
+   - prefixes: `""` (also from the repository root), `src`, `src/`, `sr`, `.github/`, `.`, `..`,
+     `../`, `../../docs/le`, `../../.github/`, `./x`, `a/../b`, `..f`, a path equal to a file, and
+     the root's siblings (`api`, `api2`, `apps/api`, `../api2`).
 3. A count, not a time: a runtime test counts the snapshot paths examined for 1,000 `contains`
    probes on a synthetic tree of 20,000 paths. Today that is all paths per probe; after the change
    it is at most the matching paths plus the search steps. The test asserts the bound and prints
@@ -93,4 +96,8 @@ fixture (`Fixture::list` filters a `BTreeMap`, which costs the native tests only
 
 ## Resume point
 
-2026-11-19T19:19:38+00:00: the design is written; waiting for the lead's approval before code.
+2026-11-19T19:22:42+00:00: the lead approved the design (the `../` prefixes keep the scan, each path in the
+range passes the grant check, the table covers a root's neighbours and the repository root with
+`""`). `Grant::list` and `Grant::scan`, the runtime's `paths` over them, the two tests and the
+CHANGELOG are committed; not compiled yet. Next: one lane round after tickets 219 and 232, with
+each change taken out.
