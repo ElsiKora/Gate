@@ -972,7 +972,7 @@ fn a_project_scope_rule_that_declares_the_message_does_not_load() {
     let runtime = runtime(Config::default());
     let component = probe_with("message-in-project");
     let error = runtime
-        .load("other", &component)
+        .load("other", component)
         .expect_err("the message belongs to the repository");
     assert_eq!(error.kind(), ErrorKind::Load, "{error}");
     assert!(
