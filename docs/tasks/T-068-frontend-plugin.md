@@ -165,7 +165,7 @@ src/
   anywhere else.
 - **Styles**: one global stylesheet in `src/app/`; any other stylesheet is a CSS module beside the
   component of the same name (`user-card.module.css` beside `user-card.tsx`). Which styling tool
-  (Tailwind, Sass) is the toolchain's choice (T-065), not a rule here.
+  (Tailwind, Sass) is the project's choice; `frontend/packages` holds it to one.
 - **Tests and stories** sit beside what they test: `user-card.test.tsx` and `user-card.stories.tsx`
   beside `user-card.tsx`.
 - **TypeScript only**: no `.js`, `.jsx`, `.mjs` or `.cjs` under `src/`.
@@ -178,12 +178,12 @@ cells below. A cell differs only because the framework itself works that way.
 | Subject | `react-vite` | `nextjs` | `react-library` | Reason |
 | --- | --- | --- | --- | --- |
 | Entry | `index.html` loads `src/main.tsx` | none of the app's own; Next.js starts from `src/app/layout.tsx` | `src/index.ts` | Each tool's own entry. |
-| Route files | `src/app/routes/`, TanStack Router file routes (`__root.tsx`, `index.tsx`, `$id.tsx`, `route.tsx`), each exporting `Route` | `src/app/` itself, Next.js special files (`page`, `layout`, `loading`, `error`, `not-found`, `template`, `default`, `route`, `global-error` and the metadata files), each with its default export | none | Next.js routes from `src/app/` and requires default exports; a Vite app picks its router, and file routes are the form that makes the route folder look like Next's. The router package itself is the toolchain's choice (T-065). |
+| Route files | `src/app/routes/`, TanStack Router file routes (`__root.tsx`, `index.tsx`, `$id.tsx`, `route.tsx`), each exporting `Route` | `src/app/` itself, Next.js special files (`page`, `layout`, `loading`, `error`, `not-found`, `template`, `default`, `route`, `global-error` and the metadata files), each with its default export | none | Next.js routes from `src/app/` and requires default exports; a Vite app picks its router, and file routes are the form that makes the route folder look like Next's. `frontend/route-config` checks the generator's folders, `frontend/packages` the router package. |
 | Other files allowed in `src/` root | `main.tsx`, `vite-env.d.ts` | `middleware.ts` (or `proxy.ts` from Next.js 16), `instrumentation.ts` | `index.ts` | Files the framework looks up by name. |
 | Folder names in the route folder | kebab-case, `$param`, `_pathless`, `(group)` | kebab-case, `[param]`, `[...rest]`, `(group)`, `@slot` | none | Each router's syntax. |
 | Environment syntax | `import.meta.env.VITE_*` | `process.env.NEXT_PUBLIC_*` in `env.ts`; any key in `server-env.ts`, which starts with `import "server-only"` | no read at all | Vite exposes `VITE_` keys through `import.meta.env`; Next.js inlines `NEXT_PUBLIC_` keys and keeps the rest on the server. A library is configured by its caller. |
 | Client components | n/a | `"use client"` only in `ui` and `model` segments and `src/app/` providers; never in a route file | n/a | Only Next.js has server components; a client route file loses server data loading and `metadata`. |
-| Translation binding | `react-i18next` (`useTranslation`, `t`) | `next-intl` (`useTranslations`, `getTranslations`, `t`) | the library's own `i18n/` messages, taken through its props | The rule that checks message keys must know how `t` is bound; each framework has one library that works with its rendering (next-intl with server components). Which package is installed is T-065's. |
+| Translation binding | `react-i18next` (`useTranslation`, `t`) | `next-intl` (`useTranslations`, `getTranslations`, `t`) | the library's own `i18n/` messages, taken through its props | The rule that checks message keys must know how `t` is bound; each framework has one library that works with its rendering (next-intl with server components). `frontend/packages` checks that it is the one installed. |
 | Layers | `app`, `widgets`, `features`, `entities`, `shared` | the same | shared segments only | A library has no pages, flows or business objects of an app. |
 
 ## 4. The plugin
@@ -248,6 +248,9 @@ Every finding that embeds a path or a name carries a key, so a reworded message 
 | `frontend/route-files` | in the route folder of the pack, a file that is not a route file of its router (components, hooks, helpers belong to layers); a route file without its required export | A route folder that holds only routes reads as the app's map. | `foreign`, `export` | none |
 | `frontend/client-boundary` | Next.js only: `"use client"` in a route file, or in a file outside the `ui` and `model` segments and `src/app/` providers | A route file stays a server component so its data loads on the server and it can export `metadata`. | `route-file`, `placement` | none |
 | `frontend/colocated-files` | a `.test` or `.stories` file without a source file of the same base name in its folder | Tests and stories move with their code. | none | none |
+| `frontend/import-alias` | `tsconfig.json` (JSON with comments) without the `paths` entry `"@/*": ["./src/*"]`, or with another alias; when `vite.config.*` exists, no `@` alias to `src/` in its `resolve.alias` (object or `{ find, replacement }` form) and no `vite-tsconfig-paths` plugin | `import-paths` holds code to `@/`; this is the alias it relies on, in the type checker and in the bundler. | `tsconfig`, `vite` | none |
+| `frontend/route-config` | `react-vite` only: `vite.config.*` without the `TanStack` Router plugin (`tanstackRouter` or `TanStackRouterVite` of `@tanstack/router-plugin/vite`), or with a `routesDirectory` other than `./src/app/routes` or a `generatedRouteTree` other than `./src/app/route-tree.gen.ts` (a missing option is the plugin's default, which is not ours) | The route folder of section 3 is where the generator looks only if the plugin says so. | `plugin`, `routes-directory`, `route-tree` | none |
+| `frontend/packages` | `package.json` `dependencies` and `devDependencies` naming two tools of one job (HTTP client, store, router, translation, styling), or a router or translation library other than the pack's (decisions 4 and 5) | One package per job is what makes a slice read the same in every project. | `job`, `pack` | `jobs`: each job with its tools, a tool being one or more packages (emotion is `@emotion/react` and `@emotion/styled`); the defaults are on the rule's page |
 
 Each rule gets a page under `plugins/frontend/rules/` in the form of the `nestjs` pages: what it
 checks and why, scope, language, aspects, target grammar, options, an example finding, how to fix it,
@@ -261,12 +264,14 @@ and for which packs it runs.
   the `model` segments, API access is `shared/api`; `docs/modules/` holds a chapter per slice, which
   is "a part of the code with an owner". T-062 lists libraries as not covered; `react-library` is
   the same gap on this side, so the owner may want both decided together.
-- **T-065 (toolchain).** T-065 owns `package.json`, `tsconfig.json`, `vite.config.*`,
-  `next.config.*`, ESLint and Prettier. `frontend` needs three things from it and checks none of
-  them: the tsconfig `paths` entry `"@/*": ["./src/*"]` and the same alias in `vite.config.*`; one
-  package per job in `package.json` (one HTTP client, one store library, one router, one translation
-  library, one styling tool); and no ESLint rule that repeats a rule here (boundaries between layers,
-  filename case, `no-default-export`, literal strings), so a finding is reported once.
+- **T-065 (toolchain).** T-065 owns the generic toolchain: `package.json` scripts and engines,
+  `tsconfig.json` compiler settings, `next.config.*`, ESLint and Prettier. It checks nothing this
+  plugin checks. The three frontend parts of those files are this plugin's (decision 10), read
+  through the plugin interface: the `@/*` alias in `tsconfig.json` and `vite.config.*`
+  (`frontend/import-alias`), the `TanStack` Router plugin's folders in `vite.config.*`
+  (`frontend/route-config`), and one package per job in `package.json` (`frontend/packages`).
+  `node/linter` neither requires nor forbids any FSD or i18n ESLint option: boundaries, case and
+  literal text are this plugin's, so each finding is reported once.
 - **T-066 (docker and hygiene).** T-066 owns tracked files that must not be tracked (four projects
   track a `.env` other than an example; one tracks build output) and secret shapes. `frontend` owns
   only where source reads the environment. If T-066 adds an inventory of environment keys, it can
@@ -299,6 +304,9 @@ good one.
 | `route-files` | the special files of each router | `src/app/(dashboard)/table.tsx` in Next; a hook in `src/app/routes/`; a TanStack route file without `Route` |
 | `client-boundary` | `"use client"` in `ui/` and in `src/app/providers.tsx` | `"use client"` in `page.tsx` and `layout.tsx`; in `shared/lib/format.ts`; nothing is reported for `react-vite` |
 | `colocated-files` | `card.test.tsx` beside `card.tsx` | `card.stories.tsx` alone |
+| `import-alias` | `paths` `@/*` in `tsconfig.json` with comments; Vite `resolve.alias` `@` to `path.resolve(__dirname, "./src")`, and the array form; `vite-tsconfig-paths`; a library without `vite.config.*` | no `paths`; `@/*` to `./app/*`; a second alias `~/*`; a Vite config with no `@` alias |
+| `route-config` | the plugin with both folders, as `tanstackRouter` and `TanStackRouterVite` | no plugin; `routesDirectory: "./src/routes"`; no `generatedRouteTree`; nothing is reported for `nextjs` and `react-library` |
+| `packages` | one of each job; `i18next` beside `react-i18next`; `@emotion/react` beside `@emotion/styled` | `axios` and `ky`; `zustand` and `@reduxjs/toolkit`; `react-router-dom` in `react-vite`; `react-i18next` in `nextjs`; a custom `jobs` table |
 
 Plus: the configuration error for a missing and an unknown `pack`; a rule run with options of a wrong
 type; one end-to-end check through the built component on a synthetic tree of each pack, run through
@@ -312,7 +320,9 @@ the lane like every build.
    only), with their fixtures and pages.
 3. The import rules, then names, state, API and environment, then text and messages, then the
    Next.js-only and placement rules. One lane round at each green checkpoint.
-4. `docs/architecture.md` section 13 and `docs/guide/plugins.md` name the plugin; `CHANGELOG.md`
+4. The toolchain rules of decision 10: `import-alias`, `route-config`, `packages`, their pages and
+   both presets, once the lead says their code may start.
+5. `docs/architecture.md` section 13 and `docs/guide/plugins.md` name the plugin; `CHANGELOG.md`
    (0.3.0, Added).
 
 ## Decided
@@ -333,6 +343,11 @@ The lead approved the design at `6ebd2b0` for code in v0.3.0 and answered the op
    `src/shared/config/env.ts` and, in Next.js, `src/shared/config/server-env.ts`.
 9. **Next.js route files are server components**: `"use client"` belongs in the `ui` (and `model`)
    segments; an existing app with client route files sees them through the `adoption` preset.
+10. **The frontend parts of the toolchain files are this plugin's** (ruling after T-065's question):
+    the `@/*` alias in `tsconfig.json` and `vite.config.*`, the `TanStack` Router folders in
+    `vite.config.*`, and one package per job in `package.json`, each a rule with pass and fail
+    tests and a place in both presets (`import-alias`, `route-config`, `packages`). T-065 checks
+    none of them and owns the generic toolchain only.
 
 ## Done when
 
