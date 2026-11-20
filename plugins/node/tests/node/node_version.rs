@@ -49,18 +49,17 @@ fn the_version_file_holds_one_exact_version() {
 
 #[test]
 fn the_root_range_admits_the_version_and_no_earlier_major() {
-    assert_eq!(
-        run("24.11.0\n", ">=22", &[]),
-        ["engines package.json:3 engines.node"]
-    );
-    assert_eq!(
-        run("24.11.0\n", ">=25", &[]),
-        ["engines package.json:3 engines.node"]
-    );
-    assert_eq!(
-        run("24.11.0\n", "latest", &[]),
-        ["engines package.json:3 engines.node"]
-    );
+    // The member keeps `>=24.11.0 <25`, so a changed root range also differs from it.
+    for range in [">=22", ">=25", "latest"] {
+        assert_eq!(
+            run("24.11.0\n", range, &[]),
+            [
+                "engines package.json:3 engines.node",
+                "differs apps/a/package.json:3 engines.node"
+            ],
+            "{range}"
+        );
+    }
     let below = Fixture::new(
         "service",
         &[(".nvmrc", "24.11.0"), ("package.json", &root(">=22"))],
