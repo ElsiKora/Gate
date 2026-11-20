@@ -146,9 +146,9 @@ fn module_resolution_is_the_kinds() {
         owner(inherits),
         ["resolution tsconfig.json moduleResolution"]
     );
-    let bundled =
+    let explicit =
         resolved("ESNext", "Bundler").replace("../../tsconfig.base.json", "./tsconfig.base.json");
-    assert_eq!(owner(&bundled), Vec::<String>::new());
+    assert_eq!(owner(&explicit), Vec::<String>::new());
 }
 
 #[test]
