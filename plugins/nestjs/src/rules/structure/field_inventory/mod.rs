@@ -206,7 +206,6 @@ impl Names {
                         "{}configuration/",
                         folder_prefix(&layout.infrastructure_folder)
                     ),
-                    format!("{}lib/config/", folder_prefix(&layout.cdk_root)),
                 ]
             }),
         }

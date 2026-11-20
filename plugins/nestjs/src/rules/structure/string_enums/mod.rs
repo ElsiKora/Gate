@@ -140,13 +140,7 @@ fn files<'s>(
     layout: &Layout,
     settings: &Settings,
 ) -> Vec<&'s str> {
-    let mut roots = vec![layout.source_root.clone(), layout.test_root.clone()];
-    roots.extend(
-        layout
-            .cdk_code_folders
-            .iter()
-            .map(|folder| format!("{}{folder}", folder_prefix(&layout.cdk_root))),
-    );
+    let roots = [layout.source_root.clone(), layout.test_root.clone()];
     let mut files: Vec<&str> = roots
         .iter()
         .flat_map(|root| tree::typescript_files(source, root, settings))

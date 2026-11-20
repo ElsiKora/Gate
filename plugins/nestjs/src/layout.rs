@@ -65,10 +65,6 @@ pub struct Layout {
     pub modules_root: String,
     /// The infrastructure owner below the source root.
     pub infrastructure_folder: String,
-    /// The infrastructure-as-code project.
-    pub cdk_root: String,
-    /// The folders of the infrastructure-as-code project that hold its code.
-    pub cdk_code_folders: Vec<String>,
     /// The top-level owners below the source root, each reached through its alias.
     pub source_owners: Vec<String>,
     /// Import aliases: an alias matches a specifier that equals it or starts with it and a `/`,
@@ -136,10 +132,6 @@ pub struct LayoutInput {
     pub modules_root: Option<String>,
     /// The infrastructure owner below the source root; `<source-root>/infrastructure` when not set.
     pub infrastructure_folder: Option<String>,
-    /// The infrastructure-as-code project.
-    pub cdk_root: String,
-    /// The folders of the infrastructure-as-code project that hold its code.
-    pub cdk_code_folders: Vec<String>,
     /// The top-level owners below the source root, each reached through its alias.
     pub source_owners: Vec<String>,
     /// Import aliases: an alias matches a specifier that equals it or starts with it and a `/`,
@@ -252,8 +244,6 @@ impl Default for LayoutInput {
             scripts_root: "scripts".to_owned(),
             modules_root: None,
             infrastructure_folder: None,
-            cdk_root: "infrastructure/cdk".to_owned(),
-            cdk_code_folders: strings(&["bin", "lib", "scripts"]),
             source_owners,
             path_aliases: None,
             module_planes: strings(&["domain", "integration", "internal", "public"]),
@@ -332,8 +322,6 @@ impl From<LayoutInput> for Layout {
             source_root: input.source_root,
             test_root: input.test_root,
             scripts_root: input.scripts_root,
-            cdk_root: input.cdk_root,
-            cdk_code_folders: input.cdk_code_folders,
             source_owners: input.source_owners,
             module_planes: input.module_planes,
             domain_folder: input.domain_folder,
@@ -384,16 +372,10 @@ impl Layout {
             ("scripts-root", &self.scripts_root),
             ("modules-root", &self.modules_root),
             ("infrastructure-folder", &self.infrastructure_folder),
-            ("cdk-root", &self.cdk_root),
         ] {
             paths::check(&format!("layout.{key}"), folder, Form::Folder)?;
         }
 
-        paths::check_all(
-            "layout.cdk-code-folders",
-            &self.cdk_code_folders,
-            Form::Folder,
-        )?;
         paths::check("layout.domain-folder", &self.domain_folder, Form::Name)?;
 
         for (key, names) in [

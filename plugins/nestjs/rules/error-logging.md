@@ -54,7 +54,7 @@ Scope: project. Language: `typescript`. Reads history: no. Aspects: `logger-erro
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `roots` | list of paths | `layout.source-root` and each `layout.cdk-code-folders` folder of `layout.cdk-root` | The folders of production code. |
+| `roots` | list of paths | `layout.source-root` | The folders of production code. |
 | `logger-class` | string | `"Logger"` | The native logger class. |
 | `logger-method` | string | `"error"` | The logger's error method. |
 | `evidence-formatter` | string | `"FormatErrorEvidenceForLog"` | The evidence formatter. |

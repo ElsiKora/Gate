@@ -81,16 +81,12 @@ impl Rule<crate::Nest> for DeclarationFiles {
             let typescript = shared.typescript()?;
             let settings = typescript.settings();
             let files = tree::distinct(
-                tree::typescript_files(source, &layout.source_root, settings)
-                    .chain(
-                        tree::typescript_files(source, &layout.test_root, settings).filter(
-                            |path| {
-                                tree::is_test_support(&layout, path)
-                                    || tree::is_test_scenario(&layout, path)
-                            },
-                        ),
-                    )
-                    .chain(tree::typescript_files(source, &layout.cdk_root, settings)),
+                tree::typescript_files(source, &layout.source_root, settings).chain(
+                    tree::typescript_files(source, &layout.test_root, settings).filter(|path| {
+                        tree::is_test_support(&layout, path)
+                            || tree::is_test_scenario(&layout, path)
+                    }),
+                ),
             );
 
             for path in files {

@@ -197,7 +197,7 @@ impl Rule<crate::Nest> for AssetStorage {
         "Public assets are admitted centrally and stored only through the S3 adapter";
     const ASPECTS: &'static [&'static str] = &[
         "central-admission",
-        "cloudfront-cdk-only",
+        "cloudfront-infrastructure-only",
         "domain-storage-access",
         "persisted-image-key",
         "s3-adapter-required",
@@ -244,7 +244,7 @@ impl Rule<crate::Nest> for AssetStorage {
 fn help(aspect: &str) -> &'static str {
     match aspect {
         "persisted-image-key" => "persist the asset's key, with a name ending in the key suffix",
-        "cloudfront-cdk-only" => "manage the CDN in the infrastructure-as-code project",
+        "cloudfront-infrastructure-only" => "manage the CDN in the infrastructure-as-code project",
         "s3-sdk-placement" => "use the S3 SDK only through the infrastructure adapter",
         "s3-adapter-required" => "add the S3 adapter of the public-asset infrastructure",
         "s3-policy-constant" => "keep the S3 policy constants in their constant file",
@@ -410,11 +410,14 @@ impl<'a> Assets<'_, 'a> {
 
             if loads(&tokens, &self.options.cloudfront_package) {
                 findings.push_keyed(
-                    "cloudfront-cdk-only",
+                    "cloudfront-infrastructure-only",
                     path,
                     None,
                     "import",
-                    format!("{path} imports CloudFront at runtime; CloudFront is CDK-only"),
+                    format!(
+                        "{path} imports CloudFront at runtime; CloudFront belongs to the \
+                         infrastructure-as-code project"
+                    ),
                 );
             }
 

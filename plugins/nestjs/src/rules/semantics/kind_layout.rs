@@ -82,7 +82,7 @@ impl Default for Options {
             lifecycle_subscriber_prefixes: strings(&["on-after-", "on-before-"]),
             unit_root: "test/unit".to_owned(),
             unit_categories: strings(&["api", "fixture", "scripts"]),
-            unit_exempt_prefixes: strings(&["test/unit/infrastructure/cdk/"]),
+            unit_exempt_prefixes: Vec::new(),
         }
     }
 }

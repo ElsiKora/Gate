@@ -71,7 +71,7 @@ Scope: project. Language: `typescript`. Reads history: no. Aspects: `classificat
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `fields` | list of entries | `[]` | The classified fields (below). |
-| `contract-roots` | list of path prefixes | `layout.source-root` + `/config/runtime-config/`, `layout.infrastructure-folder` + `/configuration/`, `layout.cdk-root` + `/lib/config/` | Where configuration and secret contracts live. |
+| `contract-roots` | list of path prefixes | `layout.source-root` + `/config/runtime-config/`, `layout.infrastructure-folder` + `/configuration/` | Where configuration and secret contracts live. |
 | `text-column-types` | list of strings | `bpchar`, `char`, `character`, `character varying`, `citext`, `hstore`, `json`, `jsonb`, `longtext`, `mediumtext`, `nchar`, `nvarchar`, `simple-array`, `simple-json`, `string`, `text`, `tinytext`, `varchar`, `xml` | Column types that hold text or JSON. |
 | `code-formats` | map of format to code kind | `COUNTRY_CODE_ALPHA2`: `ISO_3166_ALPHA2`, `CURRENCY_CODE`: `ISO_4217`, `LANGUAGE_CODE_ISO639` and `LOCALE`: `ISO_639_1` | Automator formats that make a field a code. |
 | `machine-formats` | list of strings | the 38 Automator formats that admit no free text, from `API_KEY` to `UUID` | Formats that make a field no text. |

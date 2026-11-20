@@ -41,8 +41,6 @@ folders derive from them the same way when they are not set; each rule's page sa
 | `source-root` | folder | `"src"` | The application source root. |
 | `test-root` | folder | `"test"` | The test root. |
 | `scripts-root` | folder | `"scripts"` | The folder of repository scripts. |
-| `cdk-root` | folder | `"infrastructure/cdk"` | The infrastructure-as-code project. |
-| `cdk-code-folders` | list of folders | `["bin", "lib", "scripts"]` | The folders of the infrastructure-as-code project that hold its code. |
 | `source-owners` | list of names | `["common", "config", "infrastructure", "migration", "modules", "runtime", "shared"]` | The top-level owners below the source root. |
 | `module-planes` | list of names | `["domain", "integration", "internal", "public"]` | The planes a module divides into. |
 | `domain-folder` | name | `"domain"` | The plane that holds a module's domain. |
@@ -67,14 +65,11 @@ folders derive from them the same way when they are not set; each rule's page sa
 
 ## The skip list
 
-The plugin has no skip list of its own. A walk that skips folders, the infrastructure-as-code
-project's included, skips a file in a folder that `[languages.typescript] skip-folders` names; a
-folder is listed only when it holds a file that is not skipped. Entries match the way `.gitignore`
-does: a name without `/` at any depth, an entry with `/` from the project root. The language's default
-is `.git`, `node_modules`, `/build`, `/coverage` and `/dist`; see `[languages]` in the configuration
-guide. The walk of the infrastructure-as-code project below `cdk-root` skips the same list; its
-build output (`cdk.out`) is skipped only when the list names it, as `infrastructure/cdk/cdk.out` or
-`cdk.out`, so a project that tracks it puts it there. Four walks skip no folder, and their pages say
+The plugin has no skip list of its own. A walk that skips folders skips a file in a folder that
+`[languages.typescript] skip-folders` names; a folder is listed only when it holds a file that is not
+skipped. Entries match the way `.gitignore` does: a name without `/` at any depth, an entry with `/`
+from the project root. The language's default is `.git`, `node_modules`, `/build`, `/coverage` and
+`/dist`; see `[languages]` in the configuration guide. Four walks skip no folder, and their pages say
 so: `asset-storage`, the `advisory-lock-manifest` markers, the files below `modules-root` that
 `automator-metadata` reads for its inventories, and `error-logging`.
 

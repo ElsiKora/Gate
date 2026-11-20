@@ -17,7 +17,7 @@ planes are the other `layout.module-planes`.
   `layout.typeorm-column-decorators` imported from `layout.typeorm-package` (by name, alias or namespace),
   whose name `image-name-pattern` matches and `image-key-suffix` does not. Reported at its first
   decorator.
-- `#cloudfront-cdk-only`: a file below `layout.source-root` loads `cloudfront-package` or a subpath.
+- `#cloudfront-infrastructure-only`: a file below `layout.source-root` loads `cloudfront-package` or a subpath.
 - `#s3-sdk-placement`: a file below `layout.source-root`, outside `layout.infrastructure-folder`, loads
   `s3-package` or a subpath.
 
@@ -42,7 +42,7 @@ Findings other than the two noted are reported at the file. Two identical findin
 A file that cannot be parsed is skipped; `typescript/parse` reports it.
 
 Scope: project. Language: `typescript`. Reads history: no. Aspects: `central-admission`,
-`cloudfront-cdk-only`, `domain-storage-access`, `persisted-image-key`, `s3-adapter-required`,
+`cloudfront-infrastructure-only`, `domain-storage-access`, `persisted-image-key`, `s3-adapter-required`,
 `s3-policy-constant`, `s3-sdk-enum`, `s3-sdk-placement`. Findings carry no target.
 
 ## Options
