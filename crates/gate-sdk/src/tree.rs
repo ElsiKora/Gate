@@ -65,6 +65,13 @@ impl<'h> Tree<'h> {
         self.host.read(path)
     }
 
+    /// The size in bytes of a tracked file, without reading its contents; `None` when it is not
+    /// tracked or not granted.
+    #[must_use]
+    pub fn size(&self, path: &str) -> Option<u64> {
+        self.host.size(path)
+    }
+
     /// The text of a tracked file, decoded as UTF-8 with replacement characters, as Node reads a
     /// file; `None` when it is not tracked or not granted.
     #[must_use]

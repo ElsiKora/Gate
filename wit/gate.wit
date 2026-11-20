@@ -4,7 +4,7 @@
 /// tracked tree of its scope read-only through `tree`, git data through `git` (only for rules that
 /// declare `reads-history`), and nothing else: no files, network, clock or environment. Levels,
 /// norms and exceptions belong to the core's configuration, never to the plugin.
-package gate:plugin@0.2.0;
+package gate:plugin@0.3.0;
 
 interface types {
   /// How much a finding weighs; set by configuration, never by the plugin.
@@ -124,6 +124,9 @@ interface tree {
   paths: func(prefix: string) -> list<string>;
   /// The bytes of a tracked path; none when it is not tracked or not granted.
   read: func(path: string) -> option<list<u8>>;
+  /// The size in bytes of a tracked path, without its contents; none when it is not tracked or not
+  /// granted. The read set records the path as `read` does.
+  size: func(path: string) -> option<u64>;
   /// The paths the run's change selection names, when the run has one.
   changed: func() -> option<list<string>>;
 }

@@ -95,10 +95,10 @@ Alternatives weighed and not taken:
 
 ## 4. Plugin interface
 
-The interface is a WIT package, `gate:plugin@0.2.0`, in [`wit/`](../wit). Sketch:
+The interface is a WIT package, `gate:plugin@0.3.0`, in [`wit/`](../wit). Sketch:
 
 ```wit
-package gate:plugin@0.2.0;
+package gate:plugin@0.3.0;
 
 interface types {
   enum level { error, warning, note }
@@ -155,6 +155,7 @@ interface types {
 interface tree {      // the snapshot, read-only, tracked files only
   paths: func(prefix: string) -> list<string>;             // paths under a prefix, sorted
   read: func(path: string) -> option<list<u8>>;            // none when not tracked or not granted
+  size: func(path: string) -> option<u64>;                 // bytes, without the contents
   changed: func() -> option<list<string>>;                 // the change set, when the run has one
 }
 
@@ -431,8 +432,8 @@ all = ["lint", "unit"]
 - **Result cache**: the host records every path a call listed or read and every git query it made.
   A call's findings are stored under (core version, plugin sha256, rules and options, project, grant)
   with that record, and a call is not run while every recorded input answers as it did: each listed
-  prefix lists the same tracked paths, each read path has the same blob id, the change selection is
-  the same, and each git question that goes through a ref answers the same commit ids. A `sync-state`
+  prefix lists the same tracked paths, each read path has the same blob id, each path whose size
+  alone was asked (`tree.size`) has the same size, the change selection is the same, and each git question that goes through a ref answers the same commit ids. A `sync-state`
   answer is recorded by its digest and asked again, since an answer at a commit whose own
   configuration this core does not read follows the run's configuration. A generator's output (its
   files and findings) is stored the same way, under (core version, plugin sha256, generator,

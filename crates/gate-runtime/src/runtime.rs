@@ -36,7 +36,7 @@ const TICK: Duration = Duration::from_millis(10);
 
 /// The plugin interface this core loads, the package of `wit/gate.wit`. A component built against
 /// another version fails to load.
-pub const INTERFACE: &str = "gate:plugin@0.2.0";
+pub const INTERFACE: &str = "gate:plugin@0.3.0";
 
 /// How the runtime runs plugins. The limits are the core's, the same for every plugin: a plugin
 /// cannot set its own. A call that hits one fails with [`ErrorKind::OutOfFuel`],

@@ -1036,6 +1036,43 @@ fn sync_check_answers_from_the_stored_outputs_until_an_input_changes() {
 }
 
 #[test]
+fn a_rule_that_asked_only_sizes_is_answered_from_the_cache_until_a_size_changes() {
+    let repo = probe_repo(
+        r#""probe/read" = { level = "error", options = { sizes = ["big.bin", "absent.bin", "../two/gate.toml"] } }"#,
+    );
+    repo.write("apps/one/big.bin", "12345");
+    repo.commit("a file whose size the rule asks");
+    let sizes = [
+        "size ../two/gate.toml: none",
+        "size absent.bin: none",
+        "size big.bin: 5",
+    ];
+
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages, sizes);
+    assert_eq!(ran, ["one"]);
+
+    // Other contents of the same size: the stored result holds.
+    repo.write("apps/one/big.bin", "abcde");
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages, sizes);
+    assert!(ran.is_empty(), "{ran:?}");
+
+    // Another size: the call runs again.
+    repo.write("apps/one/big.bin", "123456");
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages[2], "size big.bin: 6");
+    assert_eq!(ran, ["one"]);
+
+    // The file that was absent appears: the call runs again.
+    repo.write("apps/one/absent.bin", "x");
+    repo.git(&["add", "apps/one/absent.bin"]);
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages[1], "size absent.bin: 1");
+    assert_eq!(ran, ["one"]);
+}
+
+#[test]
 fn a_warm_run_answers_the_runs_generators_from_the_cache_until_a_file_they_read_changes() {
     let repo =
         probe_repo(r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1"] } }"#);

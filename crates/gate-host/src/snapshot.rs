@@ -9,7 +9,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::error::{Error, Result};
-use crate::git::{CatFile, Git, split_nul};
+use crate::git::{CatFile, Git, ObjectSizes, split_nul};
 
 /// Where a snapshot's contents come from.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,6 +62,8 @@ pub(crate) struct Shared {
     listings: Mutex<HashMap<String, Listing>>,
     contents: Mutex<HashMap<BlobId, Arc<[u8]>>>,
     reader: Mutex<Option<CatFile>>,
+    /// The size of each blob asked, by its id, and the reader that answers it.
+    sizes: Mutex<(HashMap<BlobId, u64>, Option<ObjectSizes>)>,
 }
 
 /// An immutable set of tracked paths, their blob ids, and their contents read on demand.
@@ -244,6 +246,48 @@ impl Snapshot {
         let contents: Arc<[u8]> = Arc::from(bytes);
         lock(&self.shared.contents).insert(blob.clone(), Arc::clone(&contents));
         Ok(Some(contents))
+    }
+
+    /// The size in bytes of a tracked path, without reading its contents when they are not read
+    /// yet; `None` when the path is not tracked. A symbolic link has the size of its target's
+    /// path, as [`Snapshot::read`] reads it.
+    ///
+    /// # Errors
+    /// Fails when the size cannot be read.
+    pub fn size(&self, path: &str) -> Result<Option<u64>> {
+        let Some(blob) = self.entries.get(path) else {
+            return Ok(None);
+        };
+
+        if matches!(self.source, Source::WorkTree) {
+            if let Some(cached) = lock(&self.contents).get(path) {
+                return Ok(Some(length(cached)));
+            }
+            return work_tree_size(&self.git, path).map(Some);
+        }
+
+        if let Some(cached) = lock(&self.shared.contents).get(blob) {
+            return Ok(Some(length(cached)));
+        }
+        let mut sizes = lock(&self.shared.sizes);
+        let (known, reader) = &mut *sizes;
+        if let Some(size) = known.get(blob) {
+            return Ok(Some(*size));
+        }
+        if reader.is_none() {
+            *reader = Some(self.git.object_sizes()?);
+        }
+        let size = reader
+            .as_mut()
+            .ok_or_else(|| Error::environment("git cat-file is unavailable"))?
+            .size(blob.as_str())?
+            .ok_or_else(|| {
+                Error::environment(format!(
+                    "git has no object {blob} for {path}; the repository is damaged, run git fsck"
+                ))
+            })?;
+        known.insert(blob.clone(), size);
+        Ok(Some(size))
     }
 
     /// Every path [`Snapshot::read`] was asked for since the snapshot was opened, tracked or not, and
@@ -533,6 +577,29 @@ fn read_work_tree(git: &Git, path: &str) -> Result<Vec<u8>> {
         std::fs::read(&full).map_err(|error| {
             Error::environment(format!("cannot read {path} from the working tree: {error}"))
         })
+    }
+}
+
+fn length(contents: &[u8]) -> u64 {
+    u64::try_from(contents.len()).unwrap_or(u64::MAX)
+}
+
+/// The size of a working-tree file, as [`read_work_tree`] would read it.
+fn work_tree_size(git: &Git, path: &str) -> Result<u64> {
+    if behind_symlink(git.root(), path) {
+        return Err(Error::environment(format!(
+            "cannot read {path}: a directory on its way is a symbolic link, which leads outside the tracked tree; restore the directory or git rm the path"
+        )));
+    }
+    let full = git.root().join(path);
+    let metadata = full.symlink_metadata().map_err(|error| {
+        Error::environment(format!("cannot read {path} from the working tree: {error}"))
+    })?;
+    if metadata.file_type().is_symlink() {
+        let target = std::fs::read_link(&full)?;
+        Ok(length(target.to_string_lossy().as_bytes()))
+    } else {
+        Ok(metadata.len())
     }
 }
 

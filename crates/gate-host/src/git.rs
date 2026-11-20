@@ -223,9 +223,22 @@ impl Git {
     /// # Errors
     /// Fails when git cannot start.
     pub fn cat_file(&self) -> Result<CatFile> {
+        self.cat_file_in("--batch")
+    }
+
+    /// Starts a `git cat-file --batch-check` reader, which answers the size of an object without
+    /// its contents.
+    ///
+    /// # Errors
+    /// Fails when git cannot start.
+    pub fn object_sizes(&self) -> Result<ObjectSizes> {
+        self.cat_file_in("--batch-check").map(ObjectSizes)
+    }
+
+    fn cat_file_in(&self, mode: &str) -> Result<CatFile> {
         let mut child = self
             .command()
-            .args(["cat-file", "--batch"])
+            .args(["cat-file", mode])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -543,6 +556,37 @@ fn header(stdout: &mut BufReader<ChildStdout>) -> Result<Option<String>> {
         ));
     }
     Ok((!header.ends_with(" missing\n")).then_some(header))
+}
+
+/// A persistent `git cat-file --batch-check` reader: the size of an object by id.
+#[derive(Debug)]
+pub struct ObjectSizes(CatFile);
+
+impl ObjectSizes {
+    /// The size in bytes of one object by id; `None` when it does not exist.
+    ///
+    /// # Errors
+    /// Fails when the reader protocol breaks.
+    pub fn size(&mut self, object: &str) -> Result<Option<u64>> {
+        let reader = &mut self.0;
+        let stdin = reader
+            .stdin
+            .as_mut()
+            .ok_or_else(|| Error::environment("git cat-file is closed"))?;
+        writeln!(stdin, "{object}")?;
+        stdin.flush()?;
+
+        let Some(header) = header(&mut reader.stdout)? else {
+            return Ok(None);
+        };
+        header
+            .trim_end()
+            .rsplit(' ')
+            .next()
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(Some)
+            .ok_or_else(|| Error::environment(format!("unexpected git cat-file header {header:?}")))
+    }
 }
 
 /// One object a [`CatFile`] read.

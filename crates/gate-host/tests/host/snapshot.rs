@@ -59,6 +59,36 @@ fn each_source_reads_its_own_contents() {
 }
 
 #[test]
+fn each_source_answers_its_own_size_without_the_contents() {
+    let repo = Repo::new();
+    repo.write("a.txt", "committed\n").write("gone.txt", "x\n");
+    repo.commit("initial");
+    repo.write("a.txt", "staged!\n");
+    repo.git(&["add", "a.txt"]);
+    repo.write("a.txt", "the working copy\n")
+        .remove("gone.txt")
+        .write("new.txt", "untracked\n");
+
+    let size = |snapshot: &Snapshot, path: &str| snapshot.size(path).expect("size");
+    let tree = open(&repo, Source::WorkTree);
+    let index = open(&repo, Source::Index);
+    let head = open(&repo, Source::Commit("HEAD".to_owned()));
+
+    assert_eq!(size(&tree, "a.txt"), Some(17));
+    assert_eq!(size(&index, "a.txt"), Some(8));
+    assert_eq!(size(&head, "a.txt"), Some(10));
+    assert_eq!(size(&head, "gone.txt"), Some(2));
+    assert_eq!(size(&tree, "gone.txt"), None, "deleted in the working tree");
+    assert_eq!(size(&tree, "new.txt"), None, "untracked");
+    assert_eq!(size(&head, "new.txt"), None);
+    assert_eq!(
+        text(&head, "a.txt").map(|text| text.len()),
+        size(&head, "a.txt").and_then(|size| usize::try_from(size).ok()),
+        "a size read after the contents is theirs"
+    );
+}
+
+#[test]
 fn blob_ids_are_the_ids_git_add_would_give() {
     let repo = Repo::new();
     repo.write("a.txt", "one\n").write("b.txt", "same\n");

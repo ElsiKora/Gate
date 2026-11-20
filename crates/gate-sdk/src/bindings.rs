@@ -31,6 +31,10 @@ impl TreeHost for ComponentHost {
         wit_tree::read(path)
     }
 
+    fn size(&self, path: &str) -> Option<u64> {
+        wit_tree::size(path)
+    }
+
     fn changed(&self) -> Option<Vec<String>> {
         wit_tree::changed()
     }

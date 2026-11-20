@@ -525,7 +525,7 @@ fn a_component_built_for_another_interface_fails_to_load_naming_the_interface() 
     let version = env!("CARGO_PKG_VERSION");
     assert!(
         error.to_string().contains(&format!(
-            "hello was built for another plugin interface; this gate {version} loads plugins built for gate:plugin@0.2.0 only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {version}, released with this core), or rebuild it with gate-sdk {version}"
+            "hello was built for another plugin interface; this gate {version} loads plugins built for gate:plugin@0.3.0 only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {version}, released with this core), or rebuild it with gate-sdk {version}"
         )),
         "{error}"
     );
