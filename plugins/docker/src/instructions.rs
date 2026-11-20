@@ -46,25 +46,19 @@ pub(crate) fn instructions(text: &str) -> Vec<Instruction> {
         }
         let mut joined = String::new();
         let mut current = trimmed.to_owned();
-        loop {
-            match current.strip_suffix('\\') {
-                Some(head) => {
-                    joined.push_str(head);
-                    joined.push(' ');
-                    let Some((_, next)) = lines.by_ref().find(|(_, next)| {
-                        let next = next.trim();
-                        !next.starts_with('#')
-                    }) else {
-                        break;
-                    };
-                    current = next.trim().to_owned();
-                }
-                None => {
-                    joined.push_str(&current);
-                    break;
-                }
-            }
+        while let Some(head) = current.strip_suffix('\\') {
+            joined.push_str(head);
+            joined.push(' ');
+            let Some((_, next)) = lines
+                .by_ref()
+                .find(|(_, next)| !next.trim().starts_with('#'))
+            else {
+                current.clear();
+                break;
+            };
+            next.trim().clone_into(&mut current);
         }
+        joined.push_str(&current);
         let (keyword, arguments) = joined
             .split_once(char::is_whitespace)
             .map_or((joined.as_str(), ""), |(keyword, rest)| {

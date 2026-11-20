@@ -141,7 +141,11 @@ impl Rule for TrackedSecrets {
 
 /// Whether a file name is an environment file: `.env`, `.env.<anything>` or `<anything>.env`.
 fn env_file(name: &str) -> bool {
-    name == ".env" || name.starts_with(".env.") || name.ends_with(".env")
+    name == ".env"
+        || name.starts_with(".env.")
+        || name
+            .rsplit_once('.')
+            .is_some_and(|(_, extension)| extension == "env")
 }
 
 /// Whether a path is a key or credential file by its name.

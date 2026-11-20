@@ -73,7 +73,7 @@ impl Settings {
             return Some(format!("`{image}` is not pinned by its sha256 digest"));
         }
         let registry = registry(image);
-        if !self.registries.is_empty() && !self.registries.iter().any(|item| *item == registry) {
+        if !self.registries.is_empty() && !self.registries.contains(&registry) {
             return Some(format!(
                 "`{image}` comes from {registry}, which `registries` does not list"
             ));

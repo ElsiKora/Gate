@@ -120,7 +120,10 @@ impl Rule for Compose {
 /// with anything between.
 fn is_compose_file(name: &str) -> bool {
     (name.starts_with("docker-compose.") || name.starts_with("compose."))
-        && (name.ends_with(".yml") || name.ends_with(".yaml"))
+        && matches!(
+            name.rsplit_once('.').map(|(_, extension)| extension),
+            Some("yml" | "yaml")
+        )
 }
 
 /// The purpose of a well-named compose file: `docker-compose.<purpose>.yml` or
