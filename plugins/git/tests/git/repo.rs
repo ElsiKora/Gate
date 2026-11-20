@@ -249,11 +249,6 @@ impl GitHost for Repo {
 
     fn log(&self, range: &str) -> Vec<Commit> {
         let ids = match range.split_once("..") {
-            // `<commit>^!`: the commit alone, without its parents.
-            None if range.ends_with("^!") => self
-                .find(range.trim_end_matches("^!"))
-                .into_iter()
-                .collect(),
             Some((from, to)) => {
                 let excluded = self.ancestry(from);
                 self.ancestry(to)

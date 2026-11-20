@@ -10,12 +10,16 @@
 //! part of it, merge, revert, fixup, squash and release messages are not checked, and the parts
 //! are split as `conventional-commits-parser` splits them.
 
+use std::collections::HashSet;
+
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Commit, Error, Git, Location, Result, Rule, Run, Scope};
+use gate_sdk::{Error, Git, Result, Rule, Run, Scope};
 use regex::Regex;
 
+use crate::history::{Commit, ahead, main_reference};
 use crate::javascript::{ANY, translate};
+use crate::settings::Settings;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -131,36 +135,61 @@ impl Rule for CommitMessage {
         if let Some(message) = git.message() {
             report(run, &patterns, &message, None);
         }
-        for commit in pushed(&git) {
-            report(run, &patterns, &commit.message, Some(&commit.id));
+        for commit in pushed(run, &git)? {
+            report(run, &patterns, &commit.message, Some(&commit));
         }
         Ok(())
     }
 }
 
-/// The commits a push sends, oldest first: `<base>..<head>`, or the head commit alone for a new
-/// branch (no base). None for a run that is not a push, `--rev` included.
-fn pushed(git: &Git<'_>) -> Vec<Commit> {
-    let Some(range) = git.range().filter(|range| range.target_ref.is_some()) else {
-        return Vec::new();
+/// The commits a push to a branch adds, oldest first: those reachable from the pushed head and
+/// neither from the remote ref's old tip (`base`, absent for a new branch) nor from main, so a
+/// merge of main or a rebase onto it judges the branch's own commits only. A new branch's set is
+/// `main..head`, the set `git/no-ci-skip` judges. None for a run that is not a push to a
+/// `refs/heads/` reference: `--rev`, or a pushed tag.
+///
+/// # Errors
+/// When `[plugins.git] options` cannot be read or none of its main references names a commit.
+fn pushed(run: &Run<'_, Options>, git: &Git<'_>) -> Result<Vec<Commit>> {
+    let Some(range) = git.range().filter(|range| {
+        range
+            .target_ref
+            .as_deref()
+            .is_some_and(|target| target.starts_with("refs/heads/"))
+    }) else {
+        return Ok(Vec::new());
     };
-    let revisions = match &range.base {
-        Some(base) => format!("{base}..{}", range.head),
-        None => format!("{}^!", range.head),
-    };
-    let mut commits = git.log(&revisions);
-    commits.reverse();
-    commits
+    let settings = Settings::read(run)?;
+    let main = main_reference(git, &settings)?;
+    let mut commits = ahead(git, &main, &range.head);
+    if let Some(base) = &range.base {
+        let sent: HashSet<String> = git
+            .log(&format!("{base}..{}", range.head))
+            .into_iter()
+            .map(|commit| commit.id)
+            .collect();
+        commits.retain(|commit| sent.contains(&commit.id));
+    }
+    Ok(commits)
 }
 
 /// Reports what `message` fails: the message being written when `commit` is `None`, else the
 /// message of the pushed commit `commit`, whose findings are on that commit, name it as their
 /// target, are keyed by it and start with its short id.
-fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit: Option<&str>) {
-    let location = commit.map(Location::commit);
+fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit: Option<&Commit>) {
+    let location = commit.map(Commit::location);
     let text = |text: String| match commit {
-        Some(id) => format!("{}: {text}", id.get(..SHORT).unwrap_or(id)),
+        Some(commit) => format!("{}: {text}", commit.short()),
         None => text,
+    };
+    // A pushed commit is reworded in history, or excepted when others already have it.
+    let advice = |help: &str| match commit {
+        Some(commit) => format!(
+            "{help}; reword the commit with git rebase -i {}^ and push the branch again, or, when \
+             others already have it, add an exception for its id",
+            commit.short()
+        ),
+        None => help.to_owned(),
     };
     if let Some((header, found)) = verdicts(message, run.options(), patterns) {
         for (aspect, failure, help) in found {
@@ -168,15 +197,15 @@ fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit
                 .report()
                 .finding(aspect, location.clone(), text(failure));
             match (commit, &header) {
-                (Some(id), _) => {
-                    finding.target(id).key(id);
+                (Some(commit), _) => {
+                    finding.target(commit.id.as_str()).key(commit.id.as_str());
                 }
                 (None, Some(header)) => {
                     finding.target(header.clone()).key(header.as_str());
                 }
                 (None, None) => {}
             }
-            finding.help(help);
+            finding.help(advice(&help));
         }
     }
     // A trailer stays in history whatever the header says, so an ignored message is checked too.
@@ -197,15 +226,14 @@ fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit
             )),
         );
         match commit {
-            Some(id) => finding.target(id).key(format!("{id} {trailer}")),
+            Some(commit) => finding
+                .target(commit.id.as_str())
+                .key(format!("{} {trailer}", commit.id)),
             None => finding.target(trailer.clone()).key(trailer.as_str()),
         };
-        finding.help("remove the trailer from the message");
+        finding.help(advice("remove the trailer from the message"));
     }
 }
-
-/// The length of a short commit id in a finding's message.
-const SHORT: usize = 12;
 
 /// The header of `message` and the checks it fails, as aspect, message and help, in [`ASPECTS`]
 /// order; `None` for a message that is blank, has no line but comments, or is of a form the

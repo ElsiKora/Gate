@@ -608,9 +608,12 @@ fn branch(messages: [&str; 3]) -> (Repo, String, [String; 3]) {
     (repo, base, [first, second, third])
 }
 
+/// The `[plugins.git] options` of a push: main is the remote's main, else the local one.
+const MAIN: &str = r#"{"main": ["refs/remotes/origin/main", "refs/heads/main"]}"#;
+
 /// The findings of `repo` as aspect, location, target, key and message.
 fn pushed(repo: &Repo, options: &str) -> Vec<(String, String, String, String, String)> {
-    repo.check("commit-message", "{}", options)
+    repo.check("commit-message", MAIN, options)
         .expect("runs")
         .into_iter()
         .map(|finding| {
@@ -721,21 +724,128 @@ fn a_merge_and_a_fixup_in_a_push_are_skipped_by_the_default_ignores() {
     );
 }
 
-#[test]
-fn a_new_branch_checks_its_head_commit_alone() {
-    let (mut repo, _, [_, second, third]) = branch([
-        "feature(core): add the thing",
-        "feature(core): mend the thing",
-        "fix(core): mend it again",
-    ]);
-    repo.set_push(None, &third, "refs/heads/feat/the-thing");
-    assert_eq!(pushed(&repo, "{}"), []);
-    repo.set_push(None, &second, "refs/heads/feat/the-thing");
-    let keys: Vec<String> = pushed(&repo, "{}")
+/// The keys of `repo`'s findings, in their order.
+fn pushed_keys(repo: &Repo) -> Vec<String> {
+    pushed(repo, "{}")
         .into_iter()
         .map(|(.., key, _)| key)
-        .collect();
-    assert_eq!(keys, [second]);
+        .collect()
+}
+
+#[test]
+fn a_new_branch_judges_every_commit_it_adds_to_main_and_none_of_main() {
+    let (mut repo, base, [first, second, third]) = branch([
+        "feature(core): add the thing",
+        "feature(core): mend the thing",
+        "feature(core): mend it again",
+    ]);
+    // Main moves on with a commit of another form, which the branch then merges.
+    let web = repo.commit(
+        &[&base],
+        "Update README.md",
+        &[("README.md", Some("# s\n"))],
+    );
+    repo.set_ref("refs/remotes/origin/main", &web);
+    let merge = repo.commit(
+        &[&third, &web],
+        "Merge branch 'main' into feat/the-thing",
+        &[],
+    );
+    repo.set_push(None, &merge, "refs/heads/feat/the-thing");
+    assert_eq!(pushed_keys(&repo), [first, second, third]);
+}
+
+#[test]
+fn a_merge_of_main_into_a_pushed_branch_judges_only_the_branch_s_new_commits() {
+    let (mut repo, base, [first, ..]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    // The remote branch is at `first`; main gets a web edit; the branch merges main and adds one.
+    let web = repo.commit(
+        &[&base],
+        "Update README.md",
+        &[("README.md", Some("# s\n"))],
+    );
+    repo.set_ref("refs/remotes/origin/main", &web);
+    let merge = repo.commit(
+        &[&first, &web],
+        "Merge branch 'main' into feat/the-thing",
+        &[],
+    );
+    let next = repo.commit(
+        &[&merge],
+        "feature(core): the next thing",
+        &[("d.txt", Some("d\n"))],
+    );
+    repo.set_push(Some(&first), &next, "refs/heads/feat/the-thing");
+    assert_eq!(pushed_keys(&repo), [next]);
+}
+
+#[test]
+fn a_rebase_and_force_push_judges_only_the_branch_s_rewritten_commits() {
+    let (mut repo, base, [first, ..]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    // The remote branch is at `first`; main gets a web edit; the branch is rebased onto it.
+    let web = repo.commit(
+        &[&base],
+        "Update README.md",
+        &[("README.md", Some("# s\n"))],
+    );
+    repo.set_ref("refs/remotes/origin/main", &web);
+    let rebased = repo.commit(
+        &[&web],
+        "feature(core): add the thing",
+        &[("a.txt", Some("a\n"))],
+    );
+    repo.set_push(Some(&first), &rebased, "refs/heads/feat/the-thing");
+    assert_eq!(pushed_keys(&repo), [rebased]);
+}
+
+#[test]
+fn a_pushed_tag_checks_nothing() {
+    let (mut repo, base, [.., third]) = branch([
+        "feature(core): add the thing",
+        "feature(core): mend the thing",
+        "feature(core): mend it again",
+    ]);
+    repo.set_push(None, &third, "refs/tags/v1.0.0");
+    assert_eq!(pushed_keys(&repo), Vec::<String>::new());
+    repo.set_push(Some(&base), &third, "refs/tags/v1.0.0");
+    assert_eq!(pushed_keys(&repo), Vec::<String>::new());
+}
+
+#[test]
+fn a_pushed_commit_s_help_says_how_to_reword_it_or_except_it() {
+    let (mut repo, base, [first, ..]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    repo.set_push(Some(&base), &first, "refs/heads/feat/the-thing");
+    let found = repo.check("commit-message", MAIN, "{}").expect("runs");
+    let help = found
+        .first()
+        .and_then(|finding| finding.help.clone())
+        .unwrap_or_default();
+    assert!(
+        help.contains(&format!("git rebase -i {}^", &first[..12]))
+            && help.contains("an exception for its id"),
+        "{help}"
+    );
+    // The message being written keeps the help of the message alone.
+    repo.set_range(&first, None);
+    repo.set_message(Some("feature(core): the next thing\n"));
+    let found = repo.check("commit-message", MAIN, "{}").expect("runs");
+    let help = found
+        .first()
+        .and_then(|finding| finding.help.clone())
+        .unwrap_or_default();
+    assert!(!help.contains("git rebase"), "{help}");
 }
 
 #[test]

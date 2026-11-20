@@ -18,7 +18,7 @@ pub(crate) struct Commit {
 }
 
 impl Commit {
-    fn new(commit: gate_sdk::Commit) -> Self {
+    pub(crate) fn new(commit: gate_sdk::Commit) -> Self {
         Self {
             id: commit.id,
             parents: commit.parents,
@@ -65,20 +65,10 @@ impl History {
                     .is_some_and(|target| settings.is_main(target))
             })
             .map(|range| range.head);
-        let main = pushed
-            .or_else(|| {
-                settings
-                    .main
-                    .iter()
-                    .find_map(|reference| git.resolve(&format!("{reference}^{{commit}}")))
-            })
-            .ok_or_else(|| {
-                Error::new(format!(
-                    "none of the main references {:?} exists; fetch main, or fix [plugins.git] \
-                     options main",
-                    settings.main
-                ))
-            })?;
+        let main = match pushed {
+            Some(head) => head,
+            None => main_reference(git, settings)?,
+        };
         if !git.is_ancestor(activation, &main) {
             return Err(Error::new(format!(
                 "the activation commit {activation} is not an ancestor of main {main}; fetch the \
@@ -106,12 +96,7 @@ impl History {
 
         let mut commits: Vec<Commit> = range.into_iter().rev().map(Commit::new).collect();
         if let Some(head) = git.head() {
-            commits.extend(
-                git.log(&format!("{main}..{head}"))
-                    .into_iter()
-                    .rev()
-                    .map(Commit::new),
-            );
+            commits.extend(ahead(git, &main, &head));
         }
 
         Ok(Self {
@@ -132,6 +117,34 @@ impl History {
         self.on_mainline.contains(&commit.id)
             && form_of(forms, commit, release).is_some_and(|form| form.kind == Kind::Release)
     }
+}
+
+/// The commit main is at: the first reference of `[plugins.git] options main` that names a commit.
+///
+/// # Errors
+/// When none of them does.
+pub(crate) fn main_reference(git: &Git<'_>, settings: &Settings) -> Result<String> {
+    settings
+        .main
+        .iter()
+        .find_map(|reference| git.resolve(&format!("{reference}^{{commit}}")))
+        .ok_or_else(|| {
+            Error::new(format!(
+                "none of the main references {:?} exists; fetch main, or fix [plugins.git] options \
+                 main",
+                settings.main
+            ))
+        })
+}
+
+/// The commits `head` adds to `main`, oldest first: those reachable from `head` and not from
+/// `main` (`main..head`). The set a branch's own commits make, for every rule that judges them.
+pub(crate) fn ahead(git: &Git<'_>, main: &str, head: &str) -> Vec<Commit> {
+    git.log(&format!("{main}..{head}"))
+        .into_iter()
+        .rev()
+        .map(Commit::new)
+        .collect()
 }
 
 /// The branch a reference names: `refs/heads/<branch>` and `refs/remotes/<remote>/<branch>` name
