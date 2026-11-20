@@ -802,13 +802,113 @@ fn step_glob_without_files() {
     );
 }
 
+/// A root with `[hooks] budget = <hooks>`, or a job with `budget = <job>`.
+fn budget_root(hooks: Option<&str>, job: Option<&str>) -> String {
+    let hooks = hooks.map_or_else(String::new, |budget| {
+        format!("\n[hooks]\nbudget = {budget}\npre-commit = [\"check --staged\"]\n")
+    });
+    let job = job.map_or_else(String::new, |budget| {
+        format!(
+            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@0123456789abcdef0123456789abcdef01234567\"\n\n[ci.github.jobs.gate]\nname = \"Gate\"\ntimeout-minutes = 15\nrun = [\"check\"]\nbudget = {budget}\n"
+        )
+    });
+    root_with(&format!("{hooks}{job}"))
+}
+
 #[test]
-fn hooks_budget_of_zero() {
-    let message = error(&[(
+fn a_check_entry_that_gate_check_would_refuse_is_a_configuration_error() {
+    // The entry is parsed as gate check parses it, so a hook or a job never runs what the command
+    // refuses while gate sync --check says it is in sync.
+    for (entry, part) in [
+        (
+            "check --budget 3",
+            "\"check --budget 3\": unexpected argument '--budget' found",
+        ),
+        (
+            "check --warn-after 6 --fail-after 3",
+            "\"check --warn-after 6 --fail-after 3\": --fail-after (3 s) is not above --warn-after (6 s)",
+        ),
+        (
+            "check --warn-after 0",
+            "\"check --warn-after 0\": invalid value '0' for '--warn-after <SECONDS>'",
+        ),
+        ("check --warn-after 1e20", "\"1e20\": too many seconds"),
+        ("check --staged --push", "cannot be used with"),
+    ] {
+        let hooks = error(&[(
+            "gate.toml",
+            &root_with(&format!("\n[hooks]\npre-push = [\"{entry}\"]\n")),
+        )]);
+        assert_all(&hooks, &["[hooks] pre-push: ", part]);
+        let job = error(&[(
+            "gate.toml",
+            &root_with(&format!(
+                "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@0123456789abcdef0123456789abcdef01234567\"\n\n[ci.github.jobs.gate]\nname = \"Gate\"\nrun = [\"{entry}\"]\n"
+            )),
+        )]);
+        assert_all(&job, &["[ci.github] jobs.gate: ", part]);
+    }
+
+    // What the command takes, an entry takes: both thresholds, either spelling, a pushed range.
+    let repo = Repo::new();
+    repo.write(
         "gate.toml",
-        &root_with("\n[hooks]\nbudget = 0\npre-commit = [\"check --staged\"]\n"),
-    )]);
-    assert_all(&message, &["gate.toml:4: [hooks] budget is 0"]);
+        &root_with(
+            "\n[hooks]\npre-commit = [\"check --staged --warn-after=3 --fail-after 6\"]\ncommit-msg = [\"check --commit-message\"]\npre-push = [\"check --push --format json\"]\n",
+        ),
+    )
+    .add();
+    Workspace::open(repo.path(), Source::WorkTree).expect("valid entries");
+}
+
+#[test]
+fn a_budget_is_a_table_of_one_or_two_thresholds_above_zero_in_order() {
+    let expected =
+        "a table { warn-after = <seconds>, fail-after = <seconds> }, with one key or both";
+    for (budget, parts) in [
+        ("30", &["invalid type: integer `30`", expected][..]),
+        (
+            "{}",
+            &["[hooks] budget: set warn-after, fail-after or both"],
+        ),
+        ("{ warn-after = 0 }", &["[hooks] budget: warn-after is 0"]),
+        ("{ fail-after = 0 }", &["[hooks] budget: fail-after is 0"]),
+        (
+            "{ warn-after = 6, fail-after = 6 }",
+            &["[hooks] budget: fail-after (6) is not above warn-after (6); a check warns first"],
+        ),
+        (
+            "{ warn = 3 }",
+            &[
+                "unknown field `warn`",
+                "expected `warn-after` or `fail-after`",
+            ],
+        ),
+    ] {
+        let message = error(&[("gate.toml", &budget_root(Some(budget), None))]);
+        assert_all(&message, parts);
+    }
+    for (budget, parts) in [
+        ("300", &["invalid type: integer `300`", expected][..]),
+        (
+            "{ warn-after = 6, fail-after = 3 }",
+            &["[ci.github] jobs.gate: budget: fail-after (3) is not above warn-after (6)"],
+        ),
+    ] {
+        let message = error(&[("gate.toml", &budget_root(None, Some(budget)))]);
+        assert_all(&message, parts);
+    }
+
+    for budget in [
+        "{ warn-after = 3 }",
+        "{ fail-after = 6 }",
+        "{ warn-after = 3, fail-after = 6 }",
+    ] {
+        let repo = Repo::new();
+        repo.write("gate.toml", &budget_root(Some(budget), Some(budget)))
+            .add();
+        Workspace::open(repo.path(), Source::WorkTree).expect(budget);
+    }
 }
 
 #[test]

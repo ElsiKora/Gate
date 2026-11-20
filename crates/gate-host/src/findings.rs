@@ -479,7 +479,7 @@ pub const UNMATCHED_EXCEPTION_RULE: &str = "gate/exceptions";
 /// The id of the pseudo-rule that reports baseline entries that match nothing.
 pub const STALE_BASELINE_RULE: &str = "gate/baseline";
 
-/// The id of the pseudo-rule that reports a run over its `--budget`.
+/// The id of the pseudo-rule that reports a run over its `--warn-after` or `--fail-after`.
 pub const BUDGET_RULE: &str = "gate/budget";
 
 /// Whether `exception` accepts `finding`: same scope (the project whose file declares the

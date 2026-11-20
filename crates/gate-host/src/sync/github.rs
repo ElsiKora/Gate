@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 
 use super::hooks::LAUNCHER;
 use super::yaml::to_yaml;
-use crate::config::{CiGithub, CiJob, CiStep, RelativePath};
+use crate::config::{Budget, CiGithub, CiJob, CiStep, RelativePath};
 use crate::error::{Error, Result};
 use crate::projects::Projects;
 
@@ -206,10 +206,10 @@ pub fn projects_condition(projects: &[String]) -> String {
 }
 
 /// The words of a job's gate command as the workflow runs it: `check` gets `--no-overrides` and
-/// the job's budget, a `--push` gets the pushed range and `--target-ref` right after it. Returns
-/// the words and whether the range variables are used.
+/// the thresholds of the job's budget, a `--push` gets the pushed range and `--target-ref` right
+/// after it. Returns the words and whether the range variables are used.
 #[must_use]
-pub fn command_words(command: &str, budget: Option<u64>) -> (Vec<String>, bool) {
+pub fn command_words(command: &str, budget: Option<&Budget>) -> (Vec<String>, bool) {
     let mut words: Vec<String> = command.split_whitespace().map(str::to_owned).collect();
     let pushed = match words.iter().position(|word| word == "--push") {
         Some(at) => {
@@ -228,17 +228,8 @@ pub fn command_words(command: &str, budget: Option<u64>) -> (Vec<String>, bool) 
         if !words.iter().any(|word| word == "--no-overrides") {
             words.push("--no-overrides".to_owned());
         }
-        if let Some(budget) = budget
-            && !words.iter().any(|word| word == "--budget")
-        {
-            words.push("--budget".to_owned());
-            words.push(budget.to_string());
-        }
-        if words.iter().any(|word| word == "--budget")
-            && !words.iter().any(|word| word == "--budget-fails")
-        {
-            words.push("--budget-fails".to_owned());
-        }
+        let flags = super::budget_flags(budget, &words);
+        words.extend(flags);
     }
     (words, pushed)
 }
@@ -301,7 +292,7 @@ fn job_value(
     steps.extend(job.steps.iter().map(|step| step_value(step, directory)));
 
     for command in &job.run {
-        let (words, pushed) = command_words(command, job.budget);
+        let (words, pushed) = command_words(command, job.budget.as_ref());
         steps.push(json!({
             "name": format!("gate {command}"),
             "run": format!("{LAUNCHER} {}", words.join(" ")),

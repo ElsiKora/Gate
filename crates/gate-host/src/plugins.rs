@@ -2486,8 +2486,10 @@ const SYNC_STATE: &str = "sync-state";
 /// in sync before is drift now, under the same core version until it is bumped. 6: the generated
 /// workflow has a `concurrency` group, so one written before is drift. 7: the generated workflow
 /// meets the `ci/recommended` standard (named checkout and aggregate job, `permissions: {}`, a
-/// timeout on every job, release comments), so one written before is drift.
-const SYNC_STATE_VERSION: u32 = 7;
+/// timeout on every job, release comments), so one written before is drift. 8: a check's budget
+/// is `--warn-after` and `--fail-after`, and a job no longer adds a failing one, so hooks and a
+/// workflow written before are drift.
+const SYNC_STATE_VERSION: u32 = 8;
 
 /// The first byte of a stored answer that holds the paths.
 const ANSWER: u8 = b'p';

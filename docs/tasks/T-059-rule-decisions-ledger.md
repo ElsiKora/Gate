@@ -150,23 +150,23 @@ If v0.3.0 is to stay as it is, the interface addition waits for 0.4.0; a plugin 
 
 ## Proof
 
-Round 317 (ticket 000000000317) on `21d2d53`, rebased onto main at `e9e1434`, with a target of
-its own (`CARGO_TARGET_DIR` per task), from 2026-11-20T06:14:19+00:00 to 2026-11-20T06:36:17+00:00:
-`cargo fmt --all --check` exit 0, `cargo clippy --locked --workspace --all-targets -- -D warnings`
-exit 0, `cargo test --locked --workspace --no-fail-fast` exit 0, `cargo deny --locked check` exit 0,
-`cargo build --release --locked` exit 0, leak scan exit 0. The log has `Compiling` from this
-worktree for every crate the branch changes, and each of the 28 tests the branch adds over T-048's
-tip `52b2935` passes by name. Earlier green rounds 261 and 308 shared a cargo target with other
-worktrees and are not counted.
+Stack round 387 (ticket 000000000387) on T-052's tip `8361ffa`, the stack T-048, T-059, T-061, T-052
+on `main` at `308eca9`, in a fresh checkout with a target of its own (`CARGO_TARGET_DIR` per round),
+from 2026-11-20T22:53:37+00:00 to 2026-11-20T23:20:11+00:00: `cargo fmt --all --check` exit 0,
+`cargo clippy --locked --workspace --all-targets -- -D warnings` exit 0, `cargo deny --locked check`
+exit 0, `cargo build --release --locked` exit 0, `gate sync` and actionlint on the workflow the
+release build writes exit 0, leak scan exit 0. `cargo test --locked --workspace --no-fail-fast` exit
+101: 1478 passed, 1 failed, `a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, which
+the lead reports failing on `main` at `308eca9` itself (T-071 and T-057 together: it expects
+`git/branch-name` in a `--commit-message` run) and is fixed by T-071b; the lead ruled that the round
+counts with that failure alone. The log has `Compiling` from the round's checkout for all 18 crates
+the stack changes. The 10 tests this branch adds pass by name. Round 317 counted for an earlier base
+and is replaced by this one.
 
 ## Resume point
 
-2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on T-052's tip `d52d7a0`, on `main`
-at `4c09a04`, was green in every step, with every changed crate compiled from the round's own
-checkout; the 10 tests this branch adds passed by name. Round 367 before it had stopped at clippy
-`too_many_lines` (102/100) in `Plugins::run`, since main's `tree.size` and this branch's
-`rule_decisions` together crossed the limit; the check request is now built in `check_request`, and
-`run` is 93 lines. Rebased onto T-048 on `main` at `d0c6cda`: the runtime probe keeps main's `Whole`
-rule beside `Decisions`, the plan keeps main's rows, and the test support of the `frontend` plugin,
-new on main, builds its `CheckRequest` with `rule_decisions`. T-061 and T-052 are stacked on this
-branch; next: one lane round on T-052's tip for all four.
+2026-11-20T23:21:26+00:00: rebased onto T-048 on `main` at `308eca9` (T-057). Main's T-057 already
+builds the check request in `check_request`; this branch adds the `decisions` parameter there and
+dropped its own extraction of round 367, so `run` stays under the line limit. The probe keeps
+T-057's message and history rules beside `Decisions`. Stack round 387 counts for all four (see
+Proof); next: the merge of the stack.

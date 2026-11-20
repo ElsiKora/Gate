@@ -615,11 +615,29 @@ pub struct RunSection {
     pub heavy_wrapper: Option<String>,
 }
 
-/// `[hooks]`: the gate commands each git hook runs, and a time budget for hook runs.
+/// The check-time thresholds of the checks a hook or a job runs, in seconds: at least one, each
+/// above 0, `fail-after` above `warn-after` when both are set.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(
+    deny_unknown_fields,
+    rename_all = "kebab-case",
+    expecting = "a table { warn-after = <seconds>, fail-after = <seconds> }, with one key or both"
+)]
+#[schemars(extend("minProperties" = 1))]
+pub struct Budget {
+    /// `--warn-after`: a check that takes longer is a `gate/budget` warning.
+    #[schemars(range(min = 1))]
+    pub warn_after: Option<u64>,
+    /// `--fail-after`: a check that takes longer is a `gate/budget` error.
+    #[schemars(range(min = 1))]
+    pub fail_after: Option<u64>,
+}
+
+/// `[hooks]`: the gate commands each git hook runs, and the check-time thresholds of hook runs.
 #[derive(Debug, Default)]
 pub struct HooksSection {
-    /// `--budget` in seconds for the checks the hooks run.
-    pub budget: Option<u64>,
+    /// The thresholds of the checks the hooks run.
+    pub budget: Option<Budget>,
     /// The gate commands of each hook, in order.
     pub hooks: BTreeMap<HookName, Vec<String>>,
 }
@@ -662,15 +680,11 @@ impl JsonSchema for HooksSection {
         Cow::Borrowed("HooksSection")
     }
 
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
         let mut properties = serde_json::Map::new();
         properties.insert(
             "budget".to_owned(),
-            serde_json::json!({
-                "type": "integer",
-                "minimum": 1,
-                "description": "--budget in seconds for the checks the hooks run."
-            }),
+            generator.subschema_for::<Budget>().to_value(),
         );
         for hook in super::names::HOOKS {
             properties.insert(
@@ -680,7 +694,7 @@ impl JsonSchema for HooksSection {
         }
         json_schema!({
             "type": "object",
-            "description": "The gate commands each git hook runs, and a time budget for hook runs.",
+            "description": "The gate commands each git hook runs, and the check-time thresholds of hook runs.",
             "properties": properties,
             "additionalProperties": false
         })
@@ -754,8 +768,8 @@ pub struct CiJob {
     /// command runs a rule that reads history, or checks a pushed range or a revision; else the
     /// checkout's default, the tip alone.
     pub fetch_depth: Option<u64>,
-    /// `--budget` in seconds for the job's checks, with `--budget-fails`.
-    pub budget: Option<u64>,
+    /// The thresholds of the job's checks.
+    pub budget: Option<Budget>,
     /// The projects the job needs: it is skipped when none of them changed. Empty: it always runs.
     #[serde(default)]
     pub projects: Vec<String>,

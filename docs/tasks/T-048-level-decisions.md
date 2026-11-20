@@ -73,15 +73,23 @@ configuration); the CHANGELOG entry under Breaking says the table is renamed and
   release build exit 0, and the leak scan prints nothing.
 - Do not edit docs/plan.md.
 
+## Proof
+
+Stack round 387 (ticket 000000000387) on T-052's tip `8361ffa`, the stack T-048, T-059, T-061, T-052
+on `main` at `308eca9`, in a fresh checkout with a target of its own (`CARGO_TARGET_DIR` per round),
+from 2026-11-20T22:53:37+00:00 to 2026-11-20T23:20:11+00:00: `cargo fmt --all --check` exit 0,
+`cargo clippy --locked --workspace --all-targets -- -D warnings` exit 0, `cargo deny --locked check`
+exit 0, `cargo build --release --locked` exit 0, `gate sync` and actionlint on the workflow the
+release build writes exit 0, leak scan exit 0. `cargo test --locked --workspace --no-fail-fast` exit
+101: 1478 passed, 1 failed, `a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, which
+the lead reports failing on `main` at `308eca9` itself (T-071 and T-057 together: it expects
+`git/branch-name` in a `--commit-message` run) and is fixed by T-071b; the lead ruled that the round
+counts with that failure alone. The log has `Compiling` from the round's checkout for all 18 crates
+the stack changes. The 7 tests this branch adds pass by name. Earlier: round 375 on `d52d7a0` (main
+`4c09a04`) green; round 382 on `46d17ef` (main `d0c6cda`) failed one T-052 test, fixed on T-052.
+
 ## Resume point
 
-2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on T-052's tip `d52d7a0`, on `main`
-at `4c09a04`, was green: fmt, clippy, test, deny, release build, sync, actionlint and the leak scan
-all exit 0; all 18 changed crates compiled from the round's own checkout, and the 7 tests this
-branch adds passed by name. Main then moved to `d0c6cda` (T-071 workspace presets, the frontend and
-ci plugins, T-075, T-081, T-082), so the stack is rebased onto it: the CHANGELOG keeps main's
-Breaking and Features entries before this branch's, and the runtime probe keeps main's `both` preset
-beside `lenient`. `check_decisions` still walks the declarations scope by scope, so a preset that
-`[workspace] extends` turns on at a root that is not a project gives the default of its
-repository-scope rules. T-059, T-061 and T-052 are stacked on this branch in that order; next: one
-lane round on T-052's tip for all four.
+2026-11-20T23:21:26+00:00: rebased onto `main` at `308eca9` (T-057): the CHANGELOG keeps T-057's
+entries before this branch's. Stack round 387 counts for all four (see Proof); next: the merge of
+the stack.

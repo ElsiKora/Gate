@@ -20,6 +20,7 @@
 pub mod baseline;
 pub mod cache;
 pub mod changes;
+pub mod cli;
 pub mod config;
 pub mod doctor;
 pub mod error;
@@ -91,10 +92,10 @@ pub enum ChangeRequest {
 pub struct RunOptions {
     /// Print the time of each phase and plugin call.
     pub timings: bool,
-    /// Report a run that takes longer: a `gate/budget` warning, or an error with `budget_fails`.
-    pub budget: Option<Duration>,
-    /// A run over the budget is an error, not a warning.
-    pub budget_fails: bool,
+    /// A run that takes longer is a `gate/budget` warning.
+    pub warn_after: Option<Duration>,
+    /// A run that takes longer is a `gate/budget` error; above `warn_after` when both are set.
+    pub fail_after: Option<Duration>,
     /// Stop at the first error finding.
     pub fail_fast: bool,
 }
@@ -205,12 +206,9 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
     found.retain_rules(&request.rules);
     let mut findings = found.finish(workspace.exceptions(), workspace.baseline(), &ran);
 
-    if let Some(budget) = request.options.budget {
-        let elapsed = started.elapsed();
-        if elapsed > budget {
-            findings.push(over_budget(elapsed, budget, request.options.budget_fails));
-            findings.sort();
-        }
+    if let Some(finding) = over_budget(started.elapsed(), &request.options) {
+        findings.push(finding);
+        findings.sort();
     }
     attach_core_norms(&mut findings, workspace.repository());
 
@@ -579,24 +577,53 @@ fn commit_range(
     }))
 }
 
-fn over_budget(elapsed: Duration, budget: Duration, fails: bool) -> Finding {
-    let level = if fails { Level::Error } else { Level::Warning };
-    Finding {
+/// The one `gate/budget` finding of a run that took `elapsed`: an error over `--fail-after`, else a
+/// warning over `--warn-after`, else none. An error over both thresholds names both.
+fn over_budget(elapsed: Duration, options: &RunOptions) -> Option<Finding> {
+    let over = |threshold: Option<Duration>| threshold.filter(|threshold| elapsed > *threshold);
+    let warned = over(options.warn_after);
+    let (level, message) = match (over(options.fail_after), warned) {
+        (Some(fail), Some(warn)) => (
+            Level::Error,
+            format!(
+                "the run took {} ms, over --fail-after {} ms (and --warn-after {} ms)",
+                elapsed.as_millis(),
+                fail.as_millis(),
+                warn.as_millis()
+            ),
+        ),
+        (Some(fail), None) => (
+            Level::Error,
+            format!(
+                "the run took {} ms, over --fail-after {} ms",
+                elapsed.as_millis(),
+                fail.as_millis()
+            ),
+        ),
+        (None, Some(warn)) => (
+            Level::Warning,
+            format!(
+                "the run took {} ms, over --warn-after {} ms",
+                elapsed.as_millis(),
+                warn.as_millis()
+            ),
+        ),
+        (None, None) => return None,
+    };
+    Some(Finding {
         rule: findings::BUDGET_RULE.to_owned(),
         aspect: String::new(),
         level,
-        message: format!(
-            "the run took {} ms, over the budget of {} ms",
-            elapsed.as_millis(),
-            budget.as_millis()
-        ),
+        message,
         location: None,
         target: None,
-        help: Some("find the slow plugin with --timings, or raise --budget".to_owned()),
+        help: Some(
+            "find the slow plugin with --timings, or raise --warn-after or --fail-after".to_owned(),
+        ),
         norm: None,
         project: None,
         key: None,
-    }
+    })
 }
 
 /// What the run checked, for the summary: the tree, the change or the revision; or `commit

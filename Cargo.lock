@@ -831,6 +831,7 @@ dependencies = [
 name = "gate-host"
 version = "0.2.1"
 dependencies = [
+ "clap",
  "gate-runtime",
  "gate-sdk",
  "globset",

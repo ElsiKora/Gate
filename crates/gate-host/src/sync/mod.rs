@@ -9,7 +9,7 @@ pub mod yaml;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::config::{CiGithub, Name, PluginItem, check_relative};
+use crate::config::{Budget, CiGithub, Name, PluginItem, check_relative};
 use crate::error::{Error, Result};
 use crate::findings::{Finding, Level, Location, RuleFilter};
 use crate::snapshot::Source;
@@ -94,6 +94,34 @@ pub struct Stale {
     pub item: String,
     /// The path, relative to the repository root.
     pub path: String,
+}
+
+/// The flags a hook's or a job's `budget` adds to one of its checks: `--warn-after` and
+/// `--fail-after` for the thresholds it sets, none when the check sets either flag itself, so a
+/// check keeps exactly the thresholds it is written with.
+pub(crate) fn budget_flags(budget: Option<&Budget>, words: &[String]) -> Vec<String> {
+    let sets = |flag: &str| {
+        words.iter().any(|word| {
+            word == flag
+                || word
+                    .strip_prefix(flag)
+                    .is_some_and(|rest| rest.starts_with('='))
+        })
+    };
+    let Some(budget) = budget else {
+        return Vec::new();
+    };
+    if sets("--warn-after") || sets("--fail-after") {
+        return Vec::new();
+    }
+    [
+        ("--warn-after", budget.warn_after),
+        ("--fail-after", budget.fail_after),
+    ]
+    .into_iter()
+    .filter_map(|(flag, seconds)| seconds.map(|seconds| [flag.to_owned(), seconds.to_string()]))
+    .flatten()
+    .collect()
 }
 
 /// Every file `gate sync` writes, sorted by path.

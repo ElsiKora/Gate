@@ -13,6 +13,16 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   projects. Set it in the root `gate.toml`'s `[rules]`; a project's file may no longer set it.
   Delete any `CLAUDE.md` that only imports `AGENTS.md`, and move the instructions of any other into
   `AGENTS.md` or a rule file.
+- An enabled rule fails when its input is missing, instead of reporting nothing: the rules that
+  read the rule files (`agents/rule-registry`, `agents/rule-ids`, `agents/rule-file-size`,
+  `agents/rule-enforcement`, `agents/rule-owner`, `agents/rule-references`) report an empty
+  `<root>/rules` as their aspect `input`, and `agents/instruction-references` reports a missing
+  `entry` the same way. Add the agent documents, or set `levels = { input = "off" }` with a
+  decision.
+- The `agents-block` generator reports an `entry` that is not tracked, or a `<root>/rules` with no
+  rule file, as `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`; before, it
+  wrote nothing and said nothing. A project that does not want the block removes the generator from
+  `[generate]`.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-agents-v0.1.0...plugin-agents-v0.2.0) (2026-11-19)
 

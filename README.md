@@ -118,8 +118,8 @@ an afternoon and pin it the way it pins the core.
   version and sha256.
 - ✨ **Baselines and exceptions that only shrink**: adopt a rule on an old codebase with
   `gate baseline write`; an entry or an exception that matches nothing is reported.
-- ✨ **Time budgets**: `--budget` warns when a run is slow, `--budget-fails` fails it; `--timings` prints
-  the time of each phase of the run.
+- ✨ **Time budgets**: `--warn-after` warns when a run is slow, `--fail-after` fails it; `--timings`
+  prints the time of each phase of the run.
 - ✨ **Deterministic reports**: findings ordered by path, line, column, rule, aspect and message, with a
   stable fingerprint for baselines and SARIF.
 
@@ -391,8 +391,8 @@ selection.
 | `gate init` | Write `gate.toml`, `gate.lock` and `bin/gate` |
 
 Options of `gate check`: `--format text|json|sarif|github`, `--rule <plugin>/<rule>` (repeatable),
-`--timings`, `--budget <seconds>` (warns), `--budget-fails` (makes an exceeded budget an error),
-`--fail-fast`, `--no-overrides` (refuses `--plugin`). `gate list` takes `--format text|json`.
+`--timings`, `--warn-after <seconds>` (a slower run warns), `--fail-after <seconds>` (a slower run
+fails), `--fail-fast`, `--no-overrides` (refuses `--plugin`). `gate list` takes `--format text|json`.
 
 Exit codes: `0` clean, `1` errors found, `2` a configuration or environment failure.
 
@@ -405,7 +405,7 @@ format = { run = "pnpm prettier --check", files = "staged", glob = "*.{ts,md}" }
 [hooks]
 pre-commit = ["check --staged", "run format"]
 pre-push = ["check --push"]
-budget = 10
+budget = { warn-after = 3, fail-after = 10 }
 
 [ci.github]
 workflow = ".github/workflows/gate.yml"
@@ -424,7 +424,7 @@ writes the workflow. The workflow's generated first job runs `gate sync --check`
 between the generated files and `gate.toml`, and lists the projects the change touches. The hooks
 never skip themselves on an environment variable. In a hook or a job, `--push` takes no value: the
 hook passes each pushed range, the job the pull request's or the push's range. Generated `check`
-commands get `--no-overrides`, and `--budget <seconds> --budget-fails` when the job sets `budget`; a
+commands get `--no-overrides` and the thresholds of the job's `budget`, exactly as set; a
 job that lists `projects` is skipped when none of them changed. `aggregate` adds one job that needs
 every other job, always runs, and fails unless each of them succeeded or was skipped: the single
 check to require in branch protection.

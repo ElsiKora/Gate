@@ -496,8 +496,10 @@ all = ["lint", "unit"]
   share one instance, so `--rule <plugin>/<rule>` gives one rule's own); then how many `sync-state`
   answers the run computed and read from the cache, how many git questions about commit ids it
   asked git and answered from stored answers, and how many generators ran and came from the cache;
-  `--budget <seconds>` warns when a run exceeds it and `--budget-fails` makes that an error (the
-  generated CI jobs pass it, hooks do not); `--fail-fast` stops at the first error.
+  `--warn-after <seconds>` makes a run that exceeds it a `gate/budget` warning and
+  `--fail-after <seconds>` one that exceeds it an error (a hook's or a job's
+  `budget = { warn-after, fail-after }` passes exactly those); `--fail-fast` stops at the first
+  error.
 - `--rule <id>` (repeatable, `<plugin>/*` allowed) narrows a run to those rules; exceptions and
   baseline entries of the other rules are not due in that run. There is no history switch: a history
   rule is turned off by its level, and its git answers are cached by commit id.
@@ -687,7 +689,7 @@ The first readers raised these points; each is settled:
 - **Hooks.** `core.hooksPath` is set once per clone and shared by its worktrees; a fresh worktree needs
   nothing. `gate doctor` says when a clone has not run `gate sync`. Hook entries are gate commands,
   including `run <step>`, so commit message and branch linters and staged formatting stay steps until
-  `git/*` rules replace them. `[hooks] budget` applies `--budget` to hook runs.
+  `git/*` rules replace them. `[hooks] budget` gives hook runs `--warn-after` and `--fail-after`.
 - **CI jobs** carry `runs-on`, `services`, setup steps, `permissions` and pinned actions (by commit) as
   configuration, and keep the names the configuration gives. A generated first job lists the projects
   a change touches; heavy jobs declare the projects they need and are skipped at job level when none

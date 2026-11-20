@@ -117,6 +117,12 @@ Each shared plugin keeps its own changelog next to its code.
   `rule-references`) report an empty `<root>/rules` as `#input`, and `instruction-references`
   reports a missing `entry`. The `agents-block` generator reports both as
   `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`.
+- **check:** a run has two time thresholds, `--warn-after <seconds>` (a `gate/budget` warning) and
+  `--fail-after <seconds>` (a `gate/budget` error), replacing `--budget` and `--budget-fails`, which
+  are now unknown options. `budget` in `[hooks]` and in a CI job is a table,
+  `budget = { warn-after = 3, fail-after = 6 }`, with one key or both; the integer form is refused.
+  The generated jobs pass exactly the thresholds they are given and no longer turn a budget into a
+  failure on their own, so run `gate sync` after the change.
 
 ### Features
 

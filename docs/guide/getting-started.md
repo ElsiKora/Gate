@@ -141,7 +141,7 @@ findings, `bin/gate baseline prune` removes their entries and never adds one.
 pre-commit = ["check --staged"]
 commit-msg = ["check --commit-message"]
 pre-push = ["check --push"]
-budget = 10
+budget = { warn-after = 3, fail-after = 10 }
 ```
 
 ```bash
@@ -154,8 +154,8 @@ git commit -m "chore(gate): add gate"
 worktree of the clone shares it, and the commit adds `.githooks/`. The hooks call `bin/gate`, so
 every developer runs the pinned version; they never skip themselves on an environment variable. A
 hook may also run one of your steps, for example `run format` to check the staged files. `budget`
-makes a hook that takes longer than 10 seconds warn. On a fresh clone, `bin/gate doctor` tells you
-when `gate sync` has not run yet.
+makes a hook that takes longer than 3 seconds warn, and one that takes longer than 10 seconds fail.
+On a fresh clone, `bin/gate doctor` tells you when `gate sync` has not run yet.
 
 The `commit-msg` hook checks only the message being written, before the commit exists: with the
 rules above, `git/commit-message` checks its form and `git/no-ci-skip` refuses a CI-skip directive
@@ -190,7 +190,8 @@ its full commit id, with the release after ` # `, which the workflow keeps as a 
 the hooks or the workflow drift from `gate.toml`, and lists the projects the change touches. In a
 job, `--push` takes no value: the job passes the pull request's or the push's range. Generated
 `check` commands run with `--no-overrides`, so no plugin can be swapped in CI, and, when the job
-sets `budget = <seconds>`, with `--budget <seconds> --budget-fails`, so a run over it fails. With
+sets `budget = { warn-after = <seconds>, fail-after = <seconds> }`, with those thresholds: a run
+over `warn-after` warns and one over `fail-after` fails. With
 `--format github` findings show as annotations on the pull request; with `--format sarif` you can
 upload them to code scanning.
 

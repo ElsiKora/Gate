@@ -41,6 +41,8 @@ file, the key and what is expected, with exit code `2`:
 - an exception without a `reason`, or without a `decision` when `[decision-policy]` requires one;
 - a rule entry that sets a level below its default without a `decision` when `[decision-policy]`
   requires one (checked when the plugins load, since presets come from plugins);
+- a `check` entry of `[hooks]` or of a CI job that `gate check` would refuse (an unknown option, a
+  value it refuses, `--fail-after` not above `--warn-after`), checked with the same definition;
 - a `gate.lock` that does not match the configuration.
 
 ## `[gate]`
@@ -455,7 +457,7 @@ only, so the step calls them by name. A tool that no step names is never fetched
 pre-commit = ["check --staged", "run format"]
 commit-msg = ["check --commit-message"]
 pre-push = ["check --push"]
-budget = 10
+budget = { warn-after = 3, fail-after = 10 }
 ```
 
 Each git hook runs the listed `gate` commands in order: `check ...`, `run <step or suite> [--staged |
@@ -468,8 +470,10 @@ It checks no tree, takes no `--staged`, `--changed`, `--push` or `--rev`, and it
 `check` a hook runs also gets `--hook`, so rules that apply only
 while a developer works (a prohibited branch name) know a hook started them; an entry, of a hook or a
 job, does not write `--hook` itself. A `run` entry passes the hook's arguments to its steps (`-- "$@"`)
-and, in `pre-push`, the pushed refs on their standard input (`--stdin`). `budget` applies
-`--budget <seconds>` to hook runs: a hook that takes longer warns, it does not fail. `gate sync` writes
+and, in `pre-push`, the pushed refs on their standard input (`--stdin`). `budget` gives every
+`check` a hook runs its thresholds, `--warn-after` and `--fail-after` (see
+[Time Budgets](#-time-budgets)); a `check` entry that writes either itself keeps exactly what it
+writes. `gate sync` writes
 the hooks to `.githooks/` and sets `core.hooksPath` once per clone; every worktree of the clone shares
 it. `gate doctor` says when a clone has not run `gate sync`. Root file only.
 
@@ -524,9 +528,9 @@ remote ref and the remote's object id. The hook reads them all first and checks 
 it: `git/branch-name` refuses a name in its `prohibited` list (by default `main`, `master` and
 `release`) only in a hook run, so a commit or a push from a working copy on `main` is refused,
 while a plain `gate check` and a CI job, which check `main` out, pass. `set -e` makes the hook exit
-with the first failing check's code, so git stops the commit or the push. `[hooks] budget = 10`
-corresponds to `--budget 10` before `--hook`, and `pre-commit = ["check --staged"]` to
-`bin/gate check --staged --hook`.
+with the first failing check's code, so git stops the commit or the push.
+`[hooks] budget = { warn-after = 3, fail-after = 10 }` corresponds to `--warn-after 3 --fail-after 10`
+before `--hook`, and `pre-commit = ["check --staged"]` to `bin/gate check --staged --hook`.
 
 ## `[ci.github]`
 
@@ -542,7 +546,7 @@ name = "Gate"
 runs-on = "ubuntu-24.04"
 permissions = { contents = "read" }
 timeout-minutes = 15
-budget = 300
+budget = { warn-after = 120, fail-after = 300 }
 run = ["check --push"]
 
 [ci.github.jobs.unit]
@@ -584,7 +588,8 @@ such as `lint_rust` (`ci/names#job-id`); a moving `runs-on` label, such as `ubun
 
 The generated first job, `changes`, runs `gate sync --check` and lists the projects the change touches;
 a job that lists `projects` is skipped when none of them changed. Generated `check` commands get
-`--no-overrides`, and `--budget <seconds> --budget-fails` when the job sets `budget`. `gate sync` writes
+`--no-overrides` and the thresholds of the job's `budget`, exactly as set: a job with only
+`warn-after` never fails on time. `gate sync` writes
 the workflow; `gate sync --check` reports drift. Root file only.
 
 The workflow's runs share a `concurrency` group per workflow file and ref
@@ -623,11 +628,13 @@ may be private.
 
 ## ⏱ Time Budgets
 
-These are options of `gate check`.
+These are options of `gate check`. A `budget` table, in `[hooks]` or a CI job, passes the two
+thresholds to the checks it runs: `budget = { warn-after = <seconds>, fail-after = <seconds> }`,
+with one key or both, each above 0, and `fail-after` above `warn-after`.
 
 | Option | Effect |
 | --- | --- |
 | `--timings` | prints the time of each phase of the run (snapshot, configuration, selection, plugins, total) to standard error |
-| `--budget <seconds>` | warns when the run takes longer; `[hooks] budget` and a CI job's `budget` pass it |
-| `--budget-fails` | makes an exceeded budget an error; the generated CI jobs pass it with a `budget`, hooks do not |
+| `--warn-after <seconds>` | a run that takes longer is a `gate/budget` warning |
+| `--fail-after <seconds>` | a run that takes longer is a `gate/budget` error, so the gate fails; above `--warn-after` when both are given (exit `2` otherwise) |
 | `--fail-fast` | stops at the first error finding |
