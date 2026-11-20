@@ -15,7 +15,7 @@ Each shared plugin keeps its own changelog next to its code.
 - **plugin-node:** a new shared plugin, `node`, checks that every Node project of a kind uses one
   toolchain: pnpm pinned exactly, one Node version, exact dependency versions, one Prettier
   configuration, one ESLint configuration on the shared package, the standard manifest fields and
-  script names, and one strict TypeScript base. Its eight rules are listed in
+  script names, and one strict TypeScript base. Its nine rules are listed in
   [docs/guide/plugins.md](docs/guide/plugins.md#node).
 
 ## Unreleased

@@ -7,7 +7,7 @@
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
 | Depends on | `main` at `ec66737`; the kind names and the `kind` option of T-062, so that both plugins read one line the same way |
-| Touches | a new `plugins/node` (eight rules, the kinds as constants, one page per rule), `Cargo.toml` (the workspace member), `docs/guide/plugins.md`, `CHANGELOG.md` |
+| Touches | a new `plugins/node` (nine rules, the kinds as constants, one page per rule), `Cargo.toml` (the workspace member), `docs/guide/plugins.md`, `CHANGELOG.md` |
 
 ## Goal
 
@@ -106,8 +106,9 @@ and every cell that is not "same" has a non-empty reason.
 
 ## 3. The rules
 
-Eight rules. The five repository-scope rules see every `package.json` and configuration file of the
-repository once; the three project-scope rules read the project's kind. Every finding has a key (the
+Nine rules (eight in the approved design; `node/tsconfig-base` by the lead's ruling of 2026-11-20).
+The six repository-scope rules see every `package.json` and configuration file of the repository
+once; the three project-scope rules read the project's kind. Every finding has a key (the
 file and the field, script, flag or dependency), so its fingerprint survives a change of wording.
 
 ### `node/package-manager` (repository scope)
@@ -219,7 +220,6 @@ One base per repository; every configuration reaches it; no configuration weaken
 | --- | --- | --- | --- |
 | `base` | a `tsconfig*.json` does not reach the repository's base through its `extends` chain | the file | the file |
 | `weakened` | a configuration sets a standard flag to a weaker value (`strict: false`, `noUncheckedIndexedAccess: false`) | the line | the flag |
-| `flags` | the base lacks a standard flag (checked by the project that owns the base) | the base | the flag |
 | `resolution` | `module` or `moduleResolution` differs from the kind's (row 9) | the line | the flag |
 | `copy` | a configuration repeats the base's flags instead of extending it (no `extends`, and it sets three or more standard flags) | the file | the file |
 
@@ -229,9 +229,24 @@ The standard flags: `strict`, `noUncheckedIndexedAccess`, `exactOptionalProperty
 may add any other flag (decorators, `paths`, `jsx`) and may be stricter. It may not be weaker except
 through an exception, which names its reason.
 
-Option `base`: the base's path from the repository root, default `tsconfig.base.json`. The files are
+Plugin option `base` (in `[plugins.node] options`): the base's path from an install root, default
+`tsconfig.base.json`; a project's base is that of the install root that holds it. The files are
 read as JSON with comments and trailing commas, as TypeScript reads them, so the rule declares no
 language and needs no TypeScript plugin; a project with no `tsconfig*.json` has nothing to check.
+
+### `node/tsconfig-base` (repository scope; the lead's ruling of 2026-11-20)
+
+Each install root's base, checked once per install whether or not a Gate project owns it.
+
+| Aspect | Reported when | At | Key |
+| --- | --- | --- | --- |
+| `missing` | an install root has a `tsconfig*.json` below it and its base is not tracked | the base's path | the file |
+| `flags` | the base lacks a standard flag, or does not set `module` and `moduleResolution` to `NodeNext` | the base, or the line | the flag |
+
+A `separate` install's base is a base of its own. `node/tsconfig` keeps project scope and checks
+that each project's configurations reach their install root's base, none weakens a flag, and the
+resolution is the kind's; it no longer checks the base's flags, so the base is checked in one place
+per install.
 
 ## 4. One command runs ESLint, Prettier and the rest
 
@@ -339,7 +354,7 @@ test. Each case is one that would let a broken change through, or block a good o
 
 ## Done when
 
-- The plugin, its eight rules, the kinds and a page per rule are on a branch from `main`, with the
+- The plugin, its nine rules, the kinds and a page per rule are on a branch from `main`, with the
   tests of section 6, each failing with its change taken out.
 - One lane round on the pushed tip: fmt, clippy, test (`--workspace --no-fail-fast`), deny and the
   release build exit 0, and the leak scan prints nothing.
@@ -375,9 +390,9 @@ Rounds 270 and 272 to 275 stopped at clippy or at one test; each fix is its own 
 
 ### Rulings after round 276 (the lead, 2026-11-20)
 
-1. **The base's flags without a root project**: checked at repository scope, reading the root base
-   directly; no `reads`. A rule has one scope in the SDK, so the form (a ninth rule, or
-   `node/tsconfig` at repository scope) is the lead's answer still to come.
+1. **The base's flags without a root project**: a ninth rule, `node/tsconfig-base`, at repository
+   scope, reads each install root's base directly; `node/tsconfig` drops `flags`. `base` moves to
+   the plugin options, since both rules read it. Done, with tests and a page.
 2. **`separate`** is an install of its own in every rule: `node/node-version` takes each install
    root's own `.nvmrc`, and `engines.node` below it agrees with that. Done, with a test.
 3. **Limits**: a `catalog:` reference must name an entry of that catalog (done, with a test); an

@@ -1,33 +1,20 @@
-//! `node/tsconfig`: one base per repository; every `tsconfig*.json` reaches it through `extends`;
-//! none weakens it; module resolution is the kind's.
+//! `node/tsconfig`: every `tsconfig*.json` of the project reaches its install root's base through
+//! `extends`; none weakens it; module resolution is the kind's. The base's own flags are
+//! `node/tsconfig-base`'s.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use gate_sdk::schemars::JsonSchema;
-use gate_sdk::serde::Deserialize;
-use gate_sdk::{Result, Rule, Run};
+use gate_sdk::{NoOptions, Result, Rule, Run};
 
 use crate::json::{Node, Value};
 use crate::repo::{self, directory, file_name, join, normalize, within};
 use crate::settings::{Kind, Settings};
 use crate::standard::{Row, STRICT_FAMILY, STRICT_FLAGS, difference, resolution};
 
+type Options = NoOptions;
+
 #[derive(Debug, Default)]
 pub(crate) struct Tsconfig;
-
-/// The options of `node/tsconfig`.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(crate = "gate_sdk::serde", deny_unknown_fields)]
-#[schemars(crate = "gate_sdk::schemars")]
-pub(crate) struct Options {
-    /// The base's path from the repository root.
-    #[serde(default = "base")]
-    base: String,
-}
-
-fn base() -> String {
-    "tsconfig.base.json".to_owned()
-}
 
 /// How many standard flags a configuration without `extends` may set before it is a copy of the
 /// base.
@@ -36,14 +23,16 @@ const COPY_THRESHOLD: usize = 3;
 impl Rule for Tsconfig {
     type Options = Options;
     const NAME: &'static str = "tsconfig";
-    const TITLE: &'static str = "Every tsconfig reaches the repository's base and none weakens it";
-    const ASPECTS: &'static [&'static str] = &["base", "weakened", "flags", "resolution", "copy"];
+    const TITLE: &'static str =
+        "Every tsconfig reaches its install root's base and none weakens it";
+    const ASPECTS: &'static [&'static str] = &["base", "weakened", "resolution", "copy"];
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
-        let kind = Settings::read(run)?.kind;
+        let settings = Settings::read(run)?;
+        let kind = settings.kind;
         let tree = run.tree();
         let project = run.project().to_owned();
-        let base_path = run.options().base.clone();
+        let base_path = settings.base_of(&project);
         let mut configs = BTreeMap::new();
         for path in repo::own_paths(&tree) {
             let name = file_name(&path);
@@ -85,9 +74,6 @@ impl Rule for Tsconfig {
             }
             resolutions(run, path, config, kind);
         }
-        if let Some(own) = &own_base {
-            flags(run, own, configs.get(own));
-        }
         if let Some(difference) = difference(kind, Row::Resolution)
             && configs.contains_key("tsconfig.json")
             && !sets_resolution(&configs, "tsconfig.json", own_base.as_deref())
@@ -121,7 +107,8 @@ fn relative(path: &str, project: &str) -> String {
         .to_owned()
 }
 
-fn options(config: &Node) -> &[crate::json::Member] {
+/// The members of `config`'s `compilerOptions`.
+pub(crate) fn options(config: &Node) -> &[crate::json::Member] {
     config
         .get("compilerOptions")
         .map(Node::members)
@@ -176,51 +163,6 @@ fn resolutions(run: &mut Run<'_, Options>, path: &str, config: &Node, kind: Kind
                     kind.name()
                 ),
                 "write the kind's value, or leave it to the base where the kind's is the base's",
-            );
-        }
-    }
-}
-
-/// `flags`: the base sets every standard flag and the common resolution.
-fn flags(run: &mut Run<'_, Options>, path: &str, base: Option<&Node>) {
-    let Some(base) = base else {
-        crate::report(
-            run.report(),
-            "flags",
-            (path, None),
-            file_name(path),
-            format!("{path}, the repository's tsconfig base, is not tracked"),
-            "add the base with the standard flags; every tsconfig extends it",
-        );
-        return;
-    };
-    let set = options(base);
-    let value = |flag: &str| set.iter().find(|member| member.key == flag);
-    for flag in STRICT_FLAGS {
-        if value(flag).and_then(|member| member.value.as_bool()) != Some(true) {
-            crate::report(
-                run.report(),
-                "flags",
-                (path, value(flag).map(|member| member.line)),
-                flag,
-                format!("the base {path} does not set {flag} to true"),
-                "set it to true; the base carries every standard flag",
-            );
-        }
-    }
-    for flag in ["module", "moduleResolution"] {
-        let found = value(flag);
-        if !found
-            .and_then(|member| member.value.as_str())
-            .is_some_and(|text| text.eq_ignore_ascii_case("NodeNext"))
-        {
-            crate::report(
-                run.report(),
-                "flags",
-                (path, found.map(|member| member.line)),
-                flag,
-                format!("the base {path} does not set {flag} to NodeNext"),
-                "set it to NodeNext; a frontend overrides it with Bundler in its own tsconfig.json",
             );
         }
     }

@@ -3,7 +3,8 @@
 //! dependency (`node/dependency-versions`), one Prettier configuration (`node/formatter`) and one
 //! `ESLint` configuration (`node/linter`); each project's `package.json` (`node/package`), scripts
 //! (`node/scripts`) and `tsconfig` files (`node/tsconfig`) follow the standard of its kind
-//! ([`settings::Kind`]).
+//! ([`settings::Kind`]), and each install root's `TypeScript` base carries the standard flags
+//! (`node/tsconfig-base`).
 //!
 //! Built for `wasm32-wasip2` it is the component `node.wasm`; natively it is a library the tests
 //! call through [`PLUGIN`].
@@ -21,6 +22,7 @@ mod semver;
 pub mod settings;
 mod standard;
 mod tsconfig;
+mod tsconfig_base;
 mod yaml;
 
 use gate_sdk::{Location, Report};
@@ -34,6 +36,7 @@ use self::package_manager::PackageManager;
 use self::scripts::Scripts;
 use self::settings::Settings;
 use self::tsconfig::Tsconfig;
+use self::tsconfig_base::TsconfigBase;
 
 gate_sdk::plugin! {
     name: "node",
@@ -48,6 +51,7 @@ gate_sdk::plugin! {
         Package,
         Scripts,
         Tsconfig,
+        TsconfigBase,
     ],
     generators: [],
     presets: [],

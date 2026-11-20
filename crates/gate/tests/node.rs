@@ -45,6 +45,7 @@ node = { source = "acme/rules:node@0.1.0", options = { kind = "monorepo-root" } 
 "node/dependency-versions" = "error"
 "node/formatter" = "error"
 "node/linter" = "error"
+"node/tsconfig-base" = "error"
 "#;
 
 /// A project's `gate.toml`: its name, its kind and the three project-scope rules.
@@ -182,7 +183,7 @@ fn standard() -> Vec<(&'static str, String)> {
     ]
 }
 
-/// [`standard`] with one change against each of the eight rules.
+/// [`standard`] with one change against each of the nine rules.
 fn broken() -> Vec<(&'static str, String)> {
     standard()
         .into_iter()
@@ -192,6 +193,7 @@ fn broken() -> Vec<(&'static str, String)> {
                 ".nvmrc" => "24\n".to_owned(),
                 "pnpm-workspace.yaml" => text.replace("typescript: 6.0.3", "typescript: ^6.0.3"),
                 ".prettierrc.json" => text.replace("120", "100"),
+                "tsconfig.base.json" => text.replace("    \"noImplicitOverride\": true,\n", ""),
                 "apps/api/eslint.config.mjs" => "export default [];\n".to_owned(),
                 "packages/lib/package.json" => {
                     text.replace("\"license\"", "\"private\": true,\n  \"license\"")
@@ -321,7 +323,8 @@ fn the_standard_workspace_passes_and_one_change_against_each_rule_gives_that_rul
             "node/package#forbidden packages/lib/package.json",
             "node/package-manager#field package.json",
             "node/scripts#synonym apps/api/package.json",
-            "node/tsconfig#weakened apps/api/tsconfig.json"
+            "node/tsconfig#weakened apps/api/tsconfig.json",
+            "node/tsconfig-base#flags tsconfig.base.json"
         ],
         "{}",
         String::from_utf8_lossy(&output.stdout)

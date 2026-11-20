@@ -2,8 +2,8 @@ use crate::fixture::Fixture;
 
 const RULE: &str = "tsconfig";
 
-/// The standard base: every standard flag on (lines 3 to 12) and the common resolution (13, 14).
-const BASE: &str = r#"{
+/// The standard base: every standard flag on and the common resolution.
+pub const BASE: &str = r#"{
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -46,27 +46,6 @@ fn a_chain_that_reaches_the_base_passes_with_comments_and_trailing_commas() {
     assert_eq!(
         member("library", "packages/a", &files),
         Vec::<String>::new()
-    );
-}
-
-#[test]
-fn the_project_that_owns_the_base_checks_its_flags() {
-    let root = [
-        ("tsconfig.base.json", BASE),
-        ("tsconfig.json", "{ \"extends\": \"./tsconfig.base.json\" }"),
-    ];
-    assert_eq!(member("monorepo-root", "", &root), Vec::<String>::new());
-    let lacking = BASE.replace("    \"verbatimModuleSyntax\": true,\n", "");
-    let files = [("tsconfig.base.json", lacking.as_str())];
-    assert_eq!(
-        member("monorepo-root", "", &files),
-        ["flags tsconfig.base.json verbatimModuleSyntax"]
-    );
-    let bundled = BASE.replace("\"module\": \"NodeNext\"", "\"module\": \"ESNext\"");
-    let files = [("tsconfig.base.json", bundled.as_str())];
-    assert_eq!(
-        member("monorepo-root", "", &files),
-        ["flags tsconfig.base.json:13 module"]
     );
 }
 
@@ -160,19 +139,40 @@ fn the_base_path_is_an_option() {
             "{\n  \"extends\": \"./config/tsconfig.base.json\"\n}\n",
         ),
     ];
-    let fixture = Fixture::new("service", &files);
-    let moved = fixture
-        .check(RULE, r#"{"base": "config/tsconfig.base.json"}"#)
-        .expect("runs");
-    assert_eq!(crate::fixture::lines(&moved), Vec::<String>::new());
+    let moved = Fixture::new("service", &files)
+        .plugin_options(r#"{"kind": "service", "base": "config/tsconfig.base.json"}"#)
+        .lines(RULE);
+    assert_eq!(moved, Vec::<String>::new());
     assert_eq!(
-        fixture.lines(RULE),
+        Fixture::new("service", &files).lines(RULE),
         [
             "copy config/tsconfig.base.json tsconfig.base.json",
             "base config/tsconfig.base.json tsconfig.base.json",
-            "base tsconfig.json:2 tsconfig.json",
-            "flags tsconfig.base.json tsconfig.base.json"
+            "base tsconfig.json:2 tsconfig.json"
         ]
+    );
+}
+
+#[test]
+fn a_project_in_a_separate_install_reaches_that_install_s_base() {
+    let separate = r#"{"kind": "service", "separate": [{"path": "spikes/load", "job": "a load test with its own install"}]}"#;
+    let run = |extends: &str| {
+        let own = format!("{{ \"extends\": \"{extends}\" }}");
+        Fixture::new(
+            "service",
+            &[
+                ("tsconfig.base.json", BASE),
+                ("tsconfig.json", own.as_str()),
+            ],
+        )
+        .plugin_options(separate)
+        .project("spikes/load")
+        .lines(RULE)
+    };
+    assert_eq!(run("./tsconfig.base.json"), Vec::<String>::new());
+    assert_eq!(
+        run("../../tsconfig.base.json"),
+        ["base tsconfig.json:1 tsconfig.json"]
     );
 }
 

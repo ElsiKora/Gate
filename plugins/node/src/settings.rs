@@ -19,6 +19,13 @@ pub struct Settings {
     /// lockfile and workspace file, and the job that makes them separate.
     #[serde(default)]
     pub separate: Vec<Separate>,
+    /// The `TypeScript` base's path from an install root; each install root has its own.
+    #[serde(default = "default_base")]
+    pub base: String,
+}
+
+fn default_base() -> String {
+    "tsconfig.base.json".to_owned()
 }
 
 /// The kinds of project, the same names as the `docs` plugin's.
@@ -104,7 +111,21 @@ impl Settings {
                 )));
             }
         }
+        if !plain_directory(&settings.base) {
+            return Err(Error::config(format!(
+                "[plugins.node] options base is \"{}\": write the base's path from an install \
+                 root, without \"..\", \".\", a leading or a trailing slash",
+                settings.base
+            )));
+        }
         Ok(settings)
+    }
+
+    /// The base of the install root that holds `path` (repository-relative).
+    #[must_use]
+    pub fn base_of(&self, path: &str) -> String {
+        let roots = self.install_roots();
+        crate::repo::join(crate::repo::root_of(path, &roots), &self.base)
     }
 
     /// The install roots: the repository root (`""`) and every separate directory.
@@ -116,7 +137,7 @@ impl Settings {
     }
 }
 
-/// Whether `path` is a non-empty relative directory of plain segments.
+/// Whether `path` is a non-empty relative path of plain segments.
 fn plain_directory(path: &str) -> bool {
     !path.is_empty()
         && path

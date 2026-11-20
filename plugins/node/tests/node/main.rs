@@ -9,13 +9,14 @@ mod package;
 mod package_manager;
 mod scripts;
 mod tsconfig;
+mod tsconfig_base;
 
 use gate_sdk::Scope;
 
 use crate::fixture::Fixture;
 
 #[test]
-fn eight_rules_with_options_that_refuse_unknown_keys_and_no_history() {
+fn nine_rules_with_options_that_refuse_unknown_keys_and_no_history() {
     let info = gate_sdk::describe(&node::PLUGIN);
     let rules: Vec<(&str, Scope)> = info
         .rules
@@ -33,6 +34,7 @@ fn eight_rules_with_options_that_refuse_unknown_keys_and_no_history() {
             ("package", Scope::Project),
             ("scripts", Scope::Project),
             ("tsconfig", Scope::Project),
+            ("tsconfig-base", Scope::Repository),
         ]
     );
     for rule in &info.rules {
@@ -74,6 +76,10 @@ fn the_plugin_options_are_checked_before_any_rule_runs() {
         (
             r#"{"kind": "service", "separate": [{"path": "spikes/x/", "job": "a spike"}]}"#,
             "separate[0].path",
+        ),
+        (
+            r#"{"kind": "service", "base": "../tsconfig.base.json"}"#,
+            "options base is \"../tsconfig.base.json\"",
         ),
         (
             r#"{"kind": "service", "other": 1}"#,

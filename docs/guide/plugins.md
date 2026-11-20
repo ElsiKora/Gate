@@ -208,7 +208,9 @@ manifest fields, the script names and the TypeScript base the same everywhere, a
 Gate steps. Every value it checks is fixed by the plugin; the plugin option `kind` (`service`,
 `frontend`, `infrastructure`, `library`, `monorepo-root`) selects the few that differ by kind, each
 with its reason on the rule's page. A directory with an install of its own that is not a workspace
-member (a deployment bundle, say) is declared in `separate` with its job.
+member (a deployment bundle, say) is declared in `separate` with its job; it is an install of its
+own in every rule. `base` names the TypeScript base's path from an install root (default
+`tsconfig.base.json`).
 
 ```toml
 # gate.toml at the repository root
@@ -221,6 +223,7 @@ node = { source = "ElsiKora/Gate:node@0.3.0", options = { kind = "monorepo-root"
 "node/dependency-versions" = "error"
 "node/formatter" = "error"
 "node/linter" = "error"
+"node/tsconfig-base" = "error"
 
 [steps]
 format = { run = "pnpm run format" }
@@ -258,7 +261,8 @@ node = { source = "ElsiKora/Gate:node@0.3.0", options = { kind = "service" } }
 | [`node/linter`](../../plugins/node/rules/linter.md) | one flat root `eslint.config.mjs` on the shared configuration (`@elsikora/eslint-config`) and no other base; members import the root's |
 | [`node/package`](../../plugins/node/rules/package.md) | the manifest fields of the kind: name, version, license, `"type": "module"`, `engines.node`; private, or published with its fields for a library |
 | [`node/scripts`](../../plugins/node/rules/scripts.md) | the standard script names (`build`, `lint`, `lint:fix`, `typecheck`, `test`, `format`, `format:fix`); a bare name checks, `<name>:fix` writes; no synonym |
-| [`node/tsconfig`](../../plugins/node/rules/tsconfig.md) | every configuration extends one base with the strict flags on, turns none off, and resolves modules the kind's way |
+| [`node/tsconfig`](../../plugins/node/rules/tsconfig.md) | every configuration of a project extends its install root's base, turns no strict flag off, and resolves modules the kind's way |
+| [`node/tsconfig-base`](../../plugins/node/rules/tsconfig-base.md) | each install root that uses TypeScript has its base, with every strict flag on and `NodeNext` resolution |
 
 ### `ci`
 
