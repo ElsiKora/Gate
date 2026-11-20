@@ -63,8 +63,9 @@ What the survey found, in short (the full table is kept outside this repository)
 
 ### Images (`Dockerfile`)
 
-1. **A base is pinned by digest.** Each `FROM` that names an image (not an earlier stage, not `scratch`)
-   is `<image>@sha256:<64 hex>`, the grammar `ci/actions-pinned` already uses for `docker://` steps. A tag
+1. **A base is pinned by digest.** Each `FROM` that names an image (not an earlier stage, not `scratch`),
+   and each `COPY --from=` and `RUN --mount=...,from=` that names an image rather than a stage, is
+   `<image>@sha256:<64 hex>`, the grammar `ci/actions-pinned` already uses for `docker://` steps. A tag
    is a pointer its publisher moves; a digest is the image. A `FROM ${ARG}` passes only when the
    argument's default is pinned. When the plugin's `registries` is set, the image's registry is one of
    them.
@@ -81,10 +82,12 @@ What the survey found, in short (the full table is kept outside this repository)
 5. **The build context ignores what must never enter it** (decision 2). Each Dockerfile has its own
    ignore file, `<name>.dockerignore` beside it. BuildKit, the default builder since Docker Engine 23.0,
    reads it whatever the build context is, and the form scales to several Dockerfiles in one
-   repository. A `.dockerignore` anywhere is reported. The file either starts as an allow-list (`**` as
-   its first pattern) or excludes each pattern of `must-ignore`.
-6. **No secret is a build argument or an environment variable.** An `ARG` or `ENV` whose name contains
-   one of `secret-names` is reported, with or without a value: both end up in the image's history.
+   repository. A `.dockerignore` anywhere is reported. The file either starts as an allow-list (`**` or
+   `*` as its first pattern) or excludes each pattern of `must-ignore`; a later `!` line that takes one
+   of them back in (`!.env`) is reported. Image files are, case-sensitively, `Dockerfile`,
+   `Containerfile`, `Dockerfile.<name>` and `<name>.Dockerfile` with a dotless name (`image-files`).
+6. **No secret is a build argument or an environment variable.** An `ARG` or `ENV` with a secret's
+   name (whole `_`-separated words, see `secret-names`) is reported, with or without a value: both end up in the image's history.
    Secrets reach a step through `RUN --mount=type=secret`, as every image read for this design already
    does.
 7. **The labels are the OCI ones** (decision 3). Each runtime stage sets, itself or through its stage
@@ -111,9 +114,9 @@ What the survey found, in short (the full table is kept outside this repository)
    (`${NAME:?...}`), whose value the caller pins. A plain `${NAME}`, or a default that is not pinned
    (`${NAME:-postgres:17}`), is reported. A service built from a Dockerfile has its pin there.
 5. **No secret is written in, except in an end-to-end file** (decision 4). An `environment` entry
-   whose name contains one of `secret-names` and whose value is a literal, or a `${NAME:-literal}`
-   default, is reported. A `${NAME}` value, a name ending in one of `reference-suffixes` (`_FILE`,
-   `_PATH`: the value is a path) and compose `secrets:` pass. In a `*.e2e.yml` file a literal passes:
+   with a secret's name and whose value is a literal, or a `${NAME:-literal}`
+   default, is reported. A `${NAME}` value, a name whose last word is one of `secret-metadata-words`
+   (`_FILE`, `_PATH`: the value is a path) and compose `secrets:` pass. In a `*.e2e.yml` file a literal passes:
    such a file starts local, throwaway dependencies, and their credentials protect nothing. This is part
    of the rule's definition, written on its page, not an exception.
 6. **A published port is on the loopback address**: `127.0.0.1:` or `[::1]:` before the host port.
@@ -262,8 +265,14 @@ are gone.
 - `secret` is the aspect for "a secret is written into this file" in both `docker` rules.
 - `name` is the aspect for "the file's name is not the standard's" in both.
 - `secret-names` is one list in `[plugins.docker]` options, which both rules read: `PASSWORD`, `PASSWD`,
-  `SECRET`, `TOKEN`, `PRIVATE_KEY`, `API_KEY`, `ACCESS_KEY`, `CREDENTIAL`, `AUTH` (a name contains one,
-  ignoring case).
+  `SECRET`, `TOKEN`, `PRIVATE_KEY`, `API_KEY`, `ACCESS_KEY`, `CREDENTIAL`, `CREDENTIALS`, `AUTH`. A
+  name's `_`-separated words, ignoring case, hold one as whole words (`AUTH` hits `AUTH` and
+  `BASIC_AUTH`, not `AUTHOR` or `NEXTAUTH_URL`), and its last word is not one of
+  `secret-metadata-words` (`FILE`, `PATH`, `DIR`, `URL`, `ENDPOINT`, `NAME`, `TYPE`, `TTL`, `EXPIRY`,
+  `LENGTH`): `TOKEN_TTL` is a duration and `POSTGRES_PASSWORD_FILE` a path, so both pass. This list
+  replaces compose's `reference-suffixes`, so both rules decide the same way.
+- `image-files` is one list in `[plugins.docker]` options: `Dockerfile`, `Containerfile`,
+  `Dockerfile.*`, `*.Dockerfile`, compared case-sensitively, `*` a name without a dot.
 - `registries` is one list in `[plugins.docker]` options (default `[]`: any registry).
 
 **Options per rule.**
@@ -273,7 +282,6 @@ are gone.
 | `docker/dockerfile` | `must-ignore` | list of patterns | `[".git", ".env", ".env.*", "*.env", "*.pem", "*.key"]` |
 | `docker/dockerfile` | `labels` | list of names | `["org.opencontainers.image.source", "org.opencontainers.image.revision", "org.opencontainers.image.version"]` |
 | `docker/compose` | `purposes` | list of strings | `["development", "e2e"]` |
-| `docker/compose` | `reference-suffixes` | list of strings | `["_FILE", "_PATH"]` |
 | `repository/tracked-secrets` | `env-examples` | list of file names | `[".env.example"]` |
 | `repository/large-files` | `large-bytes` | integer | `1048576` (1 MiB) |
 | `repository/large-files` | `huge-bytes` | integer | `5242880` (5 MiB) |

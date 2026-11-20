@@ -227,11 +227,14 @@ ports on the loopback address only, and the health check where the orchestrator 
 ```toml
 [plugins.docker]
 source = "ElsiKora/Gate:docker@0.3.0"
-options = { registries = ["docker.io"] }  # optional; secret-names too
+options = { registries = ["docker.io"] }  # optional, as are image-files, secret-names, secret-metadata-words
 
 [project]
 extends = ["docker/recommended"]
 ```
+
+Both docker rules are project-scope: in a monorepo, put `extends = ["docker/recommended"]` in a
+`[[profiles]]` entry for the projects that build images.
 
 | Rule | Checks |
 | --- | --- |
@@ -243,12 +246,19 @@ extends = ["docker/recommended"]
 What no repository should track, whatever its languages.
 
 ```toml
+# the root gate.toml, in a single project or a monorepo alike
 [plugins]
-repository = { source = "ElsiKora/Gate:repository@0.3.0" }  # in the root gate.toml
+repository = { source = "ElsiKora/Gate:repository@0.3.0" }
 
 [project]
 extends = ["repository/recommended"]
 ```
+
+Both rules are repository-scope: they run once over the whole repository, so they are configured in the
+root file only, even in a monorepo, where the root's `[project] extends` is part of the repository
+defaults ([configuration.md](configuration.md#project)). A profile or a project file cannot turn them
+on. `repository/recommended` sets both rules to `error` and `large-files#large` to `warning`: a file
+over 1 MiB is a warning, one over 5 MiB (`huge`) an error.
 
 | Rule | Checks |
 | --- | --- |
@@ -259,8 +269,9 @@ extends = ["repository/recommended"]
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
 `extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides.
-`docker` and `repository` ship two each: `<plugin>/recommended`, every rule at `error`, and
-`<plugin>/adoption`, every rule at `warning` for a repository on its way there. Turn the other shared
+`docker` and `repository` ship two each: `<plugin>/recommended`, every rule at `error` (with
+`repository/large-files#large` at `warning`), and `<plugin>/adoption`, every rule at `warning` for a
+repository on its way there. Turn the other shared
 plugins' rules on one by one in `[rules]`; `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own

@@ -20,7 +20,7 @@ static TOKENS: LazyLock<Option<Regex>> = LazyLock::new(|| {
 });
 
 /// The armor line that opens a private key block, anywhere in a line: `-----BEGIN `, words, then
-/// `PRIVATE KEY-----` or, for OpenPGP, `PRIVATE KEY BLOCK-----`.
+/// `PRIVATE KEY-----` or, for a PGP key, `PRIVATE KEY BLOCK-----`.
 static KEY_HEADER: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----").ok());
 

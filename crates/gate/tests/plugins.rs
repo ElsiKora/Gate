@@ -4924,6 +4924,81 @@ fn the_docker_and_repository_rules_report_exactly_the_planted_files_and_pass_wit
 }
 
 #[test]
+fn a_monorepo_turns_the_repository_preset_on_in_the_root_project_section_with_large_at_warning() {
+    let repo = Repo::empty();
+    let docker = "acme/rules:docker@0.3.0";
+    let repository = "acme/rules:repository@0.3.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[project]\nextends = [\"repository/recommended\"]\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &(lock(
+            docker,
+            "https://example.invalid/docker.wasm",
+            &"b".repeat(64),
+        ) + &lock_entry(repository, "https://example.invalid/repository.wasm")),
+    );
+    repo.write("apps/api/gate.toml", "[project]\nname = \"api\"\n");
+    repo.write("apps/api/.env", "MODE=local\n");
+    std::fs::create_dir_all(repo.path().join("docs")).expect("directories");
+    std::fs::write(
+        repo.path().join("docs/large.bin"),
+        vec![1u8; 2 * 1024 * 1024],
+    )
+    .expect("write");
+    repo.commit("an environment file and a large file");
+
+    let docker_plugin = format!(
+        "docker={}",
+        component("gate-plugin-docker", "docker").0.display()
+    );
+    let repository_plugin = format!(
+        "repository={}",
+        component("gate-plugin-repository", "repository")
+            .0
+            .display()
+    );
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &docker_plugin,
+        "--plugin",
+        &repository_plugin,
+        "--format",
+        "json",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut findings: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            format!(
+                "{} {}#{} {}",
+                finding["level"].as_str().unwrap_or(""),
+                finding["rule"].as_str().unwrap_or(""),
+                finding["aspect"].as_str().unwrap_or(""),
+                finding["location"]["path"].as_str().unwrap_or("")
+            )
+        })
+        .collect();
+    findings.sort();
+    assert_eq!(
+        findings,
+        [
+            "error repository/tracked-secrets#env-file apps/api/.env",
+            "warning repository/large-files#large docs/large.bin"
+        ]
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
 fn a_file_a_filter_stores_as_a_pointer_has_the_pointers_size_in_every_mode() {
     let repo = Repo::empty();
     let docker = "acme/rules:docker@0.3.0";
