@@ -8,13 +8,7 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
-
-The plugin interface stays `gate:plugin@0.2.0`, so every plugin built for 0.2.0 loads in a 0.2.1
-core. The git and nestjs plugins are released at 0.2.1; agents, ci, ledger, markdown and typescript
-stay at 0.2.0. To upgrade, set `[gate] version = "0.2.1"`, pin `ElsiKora/Gate:git@0.2.1` and
-`ElsiKora/Gate:nestjs@0.2.1` where you use them, run `gate lock`, then `gate sync` and `gate init` as
-the entries below say.
+# 0.3.0 (unreleased)
 
 ### Breaking Changes
 
@@ -37,6 +31,17 @@ the entries below say.
   `repository/large-files`, and the presets `repository/recommended` and `repository/adoption`.
 - **sdk:** `gate_sdk::yaml`, behind the feature `yaml`: a YAML reader that keeps each node's line,
   for rules that report at a line of a YAML file.
+
+## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
+
+The plugin interface stays `gate:plugin@0.2.0`, so every plugin built for 0.2.0 loads in a 0.2.1
+core. The git and nestjs plugins are released at 0.2.1; agents, ci, ledger, markdown and typescript
+stay at 0.2.0. To upgrade, set `[gate] version = "0.2.1"`, pin `ElsiKora/Gate:git@0.2.1` and
+`ElsiKora/Gate:nestjs@0.2.1` where you use them, run `gate lock`, then `gate sync` and `gate init` as
+the entries below say.
+
+### Features
+
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per
   workflow file and ref: a newer pull-request run cancels the older one still in progress, and a
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run
