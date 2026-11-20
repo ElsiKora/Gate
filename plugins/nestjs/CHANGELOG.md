@@ -3,6 +3,20 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
+## Unreleased
+
+Built for the plugin interface `gate:plugin@0.3.0`.
+
+### Changed
+
+- `nestjs/raw-config-access` reports under aspects. Its finding of 0.2 is now `boundary`; a file
+  outside the boundary that reads `process.env` is `process-env`; and the keys the raw configuration
+  getters and `process.env` read are compared with the project's `.env.example`: `undeclared`,
+  `unread`, `dynamic`, `example-missing` and `example-syntax`, with the options `example-file`,
+  `getters` and `external-keys`. No finding holds a value of the example file. A baseline entry's
+  fingerprint holds the aspect: after the upgrade, check that `gate check` reports the same files
+  under `boundary`, then run `gate baseline write` once.
+
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.2.0...plugin-nestjs-v0.2.1) (2026-11-20)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.
