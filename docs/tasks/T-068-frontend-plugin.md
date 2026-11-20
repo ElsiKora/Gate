@@ -452,7 +452,7 @@ The lead approved the design at `6ebd2b0` for code in v0.3.0 and answered the op
 
 ## Resume point
 
-2026-11-20T02:23:10+00:00: the code fix round is written and not yet built. The 17 rules hold the tree
-of decision 11, the three rules of decision 10 (`import-alias`, `route-config`, `packages`) are added
-with their pages, and the tests cover the section 7 cases, each new check with a case that removes its
-piece. Next: the lane round of this commit after ticket 283, then the fixes it asks for.
+2026-11-20T04:03:53+00:00: the code fix round is green. Lane round 303 on 4f90cdc exits 0 at every step: fmt,
+clippy, test (1069 passed, 0 failed), deny, release and the leak scan. The 17 rules hold the tree of
+decision 11, and the three rules of decision 10 (`import-alias`, `route-config`, `packages`) are in
+both presets with their pages. Next: the independent review, then one fix round on its findings.
