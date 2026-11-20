@@ -6,7 +6,7 @@
 | Release | v0.3.0 (plugin nestjs 0.3.0 with the core, on `gate:plugin@0.3.0`; merges after the v0.2.1 tag) |
 | Writer | "Gate 002", from 2026-11-20 (first "Gate 003: host foundations") |
 | Reviewer | a session that did not write it |
-| Depends on | `main` at `a8e511d` (v0.2.1 and the first 0.3.0 batch) |
+| Depends on | `main` at `cee6491` (v0.2.1 and the first two 0.3.0 batches) |
 | Touches | `plugins/nestjs/src/rules/semantics/wrappers/`, `plugins/nestjs/tests/wrappers.rs`, `plugins/nestjs/rules/wrappers.md`, `plugins/nestjs/CHANGELOG.md` |
 
 ## Goal
@@ -64,3 +64,10 @@ clippy for the new base. Next: one lane round on T-044's own target.
 test (1206 passed, 0 failed, over 101 test binaries; `tests/wrappers.rs` 26 passed), deny, build and
 every wasm build exit 0. The log compiles `gate` and `gate-plugin-nestjs` from this checkout and
 lists the new tests by name, the one round 208 failed among them. Next: the independent review.
+2026-11-20T10:53:38+00:00: rebased onto `main` at `cee6491`, the second 0.3.0 batch (T-055, T-064,
+T-066), as the lead asked. The one conflict was the plugin CHANGELOG: main's `# 0.3.0 (unreleased)`
+section now opens with the plugin interface line and lists T-064's breaking changes (the CDK
+knowledge out, `nestjs/string-enums` moved, `nestjs/raw-config-access` aspects); T-044's two entries
+follow them in the same `### Breaking Changes` list, and nothing of main's is changed. The batch
+changed nothing under the wrappers rule, its tests or the test host. Round 342 counted for the
+earlier base only. Next: one lane round on T-044's own target.
