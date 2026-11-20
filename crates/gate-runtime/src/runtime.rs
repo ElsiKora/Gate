@@ -410,8 +410,7 @@ impl Runtime {
                 name,
                 ErrorKind::Load,
                 format!(
-                    "{name} was built for another plugin interface; this gate {} loads plugins built for {INTERFACE} only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {}, released with this core), or rebuild it with gate-sdk {} ({error:#})",
-                    env!("CARGO_PKG_VERSION"),
+                    "{name} was built for another plugin interface; this gate {} loads plugins built for {INTERFACE} only: pin the plugin's release built for {INTERFACE} (each plugin's CHANGELOG.md says which interface a release is built for), or rebuild it with gate-sdk {} ({error:#})",
                     env!("CARGO_PKG_VERSION"),
                     env!("CARGO_PKG_VERSION")
                 ),
