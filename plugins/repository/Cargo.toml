@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 gate-sdk.workspace = true
 regex.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -5628,6 +5628,116 @@ fn a_monorepo_sets_the_repository_rules_in_the_root_rules_with_large_at_warning(
     assert_eq!(output.status.code(), Some(1));
 }
 
+/// `gate check --format json` with the built docker and repository plugins: the exit code and each
+/// finding as `<rule>#<aspect> <target>`, sorted.
+fn hygiene_targets(repo: &Repo) -> (Option<i32>, Vec<String>) {
+    let docker = format!(
+        "docker={}",
+        component("gate-plugin-docker", "docker").0.display()
+    );
+    let repository = format!(
+        "repository={}",
+        component("gate-plugin-repository", "repository")
+            .0
+            .display()
+    );
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &docker,
+        "--plugin",
+        &repository,
+        "--format",
+        "json",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut findings: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            format!(
+                "{}#{} {}",
+                finding["rule"].as_str().unwrap_or(""),
+                finding["aspect"].as_str().unwrap_or(""),
+                finding["target"].as_str().unwrap_or("")
+            )
+        })
+        .collect();
+    findings.sort();
+    (output.status.code(), findings)
+}
+
+#[test]
+fn an_excepted_fixture_key_does_not_cover_a_real_key_added_above_it() {
+    let repo = Repo::empty();
+    let docker = "acme/rules:docker@0.3.0";
+    let repository = "acme/rules:repository@0.3.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n\n[rules]\n\"repository/tracked-secrets\" = \"error\"\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &(lock(
+            docker,
+            "https://example.invalid/docker.wasm",
+            &"b".repeat(64),
+        ) + &lock_entry(repository, "https://example.invalid/repository.wasm")),
+    );
+    // Synthetic key blocks, built at run time: 20 lines of 64 base64 characters each.
+    let kind = "PRIVATE";
+    let block = |letters: &str| {
+        let body: String = (0..20)
+            .map(|line| format!("{}\n", letters.repeat(16 + line % 2)))
+            .collect::<Vec<_>>()
+            .concat();
+        format!("-----BEGIN {kind} KEY-----\n{body}-----END {kind} KEY-----\n")
+    };
+    let fixture = block("QUJD");
+    repo.write("test/fixture.pem", &fixture);
+    repo.commit("a fixture key");
+
+    let (code, findings) = hygiene_targets(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let [finding] = findings.as_slice() else {
+        panic!("one finding: {findings:?}");
+    };
+    let target = finding
+        .strip_prefix("repository/tracked-secrets#private-key ")
+        .expect("a private-key finding");
+    assert!(
+        target.starts_with("test/fixture.pem:private-key:"),
+        "{target}"
+    );
+
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"repository/tracked-secrets#private-key\"\ntarget = \"{target}\"\nreason = \"a fake key the parser tests read\"\n"
+        ),
+    );
+    repo.commit("the fixture excepted");
+    let (code, findings) = hygiene_targets(&repo);
+    assert_eq!(findings, Vec::<String>::new());
+    assert_eq!(code, Some(0));
+
+    repo.write("test/fixture.pem", &format!("{}\n{fixture}", block("WFla")));
+    repo.commit("a real key above the fixture");
+    let (code, findings) = hygiene_targets(&repo);
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert!(
+        findings[0]
+            .starts_with("repository/tracked-secrets#private-key test/fixture.pem:private-key:")
+            && !findings[0].ends_with(target),
+        "the new key is reported under its own target: {findings:?}"
+    );
+    assert_eq!(code, Some(1));
+}
+
 #[test]
 fn a_file_a_filter_stores_as_a_pointer_has_the_pointers_size_in_every_mode() {
     let repo = Repo::empty();
