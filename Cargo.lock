@@ -895,6 +895,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gate-plugin-frontend"
+version = "0.3.0"
+dependencies = [
+ "gate-sdk",
+ "gate-typescript",
+ "regex-automata",
+]
+
+[[package]]
 name = "gate-plugin-git"
 version = "0.2.1"
 dependencies = [
