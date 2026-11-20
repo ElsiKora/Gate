@@ -109,7 +109,7 @@ Recommendation: **yes, by the same principle.** An enabled agents rule that cann
   `#input` once, at `<root>/rules`.
 - The entry: `agents/instruction-references` reports `entry` (`AGENTS.md`) when it is not tracked.
   Today it reads the entry only "when it is tracked". The `agents/agents-block` generator, which
-  returns silently today, reports it as its finding (`gate/sync#agents-block`): "AGENTS.md is not
+  returns silently today, reports it as its finding (`gate/sync#agents/agents-block`): "AGENTS.md is not
   tracked; create it with the `gate:begin agents` and `gate:end agents` lines". The generator
   writes only between the markers; it cannot create the file. It also reports an empty
   `<root>/rules`. Both are `gate sync` findings, in `gate sync` and in `gate sync --check`, and the

@@ -115,8 +115,8 @@ Each shared plugin keeps its own changelog next to its code.
 - **plugin-agents:** an enabled agents rule fails when its input is missing: the rules that read the
   rule files (`rule-registry`, `rule-ids`, `rule-file-size`, `rule-enforcement`, `rule-owner`,
   `rule-references`) report an empty `<root>/rules` as `#input`, and `instruction-references`
-  reports a missing `entry`. The `agents-block` generator reports both as `gate/sync#agents-block`
-  in `gate sync` and `gate sync --check`.
+  reports a missing `entry`. The `agents-block` generator reports both as
+  `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`.
 
 ### Features
 

@@ -15,11 +15,11 @@ The text between `<!-- gate:begin agents -->` and `<!-- gate:end agents -->` in 
 
 Links are relative to `entry`: with `entry = "docs/AGENTS.md"` a rule file
 `docs/agents/rules/api.md` is linked as `agents/rules/api.md`. The rest of the file is kept byte
-for byte. Markers that are missing, repeated or reversed are a finding of `gate/sync#agents-block`
-at the first marker's line.
+for byte. Markers that are missing, repeated or reversed are a finding of
+`gate/sync#agents/agents-block` at the first marker's line.
 
 The generator writes only between the markers, so its inputs are findings of
-`gate/sync#agents-block` when they are missing, in `gate sync` and in `gate sync --check`:
+`gate/sync#agents/agents-block` when they are missing, in `gate sync` and in `gate sync --check`:
 
 - `entry` is not tracked: nothing is written. Create it with a `<!-- gate:begin agents -->` line and,
   below it, a `<!-- gate:end agents -->` line, or point `entry` at the file.

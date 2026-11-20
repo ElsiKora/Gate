@@ -177,7 +177,7 @@ it.
 `gate sync` writes the generated files; `gate sync --check` reports drift. An enabled rule or generator
 whose input is missing fails: a rule that reads the rule files reports an empty `<root>/rules` as
 `#input`, `instruction-references` reports a missing `entry`, and `agents-block` reports both as
-`gate/sync#agents-block`. The rules: `instruction-references`,
+`gate/sync#agents/agents-block`. The rules: `instruction-references`,
 `no-claude-md`, `rule-enforcement`, `rule-file-size`, `rule-ids`, `rule-owner`, `rule-references`,
 `rule-registry`, `skills` ([pages](../../plugins/agents/rules)).
 

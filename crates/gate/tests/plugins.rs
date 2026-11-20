@@ -2575,7 +2575,7 @@ fn agents_rules_and_the_agents_block_fail_without_agent_docs_and_pass_with_them(
     );
     let (code, said) = doc_run(&repo, "agents", wasm, &["sync", "--check"]);
     assert_eq!(code, Some(1), "{said}");
-    assert!(said.contains("gate/sync#agents-block"), "{said}");
+    assert!(said.contains("gate/sync#agents/agents-block"), "{said}");
     assert!(
         said.contains("AGENTS.md is not tracked, and agents/agents-block reads it"),
         "{said}"
