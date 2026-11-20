@@ -3467,6 +3467,72 @@ fn an_exception_for_a_commit_the_push_judges_and_accepts_is_reported() {
     );
 }
 
+/// `gate check --staged --timings` of the git plugin: the finding messages, sorted, and whether
+/// each git call came from the result cache.
+fn timed_git(repo: &Repo, plugin: &str) -> (Vec<String>, Vec<bool>) {
+    let output = repo.gate(&[
+        "check",
+        "--staged",
+        "--plugin",
+        plugin,
+        "--format",
+        "json",
+        "--timings",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("a JSON report: {}", text(&output.stderr)));
+    let mut messages: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str().map(str::to_owned))
+        .collect();
+    messages.sort();
+    let stderr = text(&output.stderr);
+    let cached: Vec<bool> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("timings: call git "))
+        .map(|call| call.contains(": cached, "))
+        .collect();
+    assert!(!cached.is_empty(), "--timings names each call: {stderr}");
+    (messages, cached)
+}
+
+#[test]
+fn a_changed_exception_list_is_not_answered_from_the_result_cache() {
+    let (repo, plugin, pushed, _) = accepted_pushed_commit();
+    let configured = revision(&repo, &format!("{pushed}^"));
+    // Only the index changes from run to run, never HEAD, which the call's read set records: a
+    // stored result is told apart by its key alone.
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    // The run judges the excepted commit: its finding is accepted.
+    assert_eq!(timed_git(&repo, &plugin), (Vec::new(), vec![false]));
+    assert_eq!(
+        timed_git(&repo, &plugin),
+        (Vec::new(), vec![true]),
+        "an unchanged run is answered from the result cache"
+    );
+    // The exception now names a good commit: the call runs again, judges that commit and no
+    // longer the pushed one, so the exception is stale and the pushed commit has no finding.
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message\"\ntarget = \"{configured}\"\nreason = \"never needed\"\n"
+        ),
+    );
+    repo.git(&["add", "gate.exceptions.toml"]);
+    assert_eq!(
+        timed_git(&repo, &plugin),
+        (
+            vec![format!(
+                "the exception for git/commit-message at {configured} matches no finding"
+            )],
+            vec![false]
+        )
+    );
+}
+
 #[test]
 fn an_exception_for_a_commit_the_history_no_longer_holds_is_reported() {
     let (repo, plugin, pushed, _) = accepted_pushed_commit();

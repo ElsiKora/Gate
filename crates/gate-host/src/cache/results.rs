@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 
 use gate_runtime::{GitQuery, Grant, History, ReadSet};
-use gate_sdk::{CheckRequest, FileLocation, Finding, GeneratedFile, Location, Span};
+use gate_sdk::{CheckRequest, FileLocation, Finding, GeneratedFile, Judged, Location, Span};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -31,12 +31,15 @@ use super::{Cache, Sha256Sum};
 use crate::error::{Error, Result};
 
 /// Raised when an entry written before would be read differently.
-const FORMAT: u32 = 4;
+const FORMAT: u32 = 5;
 
-/// A stored call: its findings, its read set, and the digests that check the read set again.
+/// A stored call: its findings, what its rules judged, its read set, and the digests that check
+/// the read set again.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Stored {
     pub(crate) findings: Vec<Finding>,
+    /// The rules that judged less than their whole scope, with what they judged.
+    pub(crate) judged: Vec<Judged>,
     /// For a generator, the files it wrote, at repository paths.
     pub(crate) files: Vec<GeneratedFile>,
     pub(crate) read_set: ReadSet,
@@ -79,11 +82,18 @@ impl Stored {
         let changed = read_set.changed.then(|| selection(inputs.changed));
         Self {
             findings,
+            judged: Vec::new(),
             files: Vec::new(),
             read_set,
             listed,
             changed,
         }
+    }
+
+    /// [`Stored::new`] with what the call's rules judged.
+    #[must_use]
+    pub(crate) fn with_judged(self, judged: Vec<Judged>) -> Self {
+        Self { judged, ..self }
     }
 
     /// A generator's outcome: [`Stored::new`] with the files it wrote.
@@ -227,6 +237,11 @@ pub(crate) fn store(cache: &Cache, plugin: &str, key: &Sha256Sum, stored: &Store
 
 fn encode(stored: &Stored) -> Value {
     let findings: Vec<Value> = stored.findings.iter().map(encode_finding).collect();
+    let judged: Vec<Value> = stored
+        .judged
+        .iter()
+        .map(|judged| json!({ "rule": judged.rule, "targets": judged.targets }))
+        .collect();
     let read: Map<String, Value> = stored
         .read_set
         .read
@@ -256,6 +271,7 @@ fn encode(stored: &Stored) -> Value {
     json!({
         "format": FORMAT,
         "findings": findings,
+        "judged": judged,
         "files": files,
         "listed": stored.listed,
         "read": read,
@@ -274,6 +290,17 @@ fn decode(value: &Value) -> Option<Stored> {
         .as_array()?
         .iter()
         .map(decode_finding)
+        .collect::<Option<Vec<_>>>()?;
+    let judged = value
+        .get("judged")?
+        .as_array()?
+        .iter()
+        .map(|judged| {
+            Some(Judged {
+                rule: judged.get("rule")?.as_str()?.to_owned(),
+                targets: strings(judged.get("targets")?)?,
+            })
+        })
         .collect::<Option<Vec<_>>>()?;
     let files = value
         .get("files")?
@@ -328,6 +355,7 @@ fn decode(value: &Value) -> Option<Stored> {
     };
     Some(Stored {
         findings,
+        judged,
         files,
         read_set,
         listed,
@@ -496,7 +524,17 @@ mod tests {
             ],
             read_set,
             &inputs,
-        );
+        )
+        .with_judged(vec![
+            Judged {
+                rule: "rule".to_owned(),
+                targets: vec!["c".repeat(40), "feat/one".to_owned()],
+            },
+            Judged {
+                rule: "other".to_owned(),
+                targets: Vec::new(),
+            },
+        ]);
         assert_eq!(decode(&encode(&stored)), Some(stored.clone()));
 
         let generated = Stored::generated(

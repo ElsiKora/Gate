@@ -1026,6 +1026,10 @@ impl Loaded {
             for rule in rules {
                 ran.per_scope.insert(*project, &rule.id.to_string());
             }
+            for judged in outcome.judged {
+                let rule = format!("{name}/{}", judged.rule);
+                ran.per_scope.narrow(*project, &rule, judged.targets);
+            }
             ran.rules += rules.len();
             ran.reads.push(PluginReads {
                 project: project.map(str::to_owned),
@@ -1075,6 +1079,7 @@ impl Loaded {
                 let checked = started.elapsed();
                 let outcome = CallOutcome {
                     findings: stored.findings,
+                    judged: stored.judged,
                     read_set: stored.read_set,
                     log: Vec::new(),
                     time: CallTime {
@@ -1113,7 +1118,8 @@ impl Loaded {
                     outcome.findings.clone(),
                     outcome.read_set.clone(),
                     inputs,
-                );
+                )
+                .with_judged(outcome.judged.clone());
                 let plugin = calls[*index].0.sha256();
                 writes.note(results::store(cache, plugin, &keys[*index], &stored));
             }

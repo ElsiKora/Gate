@@ -181,8 +181,10 @@ impl Baseline {
     }
 
     /// The entries `check` reports as stale: those that accept none of the findings (`accepted`,
-    /// from [`Baseline::accept`]) although their rule ran in their scope (`ran`). An entry of a rule
-    /// that did not run is not stale, since the run could not see its finding.
+    /// from [`Baseline::accept`]) although their rule ran in their scope (`ran`) and judged them:
+    /// its whole scope, or, for a rule that narrowed its view, the entry's key among the targets it
+    /// judged (an entry without a key whenever the rule ran). An entry of a rule that did not run, or did not judge it, is not stale, since the run
+    /// could not see its finding.
     #[must_use]
     pub fn stale(&self, accepted: &Accepted, ran: &RulesRan) -> Vec<&BaselineEntry> {
         self.entries
@@ -305,7 +307,7 @@ pub struct Accepted {
 /// Whether `entry`, which accepted a finding or not, is stale: it accepted none although its rule ran
 /// in its scope.
 fn is_stale(entry: &BaselineEntry, accepted: bool, ran: &RulesRan) -> bool {
-    !accepted && ran.ran(entry.project.as_deref(), &entry.rule)
+    !accepted && ran.judged(entry.project.as_deref(), &entry.rule, entry.key.as_deref())
 }
 
 /// Whether a rule id is one of the core's own pseudo-rules.
