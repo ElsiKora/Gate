@@ -7,7 +7,7 @@ use gate_typescript::call::TypeScriptCall;
 use crate::code::{Project, exports};
 use crate::options::PACK;
 use crate::rules::{Found, report};
-use crate::standard::{FileName, name_of, pascal_of, place};
+use crate::standard::{FileName, name_of, pascal_of};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -37,7 +37,9 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
 
     for path in project.code() {
         let name = FileName::new(name_of(path));
-        let in_ui = place(project.pack, path).is_some_and(|place| place.segment == Some("ui"));
+        let in_ui = project
+            .place(path)
+            .is_some_and(|place| place.segment == Some("ui"));
         if name.extension != "tsx" || !in_ui || name.stem == "index" || !name.dotted.is_empty() {
             continue;
         }

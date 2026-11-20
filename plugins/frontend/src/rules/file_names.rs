@@ -1,5 +1,6 @@
-//! `frontend/file-names`: every file and folder name under `src/` is kebab-case, its only dotted
-//! parts are `test`, `stories`, `module` and `d`, and a route folder takes its router's syntax.
+//! `frontend/file-names`: every file and folder name under `src/` (and the root `app/` of Next.js)
+//! is kebab-case, its only dotted parts are `test`, `stories`, `module`, `d` and in Next.js
+//! `server`, a route folder takes its router's syntax, and `@x` names only an entity's folder.
 
 use std::collections::BTreeSet;
 
@@ -9,7 +10,9 @@ use gate_typescript::call::TypeScriptCall;
 use crate::code::Project;
 use crate::options::{PACK, Pack};
 use crate::rules::{Found, report};
-use crate::standard::{DOTTED_PARTS, FileName, VITE_ROUTE_TREE, camel, kebab, within};
+use crate::standard::{
+    CROSS_IMPORT, FileName, NEXT_APP, SOURCE_ROOT, VITE_ROUTE_TREE, camel, kebab, within,
+};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -41,7 +44,11 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
     let mut folders = BTreeSet::new();
     let mut found = Vec::new();
 
-    for path in project.sources() {
+    let paths = project.paths.iter().copied().filter(|path| {
+        within(path, SOURCE_ROOT) || (pack == Pack::Nextjs && within(path, NEXT_APP))
+    });
+
+    for path in paths {
         let segments: Vec<&str> = path.split('/').collect();
         let (name, folder_names) = segments.split_last().unwrap_or((&"", &[]));
 
@@ -52,6 +59,17 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
             }
             let routed = route_folder
                 .is_some_and(|routes| within(&folder, routes) && folder.len() > routes.len());
+            if folder_names[depth] == CROSS_IMPORT {
+                if !cross_import_folder(project, &segments[..=depth]) {
+                    found.push(Found::at(
+                        "folder",
+                        &folder,
+                        format!("folder {folder}/ is an @x folder outside the root of an entity"),
+                        "only an entity slice holds @x, directly in its root",
+                    ));
+                }
+                continue;
+            }
             if !folder_name(pack, folder_names[depth], routed) {
                 found.push(Found::at(
                     "folder",
@@ -79,7 +97,7 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
         }
 
         for part in &file.dotted {
-            let allowed = DOTTED_PARTS.contains(part)
+            let allowed = pack.dotted_parts().contains(part)
                 || (routed && pack == Pack::ReactVite && *part == "lazy");
             if !allowed {
                 found.push(
@@ -88,7 +106,7 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
                         path,
                         format!(
                             "file {path} carries the part .{part}; the only dotted parts are .{}",
-                            DOTTED_PARTS.join(", .")
+                            pack.dotted_parts().join(", .")
                         ),
                         "let the segment say the kind: name.helper.ts is lib/name.ts, name.service.ts is api/name.ts",
                     )
@@ -99,6 +117,18 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
     }
 
     found
+}
+
+/// Whether the folder of `segments`, named `@x`, is directly in the root of an entity slice, which
+/// may sit in a group.
+fn cross_import_folder(project: &Project<'_, '_>, segments: &[&str]) -> bool {
+    match segments {
+        [SOURCE_ROOT, "entities", _, _] => true,
+        [SOURCE_ROOT, "entities", group, _, _] => project
+            .groups
+            .contains(&format!("{SOURCE_ROOT}/entities/{group}")),
+        _ => false,
+    }
 }
 
 /// What a name in that place must be, for a message.

@@ -14,7 +14,7 @@ use gate_typescript::value::string_like;
 use gate_typescript::{SourceFile, TypeScript};
 
 use crate::options::Pack;
-use crate::standard::{FileName, SOURCE_ROOT, name_of, within};
+use crate::standard::{FileName, Groups, NEXT_APP, Place, SOURCE_ROOT, name_of, place, within};
 
 /// The project of one run: its pack, its tracked paths outside the skipped folders, and its
 /// TypeScript view. `'s` is the borrow of the call's shared sources, `'o` what they hold.
@@ -23,6 +23,8 @@ pub struct Project<'s, 'o> {
     pub pack: Pack,
     /// Every tracked path outside the skipped folders, in path order.
     pub paths: Vec<&'o str>,
+    /// The slice groups among the paths.
+    pub groups: Groups,
     typescript: &'s TypeScript<'o>,
 }
 
@@ -49,17 +51,25 @@ impl<'s, 'o> Project<'s, 'o> {
         let pack = Pack::read(run)?;
         let settings = settings(run)?;
         let typescript = shared.typescript()?;
-        let paths = shared
+        let paths: Vec<&'o str> = shared
             .source()
             .paths()
             .filter(|path| !settings.skips(path))
             .collect();
+        let groups = Groups::new(pack, paths.iter().copied());
 
         Ok(Self {
             pack,
             paths,
+            groups,
             typescript,
         })
+    }
+
+    /// Where `path` sits in the standard tree; `None` when it is not below the source root.
+    #[must_use]
+    pub fn place<'p>(&self, path: &'p str) -> Option<Place<'p>> {
+        place(self.pack, &self.groups, path)
     }
 
     /// The tracked paths below the source root.
@@ -76,6 +86,22 @@ impl<'s, 'o> Project<'s, 'o> {
             let name = FileName::new(name_of(path));
             (name.extension == "ts" || name.extension == "tsx") && !name.dotted.contains(&"d")
         })
+    }
+
+    /// The `.ts` and `.tsx` files of the root `app/` of a Next.js app, its route files; none in the
+    /// other packs.
+    pub fn routes(&self) -> impl Iterator<Item = &'o str> + '_ {
+        self.paths.iter().copied().filter(|path| {
+            self.pack == Pack::Nextjs && within(path, NEXT_APP) && {
+                let name = FileName::new(name_of(path));
+                (name.extension == "ts" || name.extension == "tsx") && !name.dotted.contains(&"d")
+            }
+        })
+    }
+
+    /// The code of [`Project::code`] and the route files of [`Project::routes`].
+    pub fn all_code(&self) -> impl Iterator<Item = &'o str> + '_ {
+        self.code().chain(self.routes())
     }
 
     /// Whether `path` is tracked and outside the skipped folders.

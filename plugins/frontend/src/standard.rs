@@ -1,5 +1,7 @@
-//! The standard as paths: the source root, its layers, their slices and segments, the files a pack
-//! allows in the source root, the route folder of each pack, and the forms of a name.
+//! The standard as paths: the source root, its layers, their slices, groups and segments, the files
+//! a pack allows in the source root, the route folder of each pack, and the forms of a name.
+
+use std::collections::BTreeSet;
 
 use crate::options::Pack;
 
@@ -9,7 +11,7 @@ pub const SOURCE_ROOT: &str = "src";
 /// A layer of the source root. The order is the rank: a layer imports only layers below it.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Layer {
-    /// What knows no business: segments only.
+    /// What knows no business: one slice of segments.
     Shared,
     /// Business objects, one slice per object.
     Entities,
@@ -17,14 +19,17 @@ pub enum Layer {
     Features,
     /// Self-contained blocks of a page, one slice per block.
     Widgets,
-    /// The application: entry, providers, global styles and the routes.
+    /// The pages, one slice per page.
+    Pages,
+    /// The app: one slice of segments.
     App,
 }
 
 impl Layer {
     /// The layers of an app, from the top.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::App,
+        Self::Pages,
         Self::Widgets,
         Self::Features,
         Self::Entities,
@@ -39,6 +44,7 @@ impl Layer {
             Self::Entities => "entities",
             Self::Features => "features",
             Self::Widgets => "widgets",
+            Self::Pages => "pages",
             Self::App => "app",
         }
     }
@@ -52,18 +58,34 @@ impl Layer {
     /// Whether the layer holds slices.
     #[must_use]
     pub fn sliced(self) -> bool {
+        matches!(
+            self,
+            Self::Pages | Self::Widgets | Self::Features | Self::Entities
+        )
+    }
+
+    /// Whether a folder of the layer may group slices.
+    #[must_use]
+    pub fn grouped(self) -> bool {
         matches!(self, Self::Widgets | Self::Features | Self::Entities)
     }
 }
 
-/// The segments of a slice.
+/// The segments of a slice, which are also the names no folder inside a segment may take (Steiger's
+/// reserved folder names).
 pub const SLICE_SEGMENTS: [&str; 5] = ["ui", "model", "api", "lib", "config"];
 
 /// The segments of an app's shared layer.
-pub const SHARED_SEGMENTS: [&str; 6] = ["api", "assets", "config", "i18n", "lib", "ui"];
+pub const SHARED_SEGMENTS: [&str; 6] = ["api", "ui", "lib", "config", "i18n", "routes"];
+
+/// The shared segments reached one level down (`@/shared/ui/button`), which need no `index.ts`.
+pub const OPEN_SEGMENTS: [&str; 2] = ["ui", "lib"];
 
 /// The segments of a library, its source root being one shared layer.
-pub const LIBRARY_SEGMENTS: [&str; 7] = ["api", "assets", "config", "i18n", "lib", "model", "ui"];
+pub const LIBRARY_SEGMENTS: [&str; 6] = ["api", "config", "i18n", "lib", "model", "ui"];
+
+/// The name of the folder of an entity that holds what it offers another entity.
+pub const CROSS_IMPORT: &str = "@x";
 
 /// The dotted parts a file name may carry between its name and its extension.
 pub const DOTTED_PARTS: [&str; 4] = ["test", "stories", "module", "d"];
@@ -78,19 +100,44 @@ pub const JAVASCRIPT_EXTENSIONS: [&str; 4] = ["js", "jsx", "mjs", "cjs"];
 /// generator's.
 pub const VITE_ROUTE_TREE: &str = "src/app/route-tree.gen.ts";
 
+/// The App Router folder of a Next.js app, at the project root.
+pub const NEXT_APP: &str = "app";
+
+/// The file that keeps Next.js from reading `src/pages` as the Pages Router.
+pub const NEXT_PAGES_README: &str = "pages/README.md";
+
 impl Pack {
     /// The files the pack allows directly in the source root, by name.
     #[must_use]
     pub fn root_files(self) -> &'static [&'static str] {
         match self {
             Self::ReactVite => &["main.tsx", "vite-env.d.ts"],
-            Self::Nextjs => &[
-                "instrumentation-client.ts",
-                "instrumentation.ts",
-                "middleware.ts",
-                "proxy.ts",
-            ],
+            Self::Nextjs => &[],
             Self::ReactLibrary => &["index.ts"],
+        }
+    }
+
+    /// The segments of the app layer.
+    #[must_use]
+    pub fn app_segments(self) -> &'static [&'static str] {
+        match self {
+            Self::ReactVite => &[
+                "entrypoint",
+                "providers",
+                "store",
+                "styles",
+                "routes",
+                "config",
+                "lib",
+            ],
+            Self::Nextjs | Self::ReactLibrary => &[
+                "entrypoint",
+                "providers",
+                "store",
+                "styles",
+                "config",
+                "lib",
+            ],
         }
     }
 
@@ -104,34 +151,32 @@ impl Pack {
         }
     }
 
-    /// The folder of the shared layer: `src/shared`, or a library's `src`.
-    #[must_use]
-    pub fn shared_root(self) -> &'static str {
-        if self.library() {
-            SOURCE_ROOT
-        } else {
-            "src/shared"
-        }
-    }
-
-    /// The folder of the route files: `src/app/routes` for Vite, `src/app` for Next.js, none for
-    /// a library.
+    /// The folder of the route files: `src/app/routes` for Vite, the root `app` for Next.js, none
+    /// for a library.
     #[must_use]
     pub fn route_folder(self) -> Option<&'static str> {
         match self {
             Self::ReactVite => Some("src/app/routes"),
-            Self::Nextjs => Some("src/app"),
+            Self::Nextjs => Some(NEXT_APP),
             Self::ReactLibrary => None,
         }
     }
 
-    /// The folder of the assets the code imports.
+    /// The dotted parts a file name may carry: `.server` too in Next.js (`index.server.ts`).
     #[must_use]
-    pub fn assets_folder(self) -> &'static str {
-        if self.library() {
-            "src/assets"
-        } else {
-            "src/shared/assets"
+    pub fn dotted_parts(self) -> &'static [&'static str] {
+        match self {
+            Self::Nextjs => &["test", "stories", "module", "d", "server"],
+            Self::ReactVite | Self::ReactLibrary => &DOTTED_PARTS,
+        }
+    }
+
+    /// The names of a slice's public API files.
+    #[must_use]
+    pub fn public_files(self) -> &'static [&'static str] {
+        match self {
+            Self::Nextjs => &["index.ts", "index.server.ts"],
+            Self::ReactVite | Self::ReactLibrary => &["index.ts"],
         }
     }
 
@@ -155,14 +200,58 @@ impl Pack {
         }
     }
 
-    /// The folder that holds the global stylesheets: the app layer, or a library's assets.
+    /// The folder that holds the one global stylesheet: the app layer's `styles` segment, or a
+    /// library's `ui` segment.
     #[must_use]
     pub fn global_styles_folder(self) -> &'static str {
         if self.library() {
-            "src/assets"
+            "src/ui"
         } else {
-            "src/app"
+            "src/app/styles"
         }
+    }
+}
+
+/// The slice groups of a project: each a folder of `widgets/`, `features/` or `entities/` that holds
+/// folders only, none of them a segment or `@x`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Groups {
+    folders: BTreeSet<String>,
+}
+
+impl Groups {
+    /// The groups among `paths`, for `pack`; a library has none.
+    #[must_use]
+    pub fn new<'p>(pack: Pack, paths: impl IntoIterator<Item = &'p str>) -> Self {
+        let mut candidates = BTreeSet::new();
+        let mut slices = BTreeSet::new();
+        if pack.library() {
+            return Self::default();
+        }
+        for path in paths {
+            let parts: Vec<&str> = path.split('/').collect();
+            let [SOURCE_ROOT, layer, unit, child, ..] = parts.as_slice() else {
+                continue;
+            };
+            if !Layer::from_name(layer).is_some_and(Layer::grouped) {
+                continue;
+            }
+            let folder = format!("{SOURCE_ROOT}/{layer}/{unit}");
+            if parts.len() == 4 || SLICE_SEGMENTS.contains(child) || *child == CROSS_IMPORT {
+                slices.insert(folder);
+            } else {
+                candidates.insert(folder);
+            }
+        }
+        Self {
+            folders: candidates.difference(&slices).cloned().collect(),
+        }
+    }
+
+    /// Whether `folder` is a group.
+    #[must_use]
+    pub fn contains(&self, folder: &str) -> bool {
+        self.folders.contains(folder)
     }
 }
 
@@ -172,13 +261,15 @@ impl Pack {
 pub enum Unit<'p> {
     /// A file directly in the source root.
     Root,
-    /// The app layer.
+    /// The app layer, one slice.
     App,
-    /// A slice of a sliced layer.
+    /// The shared layer (a library's whole source root), one slice.
+    Shared,
+    /// A slice of a sliced layer, named by its folder below the layer, its group included
+    /// (`auth/sign-in`).
     Slice(Layer, &'p str),
-    /// A segment of the shared layer (a library's `src/<segment>`).
-    Segment(&'p str),
-    /// No unit of the standard: a file directly in a layer, or in a folder that is no layer.
+    /// No unit of the standard: a file directly in a layer or a group, or in a folder that is no
+    /// layer.
     None,
 }
 
@@ -189,19 +280,25 @@ pub struct Place<'p> {
     pub layer: Option<Layer>,
     /// The unit.
     pub unit: Unit<'p>,
-    /// The segment the file is in: of its slice, of the shared layer, or none.
+    /// The segment the file is in, of its slice, the app or the shared layer; `None` for a file in
+    /// a slice's root.
     pub segment: Option<&'p str>,
 }
 
 /// Where `path` sits in the standard tree of `pack`; `None` when it is not below the source root.
 #[must_use]
-pub fn place(pack: Pack, path: &str) -> Option<Place<'_>> {
+pub fn place<'p>(pack: Pack, groups: &Groups, path: &'p str) -> Option<Place<'p>> {
     let rest = path.strip_prefix("src/")?;
-    let parts: Vec<&str> = rest.split('/').collect();
+    let parts: Vec<&'p str> = rest.split('/').collect();
     let none = Place {
         layer: None,
         unit: Unit::None,
         segment: None,
+    };
+    let segmented = |layer, unit, at: usize| Place {
+        layer: Some(layer),
+        unit,
+        segment: parts.get(at).copied().filter(|_| parts.len() > at + 1),
     };
 
     if parts.len() == 1 {
@@ -210,35 +307,37 @@ pub fn place(pack: Pack, path: &str) -> Option<Place<'_>> {
             ..none
         });
     }
-
     if pack.library() {
-        return Some(Place {
-            layer: Some(Layer::Shared),
-            unit: Unit::Segment(parts[0]),
-            segment: Some(parts[0]),
-        });
+        return Some(segmented(Layer::Shared, Unit::Shared, 0));
     }
-
     let Some(layer) = Layer::from_name(parts[0]) else {
         return Some(none);
     };
 
     Some(match layer {
-        Layer::App => Place {
-            layer: Some(layer),
-            unit: Unit::App,
-            segment: None,
-        },
-        Layer::Shared if parts.len() > 2 => Place {
-            layer: Some(layer),
-            unit: Unit::Segment(parts[1]),
-            segment: Some(parts[1]),
-        },
-        _ if layer.sliced() && parts.len() > 2 => Place {
-            layer: Some(layer),
-            unit: Unit::Slice(layer, parts[1]),
-            segment: (parts.len() > 3).then_some(parts[2]),
-        },
+        Layer::App if parts.len() > 2 => segmented(layer, Unit::App, 1),
+        Layer::Shared if parts.len() > 2 => segmented(layer, Unit::Shared, 1),
+        _ if layer.sliced() && parts.len() > 2 => {
+            let grouped = groups.contains(&format!("{SOURCE_ROOT}/{}/{}", parts[0], parts[1]));
+            if grouped && parts.len() < 4 {
+                return Some(Place {
+                    layer: Some(layer),
+                    ..none
+                });
+            }
+            let depth = if grouped { 3 } else { 2 };
+            let start = parts[0].len() + 1;
+            let length = parts[1..depth]
+                .iter()
+                .map(|part| part.len() + 1)
+                .sum::<usize>()
+                - 1;
+            segmented(
+                layer,
+                Unit::Slice(layer, &rest[start..start + length]),
+                depth,
+            )
+        }
         _ => Place {
             layer: Some(layer),
             ..none
@@ -374,34 +473,65 @@ mod tests {
     #[test]
     fn a_path_finds_its_layer_unit_and_segment() {
         let app = Pack::Nextjs;
+        let paths = [
+            "src/features/auth/sign-in/index.ts",
+            "src/features/auth/sign-in/ui/form.tsx",
+            "src/features/sign-out/index.ts",
+            "src/features/sign-out/model/x.ts",
+            "src/entities/user/@x/invoice.ts",
+        ];
+        let groups = Groups::new(app, paths);
+        assert!(groups.contains("src/features/auth"));
+        assert!(!groups.contains("src/features/sign-out"));
+        assert!(!groups.contains("src/entities/user"));
+        let at = |path| place(app, &groups, path);
+
         assert_eq!(
-            place(app, "src/features/sign-in/ui/form.tsx"),
+            at("src/features/auth/sign-in/ui/form.tsx"),
             Some(Place {
                 layer: Some(Layer::Features),
-                unit: Unit::Slice(Layer::Features, "sign-in"),
+                unit: Unit::Slice(Layer::Features, "auth/sign-in"),
                 segment: Some("ui"),
             })
         );
         assert_eq!(
-            place(app, "src/features/sign-in/index.ts").map(|place| place.segment),
-            Some(None)
+            at("src/features/sign-out/index.ts"),
+            Some(Place {
+                layer: Some(Layer::Features),
+                unit: Unit::Slice(Layer::Features, "sign-out"),
+                segment: None,
+            })
         );
         assert_eq!(
-            place(app, "src/shared/api/client.ts").map(|place| place.unit),
-            Some(Unit::Segment("api"))
+            at("src/pages/home/ui/page.tsx").map(|place| place.unit),
+            Some(Unit::Slice(Layer::Pages, "home"))
         );
         assert_eq!(
-            place(app, "src/main.tsx").map(|place| place.unit),
-            Some(Unit::Root)
+            at("src/shared/api/client.ts"),
+            Some(Place {
+                layer: Some(Layer::Shared),
+                unit: Unit::Shared,
+                segment: Some("api"),
+            })
         );
         assert_eq!(
-            place(app, "src/modules/x.ts").map(|place| place.unit),
+            at("src/app/providers/query.tsx").map(|place| (place.unit, place.segment)),
+            Some((Unit::App, Some("providers")))
+        );
+        assert_eq!(at("src/main.tsx").map(|place| place.unit), Some(Unit::Root));
+        assert_eq!(
+            at("src/modules/x.ts").map(|place| place.unit),
             Some(Unit::None)
         );
-        assert_eq!(place(app, "lib/x.ts"), None);
+        assert_eq!(at("app/page.tsx"), None);
         assert_eq!(
-            place(Pack::ReactLibrary, "src/ui/button/button.tsx").map(|place| place.unit),
-            Some(Unit::Segment("ui"))
+            place(
+                Pack::ReactLibrary,
+                &Groups::default(),
+                "src/ui/button/button.tsx"
+            )
+            .map(|place| (place.unit, place.segment)),
+            Some((Unit::Shared, Some("ui")))
         );
     }
 

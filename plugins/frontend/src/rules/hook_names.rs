@@ -1,5 +1,5 @@
 //! `frontend/hook-names`: a hook lives in a file of its own name, `useBalance` in `use-balance.ts`,
-//! in a `model` or `lib` segment or the app layer.
+//! in a `model` or `lib` segment or the app layer's `providers`, `store` or `lib`.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
@@ -7,7 +7,7 @@ use gate_typescript::call::TypeScriptCall;
 use crate::code::{Project, exports};
 use crate::options::PACK;
 use crate::rules::{Found, report};
-use crate::standard::{FileName, Unit, kebab_of, name_of, place};
+use crate::standard::{FileName, Unit, kebab_of, name_of};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -17,8 +17,7 @@ impl Rule<TypeScriptCall> for HookNames {
     type Options = NoOptions;
 
     const NAME: &'static str = "hook-names";
-    const TITLE: &'static str =
-        "A hook lives in a file of its own name, in a model or lib segment or the app layer";
+    const TITLE: &'static str = "A hook lives in a file of its own name, in a model or lib segment";
     const ASPECTS: &'static [&'static str] = &["file", "export", "placement"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
     const NEEDS: &'static [gate_sdk::Need] = &[PACK];
@@ -93,7 +92,9 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
             found.push(Found::at(
                 "placement",
                 path,
-                format!("{path} holds a hook outside a model or lib segment and the app layer"),
+                format!(
+                    "{path} holds a hook outside a model or lib segment and the app layer's providers and store"
+                ),
                 "move the hook into the model segment of its slice, or into a lib segment when it knows no business",
             ));
         }
@@ -102,9 +103,11 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     Ok(found)
 }
 
-/// Whether a hook may live at `path`: a `model` or `lib` segment, or the app layer.
+/// Whether a hook may live at `path`: a `model` or `lib` segment, or the app layer's `providers`
+/// and `store`.
 fn placed(project: &Project<'_, '_>, path: &str) -> bool {
-    place(project.pack, path).is_some_and(|place| {
-        place.unit == Unit::App || matches!(place.segment, Some("model" | "lib"))
+    project.place(path).is_some_and(|place| match place.unit {
+        Unit::App => matches!(place.segment, Some("providers" | "store" | "lib")),
+        _ => matches!(place.segment, Some("model" | "lib")),
     })
 }

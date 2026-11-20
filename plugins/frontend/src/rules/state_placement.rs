@@ -1,4 +1,5 @@
-//! `frontend/state-placement`: a store is created in a `model` segment or in the app layer.
+//! `frontend/state-placement`: a store is created in a `model` segment or in the app layer's
+//! `store` segment.
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
@@ -10,7 +11,7 @@ use gate_typescript::oxc_ast::AstKind;
 use crate::code::Project;
 use crate::options::PACK;
 use crate::rules::{Found, report};
-use crate::standard::{Unit, place};
+use crate::standard::Unit;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -64,7 +65,8 @@ impl Rule<TypeScriptCall> for StatePlacement {
     type Options = Options;
 
     const NAME: &'static str = "state-placement";
-    const TITLE: &'static str = "Stores are created in a model segment or the app layer";
+    const TITLE: &'static str =
+        "Stores are created in a model segment or the app layer's store segment";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
     const NEEDS: &'static [gate_sdk::Need] = &[PACK];
 
@@ -82,8 +84,10 @@ fn check(project: &Project<'_, '_>, stores: &[Store]) -> gate_sdk::Result<Vec<Fo
     let mut found = Vec::new();
 
     for path in project.code() {
-        let placed = place(project.pack, path)
-            .is_some_and(|place| place.unit == Unit::App || place.segment == Some("model"));
+        let placed = project.place(path).is_some_and(|place| match place.unit {
+            Unit::App => place.segment == Some("store"),
+            _ => place.segment == Some("model"),
+        });
         if placed {
             continue;
         }
@@ -108,10 +112,10 @@ fn check(project: &Project<'_, '_>, stores: &[Store]) -> gate_sdk::Result<Vec<Fo
                             "",
                             path,
                             format!(
-                                "{path} creates a store with {} of {} outside a model segment and the app layer",
+                                "{path} creates a store with {} of {} outside a model segment and src/app/store/",
                                 store.export, store.package
                             ),
-                            "create the store in the model segment of its slice, or the root store in src/app/",
+                            "create the store in the model segment of its slice, or the root store in src/app/store/",
                         )
                         .line(file.line(call.span.start))
                         .named(&store.export),

@@ -1,5 +1,5 @@
 //! `frontend/client-boundary`: in Next.js, `"use client"` marks components of `ui` and `model`
-//! segments and the app layer's own modules, never a route file.
+//! segments and the app layer's providers, never a route file of the root `app/`.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
@@ -8,7 +8,7 @@ use crate::code::{Project, has_directive};
 use crate::options::{PACK, Pack};
 use crate::rules::route_files::next_route_file;
 use crate::rules::{Found, report};
-use crate::standard::{folder_of, place};
+use crate::standard::Unit;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -43,7 +43,7 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
         return Ok(found);
     }
 
-    for path in project.code() {
+    for path in project.all_code() {
         let Some(file) = project.parse(path)? else {
             continue;
         };
@@ -61,14 +61,15 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
             continue;
         }
 
-        let placed = folder_of(path) == "src/app"
-            || place(Pack::Nextjs, path)
-                .is_some_and(|place| matches!(place.segment, Some("ui" | "model")));
+        let placed = project.place(path).is_some_and(|place| match place.unit {
+            Unit::App => place.segment == Some("providers"),
+            _ => matches!(place.segment, Some("ui" | "model")),
+        });
         if !placed {
             found.push(Found::at(
                 "placement",
                 path,
-                format!("{path} is marked \"use client\" outside a ui or model segment and src/app/"),
+                format!("{path} is marked \"use client\" outside a ui or model segment and src/app/providers/"),
                 "keep the client boundary at a component of a ui segment; helpers and hooks need no directive",
             ));
         }

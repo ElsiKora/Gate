@@ -1,5 +1,6 @@
 //! `frontend/import-direction`: layers import only layers below them, and a slice imports no other
-//! slice of its own layer.
+//! slice of its own layer, except an entity through the `@x` file another entity keeps for it. The
+//! root `app/` of a Next.js app is above every layer and is not read here.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
@@ -7,7 +8,7 @@ use gate_typescript::call::TypeScriptCall;
 use crate::code::{Project, imports};
 use crate::options::PACK;
 use crate::rules::{Found, report};
-use crate::standard::{Unit, place};
+use crate::standard::{CROSS_IMPORT, FileName, Layer, Place, Unit, name_of};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -42,7 +43,7 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     }
 
     for path in project.code() {
-        let Some(importer) = place(pack, path) else {
+        let Some(importer) = project.place(path) else {
             continue;
         };
         let Some(layer) = importer.layer else {
@@ -56,7 +57,7 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
             let Some(target) = project.resolve(path, &import.specifier)? else {
                 continue;
             };
-            let Some(imported) = place(pack, &target) else {
+            let Some(imported) = project.place(&target) else {
                 continue;
             };
             let Some(imported_layer) = imported.layer else {
@@ -79,6 +80,7 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
                 && layer.sliced()
                 && imported.unit != importer.unit
                 && matches!(imported.unit, Unit::Slice(..))
+                && !offered(&importer, &imported, &target)
             {
                 Found::at(
                     "cross-slice",
@@ -99,4 +101,13 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     }
 
     Ok(found)
+}
+
+/// Whether `target`, of the slice `imported`, is the `@x` file an entity keeps for the entity
+/// `importer`: `src/entities/<a>/@x/<b>.ts` for the entity `b`.
+fn offered(importer: &Place<'_>, imported: &Place<'_>, target: &str) -> bool {
+    let Unit::Slice(Layer::Entities, slice) = importer.unit else {
+        return false;
+    };
+    imported.segment == Some(CROSS_IMPORT) && FileName::new(name_of(target)).stem == name_of(slice)
 }

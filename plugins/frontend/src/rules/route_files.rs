@@ -1,6 +1,6 @@
 //! `frontend/route-files`: the route folder holds route files only, each with the export its router
-//! requires: `TanStack` Router's `Route` in a Vite app, Next.js's default export (or the handlers of a
-//! `route.ts`) in a Next.js app.
+//! requires: `TanStack` Router's `Route` in a Vite app's `src/app/routes/`, Next.js's default export
+//! (or the handlers of a `route.ts`) in a Next.js app's root `app/`.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
@@ -8,7 +8,7 @@ use gate_typescript::call::TypeScriptCall;
 use crate::code::{Project, exports};
 use crate::options::{PACK, Pack};
 use crate::rules::{Found, report};
-use crate::standard::{FileName, folder_of, name_of, within};
+use crate::standard::{FileName, NEXT_APP, name_of, within};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -61,11 +61,12 @@ impl Rule<TypeScriptCall> for RouteFiles {
     }
 }
 
-/// Whether `path` is a Next.js route file by its name: one of the special files of a segment.
+/// Whether `path` is a Next.js route file by its name: one of the special files of a segment of the
+/// root `app/`.
 #[must_use]
 pub fn next_route_file(path: &str) -> bool {
     let name = FileName::new(name_of(path));
-    within(path, "src/app")
+    within(path, NEXT_APP)
         && matches!(name.extension, "ts" | "tsx")
         && name.dotted.is_empty()
         && (NEXT_DEFAULT_FILES.contains(&name.stem) || name.stem == NEXT_HANDLER_FILE)
@@ -117,23 +118,19 @@ fn vite(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     Ok(found)
 }
 
-/// A Next.js app: below the subfolders of `src/app/`, every code file is a special file of a route
-/// segment with its required export; `src/app/` itself also holds the app layer's own modules.
+/// A Next.js app: every code file of the root `app/` is a special file of a route segment with its
+/// required export.
 fn next(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
 
-    for path in project.code().filter(|path| within(path, "src/app")) {
+    for path in project.routes() {
         if !next_route_file(path) {
-            if folder_of(path) != "src/app" {
-                found.push(Found::at(
-                    "foreign",
-                    path,
-                    format!(
-                        "{path} is not a Next.js route file; a route folder holds route files only"
-                    ),
-                    "move components, hooks and helpers into the layer and slice of their job",
-                ));
-            }
+            found.push(Found::at(
+                "foreign",
+                path,
+                format!("{path} is not a Next.js route file; {NEXT_APP}/ holds route files only"),
+                "move components, hooks and helpers into the page, layer and slice of their job in src/",
+            ));
             continue;
         }
         let Some(file) = project.parse(path)? else {

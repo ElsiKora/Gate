@@ -11,7 +11,7 @@ use gate_typescript::oxc_ast::ast::Expression;
 use crate::code::{Project, imports, is_global};
 use crate::options::PACK;
 use crate::rules::{Found, report};
-use crate::standard::{Unit, place, within};
+use crate::standard::{Unit, within};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -183,7 +183,7 @@ fn check(project: &Project<'_, '_>, options: &Options) -> gate_sdk::Result<Vec<F
 /// Whether the file at `path` may import the API client: an `api` segment, the app layer, or a
 /// library's entry, which re-exports it.
 fn client_importer(project: &Project<'_, '_>, path: &str) -> bool {
-    place(project.pack, path).is_some_and(|place| {
+    project.place(path).is_some_and(|place| {
         place.unit == Unit::App
             || place.segment == Some("api")
             || (project.pack.library() && place.unit == Unit::Root)

@@ -1,14 +1,16 @@
-//! `frontend/style-files`: global stylesheets live in the app layer (a library's assets) and are
-//! imported only there, one of them from the code; every other stylesheet is a CSS module beside the
-//! component of its name.
+//! `frontend/style-files`: the global stylesheet lives in the app layer's `styles` segment (a
+//! library's `ui` segment) and is imported only from the app layer or Next.js's root `app/`, one of
+//! them from the code; every other stylesheet is a CSS module beside the component of its name.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
 
 use crate::code::{Project, imports, joined};
-use crate::options::PACK;
+use crate::options::{PACK, Pack};
 use crate::rules::{Found, report};
-use crate::standard::{FileName, STYLE_EXTENSIONS, Unit, folder_of, name_of, place, within};
+use crate::standard::{
+    FileName, NEXT_APP, SOURCE_ROOT, STYLE_EXTENSIONS, Unit, folder_of, name_of, within,
+};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -48,7 +50,11 @@ fn files(project: &Project<'_, '_>) -> Vec<Found> {
     let global_folder = project.pack.global_styles_folder();
     let mut found = Vec::new();
 
-    for path in project.sources() {
+    let paths = project.paths.iter().copied().filter(|path| {
+        within(path, SOURCE_ROOT) || (project.pack == Pack::Nextjs && within(path, NEXT_APP))
+    });
+
+    for path in paths {
         match stylesheet(path) {
             Some(true) => {
                 let stem = FileName::new(name_of(path)).stem;
@@ -77,17 +83,19 @@ fn files(project: &Project<'_, '_>) -> Vec<Found> {
     found
 }
 
-/// The global stylesheets the code imports: only from the app layer or the source root, and one.
+/// The global stylesheets the code imports: only from the app layer, the source root or the root
+/// `app/` of Next.js, and one.
 fn imported(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
     let mut first: Option<String> = None;
 
-    for path in project.code() {
+    for path in project.all_code() {
         let Some(file) = project.parse(path)? else {
             continue;
         };
-        let importer_allowed = place(project.pack, path)
-            .is_some_and(|place| matches!(place.unit, Unit::App | Unit::Root));
+        let importer_allowed = project
+            .place(path)
+            .is_none_or(|place| matches!(place.unit, Unit::App | Unit::Root));
 
         for import in imports(&file) {
             let specifier = import.specifier.as_str();
