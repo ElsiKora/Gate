@@ -47,7 +47,8 @@ listed on the plugin's section of `docs/guide/plugins.md` with its reason, and i
 
 `instruction-references`, `no-claude-md`, `rule-enforcement`, `rule-file-size`, `rule-ids`,
 `rule-owner`, `rule-references`, `rule-registry`, `skills`. Every option has a default, and a
-rule without its files reports nothing. The aspect of `instruction-references` that reads
+rule without its files reports them as missing through its `input` aspect (T-061), never a
+configuration error. The aspect of `instruction-references` that reads
 `command-pattern` stays off until that option is set, and the rule's other aspects run without it.
 The generators `adapters` and `agents-block` are not rules and no preset names them.
 
@@ -68,17 +69,15 @@ The generators `adapters` and `agents-block` are not rules and no preset names t
 `git/recommended` keeps its content and gains an explicit `"level": "error"` per rule. `git/adoption`
 gives both rules `warning` with the same template.
 
-### `ledger` (9 rules): 6 in, 3 out
+### `ledger` (10 rules): 7 in, 3 out
 
-- In: `blockers`, `decisions`, `exception-decisions`, `exception-owners`, `manifest`, `records`.
-  Each reads a path with a default and reports nothing while that file is not tracked.
-- Out:
-  - `closing-notes`: off until `field` is set; its default `""` turns it off (reason 3).
-  - `reuses`: off until `catalog` is set (reason 3).
-  - `record-status`: reports nothing without the plugin option `parity`, which has no default
-    (reasons 2 and 3).
-
-T-061 makes these three options required, which also gives them reason 1.
+- In: `blockers`, `decisions`, `exception-decisions`, `exception-owners`, `manifest`, `records`,
+  and `rule-decisions`, which T-061 added and which has no options. Each reads a path with a
+  default; since T-061 a file that is not tracked is reported through the rule's `input` aspect.
+- Out, each with an option only the project can give:
+  - `closing-notes`: `field` is required since T-061 (reason 1).
+  - `reuses`: `catalog` is required since T-061 (reason 1).
+  - `record-status`: `NEEDS` the plugin option `parity`, which has no default (reason 2).
 
 ### `markdown` (3 rules): 2 in, 1 out
 
@@ -158,6 +157,20 @@ A second rebase, onto `d0c6cda3` (after T-044, T-067, T-068, T-071 and T-082, am
 - The plugins guide's Presets paragraph keeps T-071's places (`[project]`, `[workspace]` at a root
   that is not a project, a profile) and says every shared plugin ships two; the table of shared
   plugins lists both presets of each.
+
+## A third rebase, onto `30a1da26` (after the Gate 001 stack, T-071b and T-052)
+
+Two conflicts, both of additions side by side: `plugins/ledger/tests/rules/main.rs` keeps the
+stack's `mod presence;` and this task's `mod presets;`, and the guide's Presets paragraph keeps
+this task's text with the stack's sentence that a rule enabled from a preset reports the files to
+create, never a configuration error.
+
+T-061 (in the stack) added `ledger/rule-decisions`, which has no options and needs nothing the
+project alone can give, so both `ledger` presets turn it on; the ledger preset test, whose list of
+rules comes from the plugin, would fail without it. T-061 also made `closing-notes`' `field` and
+`reuses`' `catalog` required, which the presets already leave out, and gave the ledger and agents
+rules an `input` aspect for a missing file; their presets give no options, so each still loads with
+what its preset gives, which the ledger and agents load checks hold.
 
 ## Tests
 
@@ -270,5 +283,5 @@ their exact test fail (exit 101); the last, `file-names` taken out of `frontend/
 
 ## Resume point
 
-2026-11-20T22:54:29+00:00: ticket 385 on `4723f9ae` is green with every mutation caught. The branch
-merges last of 0.3.0; if `main` moves in code it touches, it rebases and runs one more round.
+2026-11-20T23:41:34+00:00: rebased onto `main` at `30a1da26`; `ledger/rule-decisions` joins both
+`ledger` presets. The lane round is next; the branch merges after T-071b and T-076.

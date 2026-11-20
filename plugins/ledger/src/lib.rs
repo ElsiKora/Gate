@@ -40,7 +40,8 @@ const RECOMMENDED: &str = r#"{
     "exception-decisions": { "level": "error" },
     "exception-owners": { "level": "error" },
     "manifest": { "level": "error" },
-    "records": { "level": "error" }
+    "records": { "level": "error" },
+    "rule-decisions": { "level": "error" }
 }"#;
 
 /// `ledger/adoption`: the rules of `ledger/recommended` at warning, for a repository on its way to
@@ -51,7 +52,8 @@ const ADOPTION: &str = r#"{
     "exception-decisions": { "level": "warning" },
     "exception-owners": { "level": "warning" },
     "manifest": { "level": "warning" },
-    "records": { "level": "warning" }
+    "records": { "level": "warning" },
+    "rule-decisions": { "level": "warning" }
 }"#;
 
 gate_sdk::plugin! {

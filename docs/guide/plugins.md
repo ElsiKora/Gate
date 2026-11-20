@@ -239,9 +239,9 @@ ledger = { source = "ElsiKora/Gate:ledger@0.2.0", options = { decisions = "ledge
 | `ledger/rule-decisions` | the decision a rule entry of the project's `gate.toml` names is an accepted decision of the index; the core hands the rule the decisions, so the plugin never reads `gate.toml` |
 
 Presets: `ledger/recommended` turns on `decisions`, `manifest`, `records`, `blockers`,
-`exception-owners` and `exception-decisions` at `error`, and `ledger/adoption` the same at
-`warning`. Both leave out `closing-notes`, `reuses` and `record-status`, which stay off until the
-project sets `field`, `catalog` and the plugin option `parity`.
+`exception-owners`, `exception-decisions` and `rule-decisions` at `error`, and `ledger/adoption` the
+same at `warning`. Both leave out `closing-notes`, `reuses` and `record-status`, which need the
+project's `field` and `catalog` and the plugin option `parity`.
 
 ### `nestjs`
 
@@ -560,9 +560,11 @@ there. `git/recommended` keeps two aspects at `warning`, described under [`git`]
 `repository/recommended` keeps `repository/large-files#large` at `warning`. A preset leaves out a
 rule that needs something only the project can give, such as an option without a default or the
 project's own inventory; each plugin's section above names those rules, and `[rules]` turns them on
-with their options. One plugin setting is the exception: every `frontend` rule needs `pack`, the
-project's framework, so the `frontend` presets keep every rule and a project that extends either one
-sets `[plugins.frontend] options pack` first. `gate list` shows the result.
+with their options. Enabled from a preset, a rule whose files are missing reports the files to
+create, never a configuration error for an option the project did not know about. One plugin
+setting is the exception: every `frontend` rule needs `pack`, the project's framework, so the
+`frontend` presets keep every rule and a project that extends either one sets
+`[plugins.frontend] options pack` first. `gate list` shows the result.
 
 ```toml
 [project]
