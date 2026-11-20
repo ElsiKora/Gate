@@ -487,7 +487,8 @@ ci = { source = "ElsiKora/Gate:ci@0.3.0" }
 | [`ci/node-setup`](../../plugins/ci/rules/node-setup.md) | `actions/setup-node` reads the version from a file, sets a cache and runs once per job |
 | [`ci/names`](../../plugins/ci/rules/names.md) | every workflow, job and step is named; a file is its workflow's name in kebab case |
 
-Presets: `ci/recommended` turns on both rules at `error`, and `ci/adoption` the same at `warning`.
+Presets: `ci/recommended` turns on all eleven rules at `error`, and `ci/adoption` the same at
+`warning`.
 
 ### `docker`
 

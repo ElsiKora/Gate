@@ -17,6 +17,8 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 
 ### Features
 
+- The preset `ci/adoption`: the eleven rules of `ci/recommended` at `warning`, for a repository on
+  its way to the standard.
 - The preset `ci/recommended`: every rule of the plugin at `error`, one standard taken the same way
   in every repository. The workflow `gate sync` writes meets it.
 - `ci/permissions`: no write scope in a workflow's own `permissions`, every job sets its own, no

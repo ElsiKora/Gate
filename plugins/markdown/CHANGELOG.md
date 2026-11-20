@@ -11,6 +11,12 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 - Rebuilt for the plugin interface `gate:plugin@0.3.0`. Its rules, their options and their findings
   are unchanged; pin `markdown@0.3.0` with the 0.3.0 core.
 
+### Features
+
+- The presets `markdown/recommended` and `markdown/adoption`: `frontmatter` and `local-links`, at
+  `error` and at `warning`. They leave out `required-sections`, whose `sections` only the project
+  knows.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-markdown-v0.1.0...plugin-markdown-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

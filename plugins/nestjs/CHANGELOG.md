@@ -44,6 +44,12 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   named export, an interface port, not only one that extends it. Its field `class` is renamed
   `port`, with no alias: an entry with `class` is an options error until it says `port`.
 
+### Features
+
+- The presets `nestjs/recommended` and `nestjs/adoption`: 25 of the 37 rules, at `error` and at
+  `warning`. The twelve they leave out take something only the project can give, such as an option
+  without a default or its own inventory; the plugins guide lists them with the reason.
+
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.2.0...plugin-nestjs-v0.2.1) (2026-11-20)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.

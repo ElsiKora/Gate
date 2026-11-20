@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | rebased onto `main` at `16d94316` for its merge, locally; its round waits for the lead |
+| Status | rebased onto `main` at `d0c6cda3`; its round waits for the lead |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -139,6 +139,20 @@ T-064, T-061, T-062, T-066, T-066b, T-073 and T-074):
   `presets` test module). Their own tests already hold that each preset names every rule at its
   level; `cdk`'s now holds `adoption` at `warning` for every rule.
 
+A second rebase, onto `d0c6cda3` (after T-044, T-067, T-068, T-071 and T-082, among others):
+
+- T-067 grew `ci` to eleven rules and gave it `ci/recommended`, every rule at `error`. `ci/adoption`
+  joins it with the same eleven at `warning`; T-067's own test now expects both presets, and the
+  `ci` preset test of this task holds both with no rule left out.
+- `frontend` came with both presets, its twenty rules in each, and no preset test: it gains this
+  task's preset test (both presets, their levels, and the load check).
+- T-082 wrote each plugin's 0.3.0 changelog section; the seven plugins whose presets this task
+  adds or changes (`agents`, `ci`, `git`, `ledger`, `markdown`, `nestjs`, `typescript`) gain a
+  Features entry there.
+- The plugins guide's Presets paragraph keeps T-071's places (`[project]`, `[workspace]` at a root
+  that is not a project, a profile) and says every shared plugin ships two; the table of shared
+  plugins lists both presets of each.
+
 ## Tests
 
 - One test per plugin of this task, in its tests: both presets exist and name exactly the
@@ -233,6 +247,6 @@ their exact test fail (exit 101): the eight of round 322, and `ci`'s options wit
 
 ## Resume point
 
-2026-11-20T18:59:25+00:00: rebased onto `main` at `16d94316` locally, with the rebase's changes
-above in one commit; not pushed. The lane round and the push wait for the lead: the branch merges
-last of 0.3.0, after T-071, which edits the plugins guide's Presets paragraph too.
+2026-11-20T20:31:14+00:00: rebased onto `main` at `d0c6cda3` (after T-071) and pushed. The lane
+round waits for the lead: the Gate 001 stack and T-057 go first, and the branch merges last of
+0.3.0.

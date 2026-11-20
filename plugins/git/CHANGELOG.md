@@ -44,6 +44,12 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   such as `Refs: #12` that starts the footer, and a body that is only a trailer block passes; a
   body without a full stop above the block still fails.
 
+### Features
+
+- The preset `git/adoption`: `git/branch-name` with the template `:type/:ticket-:name` and
+  `git/commit-message`, both at `warning`. `git/recommended` now names each rule's level, `error`;
+  its rules, template and aspect levels are unchanged.
+
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.2.0...plugin-git-v0.2.1) (2026-11-20)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.

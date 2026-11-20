@@ -24,6 +24,11 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   wrote nothing and said nothing. A project that does not want the block removes the generator from
   `[generate]`.
 
+### Features
+
+- The presets `agents/recommended`, all nine rules at `error`, and `agents/adoption`, the same at
+  `warning`.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-agents-v0.1.0...plugin-agents-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.
