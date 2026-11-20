@@ -25,6 +25,7 @@ pub mod config;
 pub mod doctor;
 pub mod error;
 pub mod fetch;
+mod files;
 pub mod findings;
 pub mod git;
 pub mod lock;

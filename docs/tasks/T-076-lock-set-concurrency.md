@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, for the lead's review |
+| Status | in review |
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `4c09a042` |
-| Touches | `crates/gate-host/src/lock/mod.rs`, `crates/gate/src/distribution.rs`, `crates/gate/tests/distribution.rs`, `CHANGELOG.md` |
+| Touches | `crates/gate-host/src/files.rs` (new), `crates/gate-host/src/lib.rs`, `crates/gate-host/src/git.rs`, `crates/gate-host/src/lock/mod.rs`, `crates/gate-host/src/sync/mod.rs`, `crates/gate/src/distribution.rs`, `crates/gate/tests/distribution.rs`, `CHANGELOG.md` |
 
 ## Goal
 
@@ -43,8 +43,8 @@ B writes it with its own: A's pin is gone, and both runs reported success. With 
 window is the whole network resolution, so a `gate lock --set` started during it is undone when
 `gate lock` writes.
 
-The test below reproduces it without sleeps. Today it fails on "the second run did not wait" and,
-after that, on the missing pin.
+The test below reproduces it without sleeps. Today it fails on the missing pin: the second run
+does not wait, writes first, and the first run's write then removes its pin.
 
 ### The cache is already safe
 
@@ -81,9 +81,15 @@ So the cache keeps its code. Its fail-closed checks are covered again below, wit
    says what to do:
    `cannot lock <guard path> to update gate.lock: <error>; check that <git directory> is writable
    and on a local file system, or run one gate lock at a time`.
-4. **Atomic replace, completed.** `Lock::write` creates its temporary file with `create_new`,
-   syncs it before the rename, and removes it on any error, so a failed write leaves the old
-   `gate.lock` in place, and a crash leaves either the old file or the new one.
+4. **Atomic replace, completed.** One helper, `files::replace`, writes a temporary file beside
+   the target (`.<name>.<pid>.<n>.tmp`, created with `create_new`), gives it the old file's
+   permissions, syncs it, and renames it over the target; on any error it removes the temporary
+   file, so a failed write leaves the old file in place, and a crash leaves either the old file or
+   the new one. `Lock::write` and `gate sync`'s generated files both go through it; there is no
+   second implementation.
+5. **Outside a git repository.** `gate lock` and `gate init` cannot run outside a git repository:
+   opening the workspace (`Git::discover`) fails before the guard is taken, so the guard always
+   has a git directory to live in.
 
 ## Tests
 
@@ -91,37 +97,38 @@ Each is deterministic: order comes from the guard and from reading the second ru
 from a sleep. A timeout only turns a hang into a failure.
 
 1. `two_lock_set_runs_keep_both_pins` (fails today). The test reads `gate.lock`, takes the guard
-   itself as a first run would, and starts `gate lock --set b=<url> --file b.wasm`. It reads the
-   child's stderr until the waiting line. It then writes `gate.lock` with pin `a` added to what it
-   read, releases the guard, and waits for the child. Expected: the child waited, exits 0, and
-   `gate.lock` holds `a` and `b`. Today the child does not wait and writes first, and the test's
-   write then removes `b`.
-2. `a_waiting_lock_set_whose_file_changed_fails_closed`. The test holds the guard, starts
-   `gate lock --set`, reads up to the waiting line, rewrites the `--file` bytes, and releases.
-   Expected: the child exits non-zero with "changed while gate read it", and `gate.lock` is byte
-   for byte unchanged.
-3. `a_guard_that_cannot_be_taken_says_what_to_do`. The guard path is a directory. Expected:
-   exit 2 (environment error), the message names the path and the fix, and `gate.lock` is
+   itself as a first run would, and starts `gate lock --set house=<url> --file house.wasm`. It reads
+   the child's stderr until the waiting line. It then writes what it read with the `git` pin moved
+   to another URL, releases the guard, and waits for the child. Expected: `gate.lock` holds the
+   moved `git` pin and the new `house` pin, the child waited, and it exits 0. Today the child does
+   not wait and writes first, and the test's write then removes the `house` pin.
+2. `a_waiting_lock_set_whose_file_changed_fails_closed`. The test holds the guard, starts `gate lock
+   --set`, reads up to the waiting line, rewrites the `--file` bytes, and releases. Expected: the
+   child exits non-zero with "changed while gate read it", and `gate.lock` is byte for byte
    unchanged.
-4. `a_failed_lock_write_leaves_the_old_file` (unit, `lock/mod.rs`). The worktree root is made
-   read-only before `Lock::write`. Expected: an error, the old `gate.lock` byte for byte, and no
-   temporary file left.
+3. `a_guard_that_cannot_be_taken_says_what_to_do`. The guard path is a directory. Expected: exit 2
+   (environment error), the message names the path and the fix, and `gate.lock` is unchanged.
+4. The helper's unit tests (`files.rs`):
+   `a_replace_writes_the_new_contents_and_keeps_the_old_permissions` (an executable stays
+   executable, no temporary file is left), and
+   `a_failed_replace_leaves_the_old_file_and_no_temporary_file`, with the rename failing (the target
+   is a directory) and the temporary file failing (the directory is read-only). Expected each time:
+   an error that names the path, the old contents, and no temporary file.
 
 The existing tests that a checksum mismatch fails closed (`fetch`, the plugin load) keep passing.
 
-## Not in scope, found while reading
+## Follow-ups
 
-- `gate sync` writes generated files in place (`sync/mod.rs`, `fs::write`). A crash during the
-  write leaves a truncated file, which `gate sync --check` then reports. The same temporary-file
-  write would fix it.
-- `gate cache prune --yes` in a repository while a `gate lock --set` in it is between admitting
-  the file and writing `gate.lock` can remove the new entry. The pin is then not in the cache
+- T-077, scheduled by the lead after this task merges: `gate cache prune --yes` in a repository
+  while a `gate lock --set` in it is between admitting the file and writing `gate.lock` can remove
+  the new entry. The pin is then not in the cache
   while its asset is not published yet. Prune could take each worktree's guard while it reads
   that worktree's lock and removes.
 
 ## Done when
 
-- The four tests pass, and test 1 fails on the code before the fix.
+- The four tests pass, and test 1 fails on the code before the fix (a mutation step in the lane
+  round removes the guard from `gate lock --set` and expects test 1 to fail).
 - One lane round on the pushed tip, on this task's own target directory: fmt, clippy, test, deny
   and the release build exit 0, and its log shows `gate-host` and `gate` compiled from this
   task's worktree.
@@ -129,3 +136,8 @@ The existing tests that a checksum mismatch fails closed (`fetch`, the plugin lo
 
 ## Resume point
 
+2026-11-20T19:20:55+00:00: design approved with two additions (the sync writes through the same
+helper; the outside-git case stated). Built: `files::replace`, `lock::Guard`, `Git::git_dir`, the
+guard taken by `gate lock`, `gate lock --set` and `gate init`; tests 1 to 3 in
+`crates/gate/tests/distribution.rs`, test 4 in `files.rs`; the CHANGELOG entries. Next: one lane
+round on the pushed tip, then independent review.

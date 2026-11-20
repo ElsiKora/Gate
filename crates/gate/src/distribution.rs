@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use gate_host::cache::{Bounds, Cache, Entry, Reason};
 use gate_host::config::PluginName;
-use gate_host::lock::{self, LOCK_FILE, Lock, Pin, Wanted};
+use gate_host::lock::{self, Guard, LOCK_FILE, Lock, Pin, Wanted};
 use gate_host::{Error, Fetcher, Git, Source, Workspace};
 
 /// The launcher `gate init` writes to `bin/gate`.
@@ -67,7 +67,10 @@ pub fn lock(request: &LockRequest) -> Result<String, Error> {
             pin.sha256,
             file.display()
         );
-        // Every check first: nothing enters the cache or gate.lock for a pin that is refused.
+        // The file is hashed before the guard is taken, so a build that changes while this run
+        // waits fails the check below. Every check first: nothing enters the cache or gate.lock for
+        // a pin that is refused.
+        let _guard = Guard::take(workspace.snapshot().git())?;
         let locked = lock::set(&wanted, Lock::read(&root)?, &name, pin)?;
         let admitted = Cache::from_env()?.admit(file)?;
         if admitted != sha256 {
@@ -81,6 +84,7 @@ pub fn lock(request: &LockRequest) -> Result<String, Error> {
     }
 
     let mut text = String::new();
+    let _guard = Guard::take(workspace.snapshot().git())?;
     let existing = match Lock::read(&root) {
         Ok(existing) => existing,
         Err(error) => {
@@ -155,6 +159,7 @@ pub fn init() -> Result<String, Error> {
     } else {
         Wanted::of(&Workspace::open(&root, Source::WorkTree)?)
     };
+    let _guard = Guard::take(&git)?;
     let existing = Lock::read(&root).ok().flatten();
     let resolution = lock::resolve(&wanted, existing.as_ref(), &Fetcher::from_env()?)?;
     resolution.lock.write(&root)?;

@@ -8,8 +8,10 @@ mod http;
 mod built;
 
 use std::fmt::Write as _;
+use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use http::{Route, Server, release_json, sha256};
@@ -1004,6 +1006,170 @@ fn lock_set_moves_exactly_the_one_pin() {
 
 fn path(file: &Path) -> &str {
     file.to_str().expect("a UTF-8 path")
+}
+
+/// Takes the guard of `repo`'s `gate.lock` as a first run would, before the run under test starts.
+fn hold_guard(repo: &Repo) -> std::fs::File {
+    let file = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(repo.path().join(".git/gate.lock.guard"))
+        .expect("the guard file");
+    file.lock().expect("the test takes the guard first");
+    file
+}
+
+/// Starts `gate` with `arguments` in `repo`; its stderr comes line by line from the receiver.
+fn spawn_gate(repo: &Repo, arguments: &[&str]) -> (Child, Receiver<String>) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gate"));
+    repo.environment(command.args(arguments), None);
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("gate");
+    let stderr = child.stderr.take().expect("stderr");
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    (child, receiver)
+}
+
+/// Whether the run said that it waits for the guard before its stderr ended. Order comes from the
+/// run's own output; the minute only turns a hang into a failure.
+fn waited(lines: &Receiver<String>) -> bool {
+    loop {
+        match lines.recv_timeout(Duration::from_secs(60)) {
+            Ok(line) if line.starts_with("gate: waiting for another gate run") => return true,
+            Ok(_) => {}
+            Err(RecvTimeoutError::Disconnected) => return false,
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("gate neither said it waits nor ended within a minute")
+            }
+        }
+    }
+}
+
+const HOUSE_URL: &str =
+    "https://github.com/acme/rules/releases/download/plugin-house-v1.3.0/house.wasm";
+
+#[test]
+fn two_lock_set_runs_keep_both_pins() {
+    let repo = with_plugins();
+    let before = repo.read("gate.lock");
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("house.wasm");
+    std::fs::write(&file, b"\0asm house 1.3.0").expect("build");
+    let hash = sha256(b"\0asm house 1.3.0");
+
+    // A first run has read gate.lock and holds the guard; the second starts meanwhile.
+    let first = hold_guard(&repo);
+    let (second, lines) = spawn_gate(
+        &repo,
+        &[
+            "lock",
+            "--set",
+            &format!("house={HOUSE_URL}"),
+            "--file",
+            path(&file),
+        ],
+    );
+    let second_waited = waited(&lines);
+    // The first run writes what it read with the git plugin moved, then lets go.
+    repo.write(
+        "gate.lock",
+        &before.replace(
+            "https://example.invalid/b.wasm",
+            "https://example.invalid/moved.wasm",
+        ),
+    );
+    drop(first);
+    let output = second.wait_with_output().expect("gate");
+    let said: Vec<String> = lines.iter().collect();
+
+    let after = repo.read("gate.lock");
+    assert!(
+        after.contains("url = \"https://example.invalid/moved.wasm\""),
+        "the first run's pin is kept: {after}"
+    );
+    assert!(
+        after.contains(&format!("url = \"{HOUSE_URL}\"\nsha256 = \"{hash}\"\n")),
+        "the second run's pin is not lost: {after}"
+    );
+    assert!(second_waited, "the second run waited: {said:?}");
+    assert_eq!(output.status.code(), Some(0), "{said:?}");
+}
+
+#[test]
+fn a_waiting_lock_set_whose_file_changed_fails_closed() {
+    let repo = with_plugins();
+    let before = repo.read("gate.lock");
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("house.wasm");
+    std::fs::write(&file, b"\0asm house 1.3.0").expect("build");
+
+    let first = hold_guard(&repo);
+    let (second, lines) = spawn_gate(
+        &repo,
+        &[
+            "lock",
+            "--set",
+            &format!("house={HOUSE_URL}"),
+            "--file",
+            path(&file),
+        ],
+    );
+    assert!(waited(&lines), "the second run waits for the first");
+    // The build changes while the run waits, after it hashed the file.
+    std::fs::write(&file, b"\0asm house 1.3.0, rebuilt").expect("rebuild");
+    drop(first);
+    let output = second.wait_with_output().expect("gate");
+    let said = lines.iter().collect::<Vec<_>>().join("\n");
+
+    assert_eq!(output.status.code(), Some(2), "{said}");
+    assert!(said.contains("changed while gate read it"), "{said}");
+    assert_eq!(repo.read("gate.lock"), before, "gate.lock is unchanged");
+}
+
+#[test]
+fn a_guard_that_cannot_be_taken_says_what_to_do() {
+    let repo = with_plugins();
+    let before = repo.read("gate.lock");
+    std::fs::create_dir(repo.path().join(".git/gate.lock.guard"))
+        .expect("a directory in the guard's place");
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("house.wasm");
+    std::fs::write(&file, b"\0asm house 1.3.0").expect("build");
+
+    let output = repo.gate(
+        &[
+            "lock",
+            "--set",
+            &format!("house={HOUSE_URL}"),
+            "--file",
+            path(&file),
+        ],
+        None,
+        &[],
+    );
+    let said = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{said}");
+    assert!(
+        said.contains("/.git/gate.lock.guard to update gate.lock: "),
+        "{said}"
+    );
+    assert!(
+        said.contains("is writable and on a local file system, or run one gate lock at a time"),
+        "{said}"
+    );
+    assert_eq!(repo.read("gate.lock"), before, "gate.lock is unchanged");
 }
 
 /// The entries of the blob cache under `cache`.

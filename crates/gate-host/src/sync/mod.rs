@@ -719,9 +719,7 @@ pub fn write(workspace: &Workspace, outputs: &[Output], owned: &[Owned]) -> Resu
                     Error::environment(format!("cannot create {}: {error}", directory.display()))
                 })?;
             }
-            std::fs::write(&path, &output.contents).map_err(|error| {
-                Error::environment(format!("cannot write {}: {error}", path.display()))
-            })?;
+            crate::files::replace(&path, &output.contents)?;
             synced.written.push(output.path.clone());
         }
         if output.executable {

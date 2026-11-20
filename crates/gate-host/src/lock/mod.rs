@@ -20,6 +20,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -41,6 +42,59 @@ pub const TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-unknown-linux-mu
 pub const CORE_REPOSITORY: (&str, &str) = ("ElsiKora", "Gate");
 
 const HEADER: &str = "# Written by `gate lock`. Commit it; never edit it by hand.\n";
+
+/// The file in the worktree's git directory whose advisory lock a run holds while it reads,
+/// changes and writes `gate.lock`.
+pub const GUARD_FILE: &str = "gate.lock.guard";
+
+/// Held by a run from reading `gate.lock` to writing it: an advisory lock on [`GUARD_FILE`] in the
+/// worktree's git directory, so that a second run waits until the first has written, and reads
+/// what it wrote. The operating system releases the lock when the run ends, however it ends.
+#[derive(Debug)]
+pub struct Guard {
+    _file: File,
+}
+
+impl Guard {
+    /// Takes the guard of the worktree `git` is in. When another run holds it, says so on stderr
+    /// and waits for it.
+    ///
+    /// # Errors
+    /// Fails when the git directory cannot be found or the lock cannot be taken, saying what to do.
+    pub fn take(git: &Git) -> Result<Self> {
+        let directory = git.git_dir()?;
+        Self::take_at(&directory.join(GUARD_FILE), &directory)
+    }
+
+    fn take_at(path: &Path, directory: &Path) -> Result<Self> {
+        let refused = |error: std::io::Error| {
+            Error::environment(format!(
+                "cannot lock {} to update {LOCK_FILE}: {error}; check that {} is writable and on a local file system, or run one gate lock at a time",
+                path.display(),
+                directory.display()
+            ))
+        };
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(refused)?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                eprintln!(
+                    "gate: waiting for another gate run to finish writing {LOCK_FILE} ({})",
+                    path.display()
+                );
+                file.lock().map_err(refused)?;
+            }
+            Err(TryLockError::Error(error)) => return Err(refused(error)),
+        }
+        Ok(Self { _file: file })
+    }
+}
 
 /// One pinned download.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -199,19 +253,14 @@ impl Lock {
         }
     }
 
-    /// Writes `gate.lock` into the working tree at `root`, through a temporary file and a rename.
+    /// Writes `gate.lock` into the working tree at `root`, through a synced temporary file and a
+    /// rename, so a reader sees the old lock or the new one. A run that read the lock to change it
+    /// holds the [`Guard`] from that read to this write.
     ///
     /// # Errors
-    /// Fails when the file cannot be written.
+    /// Fails when the file cannot be written; the old lock is then left as it was.
     pub fn write(&self, root: &Path) -> Result<()> {
-        let path = root.join(LOCK_FILE);
-        let temporary = root.join(format!(".{LOCK_FILE}.{}.tmp", std::process::id()));
-        std::fs::write(&temporary, self.render())
-            .and_then(|()| std::fs::rename(&temporary, &path))
-            .map_err(|error| {
-                let _ = std::fs::remove_file(&temporary);
-                Error::environment(format!("cannot write {}: {error}", path.display()))
-            })
+        crate::files::replace(&root.join(LOCK_FILE), self.render().as_bytes())
     }
 
     /// Every checksum the lock pins.

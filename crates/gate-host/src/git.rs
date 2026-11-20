@@ -52,6 +52,16 @@ impl Git {
         })
     }
 
+    /// The git directory of the work tree: `.git` in a repository's main work tree, and the
+    /// directory below `.git/worktrees/` that git keeps for each other worktree.
+    ///
+    /// # Errors
+    /// Fails when git cannot be run or prints something that is not a path.
+    pub fn git_dir(&self) -> Result<PathBuf> {
+        let output = self.output(&["rev-parse", "--absolute-git-dir"])?;
+        Ok(PathBuf::from(decode(output)?.trim_end()))
+    }
+
     /// The top-level directory of the work tree.
     #[must_use]
     pub fn root(&self) -> &Path {
