@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | proven; ready for the lead |
 | Release | 0.3.0, merged right after T-066 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |
@@ -42,6 +42,13 @@ The three minor findings of the lead's independent re-check of T-066, one with s
   T-066b's checkout and every new test listed; the leak scan prints nothing.
 
 ## Resume point
+
+2026-11-20T16:34:27+00:00: rebased onto `main` `cee6491` (T-066 merged) without conflicts; fixes
+`988531f` (tracked-secrets identity and key body) and `7d76d2e` (filtered sizes). Lane round 345 on
+`7d76d2e`, on T-066b's own target directories, exit 0: fmt, clippy, test (`--workspace
+--no-fail-fast`: 1347 passed, 0 failed), deny (advisories, bans, licenses and sources ok) and the
+release build. The log check found every workspace member compiled from `T-066b/round-wt`, and the
+five new tests are listed and pass. Next: the lead's review; rebase once more after T-073 lands.
 
 2026-11-20T10:21:37+00:00: branch `task/T-066b-hygiene-identity` from `9cd77bb`; task file written.
 Next: the three fixes and their tests, then the lane round.
