@@ -5,7 +5,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Result, Tree};
 use globset::GlobBuilder;
 
-use crate::yaml::{self, Node};
+use gate_sdk::yaml::{self, Node};
 
 /// The options of `ci/actions-pinned` and `ci/workflow-run-target`.
 #[derive(Debug, Deserialize, JsonSchema)]

@@ -8,7 +8,6 @@
 mod actions_pinned;
 mod workflow_run_target;
 mod workflows;
-mod yaml;
 
 pub use self::actions_pinned::ActionsPinned;
 pub use self::workflow_run_target::WorkflowRunTarget;

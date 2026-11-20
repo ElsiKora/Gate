@@ -7,7 +7,7 @@ use gate_sdk::{Location, Rule, Run, Scope};
 use regex::Regex;
 
 use crate::workflows::{Options, load};
-use crate::yaml::Node;
+use gate_sdk::yaml::Node;
 
 /// `owner/repo[/path]@<40 lowercase hex>`.
 static COMMIT: LazyLock<Option<Regex>> =

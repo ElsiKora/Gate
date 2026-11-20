@@ -64,6 +64,8 @@ mod plugin;
 mod report;
 mod rule;
 mod tree;
+#[cfg(feature = "yaml")]
+pub mod yaml;
 
 #[doc(hidden)]
 #[expect(
