@@ -6,65 +6,40 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::OnceLock;
 
 use sha2::{Digest as _, Sha256};
+
+#[path = "../../gate-runtime/tests/support/component.rs"]
+mod built;
 
 /// The version of the core under test.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const SOURCE: &str = "acme/rules:hello@0.1.0";
 
-/// A workspace package built as a component once per test binary: its path and bytes.
-fn component(package: &str, library: &str) -> (PathBuf, Vec<u8>) {
-    component_with(package, library, "")
+/// A workspace package built as a component once per process: its path and bytes.
+fn component(package: &str, library: &str) -> &'static (PathBuf, Vec<u8>) {
+    built::component(package, library, "")
 }
 
-/// [`component`] with the cargo `features` given (none when empty), in a target directory of
-/// their own.
-fn component_with(package: &str, library: &str, features: &str) -> (PathBuf, Vec<u8>) {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("{package}{features}"));
-    let mut arguments = vec![
-        "build",
-        "--locked",
-        "--release",
-        "-p",
-        package,
-        "--target",
-        "wasm32-wasip2",
-    ];
-    if !features.is_empty() {
-        arguments.extend(["--features", features]);
-    }
-    let status = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args(&arguments)
-        .env("CARGO_TARGET_DIR", &target)
-        .status()
-        .expect("cargo runs");
-    assert!(status.success(), "{package} builds for wasm32-wasip2");
-    let path = target.join(format!("wasm32-wasip2/release/{library}.wasm"));
-    let bytes = std::fs::read(&path).expect("the component exists");
-    (path, bytes)
+/// [`component`] with the cargo `features` given, in a target directory of their own.
+fn component_with(package: &str, library: &str, features: &str) -> &'static (PathBuf, Vec<u8>) {
+    built::component(package, library, features)
 }
 
 /// The hello component.
 fn hello() -> &'static (PathBuf, Vec<u8>) {
-    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    WASM.get_or_init(|| component("gate-plugin-hello", "gate_plugin_hello"))
+    component("gate-plugin-hello", "gate_plugin_hello")
 }
 
 /// The typescript plugin's component.
 fn typescript() -> &'static (PathBuf, Vec<u8>) {
-    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    WASM.get_or_init(|| component("gate-plugin-typescript", "typescript"))
+    component("gate-plugin-typescript", "typescript")
 }
 
 /// The runtime's probe component.
 fn probe() -> &'static (PathBuf, Vec<u8>) {
-    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    WASM.get_or_init(|| component("gate-runtime-probe", "gate_runtime_probe"))
+    component("gate-runtime-probe", "gate_runtime_probe")
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -1199,7 +1174,7 @@ fn a_component_whose_describe_fails_in_a_way_that_may_pass_fails_the_call() {
     let pinned = std::fs::read_to_string(repo.path().join("gate.lock")).expect("gate.lock");
     let (_, trapping) =
         component_with("gate-runtime-probe", "gate_runtime_probe", "describe-traps");
-    let (toml, lock) = with_other(&repo, &trapping, &adopted, &pinned);
+    let (toml, lock) = with_other(&repo, trapping, &adopted, &pinned);
     repo.write("gate.toml", &toml);
     repo.write("gate.lock", &lock);
     repo.write(
@@ -2055,10 +2030,8 @@ fn adapter(body: &str) -> String {
 
 #[test]
 fn main_history_judges_generated_content_only_after_the_move_to_gate_through_sync_state() {
-    static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    static AGENTS: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
-    let agents = AGENTS.get_or_init(|| component("gate-plugin-agents", "agents"));
+    let git = component("gate-plugin-git", "git");
+    let agents = component("gate-plugin-agents", "agents");
 
     let repo = Repo::empty();
     // Before the move to Gate: a configuration this core does not read, so sync-state answers the
@@ -2172,10 +2145,8 @@ options = {{ activation = "{start}", main = ["refs/heads/main"], release-subject
 
 #[test]
 fn rule_enforcement_sees_a_norm_mapped_on_another_plugins_rule() {
-    static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    static AGENTS: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
-    let agents = AGENTS.get_or_init(|| component("gate-plugin-agents", "agents"));
+    let git = component("gate-plugin-git", "git");
+    let agents = component("gate-plugin-agents", "agents");
 
     let repo = Repo::empty();
     repo.write("README.md", "# Synthetic\n");
@@ -2259,10 +2230,8 @@ options = {{ activation = "{start}", main = ["refs/heads/main"], release-subject
 
 #[test]
 fn main_history_allows_generated_files_that_gate_sync_removes_or_renames_with_their_sources() {
-    static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    static AGENTS: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
-    let agents = AGENTS.get_or_init(|| component("gate-plugin-agents", "agents"));
+    let git = component("gate-plugin-git", "git");
+    let agents = component("gate-plugin-agents", "agents");
     let agents_plugin = format!("agents={}", agents.0.display());
     let git_plugin = format!("git={}", git.0.display());
     let sync = |repo: &Repo| {
@@ -2496,8 +2465,7 @@ fn plugin_options_failing_the_plugins_schema_fail_every_command_before_anything_
 
 #[test]
 fn a_missing_git_plugin_option_is_a_configuration_error_at_load() {
-    static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
+    let git = component("gate-plugin-git", "git");
     let plugin = format!("git={}", git.0.display());
     let repo = Repo::empty();
     repo.write(
@@ -2532,8 +2500,7 @@ const BRANCH_NAME: &str =
 
 impl GitOptions {
     fn new() -> Self {
-        static GIT: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-        let git = GIT.get_or_init(|| component("gate-plugin-git", "git"));
+        let git = component("gate-plugin-git", "git");
         let repo = Repo::empty();
         repo.write("README.md", "# r\n");
         let root = repo.commit("init");

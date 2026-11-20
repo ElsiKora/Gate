@@ -38,7 +38,8 @@ pub struct Blob {
 
 /// The snapshot of one run: tracked files only, repository-relative slash-separated paths.
 pub trait Tree: Send + Sync {
-    /// Every tracked path, sorted.
+    /// Every tracked path, sorted by byte order (`str` order), each once: listings binary-search
+    /// it.
     fn paths(&self) -> &[String];
 
     /// The contents of a tracked path; `None` when it is not tracked.
