@@ -235,7 +235,8 @@ mod tests {
     #[test]
     fn specifiers_of_every_import_form() {
         let text = "import a from \"x\";\nimport \"side\";\nconst b = await import('dyn');\nconst c = require( \"req\" );\nexport { d } from 're';\nconst reimport = 1;\n";
-        let found: Vec<(&str, usize)> = specifiers(text)
+        let all = specifiers(text);
+        let found: Vec<(&str, usize)> = all
             .iter()
             .map(|(name, line)| (name.as_str(), *line))
             .collect();
