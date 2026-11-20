@@ -138,5 +138,13 @@ Each test fails before its change. They use synthetic plugins and trees.
   says `git/commit-message` declares only `READS_MESSAGE`. The `CHANGELOG.md` says
   `git/branch-name` no longer runs in `commit-msg`. `check_request` no longer splits `norms`
   from its doc comment. The selection test asserts that one rule ran. Not yet run in the lane.
-- Next: the review round's lane round, then the consumer's cold `commit-msg` row, before and
+- `aa1cf45`: the other-interface load error names no core version as a plugin's release; it says
+  to pin the plugin's release built for the interface (each plugin's `CHANGELOG.md` names it) or
+  rebuild with gate-sdk.
+- 2026-11-20T09:47:41+00:00: ticket 335 on `aa1cf45`, target `T-057/target`: fmt, clippy, the nine review and message
+  tests by name, `cargo test --workspace --no-fail-fast` (1074 passed, 0 failed, 7 ignored), deny
+  and the release build exit 0; `done in 531s with exit code 0`. Its logs show `gate`,
+  `gate-host`, `gate-runtime`, `gate-sdk`, `gate-plugin-git` and the probe compiled from this
+  worktree, and the nine tests listed by name.
+- The branch merges after the 0.2.1 tag. Next: the consumer's cold `commit-msg` row, before and
   after.
