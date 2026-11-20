@@ -29,8 +29,10 @@ For each configuration but the base:
 
 - **`#base`**: it reaches the base through `extends`, directly or through other configurations of
   the project. An `extends` (a string or a list of strings) is followed when it starts with `.`; it
-  is resolved from the configuration's directory, with `.json` added when missing. A package
-  (`@tsconfig/node24/tsconfig.json`) is not followed. It is reported at the `extends` line, or at
+  is resolved from the configuration's directory as TypeScript resolves it: the path as written,
+  then with `.json` added, then, for a directory, its `tsconfig.json`; the first that exists is
+  the target. A package (`@tsconfig/node24/tsconfig.json`) names an installed package, which is
+  not in the tree, and is not followed. It is reported at the `extends` line, or at
   the file when there is none.
 - **`#copy`**: a configuration without `extends` does not set three or more standard flags to
   `true`; one that does repeats the base instead of extending it.

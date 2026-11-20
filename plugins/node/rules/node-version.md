@@ -1,37 +1,39 @@
 # `node/node-version`
 
-A repository runs one Node version, written once in `.nvmrc` at its root, and every `engines.node`
-admits it.
+Each install root runs one Node version, written once in `.nvmrc` at that root, and every
+`engines.node` below it admits it.
 
 ## What it checks and why
 
 When the Node version is written in several places, the places drift: a developer, a container
 and CI each run a different Node, and a bug shows up on one of them only. The rule keeps one
-place, `.nvmrc` at the repository root, which version managers and CI setups read, and makes the
-declared `engines.node` ranges agree with it.
+place per install, `.nvmrc` at its install root, which version managers and CI setups read, and
+makes the declared `engines.node` ranges agree with it. An install root is the repository root, plus
+each directory the plugin option `separate` names.
 
 A repository without a tracked `package.json` (outside `node_modules`) is not a Node repository,
 and the rule reports nothing. Otherwise:
 
-- **`#file`**: `.nvmrc` is tracked at the repository root and holds one exact version `x.y.z`,
-  with nothing else but surrounding white space. `24`, `v24.11.0`, `lts/*` and a pre-release are
-  reported.
+- **`#file`**: `.nvmrc` is tracked at each install root that has a `package.json` below it, and
+  holds one exact version `x.y.z`, optionally with a pre-release or build part
+  (`24.11.0-rc.1`), as every rule of the plugin reads an exact version, with nothing else but
+  surrounding white space. `24`, `v24.11.0` and `lts/*` are reported.
 - **`#form`**: no second place names the Node version: a `.node-version` file anywhere, an
-  `.nvmrc` anywhere but the root, a `.tool-versions` file with a line for `nodejs` or `node`, a
-  `volta.node` field in any `package.json`.
-- **`#engines`**: the root `package.json` is tracked and declares `engines.node` as a string. When
-  `.nvmrc` holds an exact version, the range admits that version and no version of an earlier
+  `.nvmrc` anywhere but an install root, a `.tool-versions` file with a line for `nodejs` or
+  `node`, a `volta.node` field in any `package.json`.
+- **`#engines`**: the install root's `package.json` is tracked and declares `engines.node` as a
+  string, which reads as a range. When that root's `.nvmrc` holds an exact version, the range
+  admits that version and no version of an earlier
   major. The rule reads comparators (`>=`, `>`, `<=`, `<`, `=`), partial versions (`24`, `24.x`),
   caret, tilde, `*`, hyphen ranges (`20.0.0 - 24`) and alternatives joined by `||`; a range it
   cannot read (`latest`) is reported. `>=22` with `.nvmrc` at `24.11.0` admits Node 22 and is
   reported; `>=24.11.0 <25` and `^24.11.0` pass.
-- **`#differs`**: every other `package.json` that declares `engines.node` declares the root's
-  range, the same text once runs of white space are collapsed.
+- **`#differs`**: every other `package.json` below an install root that declares `engines.node`
+  declares that root's range, the same text once runs of white space are collapsed.
 
-The rule does not read the plugin option `separate`: a directory declared there is an install of
-its own, but it runs the same Node, so an `.nvmrc` in it is reported under `#form` and its
-`engines.node` is compared with the root's. The places the rule reads are fixed by the plugin;
-none is configurable.
+A directory declared in `separate` is an install of its own, as in every rule of the plugin: its
+own `.nvmrc` names its Node version, and its `engines.node` agrees with that, not with the
+repository root's. The places the rule reads are fixed by the plugin; none is configurable.
 
 Scope: repository. Language: none. Reads history: no. Aspects: `file`, `form`, `engines`,
 `differs`.
@@ -63,7 +65,7 @@ kind = "monorepo-root"
 
 ```text
 error node/node-version#engines package.json:4
-  package.json engines.node ">=22" admits a Node major below 24, the major in .nvmrc
+  package.json engines.node ">=22" admits a Node major below 24, the major in its .nvmrc
   help: write a range from the .nvmrc version to the next major, such as ">=24.11.0 <25"
 ```
 
@@ -72,8 +74,8 @@ line 3:
 
 ```text
 error node/node-version#differs apps/api/package.json:3
-  apps/api/package.json declares engines.node ">=24", the root package.json ">=24.11.0 <25"
-  help: write the root's range, or remove engines.node where the root's applies
+  apps/api/package.json declares engines.node ">=24", package.json ">=24.11.0 <25"
+  help: write the install root's range, or remove engines.node where the root's applies
 ```
 
 The finding's target is `<path>:<key>`, where the key is the field or the file name:

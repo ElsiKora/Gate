@@ -102,3 +102,32 @@ fn a_catalog_reference_needs_a_catalog() {
         ["catalog apps/a/package.json:1 x"]
     );
 }
+
+#[test]
+fn a_catalog_reference_names_an_entry_of_that_catalog() {
+    let member = r#"{
+  "name": "a",
+  "dependencies": {
+    "left-pad": "catalog:default",
+    "react": "catalog:react18",
+    "react-dom": "catalog:react18",
+    "is-odd": "catalog:"
+  }
+}
+"#;
+    let files = [
+        (
+            "pnpm-workspace.yaml",
+            "packages:\n  - \"apps/*\"\ncatalog:\n  left-pad: 1.1.0\ncatalogs:\n  react18:\n    react: 18.3.1\n",
+        ),
+        ("apps/a/package.json", member),
+    ];
+    let fixture = Fixture::new("monorepo-root", &files);
+    assert_eq!(
+        fixture.lines(RULE),
+        [
+            "catalog apps/a/package.json:6 react-dom",
+            "catalog apps/a/package.json:7 is-odd"
+        ]
+    );
+}

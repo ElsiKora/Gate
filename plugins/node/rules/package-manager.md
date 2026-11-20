@@ -15,7 +15,8 @@ spike or a load test that is an install of its own). A repository without a trac
 install root:
 
 - **`#field`**: the install root's `package.json` is tracked and its `packageManager` is
-  `pnpm@<x.y.z>`, an exact version without a pre-release part, optionally followed by
+  `pnpm@<x.y.z>`, an exact version (a pre-release or build part allowed, as every rule of the
+  plugin reads an exact version), optionally followed by
   `+<hash>` (as Corepack writes it). A range (`pnpm@^9`), a partial version (`pnpm@9.1`) or
   another manager (`npm@10.0.0`) is reported at the field's line; a missing field or a missing
   `package.json` is reported at the file.
@@ -97,3 +98,8 @@ lockfiles of other package managers. A directory with its own lockfile or worksp
 joins the root workspace (list it in `packages` and remove the files) or is declared in
 `separate` with its job, and then follows the same checks as the root. A `package.json` outside
 every package glob gets a glob that matches its directory.
+
+A test fixture is no exception: a fixture's `package.json` or lockfile is tracked like any other,
+and the only way to keep it is to declare its directory in `separate` with its job ("fixtures of
+the installer's tests"), which makes it an install root of its own, checked like any other
+install root. There is no other exemption.

@@ -195,3 +195,21 @@ fn a_root_project_leaves_its_members_configurations_to_them() {
     ];
     assert_eq!(member("monorepo-root", "", &files), Vec::<String>::new());
 }
+
+#[test]
+fn extends_resolves_as_typescript_resolves_it() {
+    let files = [
+        ("tsconfig.json", "{ \"extends\": \"./configs\" }"),
+        (
+            "configs/tsconfig.json",
+            "{ \"extends\": \"../../../tsconfig.base\" }",
+        ),
+        ("tsconfig.build.json", "{ \"extends\": \"./tsconfig\" }"),
+    ];
+    assert_eq!(member("service", "apps/s", &files), Vec::<String>::new());
+    let missing = [("tsconfig.json", "{ \"extends\": \"./configs\" }")];
+    assert_eq!(
+        member("service", "apps/s", &missing),
+        ["base tsconfig.json:1 tsconfig.json"]
+    );
+}

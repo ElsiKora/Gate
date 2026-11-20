@@ -1,8 +1,9 @@
-//! `node/node-version`: one Node version, in `.nvmrc`, that every `engines.node` admits.
+//! `node/node-version`: one Node version per install root, in its `.nvmrc`, that every
+//! `engines.node` below it admits.
 
 use gate_sdk::{NoOptions, Result, Rule, Run, Scope, Tree};
 
-use crate::repo::{self, file_name};
+use crate::repo::{self, file_name, join, root_of};
 use crate::semver::{self, Range, Version};
 use crate::settings::Settings;
 
@@ -12,98 +13,127 @@ pub(crate) struct NodeVersion;
 impl Rule for NodeVersion {
     type Options = NoOptions;
     const NAME: &'static str = "node-version";
-    const TITLE: &'static str = "One Node version, in .nvmrc, that every engines.node admits";
+    const TITLE: &'static str =
+        "One Node version per install root, in its .nvmrc, that every engines.node below it admits";
     const ASPECTS: &'static [&'static str] = &["file", "form", "engines", "differs"];
     const SCOPE: Scope = Scope::Repository;
 
     fn check(&self, run: &mut Run<'_, NoOptions>) -> Result<()> {
-        Settings::read(run)?;
+        let roots = Settings::read(run)?.install_roots();
         let tree = run.tree();
         let manifests = repo::manifests(&tree);
         if manifests.is_empty() {
             return Ok(());
         }
-        let pinned = version_file(run, &tree);
-        forms(run, &tree, &manifests)?;
-        let Some(root) = repo::read_json(&tree, "package.json")? else {
-            crate::report(
-                run.report(),
-                "engines",
-                ("package.json", None),
-                "engines.node",
-                "the repository root has no package.json to declare engines.node".to_owned(),
-                "add a root package.json with \"engines\": { \"node\": \"<range>\" }",
-            );
-            return Ok(());
-        };
-        let declared = root
-            .get("engines")
-            .and_then(|engines| engines.member("node"))
-            .and_then(|member| {
-                member
-                    .value
-                    .as_str()
-                    .map(|text| (text.to_owned(), member.line))
-            });
-        let Some((range, line)) = declared else {
-            crate::report(
-                run.report(),
-                "engines",
-                ("package.json", None),
-                "engines.node",
-                "package.json declares no engines.node".to_owned(),
-                "write \"engines\": { \"node\": \">=<x.y.z> <<x+1>\" } for the version in .nvmrc",
-            );
-            return Ok(());
-        };
-        engines(run, &range, line, pinned);
-        for path in manifests
-            .iter()
-            .filter(|path| path.as_str() != "package.json")
-        {
-            let Some(manifest) = repo::read_json(&tree, path)? else {
-                continue;
-            };
-            let Some(member) = manifest
-                .get("engines")
-                .and_then(|engines| engines.member("node"))
-            else {
-                continue;
-            };
-            let other = member.value.render();
-            if member.value.as_str().map(normal) != Some(normal(&range)) {
-                crate::report(
-                    run.report(),
-                    "differs",
-                    (path, Some(member.line)),
-                    "engines.node",
-                    format!(
-                        "{path} declares engines.node {other}, the root package.json \"{range}\""
-                    ),
-                    "write the root's range, or remove engines.node where the root's applies",
-                );
+        forms(run, &tree, &manifests, &roots)?;
+        for root in &roots {
+            let mine: Vec<&String> = manifests
+                .iter()
+                .filter(|path| root_of(path, &roots) == root.as_str())
+                .collect();
+            if !mine.is_empty() {
+                install(run, &tree, root, &mine)?;
             }
         }
         Ok(())
     }
 }
 
-/// `file`: `.nvmrc` at the root holds one exact version; returns it.
-fn version_file(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>) -> Option<Version> {
-    let text = tree.text(".nvmrc");
+/// One install root: its `.nvmrc`, its `engines.node`, and the ranges of the manifests below it.
+fn install(
+    run: &mut Run<'_, NoOptions>,
+    tree: &Tree<'_>,
+    root: &str,
+    manifests: &[&String],
+) -> Result<()> {
+    let pinned = version_file(run, tree, root);
+    let path = join(root, "package.json");
+    let Some(manifest) = repo::read_json(tree, &path)? else {
+        crate::report(
+            run.report(),
+            "engines",
+            (&path, None),
+            "engines.node",
+            format!(
+                "{} has no package.json to declare engines.node",
+                shown(root)
+            ),
+            "add a package.json at the install root with \"engines\": { \"node\": \"<range>\" }",
+        );
+        return Ok(());
+    };
+    let declared = manifest
+        .get("engines")
+        .and_then(|engines| engines.member("node"))
+        .and_then(|member| {
+            member
+                .value
+                .as_str()
+                .map(|text| (text.to_owned(), member.line))
+        });
+    let Some((range, line)) = declared else {
+        crate::report(
+            run.report(),
+            "engines",
+            (&path, None),
+            "engines.node",
+            format!("{path} declares no engines.node"),
+            "write \"engines\": { \"node\": \">=<x.y.z> <<x+1>\" } for the version in its .nvmrc",
+        );
+        return Ok(());
+    };
+    engines(run, &path, &range, line, pinned);
+    for other in manifests.iter().filter(|other| other.as_str() != path) {
+        let Some(manifest) = repo::read_json(tree, other)? else {
+            continue;
+        };
+        let Some(member) = manifest
+            .get("engines")
+            .and_then(|engines| engines.member("node"))
+        else {
+            continue;
+        };
+        let written = member.value.render();
+        if member.value.as_str().map(normal) != Some(normal(&range)) {
+            crate::report(
+                run.report(),
+                "differs",
+                (other, Some(member.line)),
+                "engines.node",
+                format!("{other} declares engines.node {written}, {path} \"{range}\""),
+                "write the install root's range, or remove engines.node where the root's applies",
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The install root as a message names it.
+fn shown(root: &str) -> String {
+    if root.is_empty() {
+        "the repository root".to_owned()
+    } else {
+        format!("the install root {root}")
+    }
+}
+
+/// `file`: `.nvmrc` at the install root holds one exact version; returns it.
+fn version_file(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, root: &str) -> Option<Version> {
+    let path = join(root, ".nvmrc");
+    let text = tree.text(&path);
     let pinned = text.as_deref().map(str::trim).and_then(semver::exact);
     if pinned.is_none() {
         let message = match text {
-            None => ".nvmrc is not tracked at the repository root".to_owned(),
+            None => format!("{path} is not tracked: an install root names its Node version there"),
             Some(text) => format!(
-                ".nvmrc holds \"{}\", not one exact version x.y.z",
+                "{path} holds \"{}\", not one exact version x.y.z",
                 text.trim()
             ),
         };
         crate::report(
             run.report(),
             "file",
-            (".nvmrc", None),
+            (&path, None),
             ".nvmrc",
             message,
             "write the exact Node version, such as 24.11.0, as the only line of .nvmrc",
@@ -113,12 +143,17 @@ fn version_file(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>) -> Option<Version
 }
 
 /// `form`: no second place names the Node version.
-fn forms(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, manifests: &[String]) -> Result<()> {
+fn forms(
+    run: &mut Run<'_, NoOptions>,
+    tree: &Tree<'_>,
+    manifests: &[String],
+    roots: &[String],
+) -> Result<()> {
     for path in tree.paths() {
         let name = file_name(&path);
         let second = match name {
             ".node-version" => true,
-            ".nvmrc" => path != ".nvmrc",
+            ".nvmrc" => !roots.iter().any(|root| join(root, ".nvmrc") == path),
             ".tool-versions" => tree.text(&path).is_some_and(|text| {
                 text.lines()
                     .any(|line| matches!(line.split_whitespace().next(), Some("nodejs" | "node")))
@@ -131,8 +166,10 @@ fn forms(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, manifests: &[String]) ->
                 "form",
                 (&path, None),
                 name,
-                format!("{path} names a Node version too; the one place is .nvmrc at the root"),
-                "remove it; .nvmrc at the repository root is read by every tool and by CI",
+                format!(
+                    "{path} names a Node version too; the one place is .nvmrc at its install root"
+                ),
+                "remove it; .nvmrc at the install root is read by every tool and by CI",
             );
         }
     }
@@ -146,7 +183,9 @@ fn forms(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, manifests: &[String]) ->
                 "form",
                 (path, Some(member.line)),
                 "volta.node",
-                format!("{path} pins Node in volta.node too; the one place is .nvmrc at the root"),
+                format!(
+                    "{path} pins Node in volta.node too; the one place is .nvmrc at its install root"
+                ),
                 "remove volta.node",
             );
         }
@@ -156,17 +195,23 @@ fn forms(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, manifests: &[String]) ->
 
 /// `engines`: the root's range reads as a range and, with an exact `.nvmrc`, admits that version
 /// and no earlier major.
-fn engines(run: &mut Run<'_, NoOptions>, range: &str, line: usize, pinned: Option<Version>) {
+fn engines(
+    run: &mut Run<'_, NoOptions>,
+    path: &str,
+    range: &str,
+    line: usize,
+    pinned: Option<Version>,
+) {
     let problem = match (Range::parse(range), pinned) {
         (None, _) => Some(format!(
-            "package.json engines.node \"{range}\" is not a range Gate reads"
+            "{path} engines.node \"{range}\" is not a range Gate reads"
         )),
         (Some(parsed), Some(pinned)) if !parsed.admits(pinned) => Some(format!(
-            "package.json engines.node \"{range}\" does not admit {}.{}.{}, the version in .nvmrc",
+            "{path} engines.node \"{range}\" does not admit {}.{}.{}, the version in its .nvmrc",
             pinned.major, pinned.minor, pinned.patch
         )),
         (Some(parsed), Some(pinned)) if parsed.admits_below(pinned.major) => Some(format!(
-            "package.json engines.node \"{range}\" admits a Node major below {}, the major in .nvmrc",
+            "{path} engines.node \"{range}\" admits a Node major below {}, the major in its .nvmrc",
             pinned.major
         )),
         (Some(_), _) => None,
@@ -175,7 +220,7 @@ fn engines(run: &mut Run<'_, NoOptions>, range: &str, line: usize, pinned: Optio
         crate::report(
             run.report(),
             "engines",
-            ("package.json", Some(line)),
+            (path, Some(line)),
             "engines.node",
             message,
             "write a range from the .nvmrc version to the next major, such as \">=24.11.0 <25\"",

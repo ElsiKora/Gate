@@ -236,15 +236,28 @@ fn extends(config: &Node) -> Vec<&str> {
 }
 
 /// The repository path an `extends` of the configuration at `path` names, when it is relative.
-fn target(project: &str, path: &str, specifier: &str) -> Option<String> {
+///
+/// As TypeScript resolves it: the path as written, then with `.json` added, then, for a directory,
+/// its `tsconfig.json`; the first that `exists` is the target. A package specifier names an
+/// installed package, which is not in the tree, so it has no target here.
+fn target(
+    project: &str,
+    path: &str,
+    specifier: &str,
+    exists: &dyn Fn(&str) -> bool,
+) -> Option<String> {
     if !specifier.starts_with('.') {
         return None;
     }
-    let mut resolved = normalize(&join(project, &join(directory(path), specifier)))?;
-    if !repo::is_json(&resolved) {
-        resolved.push_str(".json");
-    }
-    Some(resolved)
+    let written = normalize(&join(project, &join(directory(path), specifier)))?;
+    let candidates = [
+        written.clone(),
+        format!("{written}.json"),
+        join(&written, "tsconfig.json"),
+    ];
+    candidates
+        .into_iter()
+        .find(|candidate| exists(candidate.as_str()))
 }
 
 /// Whether the configuration at `start` reaches the base through `extends`.
@@ -259,7 +272,12 @@ fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &
             continue;
         };
         for specifier in extends(config) {
-            let Some(repository) = target(project, &path, specifier) else {
+            let exists = |candidate: &str| {
+                candidate == base
+                    || (within(candidate, project)
+                        && configs.contains_key(&relative(candidate, project)))
+            };
+            let Some(repository) = target(project, &path, specifier, &exists) else {
                 continue;
             };
             if repository == base {
@@ -293,7 +311,9 @@ fn sets_resolution(configs: &BTreeMap<String, Node>, start: &str, base: Option<&
             return true;
         }
         for specifier in extends(config) {
-            if let Some(next) = target("", &path, specifier) {
+            if let Some(next) = target("", &path, specifier, &|candidate: &str| {
+                configs.contains_key(candidate)
+            }) {
                 queue.push(next);
             }
         }

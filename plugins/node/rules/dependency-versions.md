@@ -27,8 +27,10 @@ When the install root has a `pnpm-workspace.yaml`:
   root is named.
 - **`#catalog`**: every other dependency is written `catalog:` or `catalog:<name>`. When the
   workspace file has neither `catalog` nor `catalogs`, every such dependency is reported,
-  `catalog:` ones included. The rule does not check that the catalog holds an entry for the
-  name.
+  `catalog:` ones included. Otherwise the catalog a reference names holds an entry for the
+  dependency: `catalog:` and `catalog:default` name the `catalog` table (or `catalogs.default`),
+  `catalog:<name>` names `catalogs.<name>`; a reference to a catalog without that entry is
+  reported.
 
 When the install root has no `pnpm-workspace.yaml`:
 

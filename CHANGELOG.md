@@ -8,7 +8,7 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-## Unreleased
+# 0.3.0 (unreleased)
 
 ### Features
 
@@ -17,6 +17,11 @@ Each shared plugin keeps its own changelog next to its code.
   configuration, one ESLint configuration on the shared package, the standard manifest fields and
   script names, and one strict TypeScript base. Its eight rules are listed in
   [docs/guide/plugins.md](docs/guide/plugins.md#node).
+
+## Unreleased
+
+### Features
+
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per
   workflow file and ref: a newer pull-request run cancels the older one still in progress, and a
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run

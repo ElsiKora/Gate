@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use gate_sdk::{NoOptions, Result, Rule, Run, Scope, Tree};
 
 use crate::json::Node;
-use crate::repo::{self, root_of};
+use crate::repo::{self, CatalogEntry, Workspace, root_of};
 use crate::semver::is_exact;
 use crate::settings::Settings;
 
@@ -49,7 +49,13 @@ impl Rule for DependencyVersions {
             let workspace = repo::workspace(&tree, root)?;
             match workspace {
                 Some(workspace) => {
-                    for (name, version, line) in &workspace.catalog {
+                    for entry in &workspace.catalog {
+                        let CatalogEntry {
+                            name,
+                            version,
+                            line,
+                            ..
+                        } = entry;
                         if !is_exact(version) {
                             crate::report(
                                 run.report(),
@@ -65,7 +71,7 @@ impl Rule for DependencyVersions {
                         }
                     }
                     for entry in &entries {
-                        in_workspace(run, entry, &members, workspace.has_catalog);
+                        in_workspace(run, entry, &members, &workspace);
                     }
                 }
                 None => alone(run, &entries),
@@ -106,8 +112,9 @@ fn in_workspace(
     run: &mut Run<'_, NoOptions>,
     entry: &Entry,
     members: &BTreeSet<String>,
-    catalog: bool,
+    workspace: &Workspace,
 ) {
+    let catalog = workspace.has_catalog;
     let Entry {
         path,
         section,
@@ -137,7 +144,23 @@ fn in_workspace(
         }
         return;
     }
-    if catalog && spec.starts_with("catalog:") {
+    if let Some(which) = spec.strip_prefix("catalog:")
+        && catalog
+    {
+        let which = if which.is_empty() { "default" } else { which };
+        if !workspace.has_entry(which, name) {
+            crate::report(
+                run.report(),
+                "catalog",
+                (path, Some(*line)),
+                name,
+                format!(
+                    "{path} {section} takes {name} from the {which} catalog of {}, which has no entry for it",
+                    workspace.path
+                ),
+                "add the package with its exact version to that catalog in pnpm-workspace.yaml",
+            );
+        }
         return;
     }
     let message = if catalog {

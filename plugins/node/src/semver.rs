@@ -28,9 +28,14 @@ fn number(part: &str) -> bool {
         && (part == "0" || !part.starts_with('0'))
 }
 
-/// `text` as an exact version (`x.y.z`, no pre-release).
+/// `text` as an exact version: what [`is_exact`] accepts, the same in every rule, read as its
+/// `x.y.z`.
 pub(crate) fn exact(text: &str) -> Option<Version> {
-    let mut parts = text.split('.');
+    if !is_exact(text) {
+        return None;
+    }
+    let core = text.split(['-', '+']).next().unwrap_or_default();
+    let mut parts = core.split('.');
     let version = Version {
         major: parts.next().filter(|part| number(part))?.parse().ok()?,
         minor: parts.next().filter(|part| number(part))?.parse().ok()?,
@@ -274,6 +279,7 @@ mod tests {
     fn exact_versions_and_the_rest() {
         for text in ["1.2.3", "0.0.0", "10.20.30-rc.1", "1.2.3+build.5"] {
             assert!(is_exact(text), "{text}");
+            assert!(exact(text).is_some(), "{text}");
         }
         for text in [
             "^1.2.3",
@@ -287,7 +293,14 @@ mod tests {
             "1.2.x",
         ] {
             assert!(!is_exact(text), "{text}");
+            assert!(exact(text).is_none(), "{text}");
         }
+    }
+
+    #[test]
+    fn a_pre_release_is_exact_and_reads_as_its_version() {
+        let read = exact("24.11.0-rc.1+build.5").expect("exact");
+        assert_eq!((read.major, read.minor, read.patch), (24, 11, 0));
     }
 
     #[test]

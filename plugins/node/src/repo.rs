@@ -115,14 +115,34 @@ pub(crate) struct Workspace {
     excluded: GlobSet,
     /// Whether it has a `catalog` or `catalogs`.
     pub(crate) has_catalog: bool,
-    /// Every catalog entry: its name, version and line.
-    pub(crate) catalog: Vec<(String, String, usize)>,
+    /// Every catalog entry, of the default catalog and the named ones.
+    pub(crate) catalog: Vec<CatalogEntry>,
+}
+
+/// One entry of a pnpm catalog.
+#[derive(Debug)]
+pub(crate) struct CatalogEntry {
+    /// The catalog: `default` for `catalog` (or `catalogs.default`), else its name in `catalogs`.
+    pub(crate) catalog: String,
+    /// The package.
+    pub(crate) name: String,
+    /// The version written.
+    pub(crate) version: String,
+    /// The line of the version.
+    pub(crate) line: usize,
 }
 
 impl Workspace {
     /// Whether the package in `directory` (relative to the workspace's root) is a member.
     pub(crate) fn has_member(&self, directory: &str) -> bool {
         self.included.is_match(directory) && !self.excluded.is_match(directory)
+    }
+
+    /// Whether catalog `catalog` (`default` for the unnamed one) has an entry for `name`.
+    pub(crate) fn has_entry(&self, catalog: &str, name: &str) -> bool {
+        self.catalog
+            .iter()
+            .any(|entry| entry.catalog == catalog && entry.name == name)
     }
 }
 
@@ -172,13 +192,13 @@ pub(crate) fn workspace(tree: &Tree<'_>, root: &str) -> Result<Option<Workspace>
     let mut has_catalog = false;
     if let Some(entries) = document.get("catalog").and_then(yaml::Node::mapping) {
         has_catalog = true;
-        collect(entries, &mut catalog);
+        collect("default", entries, &mut catalog);
     }
     if let Some(named) = document.get("catalogs").and_then(yaml::Node::mapping) {
         has_catalog = true;
-        for (_, entries) in named {
-            if let Some(entries) = entries.mapping() {
-                collect(entries, &mut catalog);
+        for (name, entries) in named {
+            if let (Some(name), Some(entries)) = (name.scalar(), entries.mapping()) {
+                collect(name, entries, &mut catalog);
             }
         }
     }
@@ -191,10 +211,15 @@ pub(crate) fn workspace(tree: &Tree<'_>, root: &str) -> Result<Option<Workspace>
     }))
 }
 
-fn collect(entries: &[(yaml::Node, yaml::Node)], catalog: &mut Vec<(String, String, usize)>) {
+fn collect(name: &str, entries: &[(yaml::Node, yaml::Node)], catalog: &mut Vec<CatalogEntry>) {
     for entry in entries {
-        if let (Some(name), Some(version)) = (entry.0.scalar(), entry.1.scalar()) {
-            catalog.push((name.to_owned(), version.to_owned(), entry.1.line));
+        if let (Some(package), Some(version)) = (entry.0.scalar(), entry.1.scalar()) {
+            catalog.push(CatalogEntry {
+                catalog: name.to_owned(),
+                name: package.to_owned(),
+                version: version.to_owned(),
+                line: entry.1.line,
+            });
         }
     }
 }

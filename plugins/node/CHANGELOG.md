@@ -3,7 +3,7 @@
 All notable changes to the `node` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
-## Unreleased
+# 0.3.0 (unreleased)
 
 ### Added
 

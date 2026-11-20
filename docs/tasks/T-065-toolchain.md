@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | code proven on `task/T-065-node-plugin` (round 276); ready for review; Gate 007's frontend ESLint options to fold in when they arrive |
+| Status | round 276 green on `ed68f9a`; in review; the lead's rulings of 2026-11-20 being coded for one fix round |
 | Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -373,22 +373,25 @@ Each mutation, applied to the round's tree, made its exact test fail (exit 101):
 
 Rounds 270 and 272 to 275 stopped at clippy or at one test; each fix is its own commit on the branch.
 
-### Open for the lead
+### Rulings after round 276 (the lead, 2026-11-20)
 
-- **The base's flags without a root project.** `node/tsconfig#flags` is checked by the project that
-  owns the base. In a workspace whose root is not a Gate project, no project owns
-  `tsconfig.base.json`, so its flags are not checked. A member could check them if the base were in
-  its `reads`, or a repository-scope check could; either is a design change.
-- **`node/node-version` and `separate`.** A separate install root's `.nvmrc` is reported as `#form`,
-  and its `engines.node` must equal the root's: one Node version for the whole repository. The other
-  two rules that read `separate` treat such a root as an install of its own.
-- **Smaller limits, as written:** `catalog:` references are not matched against the catalog's
-  entries; other managers' lockfiles and `package.json` files in test fixtures are reported, with
-  `separate` as the only way out; a relative `extends` without `.json` is read as a `.json` file; a
-  pre-release is an exact dependency version but not an exact `packageManager` or `.nvmrc` version.
+1. **The base's flags without a root project**: checked at repository scope, reading the root base
+   directly; no `reads`. A rule has one scope in the SDK, so the form (a ninth rule, or
+   `node/tsconfig` at repository scope) is the lead's answer still to come.
+2. **`separate`** is an install of its own in every rule: `node/node-version` takes each install
+   root's own `.nvmrc`, and `engines.node` below it agrees with that. Done, with a test.
+3. **Limits**: a `catalog:` reference must name an entry of that catalog (done, with a test); an
+   `extends` resolves as TypeScript resolves it, as written, then with `.json`, then a directory's
+   `tsconfig.json` (done, with a test); a pre-release is exact in every rule (done, one function,
+   with a test); a fixture's `package.json` and lockfiles stay exempt through `separate` only, and
+   the `node/package-manager` page says so.
+4. **Changelog**: the entry is under `# 0.3.0 (unreleased)`.
+
+Gate 007's frontend ESLint options and the independent review's findings join these in one fix
+round; no round is queued until both are in.
 
 ## Resume point
 
-2026-11-20T01:26:43+00:00: round 276 green on `ed68f9a` as above; ready for review. Next: Gate 007's frontend ESLint
-options (shared-config options, rule ids, folder-naming ignores, import order, i18next mode), folded
-into `node/linter` when they arrive, then a round.
+2026-11-20T01:31:15+00:00: rulings 2 to 4 coded on the branch, not yet compiled (no round, as the lead asked). Waiting
+for: the lead's answer on ruling 1, Gate 007's ESLint options, the review's findings. Then one fix
+round.

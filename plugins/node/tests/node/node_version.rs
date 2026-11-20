@@ -66,7 +66,7 @@ fn the_root_range_admits_the_version_and_no_earlier_major() {
     );
     assert_eq!(
         message(&below, RULE),
-        "package.json engines.node \">=22\" admits a Node major below 24, the major in .nvmrc"
+        "package.json engines.node \">=22\" admits a Node major below 24, the major in its .nvmrc"
     );
     let none =
         Fixture::new("service", &[(".nvmrc", "24.11.0"), ("package.json", "{}")]).lines(RULE);
@@ -106,5 +106,40 @@ fn a_second_place_for_the_version_is_reported() {
             "form apps/a/.nvmrc .nvmrc",
             "form apps/c/package.json:3 volta.node"
         ]
+    );
+}
+
+#[test]
+fn a_separate_install_has_its_own_version() {
+    let separate = r#"{"kind": "monorepo-root", "separate": [{"path": "spikes/load", "job": "a load test with its own install"}]}"#;
+    let root = root(">=24.11.0 <25");
+    let spike = |range: &str| {
+        format!("{{\n  \"name\": \"load\",\n  \"engines\": {{ \"node\": \"{range}\" }}\n}}\n")
+    };
+    let check = |nvmrc: Option<&str>, range: &str| {
+        let manifest = spike(range);
+        let mut files = vec![
+            (".nvmrc", "24.11.0\n"),
+            ("package.json", root.as_str()),
+            ("spikes/load/package.json", manifest.as_str()),
+        ];
+        if let Some(nvmrc) = nvmrc {
+            files.push(("spikes/load/.nvmrc", nvmrc));
+        }
+        Fixture::new("monorepo-root", &files)
+            .plugin_options(separate)
+            .lines(RULE)
+    };
+    assert_eq!(
+        check(Some("22.12.0\n"), ">=22.12.0 <23"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        check(Some("22.12.0\n"), ">=24.11.0 <25"),
+        ["engines spikes/load/package.json:3 engines.node"]
+    );
+    assert_eq!(
+        check(None, ">=22.12.0 <23"),
+        ["file spikes/load/.nvmrc .nvmrc"]
     );
 }
