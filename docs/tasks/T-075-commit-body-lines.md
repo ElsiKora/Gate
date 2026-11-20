@@ -51,5 +51,10 @@ These are the follow-ups recorded in [T-074](T-074-gate-checks-itself.md).
 
 ## Resume point
 
+2026-11-20T17:20:00+00:00: `c7f9539` has the option, the `body-full-stop` change, the tests, the rule
+page and the CHANGELOG. Its lane round, ticket 361, was stopped in the queue before it started, at
+the lead's request. T-073 goes first, because on the current base `deny` fails on
+RUSTSEC-2026-0587. Next: once T-073 is on `main`, rebase onto it and run the lane round.
+
 2026-11-20T17:11:47+00:00: branch `task/T-075-commit-body-lines` from `main` `5d7f1b6`; task file
 written. Next: the option, the `body-full-stop` change and the tests.
