@@ -6,7 +6,7 @@
 | Release | v0.3.0 (it renames a configuration table; with T-052) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | `main` at `9b18b32` (T-043 merged); merges after the v0.2.1 tag |
+| Depends on | `main` at `7f62554` (T-073 merged); merges as one batch with T-059, T-061 and T-052, which are built on it |
 | Touches | `crates/gate-host/src/config` (the rule entry, the policy table, settings), `crates/gate-host/src/workspace.rs` (the exception check), `crates/gate-host/src/plugins.rs` (the load-time check beside `Rule::NEEDS`), tests, docs, `CHANGELOG.md` |
 
 ## Goal
@@ -75,6 +75,8 @@ configuration); the CHANGELOG entry under Breaking says the table is renamed and
 
 ## Resume point
 
-2026-11-19: review fix round (the lead's ruling on rules no preset names, fixes 2 to 5) rebased onto
-`main` at `9b18b32`, with the 0.3.0 entries in their own CHANGELOG section; next: one lane round on
-the pushed tip.
+2026-11-20T17:58:09+00:00: rebased onto `main` at `7f62554`. Main's `check_presets` reads
+`self.declarations`, and `presets()` takes a `&PluginInfo`, so `check_decisions` walks the
+declarations too and runs for every declared plugin, whether or not the run loads it. The entries
+are in the 0.3.0 CHANGELOG section. T-059, T-061 and T-052 are stacked on this branch in that
+order, and one lane round on T-052's tip counts for all four; next: that round.
