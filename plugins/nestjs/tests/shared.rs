@@ -88,7 +88,7 @@ fn walks_over_nested_roots_read_each_file_once() {
             tree::typescript_files(&source, "", &settings)
                 .chain(tree::typescript_files(&source, "tools", &settings))
         ),
-        ["tools/lib/a.ts", "src/b.ts"]
+        ["src/b.ts", "tools/lib/a.ts"]
     );
 }
 

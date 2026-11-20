@@ -250,7 +250,10 @@ fn test_roots_name_the_test_folders() {
 
     for root in ["", "/test", "test/", "../test", "a//b"] {
         let message = error(&format!(r#"{{ "test-roots": ["{root}"] }}"#));
-        assert!(message.starts_with("test-roots names"), "{root}: {message}");
+        assert!(
+            message.starts_with("rule string-enums: test-roots names"),
+            "{root}: {message}"
+        );
     }
 }
 
