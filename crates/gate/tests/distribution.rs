@@ -332,8 +332,8 @@ fn init_writes_the_launcher_and_lock_and_the_launcher_runs_the_pinned_core() {
     let children: Vec<_> = (0..2)
         .map(|_| {
             repo.launcher(fresh.path(), &["check", "--staged"])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
                 .expect("launcher")
         })
