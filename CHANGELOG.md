@@ -8,14 +8,20 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-## Unreleased
+## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
+
+The plugin interface stays `gate:plugin@0.2.0`, so every plugin built for 0.2.0 loads in a 0.2.1
+core. The git and nestjs plugins are released at 0.2.1; agents, ci, ledger, markdown and typescript
+stay at 0.2.0. To upgrade, set `[gate] version = "0.2.1"`, pin `ElsiKora/Gate:git@0.2.1` and
+`ElsiKora/Gate:nestjs@0.2.1` where you use them, run `gate lock`, then `gate sync` and `gate init` as
+the entries below say.
 
 ### Features
 
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per
   workflow file and ref: a newer pull-request run cancels the older one still in progress, and a
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run
-  `gate sync`.
+  `gate sync`. ([cf3add5](https://github.com/ElsiKora/Gate/commit/cf3add57da2824d4d249594617b5023538cfa0b1))
 - **gate:** `gate cache prune --older-than <days>` and `--max-size <size>` (`512M`, `2G`) trim the
   results and git answers by their last use, the least recently used first over the size; a
   pinned download is never removed, and when the pinned downloads alone exceed the size, prune
@@ -23,21 +29,21 @@ Each shared plugin keeps its own changelog next to its code.
   file contents no stored answer names (after a day, as a run stores a content before its answer);
   each listed entry says why it goes. An answer file prune cannot read stops it before anything is
   removed. The result cache moves to `results/<plugin sha256>/` (format 3), and prune removes the
-  format-2 entries.
+  format-2 entries. ([b10eb90](https://github.com/ElsiKora/Gate/commit/b10eb903da739c6b239257634494bb3470683e8b))
 
 ### Bug Fixes
 
 - **host:** a download that stops sending fails within 30 s with an error that names the URL and says
   to try again; before, `gate lock`, `gate sync` and a plugin or tool fetch waited up to 15 minutes
   per request without a word. Each request has 30 s to resolve and connect and 30 s for each read,
-  and a download's redirect hops share one 15-minute limit.
+  and a download's redirect hops share one 15-minute limit. ([dfb766b](https://github.com/ElsiKora/Gate/commit/dfb766b60b15b7b50c209997e640040eefbafaf8))
 - **launcher:** `bin/gate` bounds its core download the same way (curl's `--connect-timeout`,
   `--speed-time` and `--max-time` from one 15-minute deadline; wget's `--timeout`, one try), where
   curl had no read bound and wget retried 20 times. Run `gate init` and commit `bin/gate` to take
-  the new launcher; `gate doctor` says when it differs.
+  the new launcher; `gate doctor` says when it differs. ([1e96a8e](https://github.com/ElsiKora/Gate/commit/1e96a8e596158fbca0f560bbb57f0624bd7c5dcf))
 - **host:** a stored `read-at` answer whose file content neither the cache nor git holds is asked
   of git again, as if it were not stored; where git cannot read it either, the error says to run
-  `git fetch` and no longer suggests `gate cache prune`, which did not help.
+  `git fetch` and no longer suggests `gate cache prune`, which did not help. ([b10eb90](https://github.com/ElsiKora/Gate/commit/b10eb903da739c6b239257634494bb3470683e8b))
 
 ### Performance
 
@@ -45,7 +51,7 @@ Each shared plugin keeps its own changelog next to its code.
   of the sorted snapshot instead of a scan of every tracked path: a probe takes the search and the
   paths that start with it. The answers and the recorded read set are unchanged, and plugins
   built for 0.2.0 get it without a rebuild. A prefix that can match the `../` form of a read path
-  outside the project still lists by a scan.
+  outside the project still lists by a scan. ([a90b87d](https://github.com/ElsiKora/Gate/commit/a90b87ddfda3a3ded2f45fc13cdebbe772a0eca4))
 - **host:** a check compiles only the plugins it runs: those declared in a scope the change
   selection runs that `--rule` allows. What every other declared plugin declares comes from the
   cache, where each plugin's declaration is stored when it loads, so the whole configuration is
@@ -54,7 +60,7 @@ Each shared plugin keeps its own changelog next to its code.
   derived like the results: `gate cache prune` removes those of a plugin no lock pins, and its
   bounds trim the others by last use. On an export of a consumer repository's NestJS service,
   after `gate sync` with the compiled modules removed, `gate check --rule 'nestjs/*'` compiled 2
-  modules instead of 8 and took 2.74 s instead of 7.00 s.
+  modules instead of 8 and took 2.74 s instead of 7.00 s. ([209c6c2](https://github.com/ElsiKora/Gate/commit/209c6c2188208f7b94707f99ea043a46638e383f))
 
 ### Documentation
 
@@ -62,7 +68,7 @@ Each shared plugin keeps its own changelog next to its code.
   that sits in or names one of its option files changed path and message in 0.2.0, so
   `gate baseline prune` cannot re-key its entry and removes it. The baseline section of the
   configuration guide gives the upgrade: prune, check, pair each reported finding with an entry prune
-  removed, and when every finding pairs, `gate baseline write` once.
+  removed, and when every finding pairs, `gate baseline write` once. ([2be17f4](https://github.com/ElsiKora/Gate/commit/2be17f4716a7df7672fc40671cfb00dd9514ee97))
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/v0.1.0...v0.2.0) (2026-11-19)
 

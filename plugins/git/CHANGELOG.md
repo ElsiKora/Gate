@@ -2,7 +2,9 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 
-## Unreleased
+## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.2.0...plugin-git-v0.2.1) (2026-11-20)
+
+Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.
 
 ### Added
 
@@ -12,7 +14,7 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   the message's last paragraph, and each is matched as `Token: value`; every trailer a pattern
   matches is a finding of the new aspect `prohibited-trailers` that names it, an ignored message
   included. The same text in the body passes. A pattern that does not compile, or an empty one, is
-  a configuration error (exit 2). Empty by default.
+  a configuration error (exit 2). Empty by default. ([2dc41a1](https://github.com/ElsiKora/Gate/commit/2dc41a170c96bdd5477dd116cb2d93a2dd8771ae))
 - `git/main-history` takes `release-plugin`, the source of a plugin the repository releases,
   without its version: a release commit may then move that plugin's pin, the version in its
   `source` in each `gate.toml` and its entry in `gate.lock`, to the release's version, and nothing
@@ -20,7 +22,7 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   plugin's, as a plugin interface change needs. A lock entry's `url` and `sha256` change only with
   its version, and each old lock key gives way to exactly one new key. Anything else, the pin file
   added or deleted included, is a `release` finding (`#beyond-pin`, `#version`, `#unreadable`); the
-  files are compared as parsed TOML.
+  files are compared as parsed TOML. ([cb25331](https://github.com/ElsiKora/Gate/commit/cb2533134f222346d45a34eeced04f36d830bff0))
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.1.0...plugin-git-v0.2.0) (2026-11-19)
 
