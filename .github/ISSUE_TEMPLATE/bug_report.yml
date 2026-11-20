@@ -11,7 +11,7 @@ body:
     attributes:
       label: Gate version
       description: The output of `gate --version`.
-      placeholder: gate 0.2.0
+      placeholder: gate 0.2.1
     validations:
       required: true
   - type: dropdown
@@ -29,7 +29,7 @@ body:
     attributes:
       label: Plugin and rule
       description: The plugin and version, and the rule id, if the bug is in a rule.
-      placeholder: ElsiKora/Gate:git@0.2.0, git/branch-name
+      placeholder: ElsiKora/Gate:git@0.2.1, git/branch-name
   - type: textarea
     id: command
     attributes:

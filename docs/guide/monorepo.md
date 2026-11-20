@@ -28,14 +28,14 @@ The root `gate.toml`:
 
 ```toml
 [gate]
-version = "0.2.0"
+version = "0.2.1"
 
 [workspace]
 projects = "pnpm"
 ignore = ["samples/**"]
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.0"
+source = "ElsiKora/Gate:git@0.2.1"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -70,7 +70,7 @@ The project file of `apps/server`, for what only that project needs:
 name = "server"
 
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.0" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1" }
 
 [rules]
 "nestjs/import-direction" = { level = "error", options = { contracts = [{ source-directory = "src/modules/domain", aspect = "domain-direction", forbidden-owner-paths = ["src/modules/public"], forbidden-packages = ["@nestjs/swagger"] }] } }

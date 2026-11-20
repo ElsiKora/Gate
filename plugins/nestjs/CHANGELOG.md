@@ -3,6 +3,17 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
+## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.2.0...plugin-nestjs-v0.2.1) (2026-11-20)
+
+Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.
+
+### Performance
+
+- A walk below a folder reads the paths below it, from the source's sorted range, instead of
+  filtering every tracked path: a rule that walks per folder, such as `nestjs/barrel-exports` over
+  each source folder, no longer reads every path once per folder. The paths walked and their order
+  are the same. ([d688aee](https://github.com/ElsiKora/Gate/commit/d688aeec796cfb8f4703300ca56f8e0fcfe41cd1))
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.1.0...plugin-nestjs-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

@@ -10,7 +10,7 @@ configuration says about the rule and where.
 
 ```toml
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.0"
+source = "ElsiKora/Gate:git@0.2.1"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -25,7 +25,7 @@ bin/gate lock
 The key (`git`) is the prefix of the plugin's rule ids. The value is a table whose `source` is
 `<owner>/<repo>:<plugin>@<version>`, with optional `options` shared by the plugin's rules, `options-file`
 and `reads` ([configuration.md](configuration.md#plugins)). A source names the asset `<plugin>.wasm` of the release tagged `plugin-<plugin>-v<version>` of that repository: here
-`git.wasm` of `plugin-git-v0.2.0` in `ElsiKora/Gate`. `gate lock` resolves it to a URL and a sha256 and
+`git.wasm` of `plugin-git-v0.2.1` in `ElsiKora/Gate`. `gate lock` resolves it to a URL and a sha256 and
 writes them to `gate.lock`. A plugin is one `.wasm` file for every platform.
 
 Project-scope rules are configured in a project's `gate.toml` or in a `[[profiles]]` entry of the root
@@ -69,7 +69,7 @@ pushed range in `pre-push` and in CI.
 
 ```toml
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.0"
+source = "ElsiKora/Gate:git@0.2.1"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -178,7 +178,7 @@ name = "server"
 
 [plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.0", options = { layout = { source-root = "src" } } }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1", options = { layout = { source-root = "src" } } }
 
 [rules]
 "nestjs/barrel-exports" = "error"

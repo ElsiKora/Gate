@@ -5,14 +5,14 @@
 //!
 //! ```toml
 //! [core]
-//! version = "0.2.0"
+//! version = "0.2.1"
 //!
 //! [core.targets.aarch64-apple-darwin]
-//! url = "https://github.com/ElsiKora/Gate/releases/download/v0.2.0/gate-aarch64-apple-darwin.tar.gz"
+//! url = "https://github.com/ElsiKora/Gate/releases/download/v0.2.1/gate-aarch64-apple-darwin.tar.gz"
 //! sha256 = "<64 hexadecimal digits>"
 //!
-//! [plugins."ElsiKora/Gate:git@0.2.0"]
-//! url = "https://github.com/ElsiKora/Gate/releases/download/plugin-git-v0.2.0/git.wasm"
+//! [plugins."ElsiKora/Gate:git@0.2.1"]
+//! url = "https://github.com/ElsiKora/Gate/releases/download/plugin-git-v0.2.1/git.wasm"
 //! sha256 = "<64 hexadecimal digits>"
 //! ```
 //!
