@@ -193,8 +193,9 @@ for commit in git.log(&format!("{base}..{}", range.head)) {
 ```
 
 A rule about the commit message being written (the `commit-msg` hook's `gate check --commit-message
-<file>`) declares `READS_MESSAGE` and reads it through `run.git()?.message()?`. That call fails for a
-rule that does not declare it. Such a rule is repository-scope; a project-scope rule that declares it
+<file>`) declares `READS_MESSAGE` and reads it through `run.message()?`. That call fails, with an error
+naming `READS_MESSAGE`, for a rule that does not declare it; `run.git()` likewise fails for a rule
+that does not declare `READS_HISTORY`, so a rule that reads only the message reads no history. Such a rule is repository-scope; a project-scope rule that declares it
 does not load. A `--commit-message` run runs only these rules:
 
 ```rust

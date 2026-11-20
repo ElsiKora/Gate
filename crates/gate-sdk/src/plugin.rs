@@ -331,11 +331,12 @@ fn run_rule<R: Rule<S>, S: CallState>(
     let mut run = Run {
         call: shared.call,
         git: if R::READS_HISTORY || R::READS_MESSAGE {
-            host.git()
-                .map(|git| Git::new(git).reading_message(R::READS_MESSAGE))
+            host.git().map(Git::new)
         } else {
             None
         },
+        reads_history: R::READS_HISTORY,
+        reads_message: R::READS_MESSAGE,
         report: Report::new(R::NAME),
         options: options::<R::Options>(&rule.options, &what)?,
         options_file: rule.options_file.clone(),

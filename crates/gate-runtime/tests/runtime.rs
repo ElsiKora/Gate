@@ -968,6 +968,48 @@ fn a_rule_that_reads_the_message_without_declaring_it_gets_the_error_naming_read
 }
 
 #[test]
+fn a_rule_that_declares_nothing_and_reads_the_message_gets_the_error_naming_reads_message() {
+    let runtime = runtime(Config::default());
+    let plugin = load(&runtime);
+    let outcome = runtime
+        .check(&call(
+            &plugin,
+            "message-no-flags",
+            "",
+            tree(),
+            Grant::repository(),
+        ))
+        .expect("the call runs");
+    let said = messages(&outcome);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("does not declare READS_MESSAGE") && !said[0].contains("READS_HISTORY"),
+        "the message call names the flag it needs: {said:?}"
+    );
+}
+
+#[test]
+fn a_rule_that_declares_only_the_message_gets_no_history() {
+    let runtime = runtime(Config::default());
+    let plugin = load(&runtime);
+    let outcome = runtime
+        .check(&call(
+            &plugin,
+            "history-undeclared",
+            "",
+            tree(),
+            Grant::repository(),
+        ))
+        .expect("the call runs");
+    let said = messages(&outcome);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("Err(") && said[0].contains("does not declare READS_HISTORY"),
+        "the SDK refuses history to a rule that declares only the message: {said:?}"
+    );
+}
+
+#[test]
 fn a_project_scope_rule_that_declares_the_message_does_not_load() {
     let runtime = runtime(Config::default());
     let component = probe_with("message-in-project");

@@ -138,10 +138,10 @@ impl Rule for CommitMessage {
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let patterns = Patterns::new(run.options())?;
-        let git = run.git()?;
-        if let Some(message) = git.message()? {
+        if let Some(message) = run.message()? {
             report(run, &patterns, &message, None);
         }
+        let git = run.git()?;
         for commit in pushed(run, &git)? {
             report(run, &patterns, &commit.message, Some(&commit));
         }

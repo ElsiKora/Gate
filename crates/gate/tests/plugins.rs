@@ -6145,8 +6145,38 @@ fn a_commit_message_check_runs_only_the_rules_that_read_the_message() {
     );
     assert!(!stdout.contains("git/branch-name"), "{stdout}");
     assert!(
-        stdout.contains("gate check (commit message): "),
-        "the summary names only the message: {stdout}"
+        stdout.contains("gate check (commit message): 1 rule, "),
+        "the summary names only the message, and git/commit-message ran: {stdout}"
+    );
+    assert!(
+        !text(&output.stderr).contains("no selected rule reads the commit message"),
+        "{}",
+        text(&output.stderr)
+    );
+}
+
+#[test]
+fn a_commit_message_check_whose_selected_rules_read_no_message_says_so() {
+    let git = GitOptions::new();
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&file, "feat(core): add the thing\n").expect("message");
+    let at = file.display().to_string();
+    let output = git.check(
+        "",
+        "\"git/commit-message\" = \"error\"\n\"git/branch-name\" = { level = \"error\", options = { pattern = \"^feature/.+$\" } }",
+        &["--commit-message", &at, "--rule", "git/branch-name"],
+    );
+    let stdout = text(&output.stdout);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stdout}{stderr}");
+    assert!(
+        stdout.contains("gate check (commit message): 0 rules, "),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains("gate: warning: no selected rule reads the commit message"),
+        "{stderr}"
     );
 }
 

@@ -1661,8 +1661,6 @@ fn presets(
     Ok(rules)
 }
 
-/// Every norm the configuration of this scope maps, without repeats: of every configured rule,
-/// of every plugin and the core's, whatever its level, as `check-request.norms` promises.
 /// The `check` call of `name` on the project at `root` (the repository when `None`), for `rules`.
 fn check_request(
     root: Option<&str>,
@@ -1682,6 +1680,8 @@ fn check_request(
     }
 }
 
+/// Every norm the configuration of this scope maps, without repeats: of every configured rule,
+/// of every plugin and the core's, whatever its level, as `check-request.norms` promises.
 fn norms(settings: &Settings) -> Vec<String> {
     let mut norms = BTreeSet::new();
     for entry in settings.rules.values() {

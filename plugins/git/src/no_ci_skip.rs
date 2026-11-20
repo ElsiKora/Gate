@@ -83,7 +83,7 @@ impl Rule for NoCiSkip {
         let directive = pattern("directive-pattern", &run.options().directive_pattern)?;
         let trailer = pattern("trailer-pattern", &run.options().trailer_pattern)?;
         // The message being written (the commit-msg hook), which no history holds yet.
-        if let Some(message) = run.git()?.message()? {
+        if let Some(message) = run.message()? {
             let message = above_scissors(&message);
             let release_form = forms.iter().any(|form| form.kind == Kind::Release);
             let exempt = release_form

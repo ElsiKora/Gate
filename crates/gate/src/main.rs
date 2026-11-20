@@ -470,6 +470,11 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
     if let Some(warning) = &checked.cache_warning {
         eprintln!("gate: warning: {warning}");
     }
+    if arguments.commit_message.is_some() && checked.report.rules == 0 {
+        eprintln!(
+            "gate: warning: no selected rule reads the commit message, so nothing checked it; enable a rule that declares READS_MESSAGE, such as git/commit-message, or name one with --rule"
+        );
+    }
     if arguments.run.timings {
         print_timings(&checked);
     }

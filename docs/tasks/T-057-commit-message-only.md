@@ -7,7 +7,7 @@
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |
 | Depends on | T-047 (a check loads only the plugins it needs) |
-| Touches | `wit/gate.wit` (`gate:plugin@0.3.0`), `crates/gate-sdk` (the rule declaration, `Git::message`), `crates/gate-host/src/{lib.rs,plugins.rs}`, `crates/gate/src/main.rs`, `plugins/git` (the rules that read the message); `docs/guide/getting-started.md`, `docs/guide/configuration.md`, `CHANGELOG.md` (Changed) |
+| Touches | `wit/gate.wit` (`gate:plugin@0.3.0`), `crates/gate-sdk` (the rule declaration, `Run::message`), `crates/gate-host/src/{lib.rs,plugins.rs}`, `crates/gate/src/main.rs`, `plugins/git` (the rules that read the message); `docs/guide/getting-started.md`, `docs/guide/configuration.md`, `CHANGELOG.md` (Changed) |
 
 ## Goal
 
@@ -29,15 +29,19 @@ CI.
    - The interface becomes `gate:plugin@0.3.0`. v0.3.0 already breaks the configuration, so it
      is the release for it. As at 0.2.0, every plugin of this repository is released at 0.3.0
      with the core, and a 0.3.0 core loads only plugins built for 0.3.0.
-   - `Git::message` answers only to a rule that declares it, as `Run::git` answers only to a rule
-     that declares `READS_HISTORY`. A rule that reads the message without the declaration gets an
-     error that names `READS_MESSAGE`, so the selection below cannot miss a rule that reads the
-     message.
+   - `Run::message` answers only to a rule that declares it, and `Run::git` only to a rule that
+     declares `READS_HISTORY` (the review round moved the message from `Git::message` to
+     `Run::message`, so a rule that declares only `READS_MESSAGE` reaches no history and cannot
+     escape `reads-history` in `gate sync`'s fetch depth). A rule that reads the message without
+     the declaration gets an error that names `READS_MESSAGE`, and one that reads history without
+     `READS_HISTORY` an error that names that, so the selection below cannot miss a rule that
+     reads the message.
    - A project-scope rule that declares it is refused when its plugin describes itself, because
      the message belongs to the repository.
 2. **What the run selects.** A check with `--commit-message` runs only the enabled rules that
    declare the message, in the repository scope. `--rule` narrows that further, as anywhere
-   else. The core's own rules do not run. The summary says `commit message`.
+   else. The core's own rules do not run, except `gate/budget`: the hook's time budget holds in a
+   message run as in any other (the review round kept it). The summary says `commit message`.
 3. **What it loads.** T-047's set, narrowed to the plugins that declare such a rule. Which rules
    those are is known only from each plugin's `describe`. Recommendation: the run loads the
    plugins T-047 would load and runs only the message rules.
@@ -49,8 +53,9 @@ CI.
 4. **One way.** `--commit-message` with `--staged`, `--changed`, `--push` or `--rev` is a usage
    error. The message says the tree is checked by `pre-commit`, `pre-push` or CI. There is no
    option to check the tree and the message in one run.
-5. **The `git` rules.** `git/commit-message` and `git/no-ci-skip` declare the message. Both
-   also keep `READS_HISTORY`: `no-ci-skip` checks pushed commits in `pre-push`. A rule that reads
+5. **The `git` rules.** `git/commit-message` and `git/no-ci-skip` declare the message.
+   `git/commit-message` declares only `READS_MESSAGE`: it reads no history. `git/no-ci-skip` also
+   keeps `READS_HISTORY`, because it checks pushed commits in `pre-push`. A rule that reads
    only the branch, such as `git/branch-name`, does not declare it, and so does not run in
    `commit-msg`.
 6. **Documents.** The getting-started page (the `commit-msg` paragraph and its summary line) and
@@ -64,7 +69,9 @@ Each test fails before its change. They use synthetic plugins and trees.
 - In a repository with a tree rule that fails and a message rule that passes,
   `check --commit-message <file>` exits 0 and reports only the message rule. Before the change,
   it fails on the tree rule.
-- A rule that calls `Git::message` without the declaration gets the error that names it.
+- A rule that calls `Run::message` without the declaration gets the error that names it, with or
+  without `READS_HISTORY`; a rule that declares only `READS_MESSAGE` and calls `Run::git` gets the
+  error that names `READS_HISTORY`.
 - A project-scope rule that declares the message fails its plugin's load as broken.
 - A component built for `gate:plugin@0.2.0` does not load under the 0.3.0 core, and the error
   says to use the plugin's 0.3.0 release.
@@ -121,5 +128,15 @@ Each test fails before its change. They use synthetic plugins and trees.
   release build exit 0; `done in 577s with exit code 0`. Its logs show `gate`, `gate-host`,
   `gate-runtime`, `gate-sdk` and `gate-plugin-git` compiled from this worktree and the six tests
   listed by name.
-- The branch merges after the 0.2.1 tag. Next: the consumer's cold `commit-msg` row, before and
+- The branch merges after the 0.2.1 tag.
+- 2026-11-20T08:31:53+00:00: the lead's review round. `Run::message` replaces `Git::message`, and `Run::git` answers
+  only a rule that declares `READS_HISTORY`, so a message-only rule reaches no history and each
+  refusal names its flag (probe rules `message-no-flags` and `history-undeclared`). A
+  `[hooks] commit-msg` entry that combines `--commit-message` with a tree selector is a
+  configuration error. A message run whose selected rules read no message says so on stderr
+  (exit 0 stays). `gate/budget` still runs in a message run; design item 2 says so, and item 5
+  says `git/commit-message` declares only `READS_MESSAGE`. The `CHANGELOG.md` says
+  `git/branch-name` no longer runs in `commit-msg`. `check_request` no longer splits `norms`
+  from its doc comment. The selection test asserts that one rule ran. Not yet run in the lane.
+- Next: the review round's lane round, then the consumer's cold `commit-msg` row, before and
   after.

@@ -192,9 +192,15 @@ the entries below say.
 - **host:** a `gate check --commit-message` run checks only the message being written: the
   enabled repository rules that declare `READS_MESSAGE`. It no longer checks the work tree; the
   tree stays with `pre-commit`, `pre-push` and CI. Its summary says `commit message`.
-  `--commit-message` with `--staged`, `--changed`, `--push` or `--rev` is a usage error.
+  `--commit-message` with `--staged`, `--changed`, `--push` or `--rev` is a usage error, and a
+  `[hooks] commit-msg` entry that combines them is a configuration error. `git/branch-name`, which
+  does not read the message, now runs only in `pre-commit`: an empty commit
+  (`git commit --allow-empty`) on a protected branch is no longer checked by a hook; CI still
+  checks it.
 - **sdk:** the plugin interface is `gate:plugin@0.3.0`. A rule declares `READS_MESSAGE` to read
-  the commit message; `rule-info` carries it as `reads-message`. A 0.3.0 core loads only plugins
+  the commit message, through `Run::message` (`Git::message` is gone); `rule-info` carries it as
+  `reads-message`. `Run::git` answers only a rule that declares `READS_HISTORY`, so a rule that
+  declares only `READS_MESSAGE` reads no history. A 0.3.0 core loads only plugins
   built for 0.3.0, and every plugin of this repository is released at 0.3.0 with the core.
 
 ### Documentation

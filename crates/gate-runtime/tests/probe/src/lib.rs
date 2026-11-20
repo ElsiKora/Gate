@@ -194,9 +194,8 @@ impl Rule for History {
     }
 }
 
-/// Declares `reads-history` and not the message, asks git for the commit message, and reports
-/// what the SDK answered, debug-printed: the message, or the error that the rule does not declare
-/// it.
+/// Declares `reads-history` and not the message, asks for the commit message, and reports what
+/// the SDK answered, debug-printed: the message, or the error that the rule does not declare it.
 #[derive(Debug, Default)]
 pub struct MessageUndeclared;
 
@@ -207,7 +206,43 @@ impl Rule for MessageUndeclared {
     const READS_HISTORY: bool = true;
 
     fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
-        let answer = format!("{:?}", run.git()?.message());
+        let answer = format!("{:?}", run.message());
+        run.report().finding("", None, answer);
+        Ok(())
+    }
+}
+
+/// Declares neither `reads-history` nor the message, asks for the commit message, and reports
+/// what the SDK answered, debug-printed.
+#[derive(Debug, Default)]
+pub struct MessageNoFlags;
+
+impl Rule for MessageNoFlags {
+    type Options = gate_sdk::serde_json::Value;
+    const NAME: &'static str = "message-no-flags";
+    const TITLE: &'static str = "Reads the commit message declaring nothing";
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        let answer = format!("{:?}", run.message());
+        run.report().finding("", None, answer);
+        Ok(())
+    }
+}
+
+/// Declares the message and not `reads-history`, asks git for the head commit, and reports what
+/// the SDK answered, debug-printed: the head, or the error that the rule does not declare history.
+#[derive(Debug, Default)]
+pub struct HistoryUndeclared;
+
+impl Rule for HistoryUndeclared {
+    type Options = gate_sdk::serde_json::Value;
+    const NAME: &'static str = "history-undeclared";
+    const TITLE: &'static str = "Reads history declaring only the message";
+    const SCOPE: gate_sdk::Scope = gate_sdk::Scope::Repository;
+    const READS_MESSAGE: bool = true;
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        let answer = format!("{:?}", run.git().map(|git| git.head()));
         run.report().finding("", None, answer);
         Ok(())
     }
@@ -678,7 +713,7 @@ gate_sdk::plugin! {
     name: "probe",
     version: env!("CARGO_PKG_VERSION"),
     options: ProbeOptions,
-    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects, MessageUndeclared],
+    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects, MessageUndeclared, MessageNoFlags, HistoryUndeclared],
     generators: [Write, Toml],
     presets: [
         gate_sdk::Preset {
