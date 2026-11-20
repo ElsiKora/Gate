@@ -580,11 +580,16 @@ Lane rounds of the review's fix round, after the rebase onto `e9e1434`, same tar
   `owned` shadowed the function it called again); the rest skipped;
 - ticket 299 on `b316492`: fmt 0, clippy 0, test 101 (1083 passed, 1 failed: an existing CLI test
   still asserted the generic message for a missing `main`, which fix 5 replaces), deny 0, build 0;
-- ticket 306 on `932c8f5` (2026-11-20, 04:12 to 04:17 UTC, load average about 50 at the start):
-  fmt 0, clippy 0, test 0 (1084 passed, 0 failed), deny 0, build 0.
+- ticket 306 on `932c8f5` (2026-11-20, 04:12 to 04:17 UTC): every step exited 0, but it does not
+  count: its target directory was shared, and its log shows only `gate` compiled from this checkout;
+- ticket 320 on `7fb79d5` (the code of `932c8f5` plus this file; 07:00 to 07:19 UTC), in this task's
+  own target directory: fmt 0, clippy 0, test 0 (1084 passed, 0 failed), deny 0, build 0. Its log
+  compiles `gate`, `gate-host`, `gate-runtime`, `gate-sdk`, `gate-plugin-agents`, `gate-plugin-docs`
+  and `gate-plugin-ledger` from `T-062/code`, and lists each test of the table below by name, passing.
 
-Kill check, ticket 307 on `932c8f5` (04:17 to 04:23 UTC), `T-062/lane/mutants.sh` in a scratch
-worktree of that commit: three groups of mutations, each removing pieces the new tests guard, then
+Kill check, ticket 321 on `932c8f5` (07:19 to 07:22 UTC; ticket 307 ran the same mutations but its
+log kept no compile lines), `T-062/lane/mutants.sh` in a scratch worktree of that commit, in this
+task's own target directory; its log compiles each mutated crate from that worktree: three groups of mutations, each removing pieces the new tests guard, then
 only those tests run. Every named test failed with its piece removed:
 
 | Group | Piece removed | Test that failed |
@@ -636,3 +641,8 @@ preset commit, then the lead's review.
 2026-11-20: the review's fix round is in, rebased onto `main` at `e9e1434`: ten points and the
 `delegated` option. Lane ticket 306 on `932c8f5` is green (1084 passed), and kill check 307 shows
 each new test failing with its piece removed. Waiting for the lead.
+
+2026-11-20: the lead's lane check (a green counts only when its log compiles the changed crates
+from this checkout): 306 and 307 shared a target directory and do not count. Requeued in this
+task's own target: round 320 green and kill check 321 with all 14 tests failing, both verified by
+log (Proof above).
