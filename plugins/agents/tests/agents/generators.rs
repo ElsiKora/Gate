@@ -167,27 +167,25 @@ fn the_agents_block_needs_one_pair_of_markers_and_a_tracked_entry() {
         ]
     );
 
-    // The generator writes only between the markers: it cannot create the entry, and a block
-    // with no rule file lists nothing. Both are findings of `gate sync`, never a silent pass.
-    let untracked = tree(None).generate("agents-block", "", "{}").expect("runs");
-    assert_eq!(untracked.files, []);
-    assert_eq!(
-        lines(&untracked.findings),
-        [
-            "AGENTS.md AGENTS.md is not tracked, and agents/agents-block reads it (its option entry); create it with a `<!-- gate:begin agents -->` line and, below it, a `<!-- gate:end agents -->` line, point entry at the file, or remove the generator from [generate]"
-        ]
-    );
-
+    // A block with no rule file lists nothing: a finding of `gate sync`, never a silent pass.
     let no_rules_message = "docs/agents/rules docs/agents/rules has no rule file, and agents/agents-block reads the rule files there (its option root); create a rule file docs/agents/rules/<area>.md, point root at the agent docs, or remove the generator from [generate]";
     let no_rules = Fixture::new(&[("AGENTS.md", "# Agents\n")]);
     let output = no_rules.generate("agents-block", "", "{}").expect("runs");
     assert_eq!(output.files, []);
     assert_eq!(lines(&output.findings), [no_rules_message]);
 
+    // With no entry either, the entry is seeded and the missing rule files stay the finding.
     let absent = Fixture::new(&[("README.md", "# Project\n")]);
     let output = absent.generate("agents-block", "", "{}").expect("runs");
-    assert_eq!(output.files, []);
-    assert_eq!(output.findings.len(), 2, "{:?}", lines(&output.findings));
+    assert_eq!(
+        output
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.seed))
+            .collect::<Vec<_>>(),
+        [("AGENTS.md", true)]
+    );
+    assert_eq!(lines(&output.findings), [no_rules_message]);
 
     let emptied = Fixture::new(&[(
         "AGENTS.md",
@@ -254,4 +252,59 @@ fn the_agents_block_links_relative_to_its_entry_and_escapes_pipes() {
         written.contains("- [A \\| B](agents/rules/api.md)\n"),
         "{written}"
     );
+}
+
+/// An entry that is not tracked is seeded: a title, one line, and the block filled as the generator
+/// fills it, so the next run over the seeded file writes the same bytes. A tracked entry is written,
+/// never seeded.
+#[test]
+fn an_untracked_entry_is_seeded_with_its_block_and_the_next_run_writes_the_same_bytes() {
+    let header = "# Agent instructions\n\nThe entry point for coding agents in this project: the rule files below apply to their areas.\n\n";
+    for (name, fixture, entry, options) in [
+        ("rules", tree(None), "AGENTS.md", "{}"),
+        (
+            "no rules",
+            Fixture::new(&[("README.md", "# Project\n")]),
+            "AGENTS.md",
+            "{}",
+        ),
+        (
+            "nested entry",
+            tree(None),
+            "docs/AGENTS.md",
+            r#"{"entry": "docs/AGENTS.md"}"#,
+        ),
+    ] {
+        let output = fixture.generate("agents-block", "", options).expect("runs");
+        assert_eq!(output.files.len(), 1, "{name}");
+        let seeded = &output.files[0];
+        assert_eq!((seeded.path.as_str(), seeded.seed), (entry, true), "{name}");
+        let text = String::from_utf8(seeded.contents.clone()).expect("UTF-8");
+        assert!(text.starts_with(header), "{name}: {text}");
+        assert!(
+            text.contains("<!-- gate:begin agents -->\n")
+                && text.ends_with("<!-- gate:end agents -->\n"),
+            "{name}: {text}"
+        );
+        if name == "no rules" {
+            assert_eq!(
+                text,
+                format!("{header}<!-- gate:begin agents -->\n\n<!-- gate:end agents -->\n"),
+            );
+        } else {
+            assert!(text.contains("| `API` |"), "{name}: {text}");
+        }
+
+        let tracked = fixture.with_bytes(entry, text.as_bytes());
+        let again = tracked.generate("agents-block", "", options).expect("runs");
+        assert_eq!(
+            again
+                .files
+                .iter()
+                .map(|file| (file.path.as_str(), file.seed, file.contents.as_slice()))
+                .collect::<Vec<_>>(),
+            [(entry, false, text.as_bytes())],
+            "{name}"
+        );
+    }
 }

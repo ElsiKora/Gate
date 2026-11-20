@@ -6,7 +6,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Generate, Generator, Location, Result};
 
 use crate::block;
-use crate::load::{Agents, at, default_root, has_entry, strict_text};
+use crate::load::{Agents, at, default_root, strict_text};
 
 /// The name of the managed block.
 const BLOCK: &str = "agents";
@@ -28,8 +28,8 @@ pub struct Options {
     /// The directory of the agent instructions, relative to the project.
     pub root: String,
     /// The file that holds the block, relative to the project, written plainly (no leading `/`,
-    /// no `.`, `..` or empty segment). The generator writes only between the markers: while the
-    /// file is not tracked, it reports it and writes nothing.
+    /// no `.`, `..` or empty segment). The generator writes only between the markers; while the
+    /// file is not tracked, it seeds it: a title, one line, and the block.
     pub entry: String,
     /// The command the block names as the one that writes it.
     pub command_text: String,
@@ -57,20 +57,12 @@ impl Generator for AgentsBlock {
         let entry = plain(&options.entry)?;
         let command = options.command_text.clone();
         let agents = Agents::load(&tree, &options.root)?;
-        // Both inputs are findings of `gate sync`: a block with no rule file lists nothing, and an
-        // entry that is not tracked cannot hold the block.
+        // A block with no rule file lists nothing: a finding of `gate sync`, never a silent pass.
         let has_rules = agents.has_rules(run.report(), "agents/agents-block", "");
-        if !has_entry(
-            run.report(),
-            &tree,
-            &entry,
-            "agents/agents-block",
-            "",
-            &format!(
-                "create it with a `<!-- gate:begin {BLOCK} -->` line and, below it, a \
-                 `<!-- gate:end {BLOCK} -->` line"
-            ),
-        ) {
+        // An entry that is not tracked is seeded; `gate sync` writes it only where nothing exists,
+        // so a file a person wrote and has not added yet is left alone.
+        if !tree.contains(&entry) {
+            run.seed(entry.clone(), seed(&inner(&agents, &entry, &command)));
             return Ok(());
         }
         let Some(text) = strict_text(&tree, &entry)? else {
@@ -96,6 +88,16 @@ impl Generator for AgentsBlock {
         }
         Ok(())
     }
+}
+
+/// The seed of the entry: a title, one line on what the file is, and the block holding `inner`,
+/// byte for byte what the generator writes into the seeded file afterwards.
+fn seed(inner: &str) -> String {
+    let separator = if inner.is_empty() { "" } else { "\n" };
+    format!(
+        "# Agent instructions\n\nThe entry point for coding agents in this project: the rule files below \
+         apply to their areas.\n\n<!-- gate:begin {BLOCK} -->\n\n{inner}{separator}<!-- gate:end {BLOCK} -->\n"
+    )
 }
 
 /// The text between the markers; links are relative to `entry`, the file that holds the block.
