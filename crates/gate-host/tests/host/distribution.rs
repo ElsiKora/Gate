@@ -964,6 +964,61 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     }
 }
 
+#[test]
+fn prune_treats_declarations_as_derived_and_bounds_a_pinned_plugin_s_by_their_last_use() {
+    let (_directory, cache) = tagged_cache();
+    let now = SystemTime::now();
+    let pinned = sum(&"a".repeat(64));
+    let unpinned = sum(&"c".repeat(64));
+    let key = sum(&"e".repeat(64));
+    put(&cache.blob(&pinned), "plugin", now, 400);
+    let old = cache.declaration(&pinned, key.as_str());
+    put(&old, "old", now, 40);
+    let recent = cache.declaration(&pinned, sum(&"f".repeat(64)).as_str());
+    put(&recent, "recent", now, 0);
+    put(
+        &cache.declaration(&unpinned, key.as_str()),
+        "unpinned",
+        now,
+        0,
+    );
+    put(&cache.declarations().join("not-a-plugin"), "stray", now, 0);
+    let referenced: BTreeSet<Sha256Sum> = [pinned.clone()].into_iter().collect();
+    let plugins = referenced.clone();
+
+    // Without a bound: the declarations of a plugin no lock pins go, and any entry of
+    // `declarations/` that is no plugin's directory.
+    let plan = cache
+        .plan(&referenced, &plugins, &PruneBounds::default())
+        .expect("plan");
+    let mut expected = vec![
+        (
+            cache.declarations().join(unpinned.as_str()),
+            Reason::Unpinned,
+        ),
+        (cache.declarations().join("not-a-plugin"), Reason::Unpinned),
+    ];
+    expected.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(removed(&plan), expected);
+
+    // Older than 30 days: the pinned plugin's entry last used 40 days ago goes too; the one used
+    // now stays.
+    let bounds = PruneBounds {
+        older_than: Some(30),
+        max_size: None,
+    };
+    let plan = cache.plan(&referenced, &plugins, &bounds).expect("plan");
+    expected.push((old.clone(), Reason::Older(30)));
+    expected.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(removed(&plan), expected);
+
+    cache.remove(&plan.entries).expect("remove");
+    assert!(
+        recent.exists() && !old.exists(),
+        "{recent:?} stays, {old:?} goes"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn an_answer_file_prune_cannot_read_stops_it_before_anything_is_removed() {

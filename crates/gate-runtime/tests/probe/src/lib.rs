@@ -589,7 +589,21 @@ gate_sdk::plugin! {
     presets: [],
 }
 
-#[cfg(not(any(feature = "describe-traps", feature = "describe-spins")))]
+#[cfg(feature = "writer")]
+gate_sdk::plugin! {
+    name: "writer",
+    version: env!("CARGO_PKG_VERSION"),
+    options: gate_sdk::NoOptions,
+    rules: [],
+    generators: [Write],
+    presets: [],
+}
+
+#[cfg(not(any(
+    feature = "describe-traps",
+    feature = "describe-spins",
+    feature = "writer"
+)))]
 gate_sdk::plugin! {
     name: "probe",
     version: env!("CARGO_PKG_VERSION"),

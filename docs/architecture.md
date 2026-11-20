@@ -369,12 +369,17 @@ all = ["lint", "unit"]
   There is no inline suppression comment: an exception is always an entry here, so every one has a
   reason, is listed by `gate list`, and is reported by `gate/exceptions` when unused or malformed.
 - Every section is validated: unknown keys, unknown rules, `[generate]` keys that name no generator of
-  their plugin, options that fail the rule's schema, `[plugins.<name>] options` that fail the schema
-  the plugin declares (a missing required option, an unknown one, a wrong type), a plugin option an
-  enabled rule declares it reads (`NEEDS` in the SDK) missing from `[plugins.<name>] options`, and
-  exceptions without a reason are configuration errors that name the file and key, raised before
-  anything runs. A plugin option only some rules read stays optional in the plugin's schema; the rule
-  that reads it declares it, with the options it reads it under, so the error names that rule.
+  their plugin, `extends` entries that name no preset of their plugin, options that fail the rule's
+  schema, `[plugins.<name>] options` that fail the schema the plugin declares (a missing required
+  option, an unknown one, a wrong type), and exceptions without a reason are configuration errors
+  that name the file and key, raised before anything runs, in every run, whatever `--rule` and the
+  change selection leave to run.
+- A plugin option an enabled rule declares it reads (`NEEDS` in the SDK) missing from
+  `[plugins.<name>] options` is a configuration error too, raised before anything runs, for the
+  rules `--rule` leaves to run: a need belongs to the rules that run, so it follows `--rule`, and
+  does so again when a `sync-state` answer checks the run's configuration. A plugin option only
+  some rules read stays optional in the plugin's schema; the rule that reads it declares it, with
+  the options it reads it under, so the error names that rule.
 - A rule that is `off` in every aspect needs no options, so a rule a preset enables can always be turned
   off; options it does carry are still validated against its schema.
 - The core's own rules (`gate/*`) take `norm` and `norms` like any rule; their level is fixed, and
@@ -406,6 +411,22 @@ all = ["lint", "unit"]
 
 - Plugin modules are compiled once per (plugin sha256, wasmtime version) and stored in the cache;
   later runs load the compiled module.
+- A check runs only the plugins declared in a scope the change selection runs that `--rule`
+  allows; only those are fetched and compiled. Validation is never narrowed: every run checks the
+  whole configuration against what every declared plugin declares. What a plugin declares (its
+  rules with their scopes, aspects and options schemas, its presets, its option schema and its
+  generators) is stored in the cache whenever the plugin loads, under the plugin's sha256, the
+  plugin interface and the core version. A plugin the run does not run answers from that entry,
+  and is loaded for it when the cache holds none. A `sync-state` answer that falls back to the
+  run's configuration loads the plugins of its `[generate]` entries when it first needs them.
+  A stored declaration is trusted as a compiled module and a stored result are: what the cache
+  holds decides what a run checks, so a cache directory shared between users or machines must be
+  as trusted as the checkout.
+- `gate sync` loads every declared plugin. It is the command every clone runs before its first
+  hook, since it sets `core.hooksPath`, so after it every plugin is in the module cache and its
+  declaration is stored, and no check compiles a plugin it does not run.
+- Known cost: a `sync-state` answer computed at a commit's own configuration loads every plugin
+  that commit pins.
 - Plugin calls (project x plugin) run in parallel on a worker pool.
 - **Result cache**: the host records every path a call listed or read and every git query it made.
   A call's findings are stored under (core version, plugin sha256, rules and options, project, grant)
@@ -665,9 +686,10 @@ The first readers raised these points; each is settled:
 **Cache and speed**
 - Compiled modules are keyed by (plugin sha256, wasmtime version, target triple); wasmtime bounds
   them itself. Downloads are pinned: `gate cache prune` removes one only when no lock names it.
-  Results (stored by plugin) and git answers are derived, recomputed on a miss: `prune` removes
-  those of an unpinned plugin and the stored contents no answer names, and `--older-than <days> |
-  --max-size <size>` trims them by last use, which a run sets each time it uses one.
+  Results and declarations (each stored by plugin) and git answers are derived, recomputed on a
+  miss: `prune` removes those of an unpinned plugin and the stored contents no answer names, and
+  `--older-than <days> | --max-size <size>` trims them by last use, which a run sets each time it
+  uses one.
 - A dependency change re-runs the dependent project's steps; its rule results come from the cache when
   its own inputs did not change; the report says "cached" per call.
 - The speed bound applies to two runs: the full run, and `check --staged` with one changed file and a

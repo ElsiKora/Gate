@@ -17,7 +17,7 @@ use gate_runtime::{
     Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
     Runtime, Tree,
 };
-use gate_sdk::{Commit, CommitRange, RuleInfo, RuleRun, Scope, SyncState};
+use gate_sdk::{Commit, CommitRange, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -37,18 +37,100 @@ use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
 use crate::workspace::{RuleDeclaration, RuleScope, Workspace};
 
+mod declarations;
+
 /// The local builds `--plugin` gives, by plugin name: the path and the bytes read once.
 pub(crate) type Overrides = BTreeMap<PluginName, (PathBuf, Vec<u8>)>;
 
-/// The plugins a run declares, loaded into one runtime.
+/// The plugins a run runs, loaded into one runtime, and what every declared plugin declares.
 pub struct Loaded {
     runtime: Runtime,
+    /// The plugins this command runs.
     plugins: BTreeMap<PluginName, Plugin>,
-    schemas: BTreeMap<(PluginName, String), Value>,
-    /// The schema of each plugin's `[plugins.<name>] options`.
-    plugin_schemas: BTreeMap<PluginName, Value>,
+    /// What each declared plugin declares: those this command runs, and the others, from the
+    /// cache or loaded for it. The configuration is checked against all of them. A plugin is
+    /// missing only when it does not load under this core for good (`commit_plugins`).
+    declarations: BTreeMap<PluginName, Declaration>,
     /// The run's `--plugin` builds, which `git.sync-state` loads again at other commits.
     overrides: Arc<Overrides>,
+}
+
+/// What a plugin declares when it describes itself, with its options schemas parsed: what the
+/// configuration is checked against.
+#[derive(Debug)]
+struct Declaration {
+    info: PluginInfo,
+    /// The schema of the plugin's `[plugins.<name>] options`.
+    options: Value,
+    /// Each rule's options schema, by rule name.
+    rules: BTreeMap<String, Value>,
+}
+
+impl Declaration {
+    /// What plugin `name` declares, with each options schema checked to be a JSON Schema.
+    ///
+    /// # Errors
+    /// Fails, for good, when the plugin or a rule declares an options schema that is not one.
+    fn of(name: &PluginName, info: PluginInfo) -> std::result::Result<Self, LoadFailure> {
+        let options = schema(name, "the plugin", &info.options_schema)?;
+        let mut rules = BTreeMap::new();
+        for rule in &info.rules {
+            let schema = schema(name, &format!("rule {}", rule.name), &rule.options_schema)?;
+            rules.insert(rule.name.clone(), schema);
+        }
+        Ok(Self {
+            info,
+            options,
+            rules,
+        })
+    }
+
+    fn rule(&self, rule: &str) -> Option<&RuleInfo> {
+        self.info.rules.iter().find(|info| info.name == rule)
+    }
+}
+
+/// Which of the declared plugins a command runs. Every other declared plugin gives what it
+/// declares from the cache, or is loaded for it when the cache holds none.
+#[derive(Clone, Debug)]
+pub(crate) enum Needed {
+    /// Every declared plugin: `gate sync`, which every clone runs before its first hook, so each
+    /// plugin is compiled into the module cache, and its declaration stored, before a hook needs
+    /// it.
+    Every,
+    /// Only these.
+    Only(BTreeSet<PluginName>),
+}
+
+impl Needed {
+    fn wants(&self, name: &PluginName) -> bool {
+        match self {
+            Self::Every => true,
+            Self::Only(names) => names.contains(name),
+        }
+    }
+}
+
+/// The plugins a check runs: those declared in a scope `selection` runs that `filter` allows.
+pub(crate) fn needed(workspace: &Workspace, selection: &Selection, filter: &RuleFilter) -> Needed {
+    let mut names = BTreeSet::new();
+    for (project, settings) in scopes(workspace) {
+        let runs = match project {
+            None => selection.repository,
+            Some(name) => selection.runs(name),
+        };
+        if !runs {
+            continue;
+        }
+        names.extend(
+            settings
+                .plugins
+                .keys()
+                .filter(|name| filter.allows_plugin(name.as_str()))
+                .cloned(),
+        );
+    }
+    Needed::Only(names)
 }
 
 impl std::fmt::Debug for Loaded {
@@ -187,71 +269,138 @@ pub struct GitAnswers {
     pub stored: usize,
 }
 
-/// Loads every plugin the configuration declares: the local build `--plugin` gave for its name
+/// Loads the plugins `needed` names: the local build of each `--plugin` entry for this run
 /// (`overrides`, read once), else the download `gate.lock` pins, from the cache or fetched. The
-/// bytes that load are the bytes that were hashed. `None` when no configuration declares a plugin.
+/// bytes that load are the bytes that were hashed. Every other declared plugin gives what it
+/// declares from the cache, without being fetched or compiled; one the cache holds nothing for is
+/// loaded for it. `None` when no configuration declares a plugin.
 ///
 /// # Errors
-/// Fails when a plugin is declared with two sources, a pinned download cannot be fetched or does
-/// not hash to its pin, a build is not a valid plugin or is another plugin than its name says, or a
-/// rule declares an options schema that is not JSON.
+/// Fails when a plugin is declared with two sources, `gate.lock` pins no download of one, a
+/// pinned download cannot be fetched or does not hash to its pin, a build is not a valid plugin
+/// or is another plugin than its name says, or a rule declares an options schema that is not
+/// JSON.
 pub(crate) fn load(
     workspace: &Workspace,
     lock: Option<&Lock>,
     overrides: &Overrides,
+    needed: &Needed,
 ) -> Result<Option<Loaded>> {
-    let Some(fetched) = fetch_components(workspace, lock, overrides)? else {
+    let Some(declared) = declared(workspace, lock, overrides)? else {
         return Ok(None);
     };
-    let (loaded, _) = instantiate(fetched, overrides, true)?;
+    let cache = Cache::from_env()?;
+    let mut stored = BTreeMap::new();
+    let mut loading = Vec::new();
+    for plugin in declared {
+        let from_cache = (!needed.wants(&plugin.name))
+            .then(|| declarations::read(&cache, &plugin.sha256))
+            .flatten()
+            .filter(|info| info.name == plugin.source.plugin)
+            .and_then(|info| Declaration::of(&plugin.name, info).ok());
+        match from_cache {
+            Some(declaration) => {
+                stored.insert(plugin.name, declaration);
+            }
+            None => loading.push(plugin),
+        }
+    }
+    let fetched = fetch_components(loading, lock, overrides)?;
+    let (mut loaded, _) = instantiate(fetched, overrides, true)?;
+    loaded.plugins.retain(|name, _| needed.wants(name));
+    loaded.declarations.extend(stored);
     Ok(Some(loaded))
+}
+
+/// A declared plugin: its one source and the sha256 of the bytes that load for it.
+struct Declared {
+    name: PluginName,
+    source: PluginSource,
+    sha256: Sha256Sum,
+}
+
+/// Every plugin the configuration declares, each checked before any is left out of a run: one
+/// source, and the bytes that load for it (its `--plugin` build, else a download `gate.lock`
+/// pins). `None` when no configuration declares a plugin.
+///
+/// # Errors
+/// Fails when a plugin is declared with two sources, or `gate.lock` pins no download of one.
+fn declared(
+    workspace: &Workspace,
+    lock: Option<&Lock>,
+    overrides: &Overrides,
+) -> Result<Option<Vec<Declared>>> {
+    let wanted = Wanted::of(workspace);
+    let mut names: BTreeSet<&PluginName> = BTreeSet::new();
+    for settings in scopes(workspace).map(|(_, settings)| settings) {
+        names.extend(settings.plugins.keys());
+    }
+    if names.is_empty() {
+        return Ok(None);
+    }
+    let mut declared = Vec::new();
+    for name in names {
+        let source = wanted.source_of(name)?;
+        let sha256 = if let Some((_, bytes)) = overrides.get(name) {
+            Sha256Sum::from_digest(&Sha256::digest(bytes))
+        } else {
+            lock.and_then(|lock| lock.plugins.get(source))
+                .map(|pin| pin.sha256.clone())
+                .ok_or_else(|| {
+                    Error::config(format!(
+                        "gate.lock pins no download of {source}; run gate lock and commit gate.lock"
+                    ))
+                })?
+        };
+        declared.push(Declared {
+            name: name.clone(),
+            source: source.clone(),
+            sha256,
+        });
+    }
+    Ok(Some(declared))
 }
 
 /// A declared plugin's component: fetched and verified against its pin, or read from `--plugin`.
 struct Fetched {
     name: PluginName,
     source: PluginSource,
+    /// The sha256 of `bytes`.
+    sha256: Sha256Sum,
     /// Where the bytes came from, for messages.
     from: String,
     bytes: Vec<u8>,
 }
 
-/// The components of every plugin the configuration declares; `None` when none is declared.
+/// The components of `plugins`.
 ///
 /// # Errors
-/// Fails when a plugin is declared with two sources, `gate.lock` pins no download of one, or a
-/// pinned download cannot be fetched or does not hash to its pin.
+/// Fails when a pinned download cannot be fetched or does not hash to its pin.
 fn fetch_components(
-    workspace: &Workspace,
+    plugins: Vec<Declared>,
     lock: Option<&Lock>,
     overrides: &Overrides,
-) -> Result<Option<Vec<Fetched>>> {
-    let wanted = Wanted::of(workspace);
-    let mut declared: BTreeSet<&PluginName> = BTreeSet::new();
-    for settings in scopes(workspace).map(|(_, settings)| settings) {
-        declared.extend(settings.plugins.keys());
-    }
-    if declared.is_empty() {
-        return Ok(None);
-    }
-
-    let cache = Cache::from_env()?;
+) -> Result<Vec<Fetched>> {
     let mut fetcher = None;
     let mut components = Vec::new();
-    for name in declared {
-        let source = wanted.source_of(name)?;
-        let (from, bytes) = if let Some((path, bytes)) = overrides.get(name) {
+    for Declared {
+        name,
+        source,
+        sha256,
+    } in plugins
+    {
+        let (from, bytes) = if let Some((path, bytes)) = overrides.get(&name) {
             (format!("--plugin {name}={}", path.display()), bytes.clone())
         } else {
             let pin = lock
-                .and_then(|lock| lock.plugins.get(source))
+                .and_then(|lock| lock.plugins.get(&source))
                 .ok_or_else(|| {
                     Error::config(format!(
                         "gate.lock pins no download of {source}; run gate lock and commit gate.lock"
                     ))
                 })?;
             if fetcher.is_none() {
-                fetcher = Some(Fetcher::new(FetchConfig::from_env()?, cache.clone()));
+                fetcher = Some(Fetcher::new(FetchConfig::from_env()?, Cache::from_env()?));
             }
             let fetcher = fetcher
                 .as_ref()
@@ -277,13 +426,14 @@ fn fetch_components(
             (source.to_string(), bytes)
         };
         components.push(Fetched {
-            name: name.clone(),
-            source: source.clone(),
+            name,
+            source,
+            sha256,
             from,
             bytes,
         });
     }
-    Ok(Some(components))
+    Ok(components)
 }
 
 /// Why a fetched component did not load.
@@ -298,9 +448,9 @@ struct LoadFailure {
     lasting: bool,
 }
 
-/// Compiles and checks the fetched components. A component that does not load is left out of the
-/// result and its failure returned by name; with `strict`, the first such failure fails the call
-/// instead.
+/// Compiles and checks the fetched components, and stores what each declares. A component that
+/// does not load is left out of the result and its failure returned by name; with `strict`, the
+/// first such failure fails the call instead.
 ///
 /// # Errors
 /// Fails when the runtime cannot start, or with `strict` as above.
@@ -316,8 +466,7 @@ fn instantiate(
     })
     .map_err(|error| Error::environment(error.to_string()))?;
     let mut plugins = BTreeMap::new();
-    let mut schemas = BTreeMap::new();
-    let mut plugin_schemas = BTreeMap::new();
+    let mut declarations = BTreeMap::new();
     let mut unloadable = BTreeMap::new();
 
     // Each component compiles (or loads its compiled module) and describes itself on a thread of
@@ -344,13 +493,9 @@ fn instantiate(
     });
     for (component, compiled) in fetched.into_iter().zip(compiled) {
         match compiled {
-            Ok((plugin, options, rules)) => {
-                plugin_schemas.insert(component.name.clone(), options);
-                schemas.extend(
-                    rules
-                        .into_iter()
-                        .map(|(rule, schema)| ((component.name.clone(), rule), schema)),
-                );
+            Ok((plugin, declaration)) => {
+                declarations::write(&cache, &component.sha256, &declaration.info);
+                declarations.insert(component.name.clone(), declaration);
                 plugins.insert(component.name, plugin);
             }
             Err(failure) if strict => return Err(failure.error),
@@ -364,20 +509,17 @@ fn instantiate(
         Loaded {
             runtime,
             plugins,
-            schemas,
-            plugin_schemas,
+            declarations,
             overrides: Arc::new(overrides.clone()),
         },
         unloadable,
     ))
 }
 
-/// A component compiled under this core: the plugin, the schema of its `[plugins.<name>] options`
-/// and its rules' options schemas by rule.
-type Compiled = (Plugin, Value, Vec<(String, Value)>);
+/// A component compiled under this core, and what it declares.
+type Compiled = (Plugin, Declaration);
 
-/// One component compiled under this core, with the schema of its `[plugins.<name>] options` and
-/// its rules' options schemas.
+/// One component compiled under this core, and what it declares.
 ///
 /// # Errors
 /// Fails when it is not a valid plugin, is another plugin than its name says, or the plugin or a
@@ -386,6 +528,7 @@ fn compile(runtime: &Runtime, component: &Fetched) -> std::result::Result<Compil
     let Fetched {
         name,
         source,
+        sha256: _,
         from,
         bytes,
     } = component;
@@ -406,13 +549,8 @@ fn compile(runtime: &Runtime, component: &Fetched) -> std::result::Result<Compil
             lasting: true,
         });
     }
-    let options = schema(name, "the plugin", &plugin.info().options_schema)?;
-    let mut schemas = Vec::new();
-    for rule in &plugin.info().rules {
-        let schema = schema(name, &format!("rule {}", rule.name), &rule.options_schema)?;
-        schemas.push((rule.name.clone(), schema));
-    }
-    Ok((plugin, options, schemas))
+    let declaration = Declaration::of(name, plugin.info().clone())?;
+    Ok((plugin, declaration))
 }
 
 /// An options schema `what` of plugin `name` declares, checked to compile as JSON Schema.
@@ -460,8 +598,9 @@ impl Loaded {
         self.validate_except(workspace, filter, &BTreeSet::new())
     }
 
-    /// [`Loaded::validate`] without the rules and exceptions of the plugins in `skipped`, which
-    /// did not load, so what they declare is unknown.
+    /// [`Loaded::validate`] without the rules and exceptions of the plugins in `skipped`, which a
+    /// commit pins and which do not load under this core: what they declare is unknown. The
+    /// checks that need no plugin still cover them.
     ///
     /// # Errors
     /// As [`Loaded::validate`].
@@ -472,28 +611,51 @@ impl Loaded {
         skipped: &BTreeSet<PluginName>,
     ) -> Result<()> {
         let declaration = |name: &PluginName, _: &PluginSource, rule: &str| {
-            let info = self.rule(name, rule)?;
+            let declared = self.declarations.get(name)?;
+            let info = declared.rule(rule)?;
             Some(RuleDeclaration {
                 scope: match info.scope {
                     Scope::Project => RuleScope::Project,
                     Scope::Repository => RuleScope::Repository,
                 },
                 aspects: info.aspects.clone(),
-                options_schema: self
-                    .schemas
-                    .get(&(name.clone(), rule.to_owned()))
+                options_schema: declared
+                    .rules
+                    .get(rule)
                     .cloned()
                     .unwrap_or(Value::Bool(true)),
             })
         };
         workspace.validate_plugin_options(
-            &|name: &PluginName| self.plugin_schemas.get(name).cloned(),
+            &|name: &PluginName| {
+                self.declarations
+                    .get(name)
+                    .map(|declared| declared.options.clone())
+            },
             &JsonSchemaValidator,
         )?;
         workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
+        self.check_presets(workspace)?;
         self.check_needs(workspace, filter)?;
         self.check_generators(workspace)?;
         workspace.check_rule_filter(filter, &declaration)
+    }
+
+    /// Checks that every `extends` entry of every scope names a preset its plugin declares, and that
+    /// each such preset reads, for every declared plugin whether or not the run runs it.
+    ///
+    /// # Errors
+    /// Fails on the first preset the plugin does not declare, naming the entry; or, as a broken
+    /// plugin, on a preset that is not a JSON object of rules.
+    fn check_presets(&self, workspace: &Workspace) -> Result<()> {
+        for (_, settings) in scopes(workspace) {
+            for (name, declared) in &self.declarations {
+                if settings.plugins.contains_key(name) {
+                    presets(&declared.info, name, settings)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Checks that in every scope the `[plugins.<name>] options` hold each key that an enabled rule
@@ -506,7 +668,7 @@ impl Loaded {
     fn check_needs(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
         let empty = Value::Object(serde_json::Map::new());
         for (project, settings) in scopes(workspace) {
-            for (name, plugin) in &self.plugins {
+            for (name, declared) in &self.declarations {
                 let Some(entry) = settings.plugins.get(name) else {
                     continue;
                 };
@@ -514,12 +676,11 @@ impl Loaded {
                     continue;
                 }
                 let options = settings.plugin_options(name).unwrap_or(&empty);
-                for rule in enabled_rules(plugin, name, settings, workspace, project)? {
+                for rule in enabled_rules(&declared.info, name, settings, workspace, project)? {
                     if !filter.allows(&rule.id.to_string()) {
                         continue;
                     }
-                    let Some(schema) = self.schemas.get(&(name.clone(), rule.run.name.clone()))
-                    else {
+                    let Some(schema) = declared.rules.get(&rule.run.name) else {
                         continue;
                     };
                     for need in needs(name, &rule.run.name, schema)? {
@@ -552,14 +713,14 @@ impl Loaded {
         for entry in sync::generator_entries(workspace) {
             let item = entry.generator;
             let Some(plugin) = self
-                .plugins
+                .declarations
                 .iter()
                 .find(|(name, _)| name.as_str() == item.plugin())
-                .map(|(_, plugin)| plugin)
+                .map(|(_, declared)| declared)
             else {
                 continue;
             };
-            let declared = &plugin.info().generators;
+            let declared = &plugin.info.generators;
             if declared
                 .iter()
                 .any(|generator| generator.name == item.name())
@@ -588,13 +749,41 @@ impl Loaded {
         Ok(())
     }
 
-    fn rule(&self, plugin: &PluginName, rule: &str) -> Option<&RuleInfo> {
-        self.plugins
-            .get(plugin)?
-            .info()
-            .rules
+    /// These plugins with every plugin that a `[generate]` entry of `workspace` names: `self` when
+    /// those are loaded already, else loaded again with them, once, the first time a `sync-state`
+    /// answer falls back to the run's configuration.
+    ///
+    /// # Errors
+    /// Fails like [`load`].
+    fn with_generators(self: &Arc<Self>, workspace: &Workspace) -> Result<Arc<Self>> {
+        let missing: BTreeSet<PluginName> = sync::generator_entries(workspace)
             .iter()
-            .find(|info| info.name == rule)
+            .filter_map(|entry| {
+                self.declarations.keys().find(|name| {
+                    name.as_str() == entry.generator.plugin() && !self.plugins.contains_key(*name)
+                })
+            })
+            .cloned()
+            .collect();
+        if missing.is_empty() {
+            return Ok(Arc::clone(self));
+        }
+        let lock = crate::lock::verify_with(workspace, &self.overrides.keys().cloned().collect())?;
+        // The run's plugins load again with the missing ones: a `Loaded` holds one runtime, and a
+        // plugin is instantiated by the runtime that compiled it. Their modules come from the cache.
+        let mut names: BTreeSet<PluginName> = self.plugins.keys().cloned().collect();
+        names.extend(missing);
+        let loaded = load(workspace, lock.as_ref(), &self.overrides, &Needed::Only(names))?
+            .ok_or_else(|| {
+                Error::environment(
+                    "the run's configuration declares no plugin although a [generate] entry names one; run gate again, and report it if it recurs",
+                )
+            })?;
+        Ok(Arc::new(loaded))
+    }
+
+    fn rule(&self, plugin: &PluginName, rule: &str) -> Option<&RuleInfo> {
+        self.declarations.get(plugin)?.rule(rule)
     }
 
     /// Runs every enabled rule `filter` allows in every scope `selection` runs, one plugin call per
@@ -625,6 +814,7 @@ impl Loaded {
             &snapshot,
             workspace,
             run_git,
+            filter,
             Arc::clone(self),
         ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
@@ -645,7 +835,7 @@ impl Loaded {
                 let Some(plugin) = self.plugins.get(name) else {
                     continue;
                 };
-                let mut rules = enabled_rules(plugin, name, settings, workspace, project)?;
+                let mut rules = enabled_rules(plugin.info(), name, settings, workspace, project)?;
                 rules.retain(|rule| filter.allows(&rule.id.to_string()));
                 if rules.is_empty() {
                     continue;
@@ -921,16 +1111,17 @@ impl std::fmt::Debug for PluginGenerators<'_> {
 }
 
 impl<'w> PluginGenerators<'w> {
-    /// Loads every plugin the configuration declares, as `gate check` does: the local build of
-    /// each `overrides` entry for this run, else its `gate.lock` pin, whose lock check skips the
-    /// plugins an override covers. Then checks the configuration against what they declare.
+    /// Loads every plugin the configuration declares, generators or not: the local build of each
+    /// `overrides` entry for this run, else its `gate.lock` pin, whose lock check skips the
+    /// plugins an override covers. So every plugin is compiled into the module cache before a hook
+    /// needs it. Then checks the whole configuration against what they declare.
     ///
     /// # Errors
     /// Fails like `gate check` loading its plugins.
     pub fn load(workspace: &'w Workspace, overrides: &[crate::PluginOverride]) -> Result<Self> {
         let (lines, files) = crate::resolve_overrides(workspace, overrides)?;
         let lock = crate::lock::verify_with(workspace, &files.keys().cloned().collect())?;
-        let loaded = load(workspace, lock.as_ref(), &files)?;
+        let loaded = load(workspace, lock.as_ref(), &files, &Needed::Every)?;
         if let Some(loaded) = &loaded {
             loaded.validate(workspace, &RuleFilter::new(Vec::new()))?;
         }
@@ -1143,10 +1334,10 @@ impl Generators for PluginGenerators<'_> {
         };
         scopes(self.workspace).any(|(project, settings)| {
             settings.plugins.keys().any(|name| {
-                let Some(plugin) = loaded.plugins.get(name) else {
+                let Some(declared) = loaded.declarations.get(name) else {
                     return false;
                 };
-                enabled_rules(plugin, name, settings, self.workspace, project)
+                enabled_rules(&declared.info, name, settings, self.workspace, project)
                     .unwrap_or_default()
                     .iter()
                     .any(|rule| {
@@ -1271,7 +1462,7 @@ fn level(
 /// matches and that configuration enables (a `[rules]` entry, a family level or a preset), unless
 /// everything about them is `off`.
 fn enabled_rules(
-    plugin: &Plugin,
+    info: &PluginInfo,
     name: &PluginName,
     settings: &Settings,
     workspace: &Workspace,
@@ -1282,15 +1473,10 @@ fn enabled_rules(
     } else {
         Scope::Project
     };
-    let presets = presets(plugin, name, settings)?;
+    let presets = presets(info, name, settings)?;
     let mut rules = Vec::new();
 
-    for info in plugin
-        .info()
-        .rules
-        .iter()
-        .filter(|info| info.scope == scope)
-    {
+    for info in info.rules.iter().filter(|info| info.scope == scope) {
         let id = rule_id(name, &info.name)?;
         let preset = presets.get(info.name.as_str());
         let entry = settings.rules.get(&id);
@@ -1357,7 +1543,7 @@ struct PresetRule {
 
 /// The rules of the presets these settings extend from `plugin`, later presets over earlier.
 fn presets(
-    plugin: &Plugin,
+    info: &PluginInfo,
     name: &PluginName,
     settings: &Settings,
 ) -> Result<BTreeMap<String, PresetRule>> {
@@ -1367,8 +1553,7 @@ fn presets(
         .iter()
         .filter(|item| item.value.plugin() == name.as_str())
     {
-        let Some(preset) = plugin
-            .info()
+        let Some(preset) = info
             .presets
             .iter()
             .find(|preset| preset.name == item.value.name())
@@ -1404,8 +1589,7 @@ fn presets(
             match value.get("levels") {
                 None => {}
                 Some(Value::Object(table)) => {
-                    let declared = plugin
-                        .info()
+                    let declared = info
                         .rules
                         .iter()
                         .find(|info| info.name == rule)
@@ -1587,6 +1771,9 @@ struct GitHistory {
     overrides: Arc<Overrides>,
     /// The run's plugins, which also answer `sync-state` under the run's configuration.
     run_loaded: Arc<Loaded>,
+    /// The run's `--rule` filter: the run's configuration is checked with it again when it
+    /// answers `sync-state`, as when the run started.
+    filter: RuleFilter,
     /// Each `--plugin` build's name and sha256, as every `sync-state` key holds them; hashed once.
     builds: OnceLock<String>,
     /// The run's workspace: its configuration answers `sync-state` at a commit whose own
@@ -1987,6 +2174,7 @@ impl GitHistory {
         snapshot: &Snapshot,
         workspace: &Workspace,
         run_git: RunGit,
+        filter: &RuleFilter,
         run_loaded: Arc<Loaded>,
     ) -> Self {
         Self {
@@ -1997,6 +2185,7 @@ impl GitHistory {
             hook: run_git.hook,
             overrides: Arc::clone(&run_loaded.overrides),
             run_loaded,
+            filter: filter.clone(),
             builds: OnceLock::new(),
             run_workspace: workspace.clone(),
             run: OnceLock::new(),
@@ -2314,11 +2503,17 @@ impl GitHistory {
         {
             return Ok(plugins.clone());
         }
-        let fetched = fetch_components(workspace, lock, &self.overrides).map_err(|error| {
-            Error::environment(format!(
-                "a plugin this commit's gate.lock pins cannot be fetched or does not match its pin: {error}; run again with network access, or pass --plugin <name>=<path.wasm> for it"
-            ))
-        })?;
+        let fetched = declared(workspace, lock, &self.overrides)
+            .and_then(|declared| {
+                declared
+                    .map(|declared| fetch_components(declared, lock, &self.overrides))
+                    .transpose()
+            })
+            .map_err(|error| {
+                Error::environment(format!(
+                    "a plugin this commit's gate.lock pins cannot be fetched or does not match its pin: {error}; run again with network access, or pass --plugin <name>=<path.wasm> for it"
+                ))
+            })?;
         let plugins = match fetched {
             None => CommitPlugins {
                 loaded: None,
@@ -2346,17 +2541,18 @@ impl GitHistory {
         Ok(plugins)
     }
 
-    /// The run's configuration hash and plugins, computed once. The plugins are the run's own,
-    /// checked against every rule of the configuration, not only those the run's filter allows.
+    /// The run's configuration hash and plugins, computed once. The plugins are the run's own with
+    /// the generator plugins, and the configuration is checked as the run checked it, with the
+    /// run's filter: a rule's needs follow `--rule` on both paths.
     fn run_context(&self) -> Result<&RunContext> {
         self.run
             .get_or_init(|| {
                 let workspace = &self.run_workspace;
-                self.run_loaded
-                    .validate(workspace, &RuleFilter::new(Vec::new()))?;
+                let loaded = self.run_loaded.with_generators(workspace)?;
+                loaded.validate(workspace, &self.filter)?;
                 Ok(RunContext {
                     hash: configuration_hash(workspace)?,
-                    loaded: Some(Arc::clone(&self.run_loaded)),
+                    loaded: Some(loaded),
                     outputs: OnceLock::new(),
                     key: OnceLock::new(),
                 })

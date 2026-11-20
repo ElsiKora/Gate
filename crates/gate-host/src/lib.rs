@@ -440,7 +440,11 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     let loaded = if request.list_changed_projects {
         None
     } else {
-        plugins::load(&workspace, lock.as_ref(), &files)?.map(std::sync::Arc::new)
+        // Only the plugins a selected scope declares and --rule allows run. The others give what
+        // they declare from the cache, so the whole configuration is still checked, and are
+        // loaded only when the cache holds nothing for them.
+        let needed = plugins::needed(&workspace, &selection, &request.rules);
+        plugins::load(&workspace, lock.as_ref(), &files, &needed)?.map(std::sync::Arc::new)
     };
     phase("load", at);
     let at = Instant::now();

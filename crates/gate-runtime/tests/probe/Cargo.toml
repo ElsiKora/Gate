@@ -15,6 +15,9 @@ crate-type = ["cdylib", "rlib"]
 describe-traps = []
 # Builds instead a plugin `other` whose `describe` never ends: it runs out of fuel, on every run.
 describe-spins = []
+# Builds instead a plugin `writer` with the `write` generator and no rule: a plugin a check with
+# `--rule` leaves out, which a `sync-state` fallback still needs.
+writer = []
 
 [dependencies]
 gate-sdk.workspace = true

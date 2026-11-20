@@ -8,6 +8,7 @@
 //! core/<sha256>/gate                          the core unpacked by bin/gate from that archive
 //! modules/                                    compiled plugins: wasmtime's own cache (the plugin runtime)
 //! results/<plugin sha256>/                    the result cache, by plugin (the plugin runtime)
+//! declarations/<plugin sha256>/               what each plugin declares, by core (the plugin runtime)
 //! git/                                        answers about commits and file contents (the plugin runtime)
 //! tmp/                                        downloads in progress
 //! CACHEDIR.TAG                                marks the directory as a cache (bford.info/cachedir)
@@ -19,9 +20,10 @@
 //! longer hashes to its name, is removed and downloaded again.
 //!
 //! Downloads (`blobs/sha256/`, `core/`, `tools/`) are pinned: `gate cache prune` keeps one exactly
-//! while a lock names it. Everything under `results/` and `git/` is derived: a run that finds it
-//! missing computes it again, so `gate cache prune` removes it when nothing can use it, and by its
-//! last use, the file's modification time, which a run sets each time it uses the file.
+//! while a lock names it. Everything under `results/`, `declarations/` and `git/` is derived: a
+//! run that finds it missing computes it again, so `gate cache prune` removes it when nothing can
+//! use it, and by its last use, the file's modification time, which a run sets each time it uses
+//! the file.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -273,6 +275,33 @@ impl Cache {
         self.root.join("results")
     }
 
+    /// The directory of what plugins declare, one directory per plugin sha256.
+    #[must_use]
+    pub fn declarations(&self) -> PathBuf {
+        self.root.join("declarations")
+    }
+
+    /// The file of what the plugin with this sha256 declares, as the core whose entry name is
+    /// `key` stores it, in [`Cache::declarations`].
+    #[must_use]
+    pub fn declaration(&self, plugin: &Sha256Sum, key: &str) -> PathBuf {
+        self.declarations().join(plugin.as_str()).join(key)
+    }
+
+    /// Moves a written temporary file into place as the declaration of [`Cache::declaration`].
+    /// When another process filled it first, this one replaces it with the same declaration.
+    ///
+    /// # Errors
+    /// Fails when the file cannot be synced or renamed.
+    pub fn insert_declaration(
+        &self,
+        temporary: Temporary,
+        plugin: &Sha256Sum,
+        key: &str,
+    ) -> Result<PathBuf> {
+        Self::place(temporary, self.declaration(plugin, key))
+    }
+
     /// The directory of answers about commits.
     #[must_use]
     pub fn git(&self) -> PathBuf {
@@ -478,13 +507,14 @@ impl Cache {
         Ok(entries)
     }
 
-    /// What `gate cache prune` removes: the entries of [`Cache::unreferenced`]; the results of a
-    /// plugin `plugins` does not name, and any other entry of `results/` that is no plugin's; the
-    /// stored file contents no stored answer names, stored more than a day ago (a run stores a
-    /// content before the answer that names it); then, of the derived files left (under
-    /// `results/` and `git/`), those last used longer ago than `bounds.older_than`, and, while the
-    /// whole cache is over `bounds.max_size`, the least recently used, by path on a tie. A pinned
-    /// download and `modules/` are never removed by a bound.
+    /// What `gate cache prune` removes: the entries of [`Cache::unreferenced`]; the results and
+    /// the declarations of a plugin `plugins` does not name, and any other entry of `results/` or
+    /// `declarations/` that is no plugin's; the stored file contents no stored answer names,
+    /// stored more than a day ago (a run stores a content before the answer that names it); then,
+    /// of the derived files left (under `results/`, `declarations/` and `git/`), those last used
+    /// longer ago than `bounds.older_than`, and, while the whole cache is over `bounds.max_size`,
+    /// the least recently used, by path on a tie. A pinned download and `modules/` are never
+    /// removed by a bound.
     ///
     /// # Errors
     /// As [`Cache::unreferenced`], and when a stored answer cannot be read: the contents it names
@@ -514,6 +544,18 @@ impl Cache {
                     _ => Reason::OldFormat,
                 };
                 entries.push(Entry::at(path, reason)?);
+            }
+        }
+        // A declaration is a pinned plugin's while a lock pins the plugin; the bounds see it.
+        let declarations = self.declarations();
+        if self.directory(&declarations)? {
+            for (path, name) in children(&declarations)? {
+                match Sha256Sum::parse(&name) {
+                    Ok(plugin) if plugins.contains(&plugin) && self.directory(&path)? => {
+                        derived.extend(derived_files(&path)?);
+                    }
+                    _ => entries.push(Entry::at(path, Reason::Unpinned)?),
+                }
             }
         }
         let git = self.git();
