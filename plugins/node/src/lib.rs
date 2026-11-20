@@ -1,7 +1,7 @@
 //! The `node` plugin: one Node toolchain for every project, by kind. A repository has one package
 //! manager (`node/package-manager`), one Node version (`node/node-version`), one version per
 //! dependency (`node/dependency-versions`), one Prettier configuration (`node/formatter`) and one
-//! ESLint configuration (`node/linter`); each project's `package.json` (`node/package`), scripts
+//! `ESLint` configuration (`node/linter`); each project's `package.json` (`node/package`), scripts
 //! (`node/scripts`) and `tsconfig` files (`node/tsconfig`) follow the standard of its kind
 //! ([`settings::Kind`]).
 //!

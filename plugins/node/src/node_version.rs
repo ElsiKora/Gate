@@ -161,7 +161,6 @@ fn engines(run: &mut Run<'_, NoOptions>, range: &str, line: usize, pinned: Optio
         (None, _) => Some(format!(
             "package.json engines.node \"{range}\" is not a range Gate reads"
         )),
-        (Some(_), None) => None,
         (Some(parsed), Some(pinned)) if !parsed.admits(pinned) => Some(format!(
             "package.json engines.node \"{range}\" does not admit {}.{}.{}, the version in .nvmrc",
             pinned.major, pinned.minor, pinned.patch
@@ -170,7 +169,7 @@ fn engines(run: &mut Run<'_, NoOptions>, range: &str, line: usize, pinned: Optio
             "package.json engines.node \"{range}\" admits a Node major below {}, the major in .nvmrc",
             pinned.major
         )),
-        (Some(_), Some(_)) => None,
+        (Some(_), _) => None,
     };
     if let Some(message) = problem {
         crate::report(

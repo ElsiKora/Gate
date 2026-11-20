@@ -119,7 +119,7 @@ pub(crate) const PRETTIER: [(&str, &str); 3] = [
     ("trailingComma", "\"all\""),
 ];
 
-/// The shared ESLint configuration every repository's root configuration imports.
+/// The shared `ESLint` configuration every repository's root configuration imports.
 pub(crate) const SHARED_ESLINT: &str = "@elsikora/eslint-config";
 
 /// The `tsconfig` flags every configuration has on, through the base.

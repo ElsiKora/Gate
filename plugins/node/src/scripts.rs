@@ -31,7 +31,7 @@ impl Rule for Scripts {
         let member = !paths.iter().any(|path| path == "pnpm-lock.yaml");
         let typescript = paths.iter().any(|path| {
             let name = file_name(path);
-            name.starts_with("tsconfig") && name.ends_with(".json")
+            name.starts_with("tsconfig") && repo::is_json(name)
         });
         let section = manifest.member("scripts");
         let scripts = section

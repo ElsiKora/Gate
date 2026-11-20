@@ -58,6 +58,13 @@ pub(crate) fn root_of<'r>(path: &str, roots: &'r [String]) -> &'r str {
         .map_or("", String::as_str)
 }
 
+/// Whether `path` ends in a `.json` extension, in any case.
+pub(crate) fn is_json(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+}
+
 /// Every tracked `package.json`, outside `node_modules`.
 pub(crate) fn manifests(tree: &Tree<'_>) -> Vec<String> {
     tree.paths()

@@ -48,7 +48,7 @@ impl Rule for Tsconfig {
         for path in repo::own_paths(&tree) {
             let name = file_name(&path);
             if name.starts_with("tsconfig")
-                && name.ends_with(".json")
+                && repo::is_json(name)
                 && let Some(config) = repo::read_json(&tree, &path)?
             {
                 configs.insert(path, config);
@@ -241,7 +241,7 @@ fn target(project: &str, path: &str, specifier: &str) -> Option<String> {
         return None;
     }
     let mut resolved = normalize(&join(project, &join(directory(path), specifier)))?;
-    if !resolved.ends_with(".json") {
+    if !repo::is_json(&resolved) {
         resolved.push_str(".json");
     }
     Some(resolved)

@@ -1,4 +1,4 @@
-//! `node/linter`: one flat ESLint configuration at the root, which extends the shared
+//! `node/linter`: one flat `ESLint` configuration at the root, which extends the shared
 //! configuration and which every member imports.
 
 use gate_sdk::schemars::JsonSchema;
@@ -17,7 +17,7 @@ pub(crate) struct Linter;
 #[serde(crate = "gate_sdk::serde", deny_unknown_fields)]
 #[schemars(crate = "gate_sdk::schemars")]
 pub(crate) struct Options {
-    /// The package of the shared ESLint configuration the root configuration extends.
+    /// The package of the shared `ESLint` configuration the root configuration extends.
     #[serde(default = "shared")]
     shared: String,
 }
@@ -164,7 +164,7 @@ fn root(run: &mut Run<'_, Options>, tree: &Tree<'_>) {
     }
 }
 
-/// Whether `specifier` names an ESLint configuration package.
+/// Whether `specifier` names an `ESLint` configuration package.
 fn is_config_package(specifier: &str) -> bool {
     let package = match specifier.strip_prefix('@') {
         Some(scoped) => scoped.split('/').nth(1).unwrap_or_default(),
