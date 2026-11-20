@@ -25,7 +25,7 @@ project when it moves to another repository.
 `gate list --origin` prints every setting of every project with the file and section it came from.
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.2.0/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.2.1/gate.schema.json
 ```
 
 ## ✅ Validation
@@ -45,7 +45,7 @@ file, the key and what is expected, with exit code `2`:
 
 ```toml
 [gate]
-version = "0.2.0"
+version = "0.2.1"
 ```
 
 | Key | Meaning |
@@ -99,7 +99,7 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 house = { source = "your-org/your-repo:house@1.2.0" }
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.0"
+source = "ElsiKora/Gate:git@0.2.1"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -205,7 +205,7 @@ projects = ["apps/*"]
 
 [profiles.plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.0" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1" }
 
 [profiles.rules]
 "typescript/parse" = "error"

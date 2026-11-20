@@ -14,9 +14,9 @@
 </p>
 
 > [!NOTE]
-> `v0.2.0` is the current release: the core, the plugin runtime, the Rust SDK, the launcher and
-> seven shared plugins. What changes from one release to the next is in the
-> [changelog](CHANGELOG.md).
+> `v0.2.1` is the current release: the core, the plugin runtime, the Rust SDK, the launcher and
+> seven shared plugins, `git` and `nestjs` at 0.2.1 and the others at 0.2.0. What changes from one
+> release to the next is in the [changelog](CHANGELOG.md).
 
 ## 💡 Highlights
 
@@ -205,7 +205,7 @@ run `gate init`. Run these in the root of your repository; the last line removes
 files:
 
 ```bash
-version=0.2.0
+version=0.2.1
 target=aarch64-apple-darwin          # or x86_64-unknown-linux-musl
 curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/gate-${target}.tar.gz"
 curl -fsSLO "https://github.com/ElsiKora/Gate/releases/download/v${version}/SHA256SUMS"
@@ -251,13 +251,13 @@ A repository with one project needs one `gate.toml` at its root:
 
 ```toml
 [gate]
-version = "0.2.0"
+version = "0.2.1"
 
 [plugins]
 markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.0"
+source = "ElsiKora/Gate:git@0.2.1"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -307,14 +307,14 @@ projects their settings through profiles; a project with needs of its own adds i
 ```toml
 # gate.toml
 [gate]
-version = "0.2.0"
+version = "0.2.1"
 
 [workspace]
 projects = "pnpm"                 # from pnpm-workspace.yaml; or a list of globs
 ignore = ["samples/**"]
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.0"
+source = "ElsiKora/Gate:git@0.2.1"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -338,7 +338,7 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 name = "server"
 
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.0" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1" }
 
 [rules."nestjs/import-direction"]
 level = "error"
