@@ -6,7 +6,7 @@
 | Release | v0.3.0 (plugin nestjs 0.3.0 with the core, on `gate:plugin@0.3.0`; merges after the v0.2.1 tag) |
 | Writer | "Gate 002", from 2026-11-20 (first "Gate 003: host foundations") |
 | Reviewer | a session that did not write it |
-| Depends on | `main` at `cee6491` (v0.2.1 and the first two 0.3.0 batches) |
+| Depends on | `main` at `7f62554b` (the second 0.3.0 batch, T-074 and T-073) |
 | Touches | `plugins/nestjs/src/rules/semantics/wrappers/`, `plugins/nestjs/tests/wrappers.rs`, `plugins/nestjs/rules/wrappers.md`, `plugins/nestjs/CHANGELOG.md` |
 
 ## Goal
@@ -80,3 +80,7 @@ dropping either scope path fails it); the `class` option test asserts that the e
 and `port`; the rule page and the CHANGELOG entry say "not redeclared" and list defaulted,
 reassigned, destructured and redeclared parameters as keeping the line form. Next: rebase onto
 `main` once T-073 is merged, then the round that counts.
+2026-11-20T17:57:38+00:00: rebased onto `main` at `7f62554b`, with Gate checking itself (T-074) and
+wasmtime 50.0.3 (T-073), as the lead asked; no conflict. Round 346 on `cee6491` stopped at `cargo
+deny` on RUSTSEC-2026-0587 only, which T-073 fixed. Next: the round that counts, on T-044's own
+target.
