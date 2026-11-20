@@ -7,7 +7,7 @@
 | Writer | "Gate 002" |
 | Reviewer | the lead |
 | Depends on | T-042 (`prohibited-trailers`) at its tip `5e98a9f`; rebased onto `main` once T-042 merges |
-| Touches | `plugins/git/src/commit_message.rs`, `plugins/git/src/lib.rs` (its doc), its tests and the test repository, `plugins/git/rules/commit-message.md`, `plugins/git/CHANGELOG.md` |
+| Touches | `plugins/git/src/commit_message.rs`, `plugins/git/src/history.rs` (the shared set), `plugins/git/src/lib.rs` (its doc), its tests and the test repository, `plugins/git/rules/commit-message.md`, `plugins/git/CHANGELOG.md` |
 
 ## Goal
 
@@ -20,20 +20,27 @@ message being written and history.
 
 ## Design
 
-- A run with a push range (`gate check --push`, the `pre-push` hook and the CI job that runs it;
-  `git.range()` with a `target_ref`) checks, besides the message being written when there is one,
-  the message of each commit of `<base>..<head>`, oldest first, with every aspect and option:
+- A run with a push range to a branch (`gate check --push`, the `pre-push` hook and the CI job that
+  runs it; `git.range()` with a `target_ref` under `refs/heads/`) checks, besides the message being
+  written when there is one, the message of each commit the branch adds, oldest first: the commits
+  reachable from the head and neither from the base (the remote ref's old tip) nor from main
+  (`[plugins.git] options main`, its first reference that names a commit), with every aspect and
+  option:
   the form checks, `ignores` and the default ignores (so the merges and reverts of the range are
   skipped, as commitlint skips them), and `prohibited-trailers`.
 - A finding of a pushed commit is on that commit (`Location::commit`), its target the commit id
   (so an exception names the commit, as for the history rules), its key the commit id, and the
   trailer after it for `prohibited-trailers`; its message starts with the short id
-  (`a1b2c3d4e5f6: type feature is not a commit type; ...`). A finding of the message being
-  written is as today.
-- A new branch (no base): the head commit alone. The rule reads no `[plugins.git] options`. A pull
-  request's CI range always has a base, so the gap is only the first `pre-push` of a new branch,
-  and the CI job closes it.
-- A `--rev` run (a range without a target ref) checks nothing more than today.
+  (`a1b2c3d4e5f6: type feature is not a commit type; ...`), and its help says to reword it with
+  `git rebase -i <id>^`, or, when others already have it, to add an exception for its id. A
+  finding of the message being written is as today.
+- A merge of main into a pushed branch, or a rebase onto main and a force push, therefore judges
+  only the branch's own new commits, never a commit main already holds (a web edit, a bot commit),
+  which the developer cannot reword.
+- A new branch (no base): `main..head`, every commit it adds to main, the set `git/no-ci-skip`
+  judges, from the one function both rules call (`history::ahead`).
+- A `--rev` run (a range without a target ref) checks nothing more than today, and a pushed tag
+  (a target ref outside `refs/heads/`) checks nothing.
 
 ## Breaking, for consumers
 
@@ -53,23 +60,34 @@ applies them, findings on the commit with its id as target and key; v0.3.0, unde
 `git/no-ci-skip` does with a zero base, through one shared function. `git/no-ci-skip` has no such
 case: it never reads the range's base, and reads the policy history instead (`activation..main`,
 main the pushed head when the push targets a main ref, plus `main..HEAD`), which needs
-`activation` and `main`. The lead chose: the head commit alone for a new branch, not tied to
-`main`, since a pull request's CI range always has a base and closes the gap of a new branch's
-first `pre-push`.
+`activation` and `main`. The lead chose then: the head commit alone for a new branch, not tied
+to `main`. Ruling 2 of the review below replaces that choice: a new branch judges `main..head`.
 
-## Open item, for both rules
+## The lead's rulings on the review (2026-11-20)
 
-The commits a new branch's head adds over every remote ref, for `git/commit-message` and
-`git/no-ci-skip` alike. It needs a git query the plugin interface may not have yet; the lead decides
-it separately, outside this task.
+1. The push set is the commits reachable from the head that are neither reachable from the base nor
+   from main, main as the history rules resolve it. `<base>..<head>` alone re-judged main's commits
+   after a merge of main or a rebase and force push. Tested with a merge of main into a pushed
+   branch and with a rebase and force push.
+2. One set, one function: a new branch judges `main..head`, as `git/no-ci-skip` does, through
+   `history::ahead`; no `<head>^!` case. The answer of 2026-11-19 above that chose the head commit
+   alone is replaced by this ruling. Tested with a new branch of three own commits and a merge head.
+3. A push whose target ref is not under `refs/heads/` (a tag) checks nothing.
+4. A pushed commit's help says `git rebase -i <id>^`, or an exception by id when the commit is
+   shared; the help of the message being written stays.
+5. The short id comes from `history::Commit::short()`.
+6. The changelog entry sits in the `# 0.3.0 (unreleased)` section, with no `## Unreleased` left.
 
 ## Done when
 
 - Tests: a push range whose commits all pass; one commit failing a form aspect and one failing
   `prohibited-trailers`, each on its commit with its target and key; a merge and a `fixup!` in the
-  range skipped by the default ignores; a new branch (the head commit alone); a `--rev` run and a
-  run with neither range nor message checking nothing; the message being written and a push range
-  in one run.
+  range skipped by the default ignores; a new branch of three own commits and a merge head judging
+  the three and none of main; a merge of main into a pushed branch and a rebase and force push each
+  judging only the branch's commits, natively and on a real git repository through the built
+  component; a pushed tag checking nothing; a pushed commit's help; a `--rev` run and a run with
+  neither range nor message checking nothing; the message being written and a push range in one
+  run.
 - The rule page (what is read, when) and the changelog under `0.3.0 (unreleased)`, `Breaking
   Changes`.
 - `rustfmt --edition 2024 --check` on the changed `.rs` files exits 0 before each commit.
@@ -112,3 +130,14 @@ commit's short id" could not hold. The ids are now `c`, the order in 11 hex digi
 in 28: the short ids differ, and the ids still sort in commit order. The other git tests build
 their expected text from `short(&id)`, so they read the same; none matched a short id in a message
 otherwise. rustfmt --edition 2024 --check on the changed `.rs` files: exit 0.
+2026-11-20T08:56:40+00:00: review fix round, rebased onto `main` at `5da3272` (0.2.1). The push set
+is `history::ahead(main, head)` (`main..head`, the function `History::read` uses for the branch's
+commits) less what the base already reaches; `history::main_reference` resolves main for both. A
+target ref outside `refs/heads/` checks nothing; a pushed commit's help names `git rebase -i
+<id>^` and an exception by id; the short id is `Commit::short()`. The test repository no longer
+reads `<commit>^!`. Next: the real-git end-to-end tests, one lane round on T-055's own target.
+2026-11-20T09:24:32+00:00: the real-git end-to-end tests are in `crates/gate/tests/plugins.rs`,
+through the built git component and `gate check --push <base>..<head> --target-ref
+refs/heads/feat/the-thing`: a two-parent merge of main into a pushed branch and a rebase plus force
+push each name only the branch's own new commit, never main's web edit `Update README.md`. Under
+the old `base..head` set both would name the web edit. Next: one lane round on T-055's own target.

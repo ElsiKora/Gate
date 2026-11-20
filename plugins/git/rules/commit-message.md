@@ -21,17 +21,22 @@ with only comment lines, is not checked.
 
 A commit made without that hook (`git commit -n`, a cherry-pick, a rebase, an edit in a web
 interface) is checked when it is pushed: a `gate check --push` run, which the `pre-push` hook and
-the CI job start, also checks the message of each commit the push sends, oldest first, with every
-check and option below:
+the CI job start, also checks the message of each commit the push adds to the branch, oldest first,
+with every check and option below. Those are the commits reachable from the pushed head and neither
+from the remote ref's old tip nor from main, the first reference of `[plugins.git] options main`
+that names a commit:
 
-- A push with a base (an existing remote ref, and every pull request's range in CI) sends the
-  commits of `<base>..<head>`; the commits already on the remote ref are not checked.
-- A new branch has no base, and its head commit alone is checked. The other commits it adds are
-  checked by the CI job of its pull request, whose range has a base.
+- A push to an existing branch checks its new commits only. After a merge of main into the branch,
+  or a rebase onto main and a force push, the commits main already holds (a web edit, a bot commit)
+  are not checked: the developer cannot reword them.
+- A new branch checks every commit it adds to main (`main..head`), the commits `git/no-ci-skip`
+  reads for it.
+- A push whose target is not a branch (`refs/heads/…`), such as a tag, checks nothing.
 
 A finding of a pushed commit is on that commit, starts with its short id, and names the commit as
-its target, so an exception for a commit that is already shared names its id. A `--rev` run, and a
-run with neither `--commit-message` nor `--push`, check nothing.
+its target. Its help says to reword the commit with `git rebase -i <id>^` and push the branch again,
+or, when others already have it, to add an exception for its id. A `--rev` run, and a run with
+neither `--commit-message` nor `--push`, check nothing.
 
 The message is read as `commitlint --edit` reads it:
 
