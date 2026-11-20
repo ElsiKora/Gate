@@ -41,6 +41,7 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `agents` | project | none | no | `agents/adapters`, `agents/agents-block` |
 | `ledger` | project | none | no | none |
 | `nestjs` | project | TypeScript | no | none |
+| `cdk` | project | TypeScript | no | none |
 | `ci` | repository | none | no | none |
 
 ### `typescript`
@@ -199,6 +200,30 @@ Every rule reads the shared `layout` block of `[plugins.nestjs] options`
 ([its page](../../plugins/nestjs/rules/layout.md)); each rule's page is under
 [plugins/nestjs/rules](../../plugins/nestjs/rules).
 
+### `cdk`
+
+AWS CDK apps written in TypeScript, one standard for all of them: the layout, file names and
+declarations, `cdk.json` and `package.json`, accounts, regions and configuration, stack names,
+construct ids, physical names, properties, tags, removal policies, cdk-nag and unit tests. The app is a
+project of its own, its root the directory of `cdk.json`; the rules read the tracked files and never
+run the app. Links the TypeScript language library.
+
+```toml
+# infrastructure/gate.toml
+[project]
+name = "infrastructure"
+extends = ["cdk/recommended"]
+
+[plugins]
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
+cdk = { source = "ElsiKora/Gate:cdk@0.3.0", options = { regions = ["eu-central-1", "us-east-1"] } }
+```
+
+A project extends the standard only through `[plugins.cdk] options`: `extra` directories and
+`extra-tags`, each with its job, `regions` and `nag-packs`. An existing app starts from the
+`adoption` preset, which keeps the renames at `warning`. The standard, the options and each rule's
+page are under [plugins/cdk/rules](../../plugins/cdk/rules/README.md).
+
 ### `ci`
 
 GitHub Actions workflows, generated or written by hand.
@@ -220,9 +245,9 @@ ci = { source = "ElsiKora/Gate:ci@0.2.0" }
 ## 🎛 Presets
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
-`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. None of
-the shared plugins ships a preset yet, so turn their rules on one by one in `[rules]`; `gate list` shows
-the result.
+`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. The
+`cdk` plugin ships `recommended` and `adoption`; turn the other shared plugins' rules on one by one in
+`[rules]`. `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 
