@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | rebased onto `main` at `d0c6cda3`; the `frontend` fix after round 380 waits for its round |
+| Status | rebased onto `main` at `d0c6cda3`; round 385 green; merges last of 0.3.0 |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -255,10 +255,20 @@ and lists the seven preset tests and the CLI test by name, each `ok`. The nine m
 their exact test fail (exit 101): the eight of round 322, and `ci`'s options without their default
 (so `workflows` is required), which `ci`'s preset test catches through the new load check.
 
+### Proof of the round after the second rebase
+
+Lane ticket 385 on `4723f9ae`, 2026-11-20T22:39:46+00:00 to 2026-11-20T22:53:37+00:00
+(`round-inner.sh`, its own target directory, logs kept under the ticket): fmt 0, clippy 0, test 0
+(1459 passed, 0 failed), deny 0 (advisories, bans, licenses, sources ok), release build 0. The test
+log shows `Compiling` for every `gate` crate and plugin from the round's own checkout of
+`4723f9ae`, and lists each plugin's preset test, the five load checks, `cdk`'s
+`both_presets_set_every_rule_at_their_one_level` and the CLI test by name, each `ok`. Ticket 380 on
+`0fcdc642` had failed `frontend`'s preset test, because every `frontend` rule needs `pack`; by the
+lead's ruling the check now gives each preset rule each pack in turn. All fifteen mutations made
+their exact test fail (exit 101); the last, `file-names` taken out of `frontend/adoption`, fails
+`frontend`'s test on the list of rules (`adoption`), no longer on `pack`.
+
 ## Resume point
 
-2026-11-20T21:32:48+00:00: round 380 on `0fcdc642` failed one test, the `frontend` preset check,
-because every `frontend` rule needs `pack`. By the lead's ruling, `frontend`'s check now runs once
-per pack with `pack` given and asserts the missing-pack error, and the guide and the plugin's page
-say to set `pack` first. The next round is queued after T-071b's round 384; the branch merges
-last of 0.3.0.
+2026-11-20T22:54:29+00:00: ticket 385 on `4723f9ae` is green with every mutation caught. The branch
+merges last of 0.3.0; if `main` moves in code it touches, it rebases and runs one more round.
