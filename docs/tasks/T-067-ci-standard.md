@@ -258,4 +258,13 @@ add reviewers or a tag policy to it later.
   actionlint on a workflow the release build's `gate sync` wrote (version comments after each
   pin) exit 0; `done in 797s with exit code 0`. Its logs show `gate`, `gate-host` and
   `gate-plugin-ci` compiled from this worktree, and all 27 new tests listed by name.
-- Next: review by a session that did not write it, then the lead merges.
+- 2026-11-20T16:33:45+00:00: rebased onto `main` at `cee6491` (batches 1 and 2). `main` moved the YAML reader to
+  `gate_sdk::yaml` (feature `yaml`), so every rule imports `gate_sdk::yaml::Node`; conflicts in
+  `plugins/ci/src/actions_pinned.rs` (imports), `crates/gate/tests/plugins.rs` (both sides add
+  tests at the end; kept both, with this branch's `timeout-minutes` edits) and
+  `docs/guide/plugins.md` (the presets paragraph names `ci/recommended` beside the new plugins'
+  presets). The `CHANGELOG.md` entries move from the released 0.2.1 section into 0.3.0. No
+  `[ci.github]` job that `main` added lacks `timeout-minutes`; Gate's workflows are unchanged on
+  `main`. Not yet run in the lane on this tip.
+- Next: the round on the rebased tip, then review by a session that did not write it, then the
+  lead merges.
