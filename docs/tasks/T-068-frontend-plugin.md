@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | approved for code (design at `6ebd2b0`); the code is in progress |
+| Status | approved for code (design at `6ebd2b0`); the design revised for the second FSD pass's rulings (decision 11), for the lead to read; then one code fix round |
 | Release | v0.3.0 |
 | Writer | "Gate 007" |
 | Reviewer | a separate review session |
@@ -77,37 +77,70 @@ each other, PascalCase files and environment reads in six folders.
 
 ## 2. The standard
 
+The standard is Feature-Sliced Design (FSD) as its documentation describes it: layers, slices and
+segments, public APIs, cross-imports, and its Next.js guide. The second independent FSD pass
+(2026-11-20) checked it against the FSD documentation, Steiger 0.8.2 and fsd-lint 1.2.1. Where it is
+stricter than FSD, 2.7 says where and why.
+
 ### 2.1 The tree
 
-Every app keeps its code under `src/`, in Feature-Sliced layers. A layer is a folder of `src/`; it
-imports only from layers below it.
+Every app keeps its code under `src/`, in FSD layers. A layer is a folder of `src/`; it imports only
+from layers below it.
 
 ```
 src/
-  app/           the application: entry, providers, global styles, the router and its route files
+  app/           the app layer, one slice: segments only
+    entrypoint/  what starts the app: the router instance, the root render (react-vite)
+    providers/   the providers that wrap the app
+    store/       the root store, when the app has one
+    styles/      the one global stylesheet
+    routes/      the TanStack Router file routes (react-vite only), thin
+    config/, lib/
+  pages/         one slice per page
   widgets/       self-contained blocks of a page (a header, a dashboard panel): one slice per block
   features/      user actions with value (sign in, switch balance): one slice per action
   entities/      business objects (user, invoice): one slice per object
-  shared/        what knows no business: segments only, no slices
+    <a>/@x/<b>.ts  what entity <a> offers entity <b>, and only <b>
+  shared/        what knows no business, one slice: segments only
     api/         the HTTP client: the one module that calls the network
+    ui/          the design-system components, and the assets they share
+    lib/         helpers and hooks that know no business
     config/      env.ts: the one module that reads the environment
     i18n/        the translation setup and messages/<locale>.json
-    assets/      images, icons and fonts the code imports
-    ui/          the design-system components
-    lib/         helpers and hooks that know no business
+    routes/      route paths and their builders
 ```
 
-- **A slice** is a kebab-case folder of `widgets/`, `features/` or `entities/`. Its `index.ts` is its
-  public surface. Its code sits in segments: `ui/` (components), `model/` (state, hooks, types,
-  business logic), `api/` (the requests of this slice, through `shared/api`), `lib/` (helpers),
-  `config/` (constants). No other folder and no other file sits in a slice.
-- **No `pages` layer.** A route file is the page: it reads its parameters and composes widgets. This
-  removes the one place where Next.js and Feature-Sliced Design collide (`pages/` is reserved by
-  Next.js), the same way in both packs, without a renamed layer or an empty decoy folder.
-- **No `processes` layer.** Feature-Sliced Design has deprecated it; one project used it.
-- **A library** (`react-library`) is a `shared` layer published on its own: `src/` holds the shared
-  segments (`ui/`, `lib/`, `model/`, `api/`, `config/`, `i18n/`, `assets/`) and `src/index.ts`, its
-  one entry. It has no layers, no routes and reads no environment.
+- **Layers**, top to bottom: `app`, `pages`, `widgets`, `features`, `entities`, `shared`. Every app
+  pack has all six names available; a layer with nothing in it is absent. No `processes` layer: FSD
+  has deprecated it.
+- **A slice** is a kebab-case folder of `pages/`, `widgets/`, `features/` or `entities/`. Its root
+  holds its public API and segments, nothing else:
+  - `index.ts`, the public API, which only re-exports;
+  - in `nextjs`, also `index.server.ts`, the public API of what may run only on the server;
+  - the segments `ui/` (components and the assets they import), `model/` (state, hooks, types,
+    business logic), `api/` (the requests of this slice, through `shared/api`), `lib/` (helpers) and
+    `config/` (constants);
+  - in an entity only, `@x/` (2.3).
+- **Slice groups.** In `widgets/`, `features/` and `entities/`, a folder may group slices: it has no
+  `index.ts`, every child of it is a slice, and a group holds no group. `features/auth/sign-in/` is
+  the slice `sign-in` in the group `auth`.
+- **`app` and `shared` are one slice each**: segments only, no slices. Their segments import each
+  other by relative path (`../lib/format` from `shared/ui` is fine). `app` has no `ui` segment.
+- **No segment directly on a sliced layer** (`features/ui/`), and **no folder inside a segment named
+  after a segment** (`features/auth/ui/lib/`); the names are Steiger's reserved list: `ui`, `api`,
+  `model`, `lib`, `config`.
+- **The pages layer.** A route file is thin: it reads its parameters and renders the page of
+  `@/pages/<slice>`. A block that is most of one page and not reused stays in that page's slice; it
+  moves to `widgets/` when a second page uses it.
+- **Next.js** (`nextjs`) keeps the App Router in the root `app/`, beside `src/`, as FSD's Next.js
+  guide does: route files that re-export or compose from `@/pages/...`, and Next's metadata and route
+  handler files. A root `pages/` holding only a `README.md` keeps Next from reading `src/pages/` as
+  the Pages Router; it is required. Next's root files (`middleware.ts` or `proxy.ts`,
+  `instrumentation.ts`, `instrumentation-client.ts`) sit at the project root beside `app/`, where Next
+  looks for them when the app folder is there.
+- **A library** (`react-library`) is a `shared` layer published on its own: `src/` holds the
+  segments `ui/`, `lib/`, `model/`, `api/`, `config/` and `i18n/`, and `src/index.ts`, its one entry.
+  It has no layers, no routes and reads no environment.
 
 ### 2.2 Names
 
@@ -115,11 +148,17 @@ src/
   `user-card.tsx`, `use-balance.ts`, `invoice-api.ts`, `logo-dark.svg`. One rule for every kind of
   file; it is what Next.js and the router files already require (`page.tsx`, `not-found.tsx`), what
   the component generator of the design-system kit writes, and it cannot break on a case-insensitive
-  file system the way a case-only rename of `UserCard.tsx` does. PascalCase is today's majority for
-  components (17 of 28); this is the owner's call, question 1.
-- **The only dotted parts** of a name are `.test`, `.stories`, `.module` (a CSS module) and `.d`
-  (a declaration file). The segment says the kind, so `name.helper.ts` is `lib/name.ts` and
-  `name.service.ts` is `api/name.ts`.
+  file system the way a case-only rename of `UserCard.tsx` does. The root `app/` of a Next.js app
+  follows the same rule.
+- **Route folders take their router's syntax** besides kebab-case (section 3). A route parameter is
+  camelCase (`$invoiceId`, `[invoiceId]`): its name becomes a property of the router's `params`
+  object, and camelCase is what the code then reads (`params.invoiceId`) without quoting.
+- **`@x`** is a folder name only in an entity slice's root (2.3).
+- **The only dotted parts** of a name are `.test`, `.stories`, `.module` (a CSS module), `.d`
+  (a declaration file) and `.server` (`index.server.ts`, in `nextjs`); in a Vite route folder also
+  `.lazy` (TanStack Router's lazy route files), and `src/app/route-tree.gen.ts`, the file TanStack
+  Router's generator writes, keeps its name. The segment says the kind, so `name.helper.ts` is
+  `lib/name.ts` and `name.service.ts` is `api/name.ts`.
 - **A component file** `user-card.tsx` exports `UserCard`, by name. Other components it exports start
   with that name (`UserCardHeader`). No default export, except where a framework requires one
   (section 3).
@@ -129,14 +168,22 @@ src/
 
 ### 2.3 Imports
 
-- **One alias, `@/`, for `src/`.** An import that leaves its slice (or its shared segment) names the
-  target from the root: `@/entities/user`, `@/shared/api`. An import inside a slice is relative and
-  never climbs out of it. No other alias.
-- **Layers point down**: `app` > `widgets` > `features` > `entities` > `shared`. A slice imports no
-  other slice of its own layer. `shared` imports no layer.
-- **Slices are reached through their `index.ts`.** That is `typescript/barrel-imports` (it already
-  reports an import past a barrel and a name a barrel does not export), so the frontend plugin does
-  not check it again; the frontend preset's page tells a project to enable it.
+- **One alias, `@/`, for `src/`.** An import that leaves its slice names the target from the root;
+  an import inside a slice is relative and never climbs out of it. No other alias.
+- **Layers point down**: `app` > `pages` > `widgets` > `features` > `entities` > `shared`; the root
+  `app/` of a Next.js app is above them all. A slice imports no other slice of its own layer, except
+  through `@x`.
+- **A slice is reached through its public API**, which the frontend plugin checks itself, in static
+  imports, `export ... from` and `import()`:
+  - a slice of `pages`, `widgets`, `features` or `entities`: `@/<layer>/<slice>` (with its group, if
+    any), and in `nextjs` also `@/<layer>/<slice>/index.server`;
+  - `shared`: `@/shared/<segment>`; for `ui` and `lib` also `@/shared/<segment>/<name>`, one level
+    down. Every other shared segment (`api`, `config`, `i18n`, `routes`) has an `index.ts`, and
+    `@/shared/config/env` is a sidestep;
+  - anything deeper is a sidestep.
+- **`@x`, entities only.** Entity `b` may import entity `a` through `@/entities/a/@x/b`, the file
+  `src/entities/a/@x/b.ts`, which re-exports what `a` offers `b`. Only `src/entities/b/` imports it;
+  `@x` anywhere else is reported.
 
 ### 2.4 The API
 
@@ -148,27 +195,46 @@ src/
 
 ### 2.5 The environment
 
-- **One module reads the environment**: `src/shared/config/env.ts`, which exports typed values.
+- **One module reads the environment**: `src/shared/config/env.ts`, which exports typed values; the
+  rest of the app takes them from `@/shared/config`.
 - **Each read is a literal member** (`import.meta.env.VITE_API_URL`, `process.env.NEXT_PUBLIC_API_URL`),
   never computed or destructured: the bundlers replace only literal reads, so any other form is
   `undefined` in the browser.
-- Next.js adds `src/shared/config/server-env.ts` for values the browser must never see (section 3).
+- Next.js adds `src/shared/config/server-env.ts` for values the browser must never see, exported from
+  `src/shared/config/index.server.ts` (section 3).
 
 ### 2.6 Text, assets, styles, tests
 
 - **Every user-visible string goes through the translation layer** (`src/shared/i18n/`), including
   in an app with one language today: the strings are then in one place, and a second language is a
   file. Messages are `src/shared/i18n/messages/<locale>.json`, one file per locale, all with the same
-  keys. 24 of 28 projects have no translation library; this is the owner's call, question 2.
-- **Assets** the code imports are under `src/shared/assets/` (a library: `src/assets/`); files served
-  by a fixed URL (favicon, `robots.txt`, manifest, social images) are under `public/`. No asset
-  anywhere else.
-- **Styles**: one global stylesheet in `src/app/`; any other stylesheet is a CSS module beside the
-  component of the same name (`user-card.module.css` beside `user-card.tsx`). Which styling tool
+  keys.
+- **Assets** the code imports sit in the `ui` segment of the slice that uses them, or in
+  `src/shared/ui/` when several slices share them (a library: `src/ui/`). Files served by a fixed URL
+  (favicon, `robots.txt`, manifest, social images) are under `public/`, and in Next.js the metadata
+  files sit in the root `app/`. No asset anywhere else.
+- **Styles**: one global stylesheet in `src/app/styles/`; any other stylesheet is a CSS module beside
+  the component of the same name (`user-card.module.css` beside `user-card.tsx`). Which styling tool
   (Tailwind, Sass) is the project's choice; `frontend/packages` holds it to one.
 - **Tests and stories** sit beside what they test: `user-card.test.tsx` and `user-card.stories.tsx`
   beside `user-card.tsx`.
 - **TypeScript only**: no `.js`, `.jsx`, `.mjs` or `.cjs` under `src/`.
+
+### 2.7 Stricter than FSD, and what is left out
+
+Stricter, each for its reason:
+
+- **The segment list and the slice root are closed** (2.1). FSD allows any segment name and other
+  files in a slice; one closed list is what makes one tree in every project.
+- **No `_app` or `_pages` rename** for Next.js, which FSD allows. The root `app/` and the root
+  `pages/README.md` keep the layer names `app` and `pages` as they are, so every pack has one layer
+  name for each layer.
+- **`index.tsx` is not a public API**; FSD accepts it. A public API holds re-exports only, and a
+  `.tsx` index invites a component into it.
+- **`@x` on entities only**; FSD documents it for entities, and the standard allows nothing else.
+
+Not adopted from Steiger and fsd-lint: their heuristic rules (insignificant slices, repetitive
+naming, ambiguous slice names), wildcard re-exports and circular imports.
 
 ## 3. The packs: what differs, and why
 
@@ -177,14 +243,16 @@ cells below. A cell differs only because the framework itself works that way.
 
 | Subject | `react-vite` | `nextjs` | `react-library` | Reason |
 | --- | --- | --- | --- | --- |
-| Entry | `index.html` loads `src/main.tsx` | none of the app's own; Next.js starts from `src/app/layout.tsx` | `src/index.ts` | Each tool's own entry. |
-| Route files | `src/app/routes/`, TanStack Router file routes (`__root.tsx`, `index.tsx`, `$id.tsx`, `route.tsx`), each exporting `Route` | `src/app/` itself, Next.js special files (`page`, `layout`, `loading`, `error`, `not-found`, `template`, `default`, `route`, `global-error` and the metadata files), each with its default export | none | Next.js routes from `src/app/` and requires default exports; a Vite app picks its router, and file routes are the form that makes the route folder look like Next's. `frontend/route-config` checks the generator's folders, `frontend/packages` the router package. |
-| Other files allowed in `src/` root | `main.tsx`, `vite-env.d.ts` | `middleware.ts` (or `proxy.ts` from Next.js 16), `instrumentation.ts` | `index.ts` | Files the framework looks up by name. |
-| Folder names in the route folder | kebab-case, `$param`, `_pathless`, `(group)` | kebab-case, `[param]`, `[...rest]`, `(group)`, `@slot` | none | Each router's syntax. |
+| Entry | `index.html` loads `src/main.tsx` | none of the app's own; Next.js starts from the root `app/layout.tsx` | `src/index.ts` | Each tool's own entry. |
+| Route files | `src/app/routes/`, TanStack Router file routes (`__root.tsx`, `index.tsx`, `$id.tsx`, `route.tsx`, and `.lazy.tsx` files), each exporting `Route`; `src/app/route-tree.gen.ts` is the generator's | the root `app/`, Next.js special files (`page`, `layout`, `loading`, `error`, `not-found`, `template`, `default`, `route`, `global-error`, `forbidden`, `unauthorized` and the metadata files), each with its default export | none | Next.js routes from its app folder and requires default exports; FSD's Next.js guide puts that folder at the root so that `src/app` stays the app layer. A Vite app picks its router, and file routes are the form that makes the route folder look like Next's. `frontend/route-config` checks the generator's folders, `frontend/packages` the router package. |
+| Files allowed in `src/` root | `main.tsx`, `vite-env.d.ts` | none | `index.ts` | Files the framework looks up by name; Next.js looks up its own (`middleware.ts` or `proxy.ts`, `instrumentation.ts`, `instrumentation-client.ts`) beside its app folder, at the project root. |
+| Outside `src/` | configuration files at the project root | also the root `app/`, and the root `pages/` with only a `README.md`, which is required | configuration files at the project root | Next.js reads `src/pages/` as the Pages Router unless a root `pages/` exists. |
+| Folder names in the route folder | kebab-case, `$param`, `$` (splat), `_pathless`, `(group)` | kebab-case, `[param]`, `[...rest]`, `[[...rest]]`, `(group)`, `@slot`, and intercepting routes (`(.)`, `(..)`, `(...)` before a name) | none | Each router's syntax; parameters in camelCase (2.2). |
+| Public API of a slice | `index.ts` | `index.ts`, and `index.server.ts` for server-only exports | `src/index.ts` | Next.js runs some code only on the server, and a separate entry keeps it out of client bundles. |
 | Environment syntax | `import.meta.env.VITE_*` | `process.env.NEXT_PUBLIC_*` in `env.ts`; any key in `server-env.ts`, which starts with `import "server-only"` | no read at all | Vite exposes `VITE_` keys through `import.meta.env`; Next.js inlines `NEXT_PUBLIC_` keys and keeps the rest on the server. A library is configured by its caller. |
-| Client components | n/a | `"use client"` only in `ui` and `model` segments and `src/app/` providers; never in a route file | n/a | Only Next.js has server components; a client route file loses server data loading and `metadata`. |
+| Client components | n/a | `"use client"` only in `ui` and `model` segments and `src/app/providers/`; never in a route file | n/a | Only Next.js has server components; a client route file loses server data loading and `metadata`. |
 | Translation binding | `react-i18next` (`useTranslation`, `t`) | `next-intl` (`useTranslations`, `getTranslations`, `t`) | the library's own `i18n/` messages, taken through its props | The rule that checks message keys must know how `t` is bound; each framework has one library that works with its rendering (next-intl with server components). `frontend/packages` checks that it is the one installed. |
-| Layers | `app`, `widgets`, `features`, `entities`, `shared` | the same | shared segments only | A library has no pages, flows or business objects of an app. |
+| Layers | `app`, `pages`, `widgets`, `features`, `entities`, `shared` | the same | shared segments only | A library has no pages, flows or business objects of an app. |
 
 ## 4. The plugin
 
@@ -221,7 +289,8 @@ options = { pack = "nextjs" }
   them into `gate-typescript` as a public type and `nestjs` uses it from there, with no change of
   behavior (its tests prove that), so the two plugins do not carry two copies. The alternative is a
   copy in `frontend`. Question 7.
-- **`typescript/barrel-imports`** checks slice public surfaces (2.3); `frontend` does not.
+- **Slice public APIs** are checked by `frontend/import-paths` itself (2.3), in static imports,
+  `export ... from` and `import()`; the opt-in `typescript/barrel-imports` is not needed for them.
 - Nothing in the core changes, and the core names no framework.
 
 ## 5. Rules
@@ -231,22 +300,22 @@ Every finding that embeds a path or a name carries a key, so a reworded message 
 
 | Rule | What it reports | Why | Aspects | Options (default) |
 | --- | --- | --- | --- | --- |
-| `frontend/layout` | a file outside the tree of 2.1: code outside `src/` (root configuration files are T-065's), an unknown top-level folder of `src/`, a slice folder that is not kebab-case or has no `index.ts`, a folder or file in a slice that is not a segment, a slice in `shared/`, a file in `src/` root that the pack does not allow | One tree is what makes a project readable to someone who knows another. | `source-root`, `layer`, `slice`, `segment`, `shared`, `root-file` | none |
-| `frontend/file-names` | a file or folder name under `src/` that is not kebab-case, or a dotted part other than `test`, `stories`, `module`, `d`; route folders take their router's syntax (section 3) | One name per kind of file, and no rename that differs only in case. | `file`, `folder`, `suffix` | none |
+| `frontend/layout` | a file outside the tree of 2.1: code outside `src/` (root configuration files are the toolchain's; in `nextjs` the root `app/` is allowed), in `nextjs` a root `pages/` that is missing, lacks its `README.md` or holds anything else; an unknown layer of `src/`; a slice that is not kebab-case, has no `index.ts`, has `index.tsx`, or holds a file or folder that is not its public API or a segment; a group with an `index.ts`, a file, or a group inside it; a segment directly on a sliced layer; a folder inside a segment named after a segment; a `ui` segment, an unknown segment or a loose file in `src/app/`; an unknown shared segment, or a shared segment other than `ui` and `lib` without `index.ts`; `@x` other than `src/entities/<a>/@x/<b>.ts`; a file in `src/` root that the pack does not allow | One tree is what makes a project readable to someone who knows another. | `source-root`, `next-pages`, `layer`, `slice`, `group`, `segment`, `reserved`, `app`, `shared`, `cross-import`, `root-file` | none |
+| `frontend/file-names` | a file or folder name under `src/` (and the root `app/` of `nextjs`) that is not kebab-case, or a dotted part other than `test`, `stories`, `module`, `d` and, in `nextjs`, `server`; route folders take their router's syntax (section 3), with `.lazy` and `route-tree.gen.ts` in Vite; `@x` only in an entity slice's root | One name per kind of file, and no rename that differs only in case. | `file`, `folder`, `suffix` | none |
 | `frontend/typescript-sources` | a `.js`, `.jsx`, `.mjs` or `.cjs` file under `src/` | The other rules read TypeScript; a JavaScript file is unchecked code. | none | none |
-| `frontend/import-direction` | an import of a higher layer, or of another slice of the same layer, or of any layer from `shared` (libraries: none) | Layers that point one way are what keep a slice replaceable. | `layer`, `cross-slice` | none |
-| `frontend/import-paths` | an alias other than `@/`; an import that leaves its slice or shared segment by a relative path; an import inside one slice through `@/` | One spelling per target makes moves and searches mechanical. | `alias`, `relative-exit`, `absolute-inside` | none |
+| `frontend/import-direction` | an import of a higher layer, of another slice of the same layer other than through an entity's `@x` for the importing entity, or of any layer from `shared` (libraries: none); the root `app/` of `nextjs` may import every layer | Layers that point one way are what keep a slice replaceable. | `layer`, `cross-slice` | none |
+| `frontend/import-paths` | an alias other than `@/`; an import that leaves its slice by a relative path (`app` and `shared` are one slice each); an import inside one slice through `@/`; an import from outside a slice past its public API (2.3), in static imports, `export ... from` and `import()` | One spelling per target makes moves and searches mechanical, and a public API is what lets a slice change inside. | `alias`, `relative-exit`, `absolute-inside`, `public-api` | none |
 | `frontend/component-names` | a `.tsx` file in a `ui` segment that does not export the component its name gives, exports another component whose name does not start with it, or has a default export where its framework does not require one | A file's name finds its component, and the other way round. | `name`, `extra`, `default-export` | none |
-| `frontend/hook-names` | a `use` + capital function exported from a file not named after it, a `use-*.ts` file that does not export its hook, a hook outside a `model` or `lib` segment or `src/app/` | Hooks are found by name and live where state and helpers live. | `file`, `export`, `placement` | none |
-| `frontend/state-placement` | a store created (`create` of zustand, `createSlice` and `configureStore` of Redux Toolkit, `atom` of Recoil or Jotai, `makeAutoObservable` of MobX) outside a `model` segment or `src/app/` | State has one home per slice; the root store is the app's. | none | `stores`: the package and export of each store constructor, the five above |
+| `frontend/hook-names` | a `use` + capital function exported from a file not named after it, a `use-*.ts` file that does not export its hook, a hook outside a `model` or `lib` segment and the app layer's `providers` and `store` | Hooks are found by name and live where state and helpers live. | `file`, `export`, `placement` | none |
+| `frontend/state-placement` | a store created (`create` of zustand, `createSlice` and `configureStore` of Redux Toolkit, `atom` of Recoil or Jotai, `makeAutoObservable` of MobX) outside a `model` segment and `src/app/store/` | State has one home per slice; the root store is the app's. | none | `stores`: the package and export of each store constructor, the five above |
 | `frontend/api-boundary` | `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` or an HTTP package used outside `src/shared/api/`; `src/shared/api` imported outside an `api` segment and `src/app/` | One client holds the base URL, the auth header, retries and error mapping; a raw call skips all of them. | `raw-call`, `client-import` | `packages`: `axios`, `ky`, `ofetch`, `cross-fetch`, `node-fetch`, `isomorphic-fetch`, `undici`, `graphql-request`; `globals`: the four above |
 | `frontend/env-access` | `import.meta.env` or `process.env` read outside the pack's environment module(s); a computed, destructured or spread read inside them; in `env.ts` a key without the pack's public prefix; in Next.js a `server-env.ts` that does not start with `import "server-only"`; in a library, any read | The bundlers inline only literal reads of public keys; one module is the list of every key the app needs. | `outside`, `dynamic`, `prefix`, `server-guard` | none |
 | `frontend/literal-text` | JSX text with a letter, and a string literal in a user-visible attribute, outside the translation call, in a `.tsx` file | Text in code cannot be translated or reviewed in one place. | `text`, `attribute` | `attributes`: `alt`, `aria-label`, `aria-description`, `label`, `placeholder`, `title`; `ignore`: a regular expression for text that is not language (`^[\d\s.,:;%/()+-]*$`) |
 | `frontend/messages` | locale files whose key sets differ; an empty message; a literal key passed to `t` that the base locale lacks, as the pack binds `t` (section 3) | A key missing in one language shows the key to that language's users. | `locale-keys`, `empty`, `unknown-key` | `base-locale` (`"en"`) |
-| `frontend/asset-placement` | an image, icon, font, audio or video file outside `src/shared/assets/` (library: `src/assets/`) and `public/`; in Next.js the metadata files in `src/app/` are allowed | Two homes for assets: imported ones are hashed by the bundler, URL ones are served as they are. | none | `extensions`: `png jpg jpeg gif webp avif svg ico woff woff2 ttf otf mp3 wav mp4 webm` |
-| `frontend/style-files` | a stylesheet in `src/` that is neither the one global stylesheet of `src/app/` nor a `<name>.module.<ext>` beside `<name>.tsx`; a second global stylesheet; a non-module stylesheet imported outside `src/app/` | Global styles in one place; component styles travel with their component. | `global`, `orphan`, `import` | none |
-| `frontend/route-files` | in the route folder of the pack, a file that is not a route file of its router (components, hooks, helpers belong to layers); a route file without its required export | A route folder that holds only routes reads as the app's map. | `foreign`, `export` | none |
-| `frontend/client-boundary` | Next.js only: `"use client"` in a route file, or in a file outside the `ui` and `model` segments and `src/app/` providers | A route file stays a server component so its data loads on the server and it can export `metadata`. | `route-file`, `placement` | none |
+| `frontend/asset-placement` | an image, icon, font, audio or video file outside a `ui` segment (a slice's, `src/shared/ui/`, a library's `src/ui/`) and `public/`; in `nextjs` the metadata files in the root `app/` are allowed | Imported assets travel with what uses them and are hashed by the bundler; URL ones are served as they are. | none | `extensions`: `png jpg jpeg gif webp avif svg ico woff woff2 ttf otf mp3 wav mp4 webm` |
+| `frontend/style-files` | a stylesheet in `src/` that is neither the one global stylesheet of `src/app/styles/` nor a `<name>.module.<ext>` beside `<name>.tsx`; a second global stylesheet; a non-module stylesheet imported outside `src/app/` and the root `app/` | Global styles in one place; component styles travel with their component. | `global`, `orphan`, `import` | none |
+| `frontend/route-files` | in the route folder of the pack (the root `app/` in `nextjs`, `src/app/routes/` in `react-vite`), a file that is not a route file of its router (components, hooks, helpers belong to slices); a route file without its required export | A route folder that holds only thin routes reads as the app's map. | `foreign`, `export` | none |
+| `frontend/client-boundary` | Next.js only: `"use client"` in a route file of the root `app/`, or in a file outside the `ui` and `model` segments and `src/app/providers/` | A route file stays a server component so its data loads on the server and it can export `metadata`. | `route-file`, `placement` | none |
 | `frontend/colocated-files` | a `.test` or `.stories` file without a source file of the same base name in its folder | Tests and stories move with their code. | none | none |
 | `frontend/import-alias` | `tsconfig.json` (JSON with comments) without the `paths` entry `"@/*": ["./src/*"]`, or with another alias; when `vite.config.*` exists, no `@` alias to `src/` in its `resolve.alias` (object or `{ find, replacement }` form) and no `vite-tsconfig-paths` plugin | `import-paths` holds code to `@/`; this is the alias it relies on, in the type checker and in the bundler. | `tsconfig`, `vite` | none |
 | `frontend/route-config` | `react-vite` only: `vite.config.*` without the `TanStack` Router plugin (`tanstackRouter` or `TanStackRouterVite` of `@tanstack/router-plugin/vite`), or with a `routesDirectory` other than `./src/app/routes` or a `generatedRouteTree` other than `./src/app/route-tree.gen.ts` (a missing option is the plugin's default, which is not ours) | The route folder of section 3 is where the generator looks only if the plugin says so. | `plugin`, `routes-directory`, `route-tree` | none |
@@ -287,22 +356,22 @@ good one.
 
 | Rule | Pass | Fail |
 | --- | --- | --- |
-| `layout` | the full tree of 2.1 per pack, each segment present | `components/` at the project root; `src/modules/`; slice `UserCard/`; slice without `index.ts`; `entities/user/helpers/`; `shared/user/index.ts`; `src/router.tsx` in `nextjs` |
-| `file-names` | kebab names; `[id]` and `(group)` in a Next route folder; `$id.tsx` and `__root.tsx` in a Vite route folder | `UserCard.tsx`; `userCard.ts`; `user.helper.ts`; `[id]` in a Vite route folder |
+| `layout` | the full tree of 2.1 per pack; a slice group `features/auth/sign-in/`; `entities/user/@x/invoice.ts`; `index.server.ts` in `nextjs`; the root `app/` and `pages/README.md` in `nextjs` | `components/` at the project root; `src/modules/`; slice `UserCard/`; slice without `index.ts`; `index.tsx`; a group with `index.ts`; a group in a group; `features/ui/`; `features/auth/ui/lib/`; `src/app/ui/`; `entities/user/helpers/`; `shared/user/index.ts`; `shared/config/` without `index.ts`; `features/a/@x/b.ts`; `src/router.tsx` in `nextjs`; `nextjs` without a root `pages/README.md`; code in the root `pages/` |
+| `file-names` | kebab names; `[invoiceId]`, `[[...rest]]`, `(.)photo` and `(group)` in the root `app/` of Next; `$invoiceId.tsx`, `.lazy.tsx`, `__root.tsx` and `route-tree.gen.ts` in Vite; `index.server.ts` in Next; `@x` in an entity | `UserCard.tsx`; `userCard.ts`; `user.helper.ts`; `[id]` in a Vite route folder; `$invoice_id`; `index.server.ts` in Vite; `@x` in a feature |
 | `typescript-sources` | `.ts`, `.tsx`, `.d.ts`; `eslint.config.mjs` at the root | `src/shared/lib/format.js` |
-| `import-direction` | widgets importing features, entities, shared; `src/app` importing all | entities importing features; feature `a` importing feature `b`; shared importing entities; type-only imports count too |
-| `import-paths` | `@/entities/user` from a feature; `./ui/card` inside a slice | `@icons/x`; `../../entities/user` from a feature; `@/features/auth/ui/form` from inside `features/auth` |
+| `import-direction` | widgets importing features, entities, shared; `src/app` importing all; the root `app/` importing `@/pages/home`; entity `invoice` importing `@/entities/user/@x/invoice` | entities importing features; feature `a` importing feature `b`; shared importing entities; entity `order` importing `@/entities/user/@x/invoice`; type-only imports count too |
+| `import-paths` | `@/entities/user` from a feature; `./ui/card` inside a slice; `../lib/format` from `shared/ui`; `@/shared/ui/button`; `@/shared/config`; `@/features/auth/sign-in` in a group; `@/entities/user/index.server` in Next | `@icons/x`; `../../entities/user` from a feature; `@/features/auth/ui/form` from inside `features/auth`; `@/entities/user/model/store` from a widget, also as `export ... from` and `import()`; `@/shared/config/env`; `@/shared/ui/button/button` |
 | `component-names` | `user-card.tsx` exporting `UserCard` and `UserCardHeader`; a Next `page.tsx` with a default export | `user-card.tsx` exporting `Card`; exporting `Avatar` too; `export default UserCard` in a `ui` segment |
-| `hook-names` | `model/use-balance.ts` exporting `useBalance`; `shared/lib/use-media-query.ts` | `useBalance` exported from `model/balance.ts`; `use-balance.ts` exporting `getBalance`; a hook in `ui/` |
-| `state-placement` | zustand `create` in `entities/cart/model/use-cart-store.ts`; `configureStore` in `src/app/store.ts` | `create` from zustand in `ui/`; a store in `shared/lib`; an aliased import (`import { create as make }`) is still found |
+| `hook-names` | `model/use-balance.ts` exporting `useBalance`; `shared/lib/use-media-query.ts`; a hook in `src/app/providers/` | `useBalance` exported from `model/balance.ts`; `use-balance.ts` exporting `getBalance`; a hook in `ui/` |
+| `state-placement` | zustand `create` in `entities/cart/model/use-cart-store.ts`; `configureStore` in `src/app/store/store.ts` | `create` from zustand in `ui/`; a store in `shared/lib`; a store in `src/app/providers/`; an aliased import (`import { create as make }`) is still found |
 | `api-boundary` | `fetch` in `shared/api/client.ts`; `entities/user/api/user-api.ts` importing `@/shared/api` | `fetch` in a component; `window.fetch` and `globalThis.fetch`; `axios` default and named imports in a hook; `@/shared/api` imported from a `ui` segment; a local function named `fetch` is not reported |
 | `env-access` | literal reads in `env.ts` per pack; Next `server-env.ts` starting with `import "server-only"` | a read in a component; `process.env[key]`; `const { A } = import.meta.env`; `VITE_` key missing its prefix in Vite; a non-public key in Next `env.ts`; `server-env.ts` without the guard; any read in a library |
 | `literal-text` | `{t("title")}`; numbers and punctuation; `className` strings | `<h1>Welcome back</h1>`; `placeholder="Search"`; text inside a fragment |
 | `messages` | `en.json` and `de.json` with the same nested keys; `t("a.b")` present in `en` | a key only in `de`; an empty string; `t("a.c")` absent from `en`, bound per pack (`useTranslations("a")` then `t("c")` in Next) |
-| `asset-placement` | `src/shared/assets/logo.svg`; `public/favicon.ico`; Next `src/app/icon.png` | `src/features/auth/ui/logo.png`; `src/assets/hero.jpg` in an app |
-| `style-files` | `src/app/globals.css`; `user-card.module.css` beside `user-card.tsx` | a second global; `card.module.css` with no `card.tsx`; `import "./card.css"` in a widget |
-| `route-files` | the special files of each router | `src/app/(dashboard)/table.tsx` in Next; a hook in `src/app/routes/`; a TanStack route file without `Route` |
-| `client-boundary` | `"use client"` in `ui/` and in `src/app/providers.tsx` | `"use client"` in `page.tsx` and `layout.tsx`; in `shared/lib/format.ts`; nothing is reported for `react-vite` |
+| `asset-placement` | `src/shared/ui/logo.svg`; `src/features/auth/ui/logo.png`; `public/favicon.ico`; Next root `app/icon.png` | `src/shared/assets/logo.svg`; `src/assets/hero.jpg` in an app; `src/entities/user/model/avatar.png` |
+| `style-files` | `src/app/styles/globals.css` imported from the root `app/layout.tsx`; `user-card.module.css` beside `user-card.tsx` | a second global; `src/app/globals.css`; `card.module.css` with no `card.tsx`; `import "./card.css"` in a widget |
+| `route-files` | the special files of each router; a thin `app/invoices/[invoiceId]/page.tsx` re-exporting `@/pages/invoice` | `app/(dashboard)/table.tsx` in Next; anything under `src/app/` checked as Next routes; a hook in `src/app/routes/`; a TanStack route file without `Route` |
+| `client-boundary` | `"use client"` in `ui/` and in `src/app/providers/` | `"use client"` in the root `app/page.tsx` and `app/layout.tsx`; in `shared/lib/format.ts`; nothing is reported for `react-vite` |
 | `colocated-files` | `card.test.tsx` beside `card.tsx` | `card.stories.tsx` alone |
 | `import-alias` | `paths` `@/*` in `tsconfig.json` with comments; Vite `resolve.alias` `@` to `path.resolve(__dirname, "./src")`, and the array form; `vite-tsconfig-paths`; a library without `vite.config.*` | no `paths`; `@/*` to `./app/*`; a second alias `~/*`; a Vite config with no `@` alias |
 | `route-config` | the plugin with both folders, as `tanstackRouter` and `TanStackRouterVite` | no plugin; `routesDirectory: "./src/routes"`; no `generatedRouteTree`; nothing is reported for `nextjs` and `react-library` |
@@ -320,9 +389,10 @@ the lane like every build.
    only), with their fixtures and pages.
 3. The import rules, then names, state, API and environment, then text and messages, then the
    Next.js-only and placement rules. One lane round at each green checkpoint.
-4. The toolchain rules of decision 10: `import-alias`, `route-config`, `packages`, their pages and
-   both presets, once the lead says their code may start.
-5. `docs/architecture.md` section 13 and `docs/guide/plugins.md` name the plugin; `CHANGELOG.md`
+4. The design revised for decision 11, one docs commit, read by the lead.
+5. One code fix round: the 17 rules to decision 11, and the toolchain rules of decision 10
+   (`import-alias`, `route-config`, `packages`) with their pages and both presets. Then the lane.
+6. `docs/architecture.md` section 13 and `docs/guide/plugins.md` name the plugin; `CHANGELOG.md`
    (0.3.0, Added).
 
 ## Decided
@@ -331,7 +401,9 @@ The lead approved the design at `6ebd2b0` for code in v0.3.0 and answered the op
 
 1. **Kebab-case files**: yes, every file and folder under `src/` (2.2).
 2. **Translation in every app**: yes (2.6); `literal-text` and `messages` run in every app.
-3. **No `pages` layer**: yes; the route file is the page in both app packs (2.1).
+3. **A `pages` layer in every app pack**, sliced like `widgets`; route files are thin and compose
+   from `@/pages/<slice>` (2.1). This replaces the first answer, which had no `pages` layer
+   (decision 11).
 4. **TanStack Router file routes** for Vite apps (section 3). A Vite app on React Router sees its
    departures through the `adoption` preset until it moves.
 5. **One translation library per framework**: `react-i18next` for `react-vite` and `react-library`,
@@ -348,6 +420,28 @@ The lead approved the design at `6ebd2b0` for code in v0.3.0 and answered the op
     `vite.config.*`, and one package per job in `package.json`, each a rule with pass and fail
     tests and a place in both presets (`import-alias`, `route-config`, `packages`). T-065 checks
     none of them and owns the generic toolchain only.
+11. **The second independent FSD pass** (2026-11-20; the FSD documentation, Steiger 0.8.2 and
+    fsd-lint 1.2.1) confirmed the first, and the lead ruled:
+    - Next.js keeps the App Router in the root `app/` with thin route files, FSD in `src/` with the
+      layers `src/app` and `src/pages`, and a required root `pages/README.md`; `layout` accepts the
+      root `app/`, `route-files` reads it and not `src/app`; no `_app` or `_pages` rename (2.1, 2.7).
+    - The `pages` layer exists in every app pack (decision 3).
+    - `@x` on entities only, as 2.3 says; every rule that reads paths or imports accepts exactly that.
+    - No `shared/assets`: imported assets sit in `ui` segments; the shared segments are `api`, `ui`,
+      `lib`, `config`, `i18n` and `routes` (2.1, 2.6).
+    - `shared` and `app` are one slice each; shared's public API is `@/shared/<segment>`, and for
+      `ui` and `lib` one level down; every other shared segment has an `index.ts` (2.3).
+    - A slice's public API is `index.ts`, and `index.server.ts` in Next.js; `index.tsx` is reported
+      (2.1, 2.7).
+    - Slice groups: one level, in `widgets`, `features` and `entities` (2.1).
+    - The closed segment list and slice root stay, recorded as stricter than FSD (2.7).
+    - The plugin checks slice public APIs itself (2.3).
+    - `layout` adds: no `ui` in the app layer, Steiger's reserved folder names, no segment directly
+      on a sliced layer. Not added: Steiger's heuristic rules, wildcard re-exports, circular
+      imports (2.7).
+    - The design writes down what the code already did: `instrumentation-client.ts`, `.lazy` files
+      and `route-tree.gen.ts` in Vite, `[[...rest]]` and intercepting routes in Next.js, camelCase
+      route parameters (2.2, section 3).
 
 ## Done when
 
@@ -358,7 +452,7 @@ The lead approved the design at `6ebd2b0` for code in v0.3.0 and answered the op
 
 ## Resume point
 
-2026-11-20T01:51:58+00:00: the crate, its 17 rules, their native tests, the end-to-end tests, the
-plugin page, one page per rule and the changelogs are committed (`75b3253` to `787f656`), and
-`plugins/frontend` is a workspace member. Nothing of the crate has compiled yet: its first lane round
-is queued. Next: fix what that round reports, then the review of the order of work's last steps.
+2026-11-20T02:02:49+00:00: the design is revised for the second FSD pass (decision 11) as one docs commit, for the
+lead to read. The 17 rules are committed and their first lane round (ticket 283) is queued; they still
+implement the earlier tree. Next, once the lead has read the design: one code fix round over the 17
+rules and the three held rules of decision 10, then the lane.
