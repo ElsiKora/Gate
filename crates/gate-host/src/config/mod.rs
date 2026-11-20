@@ -176,6 +176,8 @@ struct Sections<'a> {
     plugins: &'a BTreeMap<PluginName, Spanned<PluginSpec>>,
     languages: &'a BTreeMap<Name, Spanned<serde_json::Value>>,
     extends: &'a [Spanned<PluginItem>],
+    /// `[workspace] extends`, which only the root file holds.
+    workspace_extends: &'a [Spanned<PluginItem>],
     rules: &'a BTreeMap<RuleKey, Spanned<RuleEntry>>,
     generate: &'a BTreeMap<PluginItem, Spanned<GenerateEntry>>,
     steps: &'a BTreeMap<Name, Spanned<Step>>,
@@ -228,6 +230,10 @@ impl Config {
                     .project
                     .as_ref()
                     .map_or(&[], |project| project.extends.as_slice()),
+                workspace_extends: file
+                    .workspace
+                    .as_ref()
+                    .map_or(&[], |workspace| workspace.extends.as_slice()),
                 rules: &file.rules,
                 generate: &file.generate,
                 steps: &file.steps,
@@ -252,6 +258,7 @@ impl Config {
                     plugins: &value.plugins,
                     languages: &value.languages,
                     extends: &value.extends,
+                    workspace_extends: &[],
                     rules: &value.rules,
                     generate: &value.generate,
                     steps: &value.steps,
@@ -682,6 +689,12 @@ impl Config {
                 origin: origin(preset.span().start, "extends"),
             });
         }
+        for preset in sections.workspace_extends {
+            settings.extends.push(Sourced {
+                value: preset.get_ref().clone(),
+                origin: self.origin(preset.span().start, WORKSPACE_EXTENDS),
+            });
+        }
 
         for (key, entry) in sections.rules {
             let at = origin(entry.span().start, "rules");
@@ -1008,6 +1021,9 @@ impl Config {
         })
     }
 }
+
+/// The section an origin of `[workspace] extends` shows.
+const WORKSPACE_EXTENDS: &str = "[workspace] extends";
 
 /// The section name an origin shows: `[rules]`, `[project] extends`, `[[profiles]] rules`, ...
 fn section_label(profile: Option<usize>, name: &str) -> String {
@@ -1353,7 +1369,9 @@ fn position(lines: &[usize], offset: usize) -> (usize, usize) {
 /// Adds a hint to the parser's message where the parser's wording alone leaves the fix unclear.
 fn hint(message: &str) -> String {
     if message.contains("unknown field `extends`") {
-        format!("{message}; presets go in [project] extends, or in a [[profiles]] entry")
+        format!(
+            "{message}; presets go in [project] extends, in [workspace] extends at a root that is not a project, or in a [[profiles]] entry"
+        )
     } else if message.contains("unknown field `exceptions`") {
         format!(
             "{message}; exceptions live in gate.exceptions.toml beside this file, as [[exception]] entries"

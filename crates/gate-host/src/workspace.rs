@@ -143,7 +143,9 @@ impl Workspace {
         snapshot.record();
         let root_is_project = projects.iter().any(|project| project.root.is_empty());
 
-        if !root_is_project {
+        if root_is_project {
+            check_root_project(&root)?;
+        } else {
             check_workspace_root(&root)?;
         }
 
@@ -868,6 +870,23 @@ fn check_workspace_root(root: &Config) -> Result<()> {
                 "gate.toml: {section} belongs in a project's gate.toml or a [[profiles]] entry; the root is a project only without [workspace], or when [workspace] projects lists \".\""
             )));
         }
+    }
+    Ok(())
+}
+
+/// A root that is a project writes its presets in `[project] extends`, which applies them to the
+/// repository's rules too; `[workspace] extends` is for a root that is not a project.
+fn check_root_project(root: &Config) -> Result<()> {
+    let first = root
+        .file()
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.extends.first());
+    if let Some(preset) = first {
+        return Err(root.error(
+            Some(preset.span().start),
+            "[workspace] extends: the root is a project, so its presets go in [project] extends, which applies them to the repository's rules too",
+        ));
     }
     Ok(())
 }

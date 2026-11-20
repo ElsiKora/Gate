@@ -25,7 +25,7 @@ use crate::cache::answers::{Answer, Answers, Question};
 use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
-    PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings,
+    PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings, Sourced,
 };
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
@@ -647,19 +647,52 @@ impl Loaded {
         workspace.check_rule_filter(filter, &declaration)
     }
 
-    /// Checks that every `extends` entry of every scope names a preset its plugin declares, and that
-    /// each such preset reads, for every declared plugin whether or not the run runs it.
+    /// Checks that every `extends` entry of every scope names a preset its plugin declares, that
+    /// each such preset reads, and that each entry turns on a rule of some scope it reaches, for
+    /// every declared plugin whether or not the run runs it.
     ///
     /// # Errors
-    /// Fails on the first preset the plugin does not declare, naming the entry; or, as a broken
-    /// plugin, on a preset that is not a JSON object of rules.
+    /// Fails on the first preset the plugin does not declare, naming the entry; on the first entry
+    /// whose preset names no rule of any scope the entry applies to, naming the entry and where it
+    /// goes instead; or, as a broken plugin, on a preset that is not a JSON object of rules.
     fn check_presets(&self, workspace: &Workspace) -> Result<()> {
-        for (_, settings) in scopes(workspace) {
+        let mut reach: Vec<Reach<'_>> = Vec::new();
+        for (project, settings) in scopes(workspace) {
+            let scope = if project.is_none() {
+                Scope::Repository
+            } else {
+                Scope::Project
+            };
             for (name, declared) in &self.declarations {
-                if settings.plugins.contains_key(name) {
-                    presets(&declared.info, name, settings)?;
+                if !settings.plugins.contains_key(name) {
+                    continue;
+                }
+                presets(&declared.info, name, settings)?;
+                for item in settings
+                    .extends
+                    .iter()
+                    .filter(|item| item.value.plugin() == name.as_str())
+                {
+                    let turns_on = preset_turns_on(&declared.info, item.value.name(), scope);
+                    if let Some(seen) = reach.iter_mut().find(|seen| {
+                        seen.item.value == item.value && seen.item.origin == item.origin
+                    }) {
+                        seen.repository |= project.is_none();
+                        seen.project |= project.is_some();
+                        seen.turns_on |= turns_on;
+                    } else {
+                        reach.push(Reach {
+                            item,
+                            repository: project.is_none(),
+                            project: project.is_some(),
+                            turns_on,
+                        });
+                    }
                 }
             }
+        }
+        if let Some(seen) = reach.iter().find(|seen| !seen.turns_on) {
+            return Err(Error::config(seen.message()));
         }
         Ok(())
     }
@@ -1558,6 +1591,47 @@ fn enabled_rules(
         });
     }
     Ok(rules)
+}
+
+/// One `extends` entry, the scopes it reached and whether its preset names a rule of any of them.
+struct Reach<'a> {
+    item: &'a Sourced<PluginItem>,
+    repository: bool,
+    project: bool,
+    turns_on: bool,
+}
+
+impl Reach<'_> {
+    /// Why the entry turns on nothing, and where it goes instead.
+    fn message(&self) -> String {
+        let entry = format!("{}: \"{}\"", self.item.origin, self.item.value);
+        match (self.repository, self.project) {
+            (true, false) => format!(
+                "{entry} turns on no repository-scope rule, and the root runs only those; extend it in a [[profiles]] entry for the projects"
+            ),
+            (false, true) => format!(
+                "{entry} turns on no project-scope rule; extend it in the root's [workspace] extends"
+            ),
+            _ => format!("{entry} turns on no rule; remove it"),
+        }
+    }
+}
+
+/// Whether the preset `preset` of the plugin names a rule of `scope`; a rule it sets `off` counts,
+/// as the preset says something about it. A preset that is missing or does not read names none:
+/// [`presets`] reports those first.
+fn preset_turns_on(info: &PluginInfo, preset: &str, scope: Scope) -> bool {
+    let Some(preset) = info.presets.iter().find(|known| known.name == preset) else {
+        return false;
+    };
+    let Ok(table) = serde_json::from_str::<BTreeMap<String, Value>>(&preset.rules) else {
+        return false;
+    };
+    table.keys().any(|rule| {
+        info.rules
+            .iter()
+            .any(|known| known.name == *rule && known.scope == scope)
+    })
 }
 
 /// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.

@@ -60,12 +60,14 @@ Root file only.
 [workspace]
 projects = "pnpm"
 ignore = ["samples/**"]
+extends = ["git/recommended"]
 ```
 
 | Key | Meaning |
 | --- | --- |
 | `projects` | where projects come from: `"pnpm"` (the `packages` of `pnpm-workspace.yaml`), `"npm"` (the `workspaces` of the root `package.json`, which a yarn workspace uses too), or a list of globs such as `["apps/*", "packages/*"]` |
 | `ignore` | globs of directories that never become projects; a `gate.toml` below them is not read. Rules still see their files: they belong to the enclosing project, or to the repository |
+| `extends` | presets for the repository-scope rules, `<plugin>/<preset>`, at a root that is not a project; the root `[rules]` then overrides any of their rules |
 
 Root file only. See [monorepo.md](monorepo.md).
 
@@ -81,17 +83,33 @@ name = "server"
 | `name` | the project's name in reports and in `gate list`; defaults to the `name` of the project's `package.json`, then to its root path |
 | `extends` | presets to turn on, `<plugin>/<preset>`; `[rules]` then overrides any of their rules |
 
-A project file, or the root file when the root is the only project; a profile takes `extends` for a set
-of projects. A monorepo root has no `[project]`, so it extends no preset: its repository-scope rules
-are set one by one in the root `[rules]`, as [plugins.md](plugins.md#repository) shows. A preset is
-a named set of rules with levels, levels of single aspects and options that a plugin may ship, such as
-`git/recommended`. The project's own configuration wins over a preset. A rule's level for one aspect
-comes, first found, from `[rules]` for that aspect, from `[rules]` for the whole rule, from the rule's
-family, from the presets for that aspect, and from the presets for the whole rule; else it is `error`.
-So a level `[rules]` gives the whole rule applies to all its aspects, the ones a preset sets too: with
-`extends = ["git/recommended"]`, `"git/commit-message" = "note"` reports `header-min-length` as a note,
-and `"off"` turns every aspect off. A preset's aspect levels apply only where `[rules]` sets no level
-for that rule or aspect.
+A project file, or the root file when the root is the only project; a profile takes `extends` for a
+set of projects. A preset is a named set of rules with levels, levels of single aspects and options
+that a plugin may ship, such as `git/recommended`. The project's own configuration wins over a
+preset. A rule's level for one aspect comes, first found, from `[rules]` for that aspect, from
+`[rules]` for the whole rule, from the rule's family, from the presets for that aspect, and from the
+presets for the whole rule; else it is `error`. So a level `[rules]` gives the whole rule applies to
+all its aspects, the ones a preset sets too: with `extends = ["git/recommended"]`,
+`"git/commit-message" = "note"` reports `header-min-length` as a note, and `"off"` turns every
+aspect off. A preset's aspect levels apply only where `[rules]` sets no level for that rule or
+aspect.
+
+Where an `extends` entry goes depends on the kind of root:
+
+| Root | Repository-scope rules | Project-scope rules |
+| --- | --- | --- |
+| the only project (no `[workspace]`, or `projects` lists `"."`) | `[project] extends` of the root file | `[project] extends` of the root file, or of a member project |
+| not a project (a monorepo root) | `[workspace] extends` | `[project] extends` of a member project, or a `[[profiles]]` entry |
+
+A preset may hold rules of both scopes; each place takes the rules of the scope it runs and skips
+the others without a message, so a monorepo root can extend `agents/recommended` for its
+repository-scope rule while a profile extends it for the projects. An entry that turns on no rule of
+any scope it reaches is a configuration error that names where it goes instead:
+`typescript/recommended` in `[workspace] extends` turns on no repository-scope rule, and a member
+project's `extends = ["git/recommended"]` turns on no project-scope rule. A preset that names a rule
+of the scope at `off` still counts. `[workspace] extends` in a root that is a project is a
+configuration error: its presets go in `[project] extends`, which applies them to the repository's
+rules too.
 
 ## `[plugins]`
 

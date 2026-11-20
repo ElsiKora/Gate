@@ -386,6 +386,7 @@ fn top_level_extends_points_to_project_and_profiles() {
         &[
             "unknown field `extends`",
             "[project] extends",
+            "[workspace] extends at a root that is not a project",
             "[[profiles]]",
         ],
     );
@@ -612,6 +613,49 @@ fn project_section_in_a_workspace_root() {
             "\".\"",
         ],
     );
+}
+
+#[test]
+fn workspace_extends_in_a_root_that_is_a_project_points_to_project_extends() {
+    let message = error(&[
+        (
+            "gate.toml",
+            &root_with(&format!(
+                "\n[workspace]\nprojects = [\".\", \"apps/*\"]\nextends = [\"git/recommended\"]\n{GIT_PLUGIN}"
+            )),
+        ),
+        ("apps/one/gate.toml", "[project]\nname = \"one\"\n"),
+    ]);
+    assert_all(
+        &message,
+        &[
+            "gate.toml:6: [workspace] extends",
+            "the root is a project",
+            "[project] extends",
+        ],
+    );
+}
+
+#[test]
+fn workspace_extends_at_a_root_that_is_not_a_project_reaches_the_repository_only() {
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &format!("{WORKSPACE_ROOT}extends = [\"git/recommended\"]\n{GIT_PLUGIN}"),
+    )
+    .write("apps/one/gate.toml", "[project]\nname = \"one\"\n")
+    .add();
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("valid");
+    assert!(!workspace.root_is_project());
+    let extends: Vec<String> = workspace
+        .repository()
+        .extends
+        .iter()
+        .map(|preset| format!("{} {}", preset.value, preset.origin))
+        .collect();
+    assert_eq!(extends, ["git/recommended gate.toml:6 [workspace] extends"]);
+    let settings = workspace.settings("one").expect("settings");
+    assert_eq!(settings.extends.len(), 0, "{:?}", settings.extends);
 }
 
 #[test]

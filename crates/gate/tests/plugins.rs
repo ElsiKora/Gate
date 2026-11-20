@@ -5799,3 +5799,150 @@ fn a_file_a_filter_stores_as_a_pointer_has_the_pointers_size_in_every_mode() {
     assert_eq!(findings, only_the_twin, "index");
     assert_eq!(code, Some(1));
 }
+
+/// A monorepo whose root is not a project, with project `one` and `[workspace] extends` set to
+/// `extends`, the git plugin declared and `rules` in the root `[rules]`, committed.
+fn git_workspace(git: &GitOptions, extends: &str, rules: &str) {
+    git.repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\nextends = [{extends}]\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n{rules}\n"
+        ),
+    );
+    git.repo
+        .write("apps/one/gate.toml", "[project]\nname = \"one\"\n");
+    git.repo.git(&["add", "-A"]);
+    git.repo
+        .git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
+}
+
+#[test]
+fn a_monorepo_root_extends_git_recommended_and_its_own_rules_win() {
+    let git = GitOptions::new();
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let message = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&message, "ci(a): x\n").expect("message");
+    let message = message.display().to_string();
+    let check = |rules: &str| {
+        git_workspace(&git, "\"git/recommended\"", rules);
+        let output = git.repo.gate(&[
+            "check",
+            "--plugin",
+            &git.plugin,
+            "--hook",
+            "--commit-message",
+            &message,
+        ]);
+        (
+            output.status.code(),
+            format!("{}{}", text(&output.stdout), text(&output.stderr)),
+        )
+    };
+    let at = |level: &str, aspect: &str| format!("{level}[git/commit-message#{aspect}]");
+
+    // The preset turns on both repository-scope rules at the root, with its aspect levels.
+    let (code, said) = check("");
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains("error[git/branch-name")
+            && said.contains(&at("warning", "header-min-length"))
+            && said.contains(&at("error", "subject-min-length")),
+        "{said}"
+    );
+    let output = git.repo.gate(&["list", "--origin"]);
+    let listed = text(&output.stdout);
+    assert!(
+        listed.lines().any(|line| {
+            line.starts_with("  extends")
+                && line.contains("git/recommended")
+                && line.ends_with("gate.toml:6 [workspace] extends")
+        }),
+        "{listed}"
+    );
+
+    // The root's [rules] wins: a level of the whole rule applies to every aspect, the preset's too.
+    let (code, said) = check("\"git/branch-name\" = \"off\"\n\"git/commit-message\" = \"note\"");
+    assert_eq!(code, Some(0), "{said}");
+    assert!(
+        !said.contains("[git/branch-name")
+            && said.contains(&at("note", "header-min-length"))
+            && said.contains(&at("note", "subject-min-length")),
+        "{said}"
+    );
+    // A level the root gives an aspect wins over both.
+    let (code, said) = check(
+        "\"git/branch-name\" = \"off\"\n\"git/commit-message\" = { level = \"note\", levels = { header-min-length = \"error\" } }",
+    );
+    assert_eq!(code, Some(1), "{said}");
+    assert!(
+        said.contains(&at("error", "header-min-length"))
+            && said.contains(&at("note", "subject-min-length")),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_preset_of_both_scopes_runs_each_rule_where_its_scope_runs() {
+    // probe/both turns on probe/whole (repository scope) and probe/aspects (project scope).
+    let extended = |from: &str| {
+        let repo = probe_repo("");
+        let toml = std::fs::read_to_string(repo.path().join("gate.toml"))
+            .expect("gate.toml")
+            .replace(from, &format!("{from}extends = [\"probe/both\"]\n"));
+        repo.write("gate.toml", &toml);
+        repo.commit("extend probe/both");
+        probe_check(&repo, &[])
+    };
+    let (code, messages) = extended("projects = [\"apps/*\"]\n");
+    assert_eq!((code, messages), (Some(1), vec!["whole".to_owned()]));
+    let (code, messages) = extended("projects = [\"apps/one\"]\n");
+    assert_eq!(
+        (code, messages),
+        (
+            Some(1),
+            vec!["aspect loud".to_owned(), "aspect quiet".to_owned()]
+        )
+    );
+}
+
+#[test]
+fn an_extends_entry_that_turns_on_no_rule_where_it_applies_is_a_configuration_error() {
+    // At the root, a preset of project-scope rules only.
+    let repo = probe_repo("");
+    let toml = std::fs::read_to_string(repo.path().join("gate.toml"))
+        .expect("gate.toml")
+        .replace(
+            "projects = [\"apps/*\"]\n",
+            "projects = [\"apps/*\"]\nextends = [\"probe/quiet\"]\n",
+        );
+    repo.write("gate.toml", &toml);
+    repo.commit("the root extends probe/quiet");
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    let said = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{said}");
+    assert!(
+        said.contains(
+            "gate.toml:6 [workspace] extends: \"probe/quiet\" turns on no repository-scope rule"
+        ) && said.contains("[[profiles]] entry"),
+        "{said}"
+    );
+
+    // In a member project, a preset of repository-scope rules only.
+    let git = GitOptions::new();
+    git_workspace(&git, "", "");
+    git.repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\nextends = [\"git/recommended\"]\n",
+    );
+    git.repo.commit("the project extends git/recommended");
+    let output = git.repo.gate(&["check", "--plugin", &git.plugin]);
+    let said = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{said}");
+    assert!(
+        said.contains(
+            "apps/one/gate.toml:3 [project] extends: \"git/recommended\" turns on no project-scope rule"
+        ) && said.contains("[workspace] extends"),
+        "{said}"
+    );
+}

@@ -96,12 +96,12 @@ these two aspects too, and a level it gives an aspect wins over both:
 extends = ["git/recommended"]
 ```
 
-A repository whose root is not a project (a `[workspace]` root holds no `extends`) writes the levels
-in the rule's entry instead:
+A repository whose root is not a project extends it in `[workspace]`:
 
 ```toml
-[rules]
-"git/commit-message" = { level = "error", levels = { header-min-length = "warning", scope-max-length = "warning" } }
+[workspace]
+projects = ["apps/*"]
+extends = ["git/recommended"]
 ```
 
 Scope: repository. Reads history: yes (the message, through the host's git interface). Aspects: the

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead (2026-11-20) as drafted; code in progress |
+| Status | code written; lane round next |
 | Release | v0.3.0 (configuration; no plugin interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -190,5 +190,5 @@ rule decisions in T-072 (4). The test plan is accepted, `probe/both` included.
 
 ## Resume point
 
-2026-11-20T16:26:20+00:00: the design is approved and committed on a branch from `origin/main` at
-`cee6491`; the code is next.
+2026-11-20T16:42:09+00:00: the code, the `probe/both` preset (with the repository-scope probe rule
+`probe/whole`), the tests, the docs and the changelog are committed; the lane round is next.
