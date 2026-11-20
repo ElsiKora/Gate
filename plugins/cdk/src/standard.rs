@@ -309,12 +309,9 @@ mod tests {
         assert!(is_region("us-gov-east-1"));
         assert!(!is_region("east-west-1"));
         assert!(!is_region("eu-west"));
-        assert_eq!(regions("arn:aws:s3:eu-central-1:x"), vec!["eu-central-1"]);
+        assert_eq!(regions("arn:aws:s3:eu-central-1:x"), ["eu-central-1"]);
         let id = "1".repeat(12);
-        assert_eq!(
-            account_ids(&format!("arn:aws:iam::{id}:role/x")),
-            vec![id.clone()]
-        );
+        assert_eq!(account_ids(&format!("arn:aws:iam::{id}:role/x")), [id]);
         assert_eq!(account_ids(&"0".repeat(12)), Vec::<String>::new());
         assert_eq!(account_ids(&"1".repeat(13)), Vec::<String>::new());
     }
