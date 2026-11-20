@@ -223,7 +223,7 @@ fn the_warning_checks_are_aspects_of_their_own() {
     for aspect in ["header-min-length", "scope-max-length"] {
         assert!(rule.aspects.iter().any(|known| known == aspect), "{aspect}");
     }
-    assert_eq!(rule.aspects.len(), 22);
+    assert_eq!(rule.aspects.len(), 23);
     assert_eq!(
         aspects(Some(&format!("feat({}): add x", "a".repeat(31))), "{}"),
         ["scope-max-length"]
