@@ -1,9 +1,12 @@
-//! Workspace packages built as `wasm32-wasip2` components for the tests, once per test binary for
-//! each package and feature set. Tests run in parallel; a second `cargo build` into the same target
-//! could replace a `.wasm` while another test's run reads it, so no call path builds twice.
+//! Workspace packages built as `wasm32-wasip2` components for the tests, once per process for each
+//! package and feature set. Tests run in parallel; a second `cargo build` into the same target could
+//! replace a `.wasm` while another test's run reads it, so no call path in a process builds twice.
+//! `cargo test` runs a test binary as one process, so that is once per binary. A runner that starts
+//! one process per test (nextest) builds once per test instead, those builds in parallel into the
+//! same target.
 //!
-//! Each build appends a line `<test binary> <package> <features>` to `component-builds.log` in
-//! `CARGO_TARGET_TMPDIR`, so a run can show how many builds each binary made.
+//! Each build appends one line `<test binary> <package>[ <features>]` to `component-builds.log` in
+//! `CARGO_TARGET_TMPDIR`, in one write, so a run can show how many builds each binary made.
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -32,7 +35,13 @@ pub fn component(package: &str, library: &str, features: &str) -> &'static Built
 fn build(package: &str, library: &str, features: &str) -> Built {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-    let target = tmp.join(format!("{package}{features}"));
+    // A package name has no `+`, so the first `+` ends it and no two (package, features) pairs
+    // share a directory.
+    let target = if features.is_empty() {
+        tmp.join(package)
+    } else {
+        tmp.join(format!("{package}+{features}"))
+    };
     let mut arguments = vec![
         "build",
         "--locked",
@@ -60,7 +69,12 @@ fn build(package: &str, library: &str, features: &str) -> Built {
         .append(true)
         .open(tmp.join("component-builds.log"))
         .expect("the build log opens");
-    writeln!(log, "{} {package} {features}", env!("CARGO_CRATE_NAME"))
+    let line = if features.is_empty() {
+        format!("{} {package}\n", env!("CARGO_CRATE_NAME"))
+    } else {
+        format!("{} {package} {features}\n", env!("CARGO_CRATE_NAME"))
+    };
+    log.write_all(line.as_bytes())
         .expect("the build log takes a line");
     let path = target.join(format!("wasm32-wasip2/release/{library}.wasm"));
     let bytes = std::fs::read(&path).expect("the component exists");
