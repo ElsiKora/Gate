@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use gate_host::cache::{Bounds, Cache, Entry, Reason};
 use gate_host::config::PluginName;
 use gate_host::lock::{self, Guard, LOCK_FILE, Lock, Pin, Wanted};
-use gate_host::{Error, Fetcher, Git, Source, Workspace};
+use gate_host::{Error, Fetcher, Git, Source, Workspace, files};
 
 /// The launcher `gate init` writes to `bin/gate`.
 pub const LAUNCHER: &str = include_str!("launcher.sh");
@@ -135,7 +135,7 @@ pub fn init() -> Result<String, Error> {
     let config = root.join("gate.toml");
     let fresh = !config.exists();
     if fresh {
-        write(&config, &starting_config())?;
+        files::replace(&config, starting_config().as_bytes())?;
         text.push_str("wrote gate.toml\n");
     }
 
@@ -148,8 +148,9 @@ pub fn init() -> Result<String, Error> {
                 Error::environment(format!("cannot create {}: {error}", directory.display()))
             })?;
         }
-        write(&launcher, LAUNCHER)?;
-        executable(&launcher)?;
+        // Replaced, never written in place: a launcher that runs meanwhile reads the old file
+        // or the new one, and the new one is executable before it appears.
+        files::replace_executable(&launcher, LAUNCHER.as_bytes())?;
         text.push_str("wrote bin/gate\n");
     }
 
@@ -186,27 +187,6 @@ version = "{VERSION}"
 # "git/commit-message" = "error"
 "#
     )
-}
-
-fn write(path: &Path, contents: &str) -> Result<(), Error> {
-    std::fs::write(path, contents)
-        .map_err(|error| Error::environment(format!("cannot write {}: {error}", path.display())))
-}
-
-#[cfg(unix)]
-fn executable(path: &Path) -> Result<(), Error> {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).map_err(|error| {
-        Error::environment(format!(
-            "cannot make {} executable: {error}",
-            path.display()
-        ))
-    })
-}
-
-#[cfg(not(unix))]
-fn executable(_path: &Path) -> Result<(), Error> {
-    Ok(())
 }
 
 /// `gate cache prune`: lists, or with `yes` removes, the cache entries no `gate.lock` of the given

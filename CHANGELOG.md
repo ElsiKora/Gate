@@ -198,9 +198,11 @@ Each shared plugin keeps its own changelog next to its code.
   reported success. The wait is an advisory lock on `gate.lock.guard` in the worktree's git
   directory, released when a run ends or dies; where it cannot be taken, the error names the path
   and what to do.
-- **host:** `gate.lock` and the files `gate sync` writes are synced to disk before they replace the
-  old file, and a failed write leaves the old file and no temporary file. Before, a crash could
-  leave an empty `gate.lock`, and `gate sync` wrote generated files in place.
+- **host:** `gate.lock`, the files `gate sync` writes, and `gate init`'s `gate.toml` and `bin/gate`
+  are written to a temporary file, synced to disk and renamed over the old file, and on Unix the
+  directory is synced after the rename; a failed write leaves the old file and no temporary file.
+  Before, a crash could leave an empty `gate.lock`, and `gate sync` and `gate init` wrote in place,
+  so a `bin/gate` that ran meanwhile could read half a launcher.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

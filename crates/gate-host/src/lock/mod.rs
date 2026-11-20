@@ -69,7 +69,7 @@ impl Guard {
     fn take_at(path: &Path, directory: &Path) -> Result<Self> {
         let refused = |error: std::io::Error| {
             Error::environment(format!(
-                "cannot lock {} to update {LOCK_FILE}: {error}; check that {} is writable and on a local file system, or run one gate lock at a time",
+                "cannot lock {} to update {LOCK_FILE}: {error}; check that {} is writable and on a local file system",
                 path.display(),
                 directory.display()
             ))

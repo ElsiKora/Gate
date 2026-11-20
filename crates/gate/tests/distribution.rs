@@ -1022,9 +1022,13 @@ fn hold_guard(repo: &Repo) -> std::fs::File {
 }
 
 /// Starts `gate` with `arguments` in `repo`; its stderr comes line by line from the receiver.
-fn spawn_gate(repo: &Repo, arguments: &[&str]) -> (Child, Receiver<String>) {
+fn spawn_gate(
+    repo: &Repo,
+    arguments: &[&str],
+    server: Option<&Server>,
+) -> (Child, Receiver<String>) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gate"));
-    repo.environment(command.args(arguments), None);
+    repo.environment(command.args(arguments), server);
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1080,6 +1084,7 @@ fn two_lock_set_runs_keep_both_pins() {
             "--file",
             path(&file),
         ],
+        None,
     );
     let second_waited = waited(&lines);
     // The first run writes what it read with the git plugin moved, then lets go.
@@ -1125,6 +1130,7 @@ fn a_waiting_lock_set_whose_file_changed_fails_closed() {
             "--file",
             path(&file),
         ],
+        None,
     );
     assert!(waited(&lines), "the second run waits for the first");
     // The build changes while the run waits, after it hashed the file.
@@ -1136,6 +1142,105 @@ fn a_waiting_lock_set_whose_file_changed_fails_closed() {
     assert_eq!(output.status.code(), Some(2), "{said}");
     assert!(said.contains("changed while gate read it"), "{said}");
     assert_eq!(repo.read("gate.lock"), before, "gate.lock is unchanged");
+}
+
+/// Publishes `acme/rules:house@1.3.0` on `server`; returns the download URL and the sha256.
+fn house_release(server: &Server) -> (String, String) {
+    let download = server.url("/acme/rules/releases/download/plugin-house-v1.3.0/house.wasm");
+    let bytes = b"\0asm house 1.3.0, released".to_vec();
+    let hash = sha256(&bytes);
+    server.serve(
+        "/repos/acme/rules/releases/tags/plugin-house-v1.3.0",
+        release_json(&[(
+            "house.wasm",
+            &server.url("/repos/acme/rules/releases/assets/9"),
+            &download,
+            Some(&hash),
+        )]),
+    );
+    server.serve(
+        "/acme/rules/releases/download/plugin-house-v1.3.0/house.wasm",
+        bytes,
+    );
+    (download, hash)
+}
+
+/// Runs `arguments` while the test holds the guard as a first run would; the first run then writes
+/// `first` as its `gate.lock` and lets go. Returns the `gate.lock` the waiting run leaves.
+fn after_a_first_run(repo: &Repo, server: &Server, arguments: &[&str], first: &str) -> String {
+    let guard = hold_guard(repo);
+    let (second, lines) = spawn_gate(repo, arguments, Some(server));
+    let second_waited = waited(&lines);
+    repo.write("gate.lock", first);
+    drop(guard);
+    let output = second.wait_with_output().expect("gate");
+    let said: Vec<String> = lines.iter().collect();
+    let after = repo.read("gate.lock");
+    assert!(
+        after.contains("url = \"https://example.invalid/"),
+        "the first run's pins are kept: {after}"
+    );
+    assert!(second_waited, "{arguments:?} waited: {said:?}");
+    assert_eq!(output.status.code(), Some(0), "{said:?}");
+    after
+}
+
+#[test]
+fn a_waiting_lock_resolves_on_top_of_the_first_runs_pins() {
+    let server = Server::start();
+    let (download, hash) = house_release(&server);
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        concat!("[gate]\nversion = \"", env!("CARGO_PKG_VERSION"), "\"\n\n[plugins]\ngit = { source = \"ElsiKora/Gate:git@0.1.0\" }\nhouse = { source = \"acme/rules:house@1.3.0\" }\n"),
+    )
+    .write("gate.lock", &pinned(&[("ElsiKora/Gate:git@0.1.0", 'b')]));
+    repo.commit();
+    let moved = pinned(&[("ElsiKora/Gate:git@0.1.0", 'b')]).replace(
+        "https://example.invalid/b.wasm",
+        "https://example.invalid/moved.wasm",
+    );
+
+    let after = after_a_first_run(&repo, &server, &["lock"], &moved);
+    assert!(
+        after.contains("url = \"https://example.invalid/moved.wasm\""),
+        "the first run's pin is kept: {after}"
+    );
+    assert!(
+        after.contains(&format!("url = \"{download}\"\nsha256 = \"{hash}\"\n")),
+        "the second run's pin is not lost: {after}"
+    );
+}
+
+#[test]
+fn a_waiting_init_resolves_on_top_of_the_first_runs_lock() {
+    let server = Server::start();
+    core_release(&server, &core_archive(), Duration::ZERO);
+    let (download, hash) = house_release(&server);
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        concat!(
+            "[gate]\nversion = \"",
+            env!("CARGO_PKG_VERSION"),
+            "\"\n\n[plugins]\nhouse = { source = \"acme/rules:house@1.3.0\" }\n"
+        ),
+    );
+    repo.commit();
+
+    // The first run pins the core only; the waiting init keeps it and adds the plugin.
+    let after = after_a_first_run(&repo, &server, &["init"], &pinned(&[]));
+    assert!(
+        after.contains(&format!(
+            "url = \"https://example.invalid/gate-{}.tar.gz\"",
+            TARGETS[0]
+        )),
+        "the first run's core pin is kept: {after}"
+    );
+    assert!(
+        after.contains(&format!("url = \"{download}\"\nsha256 = \"{hash}\"\n")),
+        "the second run's pin is not lost: {after}"
+    );
 }
 
 #[test]
@@ -1161,14 +1266,16 @@ fn a_guard_that_cannot_be_taken_says_what_to_do() {
     );
     let said = text(&output.stderr);
     assert_eq!(output.status.code(), Some(2), "{said}");
+    let guard = Path::new(".git").join("gate.lock.guard");
     assert!(
-        said.contains("/.git/gate.lock.guard to update gate.lock: "),
+        said.contains(&format!("{} to update gate.lock: ", guard.display())),
         "{said}"
     );
     assert!(
-        said.contains("is writable and on a local file system, or run one gate lock at a time"),
+        said.contains("is writable and on a local file system"),
         "{said}"
     );
+    assert!(!said.contains("one gate lock at a time"), "{said}");
     assert_eq!(repo.read("gate.lock"), before, "gate.lock is unchanged");
 }
 
