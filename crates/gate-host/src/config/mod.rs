@@ -1200,7 +1200,6 @@ const SHELL_SYNTAX: &[char] = &[
     '#', '~',
 ];
 
-/// Checks that an action reference is pinned by commit.
 /// Checks an action reference: pinned by commit, optionally followed by ` # ` and the release the
 /// commit is, which the workflow carries as a comment.
 fn check_pinned(uses: &str) -> std::result::Result<(), String> {
