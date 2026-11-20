@@ -686,9 +686,10 @@ The first readers raised these points; each is settled:
 **Cache and speed**
 - Compiled modules are keyed by (plugin sha256, wasmtime version, target triple); wasmtime bounds
   them itself. Downloads are pinned: `gate cache prune` removes one only when no lock names it.
-  Results (stored by plugin) and git answers are derived, recomputed on a miss: `prune` removes
-  those of an unpinned plugin and the stored contents no answer names, and `--older-than <days> |
-  --max-size <size>` trims them by last use, which a run sets each time it uses one.
+  Results and declarations (each stored by plugin) and git answers are derived, recomputed on a
+  miss: `prune` removes those of an unpinned plugin and the stored contents no answer names, and
+  `--older-than <days> | --max-size <size>` trims them by last use, which a run sets each time it
+  uses one.
 - A dependency change re-runs the dependent project's steps; its rule results come from the cache when
   its own inputs did not change; the report says "cached" per call.
 - The speed bound applies to two runs: the full run, and `check --staged` with one changed file and a

@@ -32,8 +32,11 @@ fn key_for(format: u32, interface: &str, version: &str) -> String {
 /// What the plugin with this sha256 declared when it last loaded under this core; `None` when no
 /// entry is stored or it cannot be read.
 pub(super) fn read(cache: &Cache, plugin: &Sha256Sum) -> Option<PluginInfo> {
-    let bytes = std::fs::read(cache.declaration(plugin, &key())).ok()?;
+    let path = cache.declaration(plugin, &key());
+    let bytes = std::fs::read(&path).ok()?;
     let stored: Stored = serde_json::from_slice(&bytes).ok()?;
+    // Used now: `gate cache prune --older-than` keeps it.
+    crate::cache::touch(&path);
     Some(stored.into())
 }
 
@@ -264,6 +267,28 @@ mod tests {
         assert_eq!(
             key(),
             key_for(FORMAT, gate_runtime::INTERFACE, env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn a_read_marks_the_entry_used() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let cache = Cache::at(directory.path());
+        let plugin = Sha256Sum::from_digest(&Sha256::digest(b"plugin"));
+        write(&cache, &plugin, &info());
+        let path = cache.declaration(&plugin, &key());
+        crate::cache::used_days_ago(&path, 40);
+
+        assert_eq!(read(&cache, &plugin), Some(info()));
+        let used = std::fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .expect("the entry's time");
+        let since = std::time::SystemTime::now()
+            .duration_since(used)
+            .unwrap_or_default();
+        assert!(
+            since < std::time::Duration::from_secs(3600),
+            "read {since:?} ago"
         );
     }
 

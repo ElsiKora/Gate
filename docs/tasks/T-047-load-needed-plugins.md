@@ -185,6 +185,12 @@ removes each piece in turn and runs the test, and the Resume point records the e
   pinned download left out by `--rule` compiles nothing (piece: the read of stored declarations).
 - Unit tests in `plugins/declarations.rs`: the entry name is `key_for(format, interface,
   version)` and changes with each of the three; a stored entry is replaced when written again.
+- With T-056 merged first, `declarations/` is in its derived class. In
+  `prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download`, the
+  declarations of an unpinned plugin go without a bound, and a pinned plugin's entry last used 40
+  days ago goes under `--older-than 30` (piece: the declarations loop in `Cache::plan`). The unit
+  test `a_read_marks_the_entry_used` reads an entry last used 40 days ago and finds it used now
+  (piece: `cache::touch` in `declarations::read`).
 
 ## Done when
 
@@ -259,16 +265,15 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
 
 ## Resume point
 
-2026-11-20T01:44:56+00:00:
+2026-11-20T02:00:41+00:00:
 - Design: the lead's redesign above (validation never narrowed; stored declarations keyed by
   entry format, interface and core version). The first design (`a6870b6`) was reviewed fix first
   and replaced.
-- Overlap with T-056 (`gate cache prune`, Gate 004), decided by the lead: whichever branch merges
-  second puts `declarations/` into T-056's derived class, like `results/<plugin sha256>/`; an
-  entry read is touched; the interim rule in `Cache::unreferenced` and its unit test go. Agreed
-  with Gate 004 against T-056's `96552d0`: a declarations loop in `Cache::plan` mirroring the
-  results loop, before the `older_than` block, with a declarations case in
-  `prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download`.
+- T-056 (`gate cache prune`) merged first (main `e9e1434`), so this branch takes the interplay:
+  `declarations/<plugin sha256>/` is derived like `results/<plugin sha256>/` (an unpinned plugin's
+  directory goes; a pinned plugin's entries fall under `--older-than` and `--max-size`), a read
+  entry is touched, and the interim rule in `Cache::unreferenced` and its unit test
+  `prune_keeps_the_declarations_of_pinned_plugins_only` are gone.
 - The review of `f7269b4` (2026-11-20) said fix first. Its points are in: presets checked for
   every declared plugin in every scope in `validate`; needs follow `--rule` on both paths; a
   stored entry is always placed; `key_for`; architecture section 7's validation list and
@@ -276,7 +281,7 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
   measure table in Done when. Point 6 (`with_generators` loading only the missing generator
   plugins) is not a small change: a `Loaded` holds one runtime, and a plugin is instantiated by
   the runtime that compiled it, so the run's plugins load again with them (from the module
-  cache); a comment there says so. The branch is rebased onto main `a3dd8d5`.
+  cache); a comment there says so. The branch is rebased onto main `e9e1434`.
 - Rounds:
   - First design: ticket 224 (tests on `ba462ff`; two expected failures, a fixture fixed in
     `9bb5b36`), ticket 226 (clippy `similar_names`, fixed in `a6870b6`), ticket 240 withdrawn.
@@ -287,5 +292,6 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
     101; on `65e5a55` fmt, clippy, test 1026 passed 0 failed, deny and the release build exit 0;
     binary sha256 `3eb84b41b421a3980363a9a4dd05b0a2321bea6a9b99c55479fe20db32922425`).
   - Measure: ticket 267 (before/after, in Done when).
+  - Review: ticket 281 queued on `f7d190e`, withdrawn before it started when T-056 merged.
 - Next: the review round, which removes each reviewed piece in turn and runs its test, then the
   gates on the pushed tip.

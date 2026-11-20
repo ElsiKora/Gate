@@ -867,6 +867,15 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     put(&cache.result(unpinned.as_str(), &key), "unpinned", now, 0);
     let format_2 = cache.results().join("ee");
     put(&format_2.join("e".repeat(64)), "format 2", now, 0);
+    // Declarations of the pinned plugin, last used long ago, and of the unpinned one.
+    let kept_declaration = cache.declaration(&pinned, key.as_str());
+    put(&kept_declaration, "kept declaration", now, 40);
+    put(
+        &cache.declaration(&unpinned, key.as_str()),
+        "unpinned",
+        now,
+        0,
+    );
     // One stored answer names the content of blob 2...2; the contents of 3...3, stored two days
     // ago, and of 5...5, stored now (its answer file not written yet), are named by none.
     let answers = cache.answer("answers/1", &sum(&"f".repeat(64)));
@@ -896,12 +905,16 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     let mut expected = vec![
         (format_2.clone(), Reason::OldFormat),
         (cache.results().join(unpinned.as_str()), Reason::Unpinned),
+        (
+            cache.declarations().join(unpinned.as_str()),
+            Reason::Unpinned,
+        ),
         (unnamed.clone(), Reason::Unnamed),
     ];
     expected.sort_by(|left, right| left.0.cmp(&right.0));
     assert_eq!(removed(&plan), expected);
     assert_eq!(plan.over, None);
-    assert_eq!(files(cache.root()).len(), 10, "planning removes nothing");
+    assert_eq!(files(cache.root()).len(), 12, "planning removes nothing");
 
     // Older than 30 days: the derived files last used 40 days ago go too; the pinned download
     // and core, 400 days old, stay.
@@ -912,6 +925,7 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     let plan = cache.plan(&referenced, &plugins, &bounds).expect("plan");
     expected.extend([
         (kept_result.clone(), Reason::Older(30)),
+        (kept_declaration.clone(), Reason::Older(30)),
         (sync_state.clone(), Reason::Older(30)),
     ]);
     expected.sort_by(|left, right| left.0.cmp(&right.0));
@@ -937,7 +951,14 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
             "{kept:?} is pinned: {paths:?}"
         );
     }
-    for gone in [&kept_result, &answers, &named, &young_unnamed, &sync_state] {
+    for gone in [
+        &kept_result,
+        &kept_declaration,
+        &answers,
+        &named,
+        &young_unnamed,
+        &sync_state,
+    ] {
         assert!(paths.contains(gone), "{gone:?} should go: {paths:?}");
     }
     assert_eq!(plan.over, Some(1));
@@ -952,6 +973,7 @@ fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinne
     // The `<2 hex>/` shards and the plugin's results directory the removal emptied go with it.
     for emptied in [
         cache.results(),
+        cache.declarations(),
         cache.git().join("answers/1"),
         cache.git().join("blobs"),
         cache.git().join("sync-state"),

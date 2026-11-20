@@ -8,6 +8,7 @@
 //! core/<sha256>/gate                          the core unpacked by bin/gate from that archive
 //! modules/                                    compiled plugins: wasmtime's own cache (the plugin runtime)
 //! results/<plugin sha256>/                    the result cache, by plugin (the plugin runtime)
+//! declarations/<plugin sha256>/               what each plugin declares, by core (the plugin runtime)
 //! git/                                        answers about commits and file contents (the plugin runtime)
 //! tmp/                                        downloads in progress
 //! CACHEDIR.TAG                                marks the directory as a cache (bford.info/cachedir)
@@ -19,9 +20,10 @@
 //! longer hashes to its name, is removed and downloaded again.
 //!
 //! Downloads (`blobs/sha256/`, `core/`, `tools/`) are pinned: `gate cache prune` keeps one exactly
-//! while a lock names it. Everything under `results/` and `git/` is derived: a run that finds it
-//! missing computes it again, so `gate cache prune` removes it when nothing can use it, and by its
-//! last use, the file's modification time, which a run sets each time it uses the file.
+//! while a lock names it. Everything under `results/`, `declarations/` and `git/` is derived: a
+//! run that finds it missing computes it again, so `gate cache prune` removes it when nothing can
+//! use it, and by its last use, the file's modification time, which a run sets each time it uses
+//! the file.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -423,8 +425,7 @@ impl Cache {
         Ok(target)
     }
 
-    /// The entries no checksum in `referenced` names (downloads, cores, tools and plugin
-    /// declarations), `modules/` as a whole when no plugin is
+    /// The entries no checksum in `referenced` names, `modules/` as a whole when no plugin is
     /// pinned (`plugins_pinned` false: wasmtime's file names do not say which plugin a module
     /// came from), files in `tmp/` older than a day, and tool temporaries (`tools/.<name>.*`)
     /// older than an hour. No symbolic link is followed.
@@ -452,12 +453,8 @@ impl Cache {
             entries.push(Entry::at(modules, Reason::Unpinned)?);
         }
         let blobs = self.root.join("blobs");
-        for (parent, directory) in [
-            (&blobs, blobs.join("sha256")),
-            (&blobs, self.root.join("core")),
-            (&self.root, self.declarations()),
-        ] {
-            if !self.directory(parent)? || !self.directory(&directory)? {
+        for directory in [blobs.join("sha256"), self.root.join("core")] {
+            if !self.directory(&blobs)? || !self.directory(&directory)? {
                 continue;
             }
             for (path, name) in children(&directory)? {
@@ -510,13 +507,14 @@ impl Cache {
         Ok(entries)
     }
 
-    /// What `gate cache prune` removes: the entries of [`Cache::unreferenced`]; the results of a
-    /// plugin `plugins` does not name, and any other entry of `results/` that is no plugin's; the
-    /// stored file contents no stored answer names, stored more than a day ago (a run stores a
-    /// content before the answer that names it); then, of the derived files left (under
-    /// `results/` and `git/`), those last used longer ago than `bounds.older_than`, and, while the
-    /// whole cache is over `bounds.max_size`, the least recently used, by path on a tie. A pinned
-    /// download and `modules/` are never removed by a bound.
+    /// What `gate cache prune` removes: the entries of [`Cache::unreferenced`]; the results and
+    /// the declarations of a plugin `plugins` does not name, and any other entry of `results/` or
+    /// `declarations/` that is no plugin's; the stored file contents no stored answer names,
+    /// stored more than a day ago (a run stores a content before the answer that names it); then,
+    /// of the derived files left (under `results/`, `declarations/` and `git/`), those last used
+    /// longer ago than `bounds.older_than`, and, while the whole cache is over `bounds.max_size`,
+    /// the least recently used, by path on a tie. A pinned download and `modules/` are never
+    /// removed by a bound.
     ///
     /// # Errors
     /// As [`Cache::unreferenced`], and when a stored answer cannot be read: the contents it names
@@ -546,6 +544,18 @@ impl Cache {
                     _ => Reason::OldFormat,
                 };
                 entries.push(Entry::at(path, reason)?);
+            }
+        }
+        // A declaration is a pinned plugin's while a lock pins the plugin; the bounds see it.
+        let declarations = self.declarations();
+        if self.directory(&declarations)? {
+            for (path, name) in children(&declarations)? {
+                match Sha256Sum::parse(&name) {
+                    Ok(plugin) if plugins.contains(&plugin) && self.directory(&path)? => {
+                        derived.extend(derived_files(&path)?);
+                    }
+                    _ => entries.push(Entry::at(path, Reason::Unpinned)?),
+                }
             }
         }
         let git = self.git();
@@ -972,29 +982,6 @@ mod tests {
         };
         assert_eq!(default.ok(), Some(Cache::at(expected)));
         assert!(Cache::from_variables(None, None, None).is_err());
-    }
-
-    #[test]
-    fn prune_keeps_the_declarations_of_pinned_plugins_only() {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let cache = Cache::at(directory.path());
-        fs::write(directory.path().join(CACHE_TAG), CACHE_TAG_CONTENTS).expect("tag");
-        let pinned = Sha256Sum::parse(&"b".repeat(64)).expect("checksum");
-        let unpinned = Sha256Sum::parse(&"d".repeat(64)).expect("checksum");
-        for plugin in [&pinned, &unpinned] {
-            let path = cache.declaration(plugin, "entry");
-            fs::create_dir_all(path.parent().expect("parent")).expect("directories");
-            fs::write(path, "{}").expect("entry");
-        }
-
-        let entries = cache
-            .unreferenced(&BTreeSet::from([pinned]), true)
-            .expect("listed");
-        let paths: Vec<&Path> = entries.iter().map(|entry| entry.path.as_path()).collect();
-        assert_eq!(
-            paths,
-            [cache.declarations().join(unpinned.as_str()).as_path()]
-        );
     }
 
     #[test]
