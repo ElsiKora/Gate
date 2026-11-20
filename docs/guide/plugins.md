@@ -38,7 +38,8 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `typescript` | project | TypeScript, JavaScript | no | none |
 | `git` | repository | none | yes | none |
 | `markdown` | project | Markdown | no | none |
-| `agents` | project | none | no | `agents/adapters`, `agents/agents-block` |
+| `docs` | project | none | no | `docs/layout` |
+| `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` |
 | `ledger` | project | none | no | none |
 | `nestjs` | project | TypeScript | no | none |
 | `node` | repository, project | none | no | none |
@@ -106,6 +107,37 @@ markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
 | [`markdown/local-links`](../../plugins/markdown/rules/local-links.md) | every local link destination names a tracked file or directory |
 | [`markdown/required-sections`](../../plugins/markdown/rules/required-sections.md) | pages have the level-two sections their path requires |
 
+### `docs`
+
+One documentation layout for every project, a standard per kind: `service`, `frontend`,
+`infrastructure`, `library` and `monorepo-root`. The standards share their top-level names, index
+files and order, and differ only where a kind's nature demands it, each difference with its reason.
+A project names its kind in the plugin's options, which the rule and the generator both read; it
+adds an entry of its own only by declaring it, with its job, in `extra`, and lists in `delegated`
+the entries whose plugins it enables (`agents`, `ledger`), so the index links them.
+
+```toml
+[plugins]
+docs = { source = "ElsiKora/Gate:docs@0.3.0", options = { kind = "service" } }
+
+[rules]
+"docs/layout" = "error"
+
+[generate]
+"docs/layout" = {}
+```
+
+`extends = ["docs/recommended"]` (every rule at error) or `["docs/adoption"]` (at warning) turns the
+rule on in place of the `[rules]` line. `gate sync` seeds every required index page that is missing and never overwrites a page that exists;
+`gate check` reports what the standard misses, and each seeded page until its marker line is
+deleted. A monorepo root's `docs/` is checked when the workspace lists `"."` as a project with
+`kind = "monorepo-root"`.
+
+| Rule or generator | Checks or writes |
+| --- | --- |
+| [`docs/layout`](../../plugins/docs/rules/layout.md) (rule) | the entries of the kind, unknown and reserved names, declared extensions, the index's entry table and each index's sections |
+| [`docs/layout`](../../plugins/docs/generators/layout.md) (generator) | the required index pages of the kind, as seeds |
+
 ### `agents`
 
 Rule files and skills written for coding agents, kept in `<root>/rules/*.md` and `<root>/skills/`
@@ -122,12 +154,15 @@ agents = { source = "ElsiKora/Gate:agents@0.2.0" }
 
 [rules]
 "agents/rule-registry" = { level = "error", options = { root = "docs/agents" } }
-"agents/no-claude-md" = "error"
 
 [generate]
 "agents/adapters" = { options = { root = "docs/agents" } }
 "agents/agents-block" = { options = { root = "docs/agents", entry = "AGENTS.md" } }
 ```
+
+`agents/no-claude-md` is a repository-scope rule: it runs once and sees every tracked path, so set it
+in the root `gate.toml`'s `[rules]` (`"agents/no-claude-md" = "error"`); a project's file may not set
+it.
 
 `gate sync` writes the generated files; `gate sync --check` reports drift. The rules: `instruction-references`,
 `no-claude-md`, `rule-enforcement`, `rule-file-size`, `rule-ids`, `rule-owner`, `rule-references`,
@@ -295,9 +330,10 @@ ci = { source = "ElsiKora/Gate:ci@0.2.0" }
 ## 🎛 Presets
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
-`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. None of
-the shared plugins ships a preset yet, so turn their rules on one by one in `[rules]`; `gate list` shows
-the result.
+`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. Each
+plugin new in 0.3.0 ships two: `<plugin>/recommended`, every rule at error, and `<plugin>/adoption`,
+every rule at warning (`docs/recommended`, `docs/adoption`); `git` ships `git/recommended`. Turn the
+rules of the other plugins on one by one in `[rules]`; `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 

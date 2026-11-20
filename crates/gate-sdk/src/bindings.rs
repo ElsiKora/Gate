@@ -181,8 +181,9 @@ pub fn generate<S: CallState>(
     name: &str,
     project: &str,
     options: &str,
+    plugin_options: &str,
 ) -> Result<wit::GenerateResult, wit::PluginError> {
-    plugin::generate(spec, &ComponentHost, name, project, options)
+    plugin::generate(spec, &ComponentHost, name, project, options, plugin_options)
         .map(|output| wit::GenerateResult {
             files: output
                 .files
@@ -190,6 +191,7 @@ pub fn generate<S: CallState>(
                 .map(|file| wit::GeneratedFile {
                     path: file.path,
                     contents: file.contents,
+                    seed: file.seed,
                 })
                 .collect(),
             findings: output.findings.into_iter().map(finding).collect(),
@@ -347,11 +349,12 @@ macro_rules! plugin {
                     name: ::std::string::String,
                     project: ::std::string::String,
                     options: ::std::string::String,
+                    plugin_options: ::std::string::String,
                 ) -> ::core::result::Result<
                     $crate::bindings::gate::plugin::types::GenerateResult,
                     $crate::bindings::gate::plugin::types::PluginError,
                 > {
-                    $crate::bindings::generate(&PLUGIN, &name, &project, &options)
+                    $crate::bindings::generate(&PLUGIN, &name, &project, &options, &plugin_options)
                 }
             }
 

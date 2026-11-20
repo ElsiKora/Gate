@@ -33,6 +33,9 @@ pub struct Output {
     pub contents: Vec<u8>,
     /// Whether the file is executable (the hooks).
     pub executable: bool,
+    /// A seed: written only when nothing exists at its path, never reported by
+    /// `gate sync --check`, never stale.
+    pub seed: bool,
 }
 
 /// A file a plugin's generator returns.
@@ -42,6 +45,8 @@ pub struct GeneratedFile {
     pub path: String,
     /// The contents.
     pub contents: Vec<u8>,
+    /// A seed: the project's file once written ([`Output::seed`]).
+    pub seed: bool,
 }
 
 /// Runs the plugins' generators: [`crate::PluginGenerators`] over the plugin runtime, or a test's
@@ -95,13 +100,36 @@ pub struct Stale {
 ///
 /// # Errors
 /// Fails when a hook or job is wrong for its place, a generator fails or writes outside the
-/// repository, or two outputs share a path.
+/// repository, a generator seeds a file under a glob any generator owns, or two outputs share a
+/// path.
 pub fn plan(workspace: &Workspace, generators: &dyn Generators) -> Result<Vec<Output>> {
     let mut outputs = core_outputs(workspace, generators)?;
     for entry in generator_entries(workspace) {
         outputs.extend(generator_outputs(&entry, generators)?);
     }
+    if outputs.iter().any(|output| output.seed) {
+        refuse_owned_seeds(&outputs, &owned(workspace, generators)?)?;
+    }
     sorted(outputs)
+}
+
+/// Refuses a seed under a glob another generator owns: the seed is the project's once written, and
+/// `gate sync` removes a file under an owned glob that no generator writes, so the page a person
+/// filled would be deleted as stale once its own generator stops running.
+fn refuse_owned_seeds(outputs: &[Output], owned: &[Owned]) -> Result<()> {
+    let matchers = matchers(owned)?;
+    for output in outputs.iter().filter(|output| output.seed) {
+        if let Some((owner, _)) = matchers
+            .iter()
+            .find(|(_, matcher)| matcher.is_match(&output.path))
+        {
+            return Err(Error::environment(format!(
+                "{} seeds {}, which is under {:?}, a glob {} owns; a seed belongs to the project once written, and gate sync removes a file under an owned glob that no generator writes; keep only one of the two generators in [generate], or report the overlap to the plugins' authors",
+                output.item, output.path, owner.glob, owner.item
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The files the core generates itself: the hooks of `[hooks]` and the workflow of `[ci.github]`.
@@ -119,6 +147,7 @@ pub fn core_outputs(workspace: &Workspace, generators: &dyn Generators) -> Resul
                 path,
                 contents: script.into_bytes(),
                 executable: true,
+                seed: false,
             });
         }
     }
@@ -134,6 +163,7 @@ pub fn core_outputs(workspace: &Workspace, generators: &dyn Generators) -> Resul
             )?
             .into_bytes(),
             executable: false,
+            seed: false,
         });
     }
 
@@ -207,7 +237,7 @@ pub fn generator_entries(workspace: &Workspace) -> Vec<GeneratorEntry<'_>> {
 ///
 /// # Errors
 /// Fails when the generator fails, or writes outside the repository or where gate sync never
-/// writes.
+/// writes, or seeds a file under a glob it owns.
 pub fn generator_outputs(
     entry: &GeneratorEntry<'_>,
     generators: &dyn Generators,
@@ -226,11 +256,54 @@ pub fn generator_outputs(
             path,
             contents: file.contents,
             executable: false,
+            seed: file.seed,
         };
         refuse_protected(&output)?;
         outputs.push(output);
     }
+    if outputs.iter().any(|output| output.seed) {
+        let owned: Vec<Owned> = generators
+            .owns(entry.project, generator)?
+            .into_iter()
+            .map(|glob| Owned {
+                item: generator.to_string(),
+                glob,
+            })
+            .collect();
+        let matchers = matchers(&owned)?;
+        for output in outputs.iter().filter(|output| output.seed) {
+            if let Some((owned, _)) = matchers
+                .iter()
+                .find(|(_, matcher)| matcher.is_match(&output.path))
+            {
+                return Err(Error::environment(format!(
+                    "{generator} seeds {}, which is under {:?}, a glob it owns; a seed belongs to the project once written, so its generator cannot own it; report it to the plugin's authors",
+                    output.path, owned.glob
+                )));
+            }
+        }
+    }
     Ok(outputs)
+}
+
+/// A matcher per owned glob, with the glob.
+fn matchers(owned: &[Owned]) -> Result<Vec<(&Owned, globset::GlobMatcher)>> {
+    owned
+        .iter()
+        .map(|owned| {
+            let matcher = globset::GlobBuilder::new(&owned.glob)
+                .literal_separator(true)
+                .build()
+                .map_err(|error| {
+                    Error::environment(format!(
+                        "{} owns {:?}, which is not a glob: {error}; report it to the plugin's authors",
+                        owned.item, owned.glob
+                    ))
+                })?
+                .compile_matcher();
+            Ok((owned, matcher))
+        })
+        .collect()
 }
 
 /// `outputs` sorted by path.
@@ -391,20 +464,10 @@ pub fn stale(workspace: &Workspace, outputs: &[Output], owned: &[Owned]) -> Resu
     let wanted: BTreeSet<&str> = outputs.iter().map(|output| output.path.as_str()).collect();
     let snapshot = workspace.snapshot();
     let mut stale = Vec::new();
-    let mut matchers = Vec::new();
-    for owned in owned {
-        let matcher = globset::GlobBuilder::new(&owned.glob)
-            .literal_separator(true)
-            .build()
-            .map_err(|error| {
-                Error::environment(format!(
-                    "{} owns {:?}, which is not a glob: {error}; report it to the plugin's authors",
-                    owned.item, owned.glob
-                ))
-            })?
-            .compile_matcher();
-        matchers.push((owned.item.as_str(), matcher));
-    }
+    let matchers: Vec<(&str, globset::GlobMatcher)> = matchers(owned)?
+        .into_iter()
+        .map(|(owned, matcher)| (owned.item.as_str(), matcher))
+        .collect();
 
     let candidates: Vec<&str> = snapshot
         .paths()
@@ -456,7 +519,9 @@ pub fn stale(workspace: &Workspace, outputs: &[Output], owned: &[Owned]) -> Resu
 }
 
 /// `gate sync --check`: one `gate/sync#<item>` error per output that is missing, differs or lost
-/// its executable bit, and per stale generated file (`owned`: the globs generators own).
+/// its executable bit, and per stale generated file (`owned`: the globs generators own). A seed is
+/// never reported: it claims nothing about its contents, and whether it must exist is a rule's
+/// question.
 ///
 /// # Errors
 /// Fails when git cannot list file modes or a tracked file cannot be read.
@@ -465,7 +530,7 @@ pub fn check(workspace: &Workspace, outputs: &[Output], owned: &[Owned]) -> Resu
     let modes = modes(workspace, outputs)?;
     let mut findings = Vec::new();
 
-    for output in outputs {
+    for output in outputs.iter().filter(|output| !output.seed) {
         let message = match snapshot.read(&output.path)? {
             None => Some("is missing; run gate sync, then git add it".to_owned()),
             Some(contents) if *contents != *output.contents => Some(
@@ -579,8 +644,9 @@ pub struct Synced {
     pub hooks_path: Option<String>,
 }
 
-/// `gate sync`: writes every output that differs, removes stale generated files (`owned`: the globs
-/// generators own), and points `core.hooksPath` at the hooks when `[hooks]` is configured. Every
+/// `gate sync`: writes every output that differs and every seed whose path holds nothing (no
+/// file, link or directory), removes stale generated files (`owned`: the globs generators own),
+/// and points `core.hooksPath` at the hooks when `[hooks]` is configured. Every
 /// write and removal goes through the same guard: never `.git`, the core's files, the launcher, the
 /// hooks directory for another item, or a path behind a symbolic link.
 ///
@@ -596,6 +662,12 @@ pub fn write(workspace: &Workspace, outputs: &[Output], owned: &[Owned]) -> Resu
     let mut writes = Vec::new();
     for output in outputs {
         let path = guarded(&root, &output.path, &output.item)?;
+        if output.seed {
+            if std::fs::symlink_metadata(&path).is_err() {
+                writes.push((output, path));
+            }
+            continue;
+        }
         if std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink())
         {
             return Err(Error::environment(format!(
@@ -642,6 +714,7 @@ pub fn write(workspace: &Workspace, outputs: &[Output], owned: &[Owned]) -> Resu
     synced.untracked = outputs
         .iter()
         .filter(|output| !tracked.contains(&output.path))
+        .filter(|output| !output.seed || root.join(&output.path).is_file())
         .map(|output| output.path.clone())
         .collect();
 

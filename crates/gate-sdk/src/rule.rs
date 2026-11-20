@@ -460,6 +460,9 @@ pub struct GeneratedFile {
     pub path: String,
     /// The bytes to write.
     pub contents: Vec<u8>,
+    /// A seed: the core writes it only when nothing exists at its path, never compares it, and
+    /// never deletes it; once written it belongs to the project ([`Generate::seed`]).
+    pub seed: bool,
 }
 
 /// One generator of files (hooks, CI, agent adapters, documents).
@@ -498,6 +501,7 @@ pub struct Generate<'h, O> {
     pub(crate) host: &'h dyn Host,
     pub(crate) report: Report,
     pub(crate) options: O,
+    pub(crate) plugin_options: serde_json::Value,
     pub(crate) project: String,
     pub(crate) files: Vec<GeneratedFile>,
 }
@@ -536,14 +540,35 @@ impl<'h, O> Generate<'h, O> {
         &self.project
     }
 
+    /// The `[plugins.<name>]` options the plugin's rules share, as [`Call::plugin_options`] gives
+    /// them to a rule; `T` is the `options` type [`crate::plugin!`] declares.
+    ///
+    /// # Errors
+    /// When they do not match `T`, naming the key.
+    pub fn plugin_options<T: DeserializeOwned>(&self) -> Result<T> {
+        T::deserialize(&self.plugin_options)
+            .map_err(|error| Error::config(format!("the [plugins] options do not match: {error}")))
+    }
+
     /// Writes `contents` at `path`, relative to the project root like every path a plugin
-    /// names; a later write of the same path replaces it.
+    /// names; a later write or seed of the same path replaces it.
     pub fn write(&mut self, path: impl Into<String>, contents: impl Into<Vec<u8>>) {
-        let path = path.into();
+        self.push(path.into(), contents.into(), false);
+    }
+
+    /// Seeds `contents` at `path`: `gate sync` writes it only when nothing exists at the path,
+    /// and `gate sync --check` never reports it, so a person's edit is never overwritten. A seed
+    /// under a glob the generator owns ([`Generator::OWNS`]) fails the call.
+    pub fn seed(&mut self, path: impl Into<String>, contents: impl Into<Vec<u8>>) {
+        self.push(path.into(), contents.into(), true);
+    }
+
+    fn push(&mut self, path: String, contents: Vec<u8>, seed: bool) {
         self.files.retain(|file| file.path != path);
         self.files.push(GeneratedFile {
             path,
-            contents: contents.into(),
+            contents,
+            seed,
         });
     }
 }

@@ -871,6 +871,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gate-plugin-docs"
+version = "0.3.0"
+dependencies = [
+ "gate-sdk",
+ "pulldown-cmark",
+ "serde_json",
+]
+
+[[package]]
 name = "gate-plugin-git"
 version = "0.2.1"
 dependencies = [

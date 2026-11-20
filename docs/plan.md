@@ -12,7 +12,7 @@ reference for every ported rule is the reference implementation, outside this re
 | `v0.1.0` | 2026-11-18 | the same, fixed by the dry run; guides; public repository from a clean root | first consumer in CI |
 | `v0.2.0` | 2026-11-19, released (tag 17:01Z) | plugin interface `gate:plugin@0.2.0` and every plugin at 0.2.0; `git` branch and commit format at parity with the house linters; the result cache hit by a warm run; stable fingerprints and `gate baseline prune`; option errors as configuration errors; a call state shared by the rules of one call; wasmtime 50.0.2 (CHANGELOG.md, 0.2.0) | second and third consumers, at their leads' time |
 | `v0.2.1` | not set | from the `v0.2.0` tag: T-037, T-042, T-043, T-044, T-046, T-047, T-049; documents T-050, T-051, T-054 | the consumers on 0.2.0 |
-| `v0.3.0` | not set | breaking changes: T-048 (a configuration table renamed) and T-052 after it, T-053 (`--sha256` removed) | not set |
+| `v0.3.0` | not set | breaking changes: T-048 (a configuration table renamed) and T-052 after it, T-053 (`--sha256` removed), T-062 (the plugin interface `gate:plugin@0.3.0`: a generated file carries `seed`, and `generate` receives the plugin's options; `agents/no-claude-md` is a repository-scope rule, set in the root `[rules]` only) | not set |
 
 ## Tasks
 
@@ -72,6 +72,8 @@ reference for every ported rule is the reference implementation, outside this re
 | T-052 | v0.3.0 | Two check-time thresholds, a warning and a failure, replace `--budget-fails` | open (no task file yet; writer Gate 001, after T-048) | T-048 |
 | T-053 | v0.3.0 | Pin a local build under its future URL, and check exactly that file | design approved; code after T-044 merges (branch at `5379eed`) | T-044 |
 | T-054 | v0.2.1 | The 0.1.0-to-0.2.0 baseline upgrade, written down | done (merged at `4c55ca6`, after the tag; documents only) | none |
+| T-062 | v0.3.0 | One documentation layout for every project, a standard per kind: the `docs` plugin, seeds | code review (the review's fix round in) | none |
+| T-063 | v0.3.0 | The ledger and agents plugins seed their own minimum | design decided (branch `task/T-063-seeds`); code after T-061 and T-062 merge | T-061, T-062 |
 
 ## Open after rc.1
 

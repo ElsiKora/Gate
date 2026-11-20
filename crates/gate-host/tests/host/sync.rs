@@ -5,7 +5,7 @@
 
 use gate_host::config::PluginItem;
 use gate_host::sync::{GeneratedFile, Generators, Output, check, owned, plan, write};
-use gate_host::{Result, RuleFilter, Source, Workspace};
+use gate_host::{ErrorKind, Result, RuleFilter, Source, Workspace};
 
 use crate::fixture::{ROOT, Repo, monorepo};
 
@@ -130,6 +130,7 @@ impl Generators for Writes {
             .map(|path| GeneratedFile {
                 path: (*path).to_owned(),
                 contents: b"generated\n".to_vec(),
+                seed: false,
             })
             .collect())
     }
@@ -157,6 +158,7 @@ fn output(path: &str) -> Output {
         path: path.to_owned(),
         contents: b"generated\n".to_vec(),
         executable: false,
+        seed: false,
     }
 }
 
@@ -310,6 +312,7 @@ impl Generators for Owns {
         Ok(vec![GeneratedFile {
             path: "generated/new.md".to_owned(),
             contents: b"generated\n".to_vec(),
+            seed: false,
         }])
     }
 
@@ -423,6 +426,234 @@ fn a_refused_path_anywhere_in_the_list_leaves_the_tree_as_it_was() {
         "nothing is removed"
     );
     assert!(!outside.path().join("second.md").exists());
+}
+
+/// A runtime whose one generator writes `generated/new.md` and seeds `seeds`; it owns `owns`.
+struct Seeds(Vec<&'static str>, Vec<&'static str>);
+
+impl Generators for Seeds {
+    fn generate(
+        &self,
+        _project: Option<&str>,
+        _generator: &PluginItem,
+        _options: Option<&serde_json::Value>,
+    ) -> Result<Vec<GeneratedFile>> {
+        let mut files = vec![GeneratedFile {
+            path: "generated/new.md".to_owned(),
+            contents: b"generated\n".to_vec(),
+            seed: false,
+        }];
+        files.extend(self.0.iter().map(|path| GeneratedFile {
+            path: (*path).to_owned(),
+            contents: b"seed\n".to_vec(),
+            seed: true,
+        }));
+        Ok(files)
+    }
+
+    fn owns(&self, _project: Option<&str>, _generator: &PluginItem) -> Result<Vec<String>> {
+        Ok(self.1.iter().map(|glob| (*glob).to_owned()).collect())
+    }
+
+    fn reads_history(&self, _filter: &RuleFilter) -> bool {
+        false
+    }
+}
+
+/// The paths `gate sync --check` reports.
+fn reported(workspace: &Workspace, generators: &dyn Generators) -> Vec<String> {
+    let outputs = plan(workspace, generators).expect("plan");
+    let owned = owned(workspace, generators).expect("owned");
+    let mut paths: Vec<String> = check(workspace, &outputs, &owned)
+        .expect("check")
+        .iter()
+        .filter_map(|finding| finding.location.as_ref()?.path().map(str::to_owned))
+        .collect();
+    paths.sort();
+    paths
+}
+
+#[test]
+fn a_seed_is_written_only_where_nothing_is_and_never_reported() {
+    let repo = with_generator();
+    repo.write("docs/edited.md", "a person's text\n");
+    repo.commit("an edited seed");
+    repo.write("docs/untracked.md", "not added yet\n");
+    std::fs::create_dir_all(repo.path().join("docs/directory.md")).expect("directory");
+    let generators = Seeds(
+        vec![
+            "docs/absent.md",
+            "docs/edited.md",
+            "docs/untracked.md",
+            "docs/directory.md",
+        ],
+        vec!["generated/**"],
+    );
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    assert_eq!(
+        reported(&workspace, &generators),
+        ["generated/new.md"],
+        "an absent or edited seed is never drift; the owned file beside it is"
+    );
+
+    let outputs = plan(&workspace, &generators).expect("plan");
+    let owned = owned(&workspace, &generators).expect("owned");
+    let synced = write(&workspace, &outputs, &owned).expect("write");
+    assert_eq!(synced.written, ["docs/absent.md", "generated/new.md"]);
+    assert_eq!(
+        synced.untracked,
+        ["docs/absent.md", "docs/untracked.md", "generated/new.md"]
+    );
+    let text = |path: &str| std::fs::read_to_string(repo.path().join(path)).expect("read");
+    assert_eq!(text("docs/absent.md"), "seed\n");
+    assert_eq!(text("docs/edited.md"), "a person's text\n");
+    assert_eq!(text("docs/untracked.md"), "not added yet\n");
+    assert!(repo.path().join("docs/directory.md").is_dir());
+
+    std::fs::write(repo.path().join("docs/absent.md"), "filled\n").expect("fill");
+    let synced = write(&workspace, &outputs, &owned).expect("write again");
+    assert_eq!(synced.written, Vec::<String>::new());
+    assert_eq!(text("docs/absent.md"), "filled\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_seed_whose_path_is_a_symbolic_link_is_left_alone() {
+    let repo = with_generator();
+    let outside = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(repo.path().join("docs")).expect("docs");
+    std::os::unix::fs::symlink(
+        outside.path().join("target.md"),
+        repo.path().join("docs/linked.md"),
+    )
+    .expect("link");
+    let generators = Seeds(vec!["docs/linked.md"], Vec::new());
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    let outputs = plan(&workspace, &generators).expect("plan");
+    let synced = write(&workspace, &outputs, &[]).expect("a seed at a link is not an error");
+    assert_eq!(synced.written, ["generated/new.md"]);
+    assert!(!outside.path().join("target.md").exists());
+}
+
+#[test]
+fn a_seed_under_a_glob_its_generator_owns_is_refused() {
+    let repo = with_generator();
+    let generators = Seeds(vec!["generated/seeded.md"], vec!["generated/**"]);
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    let error = plan(&workspace, &generators).expect_err("an owned seed is refused");
+    assert!(
+        error.message().contains("seeds generated/seeded.md")
+            && error.message().contains("\"generated/**\", a glob it owns"),
+        "{}",
+        error.message()
+    );
+    assert_eq!(error.kind(), ErrorKind::Environment, "{}", error.message());
+}
+
+#[test]
+fn a_seed_filled_and_committed_is_never_drift_never_rewritten_and_never_stale() {
+    let repo = with_generator();
+    let generators = Seeds(vec!["docs/seeded.md"], vec!["generated/**"]);
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    let outputs = plan(&workspace, &generators).expect("plan");
+    let globs = owned(&workspace, &generators).expect("owned");
+    let synced = write(&workspace, &outputs, &globs).expect("write");
+    assert_eq!(synced.written, ["docs/seeded.md", "generated/new.md"]);
+    repo.write("docs/seeded.md", "filled\n");
+    repo.commit("the seed, filled");
+
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    assert_eq!(
+        reported(&workspace, &generators),
+        Vec::<String>::new(),
+        "a filled seed is not drift"
+    );
+    let outputs = plan(&workspace, &generators).expect("plan");
+    let synced = write(&workspace, &outputs, &globs).expect("write");
+    assert_eq!(synced.written, Vec::<String>::new());
+    assert_eq!(synced.removed, Vec::<String>::new());
+
+    // Its generator removed from [generate]: the page stays the project's.
+    repo.write("gate.toml", &format!("{ROOT}\n"));
+    repo.commit("no generator");
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    assert_eq!(reported(&workspace, &generators), Vec::<String>::new());
+    let outputs = plan(&workspace, &generators).expect("plan");
+    let globs = owned(&workspace, &generators).expect("owned");
+    let synced = write(&workspace, &outputs, &globs).expect("write");
+    assert_eq!(synced.removed, Vec::<String>::new());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("docs/seeded.md")).expect("read"),
+        "filled\n"
+    );
+}
+
+/// A runtime of two generators: `demo/files` writes `generated/new.md` and owns `docs/**`;
+/// `docs/layout` seeds `docs/README.md`.
+struct Overlap;
+
+impl Generators for Overlap {
+    fn generate(
+        &self,
+        _project: Option<&str>,
+        generator: &PluginItem,
+        _options: Option<&serde_json::Value>,
+    ) -> Result<Vec<GeneratedFile>> {
+        Ok(if generator.plugin() == "docs" {
+            vec![GeneratedFile {
+                path: "docs/README.md".to_owned(),
+                contents: b"seed\n".to_vec(),
+                seed: true,
+            }]
+        } else {
+            vec![GeneratedFile {
+                path: "generated/new.md".to_owned(),
+                contents: b"generated\n".to_vec(),
+                seed: false,
+            }]
+        })
+    }
+
+    fn owns(&self, _project: Option<&str>, generator: &PluginItem) -> Result<Vec<String>> {
+        Ok(if generator.plugin() == "demo" {
+            vec!["docs/**".to_owned()]
+        } else {
+            Vec::new()
+        })
+    }
+
+    fn reads_history(&self, _filter: &RuleFilter) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_seed_under_a_glob_another_generator_owns_is_refused_before_anything_is_written() {
+    let repo = monorepo();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "{ROOT}\n[plugins]\ndemo = {{ source = \"ElsiKora/Gate:demo@0.1.0\" }}\ndocs = {{ source = \"ElsiKora/Gate:docs@0.3.0\" }}\n\n[generate]\n\"demo/files\" = {{}}\n\"docs/layout\" = {{}}\n"
+        ),
+    );
+    repo.write("docs/README.md", "a person's page\n");
+    repo.commit("two generators, one owning where the other seeds");
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    let error = plan(&workspace, &Overlap).expect_err("the seed is refused");
+    assert_eq!(error.kind(), ErrorKind::Environment, "{}", error.message());
+    assert!(
+        error.message().contains(
+            "docs/layout seeds docs/README.md, which is under \"docs/**\", a glob demo/files owns"
+        ),
+        "{}",
+        error.message()
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("docs/README.md")).expect("read"),
+        "a person's page\n",
+        "a refused plan writes and removes nothing"
+    );
+    assert!(!repo.path().join("generated/new.md").exists());
 }
 
 /// Whether `program --version` runs.

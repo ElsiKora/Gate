@@ -2,6 +2,18 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:agents@<version>`.
 
+# 0.3.0 (unreleased)
+
+Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
+
+### Breaking Changes
+
+- `agents/no-claude-md` is a repository-scope rule: it runs once, sees every tracked path, and
+  reports every `CLAUDE.md` in any case, a root one included when the workspace lists only nested
+  projects. Set it in the root `gate.toml`'s `[rules]`; a project's file may no longer set it.
+  Delete any `CLAUDE.md` that only imports `AGENTS.md`, and move the instructions of any other into
+  `AGENTS.md` or a rule file.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-agents-v0.1.0...plugin-agents-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

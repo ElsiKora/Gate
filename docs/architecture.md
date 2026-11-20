@@ -95,10 +95,10 @@ Alternatives weighed and not taken:
 
 ## 4. Plugin interface
 
-The interface is a WIT package, `gate:plugin@0.2.0`, in [`wit/`](../wit). Sketch:
+The interface is a WIT package, `gate:plugin@0.3.0`, in [`wit/`](../wit). Sketch:
 
 ```wit
-package gate:plugin@0.2.0;
+package gate:plugin@0.3.0;
 
 interface types {
   enum level { error, warning, note }
@@ -144,7 +144,8 @@ interface types {
     languages: string,              // JSON: [languages.<id>] settings of the languages the plugin declares
     norms: list<string>,            // every norm the configuration maps, for rules about rule documents
   }
-  record generated-file { path: string, contents: list<u8> }
+  record generated-file { path: string, contents: list<u8>, seed: bool }   // a seed: written only
+                                                                           // where nothing exists
   record generate-result { files: list<generated-file>, findings: list<finding> }
   variant plugin-error {      // why check or generate failed; the message says what to do
     configuration(string),    // the options or settings cannot be used: a configuration error
@@ -187,7 +188,7 @@ world plugin {
   import tree; import git; import log: func(message: string);
   export describe: func() -> types.plugin-info;
   export check: func(request: types.check-request) -> result<list<types.finding>, types.plugin-error>;
-  export generate: func(name: string, project: string, options: string)
+  export generate: func(name: string, project: string, options: string, plugin-options: string)
       -> result<types.generate-result, types.plugin-error>;   // findings surface as
                                                                // gate/sync#<generator>
 }
@@ -508,7 +509,15 @@ all = ["lint", "unit"]
   relative to the project root, like a rule's; the host maps them to repository paths. A generator
   declares the globs it owns (`generator-info.owns`); `gate sync` deletes a tracked file under an owned
   glob that no generator produced, and `gate sync --check` reports it, so stale output never needs a
-  rule of its own.
+  rule of its own. A generator receives its own options and the plugin's `[plugins.<name>] options`,
+  as the plugin's rules do, so one line of configuration serves both.
+- **Seeds**: a generated file marked `seed` is a page the project then fills (the `docs/layout`
+  generator seeds a project's documentation indexes). `gate sync` writes a seed only when nothing
+  exists at its path (no file, link or directory, tracked or not) and never compares it afterwards;
+  `gate sync --check` never reports one, and it is never stale. Whether the file must exist is a
+  rule's question. A seed under a glob any generator owns is refused as an environment error, naming
+  both generators: a seed belongs to the project from the moment it is written, and `gate sync`
+  would remove it as stale once its own generator stops running.
 - `gate sync` writes every generated file; `gate sync --check` reports drift as findings of the
   pseudo-rule `gate/sync`, which the core owns because the files are its own output.
   Facts that the generated files make true by construction (hooks call the gate, the gate job runs

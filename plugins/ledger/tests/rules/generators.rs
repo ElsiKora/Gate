@@ -99,7 +99,7 @@ fn ledger() -> Files {
 }
 
 fn generate(name: &str, options: &str, files: &Files) -> gate_sdk::Result<GenerateOutput> {
-    gate_sdk::generate(&ledger::PLUGIN, files, name, "", options)
+    gate_sdk::generate(&ledger::PLUGIN, files, name, "", options, "")
 }
 
 /// The written files as text.
