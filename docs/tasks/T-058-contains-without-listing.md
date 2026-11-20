@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | review fixes proven; ready to merge |
+| Status | done (merged at `cf97401`) |
 | Release | v0.2.1 (core only; no interface, SDK or plugin change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |

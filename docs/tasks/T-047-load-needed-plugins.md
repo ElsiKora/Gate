@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | redesigned by the lead after review: validation is never narrowed, only execution |
+| Status | done (merged at `340cf8b`) |
 | Release | 0.2.1, from the `v0.2.0` tag |
 | Writer | "Gate 006: nestjs semantic rules" |
 | Reviewer | a separate review session |

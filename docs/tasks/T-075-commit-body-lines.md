@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done (merged at `8b9d40c`) |
 | Release | git plugin 0.3.0 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |

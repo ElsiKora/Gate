@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | approved for code (design at `6ebd2b0`); the design revised for the second FSD pass's rulings (decision 11), for the lead to read; then one code fix round |
+| Status | done (merged at `f611036`) |
 | Release | v0.3.0 |
 | Writer | "Gate 007" |
 | Reviewer | a separate review session |

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open |
+| Status | done (merged at `389a932`) |
 | Release | the lead sets it |
 | Writer | "Gate 005" |
 | Reviewer | a separate review session |

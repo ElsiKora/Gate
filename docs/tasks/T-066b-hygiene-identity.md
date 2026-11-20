@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | proven; ready for the lead |
+| Status | done (merged at `16d9431`) |
 | Release | 0.3.0, merged right after T-066 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |

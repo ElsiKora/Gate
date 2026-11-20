@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | done (merged at `6636e3e`) |
 | Release | v0.3.0 (breaking: `--sha256` is removed) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |

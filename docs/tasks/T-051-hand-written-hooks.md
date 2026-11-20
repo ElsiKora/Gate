@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | done (merged at `f0d7ca4`) |
 | Release | v0.2.1 (documents only; no version moves) |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | the lead reads the documents |

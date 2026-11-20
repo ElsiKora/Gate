@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done (merged at `ec66737`) |
 | Release | v0.2.1 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |

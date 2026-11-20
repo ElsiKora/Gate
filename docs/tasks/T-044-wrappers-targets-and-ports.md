@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done (merged at `4c09a04`) |
 | Release | v0.3.0 (plugin nestjs 0.3.0 with the core, on `gate:plugin@0.3.0`; merges after the v0.2.1 tag) |
 | Writer | "Gate 002", from 2026-11-20 (first "Gate 003: host foundations") |
 | Reviewer | a session that did not write it |

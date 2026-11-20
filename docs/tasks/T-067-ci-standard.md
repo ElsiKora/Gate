@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead; code written, round to run |
+| Status | done (merged at `de88866`) |
 | Release | v0.3.0 |
 | Writer | "Gate 006" |
 | Reviewer | the lead |
