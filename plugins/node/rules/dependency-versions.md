@@ -24,11 +24,13 @@ specifier is read by its kind:
 - a git dependency (`git+…`, `git://…`, a `https://….git` URL, `github:`, `gitlab:`,
   `bitbucket:`, or `<owner>/<repo>`) is exact when it is pinned to a full 40-character commit
   (`#<commit>` or `#commit=<commit>`); a branch, a tag or no pin is reported;
+- a bare path (`./x`, `../x`) is a local package written without its protocol: it is reported,
+  in a workspace too, with the help to write `file:./x`;
 - `catalog:` outside a workspace has no catalog to read and is reported;
 - anything else (`^1.2.3`, `~1.2.3`, `*`, `latest`, a tarball URL) is a range.
 
 The help of a `#range` finding fits the kind: the exact version to write, the alias with its exact
-version, or the git URL with `#<commit>`.
+version, the git URL with `#<commit>`, or the path with `file:`.
 
 When the install root has a `pnpm-workspace.yaml` with a `packages` key, it is a workspace, and
 every manifest of the install root is read the same way, the root's own `package.json` included:

@@ -50,45 +50,69 @@ pub(crate) fn specifiers(text: &str) -> Vec<(String, usize)> {
 fn tokens(text: &str) -> Vec<Token> {
     let chars: Vec<char> = text.chars().collect();
     let mut tokens = Vec::new();
-    let mut at = 0;
-    let mut line = 1;
-    while let Some(&character) = chars.get(at) {
-        let next = chars.get(at + 1).copied();
+    let (mut at, mut line) = (0, 1);
+    scan(&chars, &mut at, &mut line, &mut tokens, false);
+    tokens
+}
+
+/// Appends the tokens from `at` to `tokens`. In a template's substitution (`nested`), it stops past
+/// the `}` that closes the substitution, so strings, templates and comments inside it are read as
+/// the language reads them.
+fn scan(chars: &[char], at: &mut usize, line: &mut usize, tokens: &mut Vec<Token>, nested: bool) {
+    let mut depth = 0_usize;
+    while let Some(&character) = chars.get(*at) {
+        let next = chars.get(*at + 1).copied();
         match character {
-            '\n' => {
-                line += 1;
-                at += 1;
+            '{' if nested => {
+                depth += 1;
+                tokens.push(Token::Mark('{'));
+                *at += 1;
             }
-            _ if character.is_whitespace() || character == '\u{feff}' => at += 1,
+            '}' if nested => {
+                *at += 1;
+                if depth == 0 {
+                    return;
+                }
+                depth -= 1;
+                tokens.push(Token::Mark('}'));
+            }
+            '\n' => {
+                *line += 1;
+                *at += 1;
+            }
+            _ if character.is_whitespace() || character == '\u{feff}' => *at += 1,
             '/' if next == Some('/') => {
-                while chars.get(at).is_some_and(|&character| character != '\n') {
-                    at += 1;
+                while chars.get(*at).is_some_and(|&character| character != '\n') {
+                    *at += 1;
                 }
             }
             '/' if next == Some('*') => {
-                at += 2;
-                while at < chars.len() && chars.get(at..at + 2) != Some(&['*', '/'][..]) {
-                    if chars[at] == '\n' {
-                        line += 1;
+                *at += 2;
+                while *at < chars.len() && chars.get(*at..*at + 2) != Some(&['*', '/'][..]) {
+                    if chars[*at] == '\n' {
+                        *line += 1;
                     }
-                    at += 1;
+                    *at += 1;
                 }
-                at += 2;
+                *at += 2;
             }
+            // A `/` after a value is a division; after anything else it starts a regular
+            // expression. A contrived case, such as a regular expression after `)` of an `if`,
+            // is read as a division; that is accepted, since a configuration file has none.
             '/' if starts_expression(tokens.last()) => {
-                at = regular_expression(&chars, at + 1);
+                *at = regular_expression(chars, *at + 1);
                 tokens.push(Token::Other);
             }
             '"' | '\'' => {
-                let start = line;
-                let (value, end) = quoted(&chars, at + 1, character, &mut line);
-                at = end;
+                let start = *line;
+                let (value, end) = quoted(chars, *at + 1, character, line);
+                *at = end;
                 tokens.push(Token::Text(value, start));
             }
             '`' => {
-                let start = line;
-                let (value, end, plain) = template(&chars, at + 1, &mut line);
-                at = end;
+                let start = *line;
+                *at += 1;
+                let (value, plain) = template(chars, at, line, tokens);
                 tokens.push(if plain {
                     Token::Text(value, start)
                 } else {
@@ -96,30 +120,29 @@ fn tokens(text: &str) -> Vec<Token> {
                 });
             }
             _ if character.is_alphabetic() || character == '_' || character == '$' => {
-                let start = at;
-                while chars.get(at).is_some_and(|&character| {
+                let start = *at;
+                while chars.get(*at).is_some_and(|&character| {
                     character.is_alphanumeric() || character == '_' || character == '$'
                 }) {
-                    at += 1;
+                    *at += 1;
                 }
-                tokens.push(Token::Word(chars[start..at].iter().collect()));
+                tokens.push(Token::Word(chars[start..*at].iter().collect()));
             }
             _ if character.is_ascii_digit() => {
                 while chars
-                    .get(at)
+                    .get(*at)
                     .is_some_and(|&character| character.is_alphanumeric() || character == '.')
                 {
-                    at += 1;
+                    *at += 1;
                 }
                 tokens.push(Token::Other);
             }
             _ => {
                 tokens.push(Token::Mark(character));
-                at += 1;
+                *at += 1;
             }
         }
     }
-    tokens
 }
 
 /// Whether a `/` after `previous` starts a regular expression rather than a division.
@@ -198,38 +221,30 @@ fn quoted(chars: &[char], mut at: usize, quote: char, line: &mut usize) -> (Stri
     (value, at)
 }
 
-/// A template literal's text from `at` to its closing backtick, the index past it, and whether it
-/// has no `${` substitution. A substitution is skipped by its braces.
-fn template(chars: &[char], mut at: usize, line: &mut usize) -> (String, usize, bool) {
+/// A template literal's text from `at` to its closing backtick, leaving `at` past it, and whether
+/// it has no `${` substitution. A substitution's tokens are appended to `tokens`, read by [`scan`].
+fn template(
+    chars: &[char],
+    at: &mut usize,
+    line: &mut usize,
+    tokens: &mut Vec<Token>,
+) -> (String, bool) {
     let mut value = String::new();
     let mut plain = true;
-    while let Some(&character) = chars.get(at) {
-        at += 1;
+    while let Some(&character) = chars.get(*at) {
+        *at += 1;
         match character {
             '\\' => {
-                if let Some(&escaped) = chars.get(at) {
+                if let Some(&escaped) = chars.get(*at) {
                     value.push(escaped);
-                    at += 1;
+                    *at += 1;
                 }
             }
             '`' => break,
-            '$' if chars.get(at) == Some(&'{') => {
+            '$' if chars.get(*at) == Some(&'{') => {
                 plain = false;
-                let mut depth = 0_usize;
-                while let Some(&inner) = chars.get(at) {
-                    at += 1;
-                    match inner {
-                        '{' => depth += 1,
-                        '}' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        '\n' => *line += 1,
-                        _ => {}
-                    }
-                }
+                *at += 1;
+                scan(chars, at, line, tokens, true);
             }
             _ => {
                 if character == '\n' {
@@ -239,7 +254,7 @@ fn template(chars: &[char], mut at: usize, line: &mut usize) -> (String, usize, 
             }
         }
     }
-    (value, at, plain)
+    (value, plain)
 }
 
 #[cfg(test)]
@@ -275,5 +290,14 @@ mod tests {
     fn comments_strings_and_regular_expressions_hold_no_import() {
         let text = "// import a from \"line\";\n/* import b from 'block';\n   require(\"block2\") */\nconst s = \"import c from 'inside'\";\nconst r = /from \"re\"/u;\nconst q = `${x} from \"tpl\"`;\nconst y = Array.from('z');\nimport real from \"real\";\n";
         assert_eq!(names(text), [("real".to_owned(), 8)]);
+    }
+
+    #[test]
+    fn a_substitution_is_read_as_code() {
+        let text =
+            "const b = `${\"{\"}`;\nimport { createConfig } from \"@elsikora/eslint-config\";\n";
+        assert_eq!(names(text), [("@elsikora/eslint-config".to_owned(), 2)]);
+        let nested = "const c = `a${`b${'}'}c`}d`;\nconst d = `${await import(\"dyn\")}`;\n";
+        assert_eq!(names(nested), [("dyn".to_owned(), 2)]);
     }
 }

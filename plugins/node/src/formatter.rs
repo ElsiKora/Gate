@@ -1,6 +1,8 @@
 //! `node/formatter`: one Prettier configuration, a root `.prettierrc.json` with the standard
 //! settings, and no `.editorconfig` that changes what Prettier writes.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use gate_sdk::{Error, NoOptions, Result, Rule, Run, Scope, Tree};
 use globset::GlobBuilder;
 
@@ -77,27 +79,17 @@ impl Rule for Formatter {
                 );
             }
         }
-        settings(run, &tree)?;
+        let set = settings(run, &tree)?;
         for path in tree.paths() {
             if file_name(&path) == ".editorconfig"
                 && !path.split('/').any(|segment| segment == "node_modules")
             {
-                editorconfig(run, &tree, &path)?;
+                editorconfig(run, &tree, &path, &set)?;
             }
         }
         Ok(())
     }
 }
-
-/// The `.editorconfig` keys Prettier reads, and the value each has under the standard: Prettier's
-/// default, or the standard's `printWidth`.
-const EDITORCONFIG: [(&str, &str); 5] = [
-    ("indent_style", "space"),
-    ("indent_size", "2"),
-    ("tab_width", "2"),
-    ("end_of_line", "lf"),
-    ("max_line_length", "120"),
-];
 
 /// A file of each extension Prettier formats; a section applies to Prettier's files when its
 /// pattern matches one of them.
@@ -126,18 +118,29 @@ const FORMATTED: [&str; 22] = [
     "x.hbs",
 ];
 
-/// `editorconfig`: Prettier reads `.editorconfig`, so a key it maps to its options, in a section
-/// that covers files Prettier formats, has the standard's value or is absent. The Prettier
-/// configuration stays the one source of the values.
-fn editorconfig(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, path: &str) -> Result<()> {
+/// One section of an `.editorconfig`: its pattern, and each key with its value and line.
+struct Section {
+    pattern: String,
+    keys: BTreeMap<String, (String, usize)>,
+}
+
+/// `editorconfig`: Prettier 3 reads `.editorconfig` and maps six of its keys to its options, and
+/// an option set in `.prettierrc.json` wins over the key. So a key is reported only when the
+/// option it maps to is absent from `.prettierrc.json` (the keys in `set`) and the value Prettier
+/// takes from it differs from the standard. Only sections that cover files Prettier formats are
+/// read, each on its own.
+fn editorconfig(
+    run: &mut Run<'_, NoOptions>,
+    tree: &Tree<'_>,
+    path: &str,
+    set: &BTreeSet<String>,
+) -> Result<()> {
     let Some(bytes) = tree.bytes(path) else {
         return Ok(());
     };
     let text = String::from_utf8(bytes)
         .map_err(|_| Error::new(format!("{path} is not UTF-8 text; save it as UTF-8")))?;
-    let mut section: Option<(String, bool)> = None;
-    let mut indent_size = None;
-    let mut tab_widths = Vec::new();
+    let mut sections: Vec<Section> = Vec::new();
     for (index, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
@@ -147,95 +150,107 @@ fn editorconfig(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, path: &str) -> Re
             .strip_prefix('[')
             .and_then(|rest| rest.strip_suffix(']'))
         {
-            flush_tab_width(
-                run,
-                path,
-                section.as_ref(),
-                indent_size.take(),
-                &mut tab_widths,
-            );
-            section = Some((pattern.to_owned(), formats(pattern)));
+            sections.push(Section {
+                pattern: pattern.to_owned(),
+                keys: BTreeMap::new(),
+            });
             continue;
         }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        let Some((pattern, true)) = &section else {
+        let (Some((key, value)), Some(section)) = (line.split_once('='), sections.last_mut())
+        else {
             continue;
         };
         let key = key.trim().to_ascii_lowercase();
-        let value = value.trim().to_ascii_lowercase();
-        if value == "unset" {
-            continue;
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("unset") {
+            section.keys.remove(&key);
+        } else {
+            section.keys.insert(key, (value.to_owned(), index + 1));
         }
-        let Some((_, standard)) = EDITORCONFIG.iter().find(|(name, _)| *name == key) else {
-            continue;
-        };
-        match key.as_str() {
-            // `indent_size = tab` defers to `tab_width`.
-            "indent_size" => indent_size = Some(value.clone()),
-            // `tab_width` sets Prettier's width only where `indent_size` is absent or `tab`.
-            "tab_width" => {
-                if value != *standard {
-                    tab_widths.push((index + 1, value));
-                }
-                continue;
-            }
-            _ => {}
-        }
-        if value == *standard || (key == "indent_size" && value == "tab") {
-            continue;
-        }
-        disagrees(run, path, pattern, &key, &value, standard, index + 1);
     }
-    flush_tab_width(run, path, section.as_ref(), indent_size, &mut tab_widths);
+    for section in sections.iter().filter(|section| formats(&section.pattern)) {
+        for (key, value, standard) in prettier_reads(section, set) {
+            let line = section.keys.get(key).map_or(0, |(_, line)| *line);
+            crate::report(
+                run.report(),
+                "editorconfig",
+                (path, Some(line)),
+                &format!("[{}]{key}", section.pattern),
+                format!(
+                    "{path} sets {key} = {value} for [{}], and Prettier reads it; the standard \
+                     formats with {standard}",
+                    section.pattern
+                ),
+                &format!(
+                    "remove the key or write {key} = {standard}; .prettierrc.json is the one \
+                     source of Prettier's settings"
+                ),
+            );
+        }
+    }
     Ok(())
 }
 
-/// Reports the `tab_width` lines of the section that ended, when the section's `indent_size` is
-/// absent or `tab`, so that Prettier takes its width from them.
-fn flush_tab_width(
-    run: &mut Run<'_, NoOptions>,
-    path: &str,
-    section: Option<&(String, bool)>,
-    indent_size: Option<String>,
-    tab_widths: &mut Vec<(usize, String)>,
-) {
-    let found = std::mem::take(tab_widths);
-    let Some((pattern, true)) = section else {
-        return;
-    };
-    if indent_size.is_some_and(|size| size != "tab") {
-        return;
+/// The keys of `section` that change what Prettier writes, each with its value and the
+/// standard's, as Prettier 3.10.1 maps them (`editorconfig-to-prettier.js`, after the editorconfig
+/// parser's defaults: `tab_width` defaults to a numeric `indent_size`, and `indent_size = tab`
+/// takes `tab_width` when there is one). An option already in `.prettierrc.json` (`set`) wins, so
+/// its keys are not read.
+fn prettier_reads<'s>(
+    section: &'s Section,
+    set: &BTreeSet<String>,
+) -> Vec<(&'static str, &'s str, &'static str)> {
+    let value = |key: &str| section.keys.get(key).map(|(value, _)| value.as_str());
+    let lower = |key: &str| value(key).map(str::to_ascii_lowercase);
+    let number = |key: &str| value(key).filter(|text| text.parse::<u32>().is_ok_and(|n| n > 0));
+    let style = lower("indent_style");
+    let size = lower("indent_size");
+    let mut found = Vec::new();
+    if !set.contains("useTabs") {
+        if style.as_deref() == Some("tab") {
+            found.push((
+                "indent_style",
+                value("indent_style").unwrap_or_default(),
+                "space",
+            ));
+        } else if style.is_none() && size.as_deref() == Some("tab") && value("tab_width").is_none()
+        {
+            found.push(("indent_size", value("indent_size").unwrap_or_default(), "2"));
+        }
     }
-    for (line, value) in found {
-        disagrees(run, path, pattern, "tab_width", &value, "2", line);
+    if !set.contains("tabWidth") {
+        let width = if style.as_deref() == Some("space") && number("indent_size").is_some() {
+            Some("indent_size")
+        } else if number("tab_width").is_some() {
+            Some("tab_width")
+        } else {
+            number("indent_size").map(|_| "indent_size")
+        };
+        if let Some(key) = width
+            && let Some(text) = value(key)
+            && text != "2"
+        {
+            found.push((key, text, "2"));
+        }
     }
-}
-
-fn disagrees(
-    run: &mut Run<'_, NoOptions>,
-    path: &str,
-    pattern: &str,
-    key: &str,
-    value: &str,
-    standard: &str,
-    line: usize,
-) {
-    crate::report(
-        run.report(),
-        "editorconfig",
-        (path, Some(line)),
-        &format!("[{pattern}]{key}"),
-        format!(
-            "{path} sets {key} = {value} for [{pattern}], and Prettier reads it; the standard \
-             formats with {standard}"
-        ),
-        &format!(
-            "remove the key or write {key} = {standard}; .prettierrc.json is the one source of \
-             Prettier's settings"
-        ),
-    );
+    if !set.contains("printWidth")
+        && let Some(text) = value("max_line_length")
+        && (text == "off" || number("max_line_length").is_some())
+        && text != "120"
+    {
+        found.push(("max_line_length", text, "120"));
+    }
+    if !set.contains("singleQuote") && value("quote_type") == Some("single") {
+        found.push(("quote_type", "single", "double"));
+    }
+    if !set.contains("endOfLine")
+        && let Some(text) = value("end_of_line")
+        && matches!(lower("end_of_line").as_deref(), Some("crlf" | "cr"))
+    {
+        found.push(("end_of_line", text, "lf"));
+    }
+    found.sort_by_key(|(key, _, _)| section.keys.get(*key).map_or(0, |(_, line)| *line));
+    found
 }
 
 /// Whether the section `pattern` covers a file Prettier formats. A pattern with a directory is
@@ -276,8 +291,8 @@ fn is_config(name: &str) -> bool {
             })
 }
 
-/// `settings`: the root configuration holds exactly the standard.
-fn settings(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>) -> Result<()> {
+/// `settings`: the root configuration holds exactly the standard. Returns the keys it sets.
+fn settings(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>) -> Result<BTreeSet<String>> {
     let Some(config) = repo::read_json(tree, CONFIG)? else {
         crate::report(
             run.report(),
@@ -287,7 +302,7 @@ fn settings(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>) -> Result<()> {
             format!("{CONFIG} is not tracked at the repository root"),
             "add .prettierrc.json with the standard settings: {\"printWidth\": 120, \"proseWrap\": \"preserve\", \"trailingComma\": \"all\"}",
         );
-        return Ok(());
+        return Ok(BTreeSet::new());
     };
     for (key, value) in PRETTIER {
         let found = config.member(key);
@@ -326,5 +341,9 @@ fn settings(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>) -> Result<()> {
             "remove the key; the standard sets only printWidth, proseWrap and trailingComma",
         );
     }
-    Ok(())
+    Ok(config
+        .members()
+        .iter()
+        .map(|member| member.key.clone())
+        .collect())
 }

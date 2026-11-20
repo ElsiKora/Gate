@@ -145,7 +145,19 @@ fn in_workspace(
         }
         return;
     }
-    if matches!(Spec::of(spec), Spec::Local) {
+    let kind = Spec::of(spec);
+    if matches!(kind, Spec::Local) {
+        return;
+    }
+    if let (Spec::Path(_), Some(help)) = (&kind, kind.fix()) {
+        crate::report(
+            run.report(),
+            "range",
+            (path, Some(*line)),
+            name,
+            format!("{path} {section} takes {name} as \"{spec}\", not one exact version"),
+            &help,
+        );
         return;
     }
     if let Some(which) = spec.strip_prefix("catalog:")
@@ -237,6 +249,8 @@ enum Spec<'a> {
     Git(&'a str),
     /// `catalog:` without a pnpm workspace to hold the catalog.
     Catalog,
+    /// A bare path (`./x`, `../x`): a local package, written without its `file:` protocol.
+    Path(&'a str),
     /// A range, a tag or anything else.
     Range,
 }
@@ -254,6 +268,9 @@ impl<'a> Spec<'a> {
         }
         if spec.starts_with("catalog:") {
             return Self::Catalog;
+        }
+        if spec.starts_with("./") || spec.starts_with("../") {
+            return Self::Path(spec);
         }
         if let Some(alias) = spec.strip_prefix("npm:") {
             return if split_alias(alias).is_some_and(|(_, version)| is_exact(version)) {
@@ -286,6 +303,9 @@ impl<'a> Spec<'a> {
             }
             Self::Git(url) => Some(format!(
                 "pin it to a full 40-character commit: {url}#<commit>"
+            )),
+            Self::Path(path) => Some(format!(
+                "write file:{path}; a local package is named with the file: protocol"
             )),
             Self::Catalog => Some(
                 "catalog: needs a pnpm workspace that declares the catalog; write the exact \

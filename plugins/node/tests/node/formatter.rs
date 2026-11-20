@@ -79,20 +79,21 @@ fn a_repository_without_the_root_configuration_is_reported() {
 
 #[test]
 fn an_editorconfig_that_changes_prettier_s_output_is_reported() {
-    let agrees = "root = true\n\n[*]\nindent_style = space\nindent_size = 2\nend_of_line = lf\nmax_line_length = 120\n\n[Makefile]\nindent_style = tab\n";
+    let agrees = "root = true\n\n[*]\nindent_style = space\nindent_size = 2\nend_of_line = lf\nmax_line_length = 100\nquote_type = double\n\n[Makefile]\nindent_style = tab\n";
     assert_eq!(
         run(STANDARD, &[(".editorconfig", agrees)]),
         Vec::<String>::new()
     );
-    let disagrees = "\u{feff}root = true\n\n[*]\nindent_style = Tab\nindent_size = 4\nend_of_line = crlf\nmax_line_length = off\n\n[*.{md,yml}]\nindent_size = tab\ntab_width = 8\n\n[*.py]\nindent_size = 4\n\n[*.ts]\nindent_size = 2\ntab_width = 8\nend_of_line = unset\n";
+    let disagrees = "\u{feff}root = true\n\n[*]\nindent_style = Tab\nend_of_line = crlf\nquote_type = single\n\n[*.{md,yml}]\nindent_size = tab\n\n[*.json]\ntab_width = 8\n\n[*.css]\nindent_style = space\nindent_size = 4\ntab_width = 2\n\n[*.ts]\nindent_style = space\nindent_size = 2\ntab_width = 8\n\n[*.py]\nindent_size = 4\n";
     assert_eq!(
         run(STANDARD, &[("apps/a/.editorconfig", disagrees)]),
         [
             "editorconfig apps/a/.editorconfig:4 [*]indent_style",
-            "editorconfig apps/a/.editorconfig:5 [*]indent_size",
-            "editorconfig apps/a/.editorconfig:6 [*]end_of_line",
-            "editorconfig apps/a/.editorconfig:7 [*]max_line_length",
-            "editorconfig apps/a/.editorconfig:11 [*.{md,yml}]tab_width"
+            "editorconfig apps/a/.editorconfig:5 [*]end_of_line",
+            "editorconfig apps/a/.editorconfig:6 [*]quote_type",
+            "editorconfig apps/a/.editorconfig:9 [*.{md,yml}]indent_size",
+            "editorconfig apps/a/.editorconfig:12 [*.json]tab_width",
+            "editorconfig apps/a/.editorconfig:16 [*.css]indent_size"
         ]
     );
     let fixture = Fixture::new(
@@ -106,5 +107,27 @@ fn an_editorconfig_that_changes_prettier_s_output_is_reported() {
     assert_eq!(
         message(&fixture, RULE),
         ".editorconfig sets indent_size = 4 for [*], and Prettier reads it; the standard formats with 2"
+    );
+}
+
+#[test]
+fn an_editorconfig_key_is_read_only_where_prettierrc_leaves_its_option_unset() {
+    let wide = "[*]\nmax_line_length = 100\nindent_size = 4\n";
+    let no_width = STANDARD.replace("  \"printWidth\": 120,\n", "");
+    assert_eq!(
+        run(&no_width, &[(".editorconfig", wide)]),
+        [
+            "settings .prettierrc.json printWidth",
+            "editorconfig .editorconfig:2 [*]max_line_length",
+            "editorconfig .editorconfig:3 [*]indent_size"
+        ]
+    );
+    let with_width = STANDARD.replace(
+        "\"trailingComma\": \"all\"",
+        "\"trailingComma\": \"all\",\n  \"tabWidth\": 4",
+    );
+    assert_eq!(
+        run(&with_width, &[(".editorconfig", wide)]),
+        ["settings .prettierrc.json:6 tabWidth"]
     );
 }

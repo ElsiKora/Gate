@@ -43,7 +43,9 @@ other configuration:
   the project. An `extends` (a string or a list of strings) is followed when it starts with `.`; it
   is resolved from the configuration's directory as TypeScript resolves it: the path as written,
   then with `.json` added, then, for a directory, its `tsconfig.json`; the first that exists is
-  the target. A package (`@tsconfig/node24/tsconfig.json`) names an installed package, which is
+  the target. The chain passes through any JSON file of the project, whatever its name
+  (`./config/base.json`), not only a `tsconfig*.json`. A package
+  (`@tsconfig/node24/tsconfig.json`) names an installed package, which is
   not in the tree, and is not followed. It is reported at the `extends` line, or at
   the file when there is none. When the chain goes through a configuration outside the project
   that is not the base, the project cannot read it, so the chain cannot be followed: the message

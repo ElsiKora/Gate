@@ -84,6 +84,20 @@ fn another_manifest_with_another_range_differs() {
         ),
         ["differs apps/b/package.json:3 engines.node"]
     );
+    let root = root(">=24.11.0 <25");
+    let files = [
+        (".nvmrc", "24.11.0\n"),
+        ("package.json", root.as_str()),
+        ("apps/b/package.json", other.as_str()),
+    ];
+    let findings = Fixture::new("monorepo-root", &files)
+        .check(RULE, "{}")
+        .expect("the rule runs");
+    assert_eq!(
+        lines(&findings),
+        ["differs apps/b/package.json:3 engines.node"]
+    );
+    assert_eq!(findings[0].help.as_deref(), Some("write the root's range"));
 }
 
 #[test]

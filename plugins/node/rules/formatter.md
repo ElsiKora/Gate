@@ -36,24 +36,29 @@ and the rule reports nothing. Otherwise:
 - **`#settings`**: the root `.prettierrc.json` sets each standard key to its value, compared as
   compact JSON (`"120"` is not `120`), and sets no other key but `$schema`.
 
-- **`#editorconfig`**: Prettier also reads `.editorconfig` and maps five of its keys to its own
-  options, so an `.editorconfig` can change the formatting while `.prettierrc.json` holds the
-  standard. In every tracked `.editorconfig` (outside `node_modules`), in a section whose pattern
-  covers a file Prettier formats (a `.js`, `.ts`, `.json`, `.md`, `.yaml`, `.css`, `.html` or
-  similar file; a pattern with a directory is matched by its last segment), each of these keys is
-  absent, `unset`, or has the standard's value, compared without regard to case:
+- **`#editorconfig`**: Prettier also reads `.editorconfig` and maps six of its keys to its own
+  options; an option set in `.prettierrc.json` wins over the key. So in every tracked
+  `.editorconfig` (outside `node_modules`), in a section whose pattern covers a file Prettier
+  formats (a `.js`, `.ts`, `.json`, `.md`, `.yaml`, `.css`, `.html` or similar file; a pattern
+  with a directory is matched by its last segment), a key is reported when the option it maps to
+  is not in `.prettierrc.json` and the value Prettier takes from it is not the standard's. The
+  mapping is Prettier 3.10.1's (`editorconfig-to-prettier.js`, after the editorconfig parser's
+  defaults):
 
-  | Key | Standard | Prettier option |
+  | Key | Prettier option | Reported when |
   | --- | --- | --- |
-  | `indent_style` | `space` | `useTabs` |
-  | `indent_size` | `2` (or `tab`, which defers to `tab_width`) | `tabWidth` |
-  | `tab_width` | `2`, where the section's `indent_size` is absent or `tab` | `tabWidth` |
-  | `end_of_line` | `lf` | `endOfLine` |
-  | `max_line_length` | `120` | `printWidth` |
+  | `indent_style` | `useTabs` | it is `tab` |
+  | `indent_size` | `useTabs` | it is `tab`, with no `indent_style` and no `tab_width` |
+  | `indent_size` | `tabWidth` | it is a number other than `2`, and `indent_style` is `space` or there is no `tab_width` |
+  | `tab_width` | `tabWidth` | it is a number other than `2`, unless `indent_style` is `space` with a numeric `indent_size` |
+  | `max_line_length` | `printWidth` | it is `off` or a number other than `120` |
+  | `quote_type` | `singleQuote` | it is `single` |
+  | `end_of_line` | `endOfLine` | it is `crlf` or `cr` |
 
-  The Prettier configuration stays the one source of the values: the fix is to remove the key or
-  write the standard's value. A section for files Prettier does not format, such as `[Makefile]`
-  with `indent_style = tab`, is not read.
+  Since the standard `.prettierrc.json` sets `printWidth`, `max_line_length` is read only where it
+  does not. Each section is read on its own; the fix is to remove the key or write the standard's
+  value, and the Prettier configuration stays the one source of the values. A section for files
+  Prettier does not format, such as `[Makefile]` with `indent_style = tab`, is not read.
 
 The rule does not read `.prettierignore`. A directory the plugin option `separate` names is not
 exempt: it is formatted by the root configuration too.

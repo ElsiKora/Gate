@@ -74,13 +74,26 @@ impl Comparator {
 pub(crate) struct Range(Vec<Vec<Comparator>>);
 
 impl Range {
-    /// Parses `text`; `None` when it is not a range this module reads.
-    pub(crate) fn parse(text: &str) -> Option<Self> {
+    /// Parses `text`; `Ok(None)` when it is not a range this module reads.
+    ///
+    /// # Errors
+    /// A configuration error naming `text` when a version in it is so large that its next major,
+    /// minor or patch does not fit in 64 bits.
+    pub(crate) fn parse(text: &str) -> gate_sdk::Result<Option<Self>> {
         let mut alternatives = Vec::new();
         for alternative in text.split("||") {
-            alternatives.push(alternative_of(alternative.trim())?);
+            match alternative_of(alternative.trim()) {
+                Ok(Some(set)) => alternatives.push(set),
+                Ok(None) => return Ok(None),
+                Err(Overflow) => {
+                    return Err(gate_sdk::Error::config(format!(
+                        "engines.node \"{text}\" has a version part too large to step past; \
+                         write the Node range the project runs on, such as \">=24.11.0 <25\""
+                    )));
+                }
+            }
         }
-        Some(Self(alternatives))
+        Ok(Some(Self(alternatives)))
     }
 
     /// Whether `version` is in the range.
@@ -98,7 +111,7 @@ impl Range {
                 .filter_map(|comparator| match comparator.op {
                     Op::GreaterOrEqual => Some(comparator.version),
                     Op::Greater => Some(Version {
-                        patch: comparator.version.patch + 1,
+                        patch: comparator.version.patch.saturating_add(1),
                         ..comparator.version
                     }),
                     Op::Less | Op::LessOrEqual => None,
@@ -114,30 +127,46 @@ impl Range {
     }
 }
 
-fn alternative_of(text: &str) -> Option<Vec<Comparator>> {
+/// A version part whose next value does not fit in 64 bits.
+#[derive(Debug)]
+struct Overflow;
+
+/// One alternative's comparators; `Ok(None)` when it is not one this module reads.
+fn alternative_of(text: &str) -> Result<Option<Vec<Comparator>>, Overflow> {
     if text.is_empty() || text == "*" || text == "x" {
-        return Some(Vec::new());
+        return Ok(Some(Vec::new()));
     }
     if let Some((low, high)) = text.split_once(" - ") {
-        let mut set = bound(Op::GreaterOrEqual, low.trim())?;
-        set.extend(bound(Op::LessOrEqual, high.trim())?);
-        return Some(set);
+        let (Some(mut set), Some(upper)) = (
+            bound(Op::GreaterOrEqual, low.trim())?,
+            bound(Op::LessOrEqual, high.trim())?,
+        ) else {
+            return Ok(None);
+        };
+        set.extend(upper);
+        return Ok(Some(set));
     }
     let mut set = Vec::new();
     let mut tokens = text.split_whitespace().peekable();
     while let Some(token) = tokens.next() {
         // An operator written apart from its version (`>= 24`).
         let token = if matches!(token, ">" | ">=" | "<" | "<=" | "=" | "^" | "~") {
-            format!("{token}{}", tokens.next()?)
+            let Some(version) = tokens.next() else {
+                return Ok(None);
+            };
+            format!("{token}{version}")
         } else {
             token.to_owned()
         };
-        set.extend(comparators(&token)?);
+        let Some(found) = comparators(&token)? else {
+            return Ok(None);
+        };
+        set.extend(found);
     }
-    Some(set)
+    Ok(Some(set))
 }
 
-fn comparators(token: &str) -> Option<Vec<Comparator>> {
+fn comparators(token: &str) -> Result<Option<Vec<Comparator>>, Overflow> {
     for (prefix, op) in [
         (">=", Op::GreaterOrEqual),
         ("<=", Op::LessOrEqual),
@@ -149,32 +178,38 @@ fn comparators(token: &str) -> Option<Vec<Comparator>> {
         }
     }
     if let Some(version) = token.strip_prefix('^') {
-        let (low, parts) = partial(version)?;
+        let Some((low, parts)) = partial(version) else {
+            return Ok(None);
+        };
         let high = match (low.major, parts) {
-            (0, 1) => next_major(low),
+            (0, 1) => next_major(low)?,
             (0, _) if low.minor == 0 && parts == 3 => Version {
-                patch: low.patch + 1,
+                patch: low.patch.checked_add(1).ok_or(Overflow)?,
                 ..low
             },
-            (0, _) => next_minor(low),
-            _ => next_major(low),
+            (0, _) => next_minor(low)?,
+            _ => next_major(low)?,
         };
-        return Some(between(low, high));
+        return Ok(Some(between(low, high)));
     }
     if let Some(version) = token.strip_prefix('~') {
-        let (low, parts) = partial(version)?;
-        let high = if parts == 1 {
-            next_major(low)
-        } else {
-            next_minor(low)
+        let Some((low, parts)) = partial(version) else {
+            return Ok(None);
         };
-        return Some(between(low, high));
+        let high = if parts == 1 {
+            next_major(low)?
+        } else {
+            next_minor(low)?
+        };
+        return Ok(Some(between(low, high)));
     }
     let version = token.strip_prefix('=').unwrap_or(token);
-    let (low, parts) = partial(version)?;
-    Some(match parts {
-        1 => between(low, next_major(low)),
-        2 => between(low, next_minor(low)),
+    let Some((low, parts)) = partial(version) else {
+        return Ok(None);
+    };
+    Ok(Some(match parts {
+        1 => between(low, next_major(low)?),
+        2 => between(low, next_minor(low)?),
         _ => vec![
             Comparator {
                 op: Op::GreaterOrEqual,
@@ -185,30 +220,32 @@ fn comparators(token: &str) -> Option<Vec<Comparator>> {
                 version: low,
             },
         ],
-    })
+    }))
 }
 
 /// A comparator `op` with a possibly partial version: `<25` is `<25.0.0`, `<=24` is `<25.0.0`,
 /// `>24` is `>=25.0.0`.
-fn bound(op: Op, version: &str) -> Option<Vec<Comparator>> {
-    let (low, parts) = partial(version.trim())?;
+fn bound(op: Op, version: &str) -> Result<Option<Vec<Comparator>>, Overflow> {
+    let Some((low, parts)) = partial(version.trim()) else {
+        return Ok(None);
+    };
     let after = || match parts {
         1 => next_major(low),
         2 => next_minor(low),
-        _ => low,
+        _ => Ok(low),
     };
     let comparator = match (op, parts) {
         (Op::LessOrEqual, 1 | 2) => Comparator {
             op: Op::Less,
-            version: after(),
+            version: after()?,
         },
         (Op::Greater, 1 | 2) => Comparator {
             op: Op::GreaterOrEqual,
-            version: after(),
+            version: after()?,
         },
         _ => Comparator { op, version: low },
     };
-    Some(vec![comparator])
+    Ok(Some(vec![comparator]))
 }
 
 /// A version with one to three parts, the missing ones (or `x`, `*`) as zero, and how many
@@ -238,20 +275,20 @@ fn partial(text: &str) -> Option<(Version, usize)> {
     ))
 }
 
-fn next_major(version: Version) -> Version {
-    Version {
-        major: version.major + 1,
+fn next_major(version: Version) -> Result<Version, Overflow> {
+    Ok(Version {
+        major: version.major.checked_add(1).ok_or(Overflow)?,
         minor: 0,
         patch: 0,
-    }
+    })
 }
 
-fn next_minor(version: Version) -> Version {
-    Version {
-        minor: version.minor + 1,
+fn next_minor(version: Version) -> Result<Version, Overflow> {
+    Ok(Version {
+        minor: version.minor.checked_add(1).ok_or(Overflow)?,
         patch: 0,
         ..version
-    }
+    })
 }
 
 fn between(low: Version, high: Version) -> Vec<Comparator> {
@@ -324,15 +361,41 @@ mod tests {
             ("*", "1.0.0", true),
         ];
         for (range, at, admitted) in cases {
-            let parsed = Range::parse(range).unwrap_or_else(|| panic!("{range} parses"));
+            let parsed = Range::parse(range)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| panic!("{range} parses"));
             assert_eq!(parsed.admits(version(at)), admitted, "{range} at {at}");
         }
-        assert!(Range::parse(">=foo").is_none());
+        assert!(matches!(Range::parse(">=foo"), Ok(None)));
+    }
+
+    #[test]
+    fn a_version_part_too_large_to_step_is_a_configuration_error() {
+        for range in [
+            "<=18446744073709551615",
+            "^18446744073709551615",
+            "~1.18446744073709551615",
+        ] {
+            let error = Range::parse(range).expect_err(range);
+            assert!(error.is_config(), "{range}");
+            assert!(
+                error.message().contains(range),
+                "{range}: {}",
+                error.message()
+            );
+        }
     }
 
     #[test]
     fn an_earlier_major_is_seen_in_any_alternative() {
-        let below = |range: &str| Range::parse(range).expect("parses").admits_below(24);
+        let below = |range: &str| {
+            Range::parse(range)
+                .ok()
+                .flatten()
+                .expect("parses")
+                .admits_below(24)
+        };
         assert!(!below(">=24.11.0 <25"));
         assert!(below(">=22"));
         assert!(below("20 || >=24"));

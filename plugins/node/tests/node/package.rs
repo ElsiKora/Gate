@@ -40,15 +40,10 @@ fn each_kind_passes_with_its_fields() {
 
 #[test]
 fn a_library_is_published_and_nothing_else_is() {
-    let private = LIBRARY.replace("\"version\"", "\"private\": true,\n  \"version\"");
+    let public = SERVICE.replace("  \"private\": true,\n", "");
     assert_eq!(
-        run("library", &private),
-        ["forbidden package.json:3 private"]
-    );
-    assert_eq!(
-        run("library", SERVICE),
+        run("library", &public),
         [
-            "forbidden package.json:4 private",
             "missing package.json publishConfig",
             "missing package.json exports",
             "missing package.json files",
@@ -62,10 +57,25 @@ fn a_library_is_published_and_nothing_else_is() {
             "missing package.json private",
             "forbidden package.json:8 exports",
             "forbidden package.json:9 files",
-            "forbidden package.json:10 sideEffects",
-            "forbidden package.json:11 repository"
+            "forbidden package.json:10 sideEffects"
         ]
     );
+}
+
+#[test]
+fn a_private_library_is_a_workspace_package_that_still_has_exports() {
+    let internal = LIBRARY.replace("\"version\"", "\"private\": true,\n  \"version\"");
+    assert_eq!(run("library", &internal), Vec::<String>::new());
+    assert_eq!(run("library", SERVICE), ["missing package.json exports"]);
+}
+
+#[test]
+fn a_service_may_say_where_its_source_lives() {
+    let with_repository = SERVICE.replace(
+        "\"type\": \"module\",",
+        "\"type\": \"module\",\n  \"repository\": \"github:example/svc\",",
+    );
+    assert_eq!(run("service", &with_repository), Vec::<String>::new());
 }
 
 #[test]

@@ -82,7 +82,7 @@ fn install(
         );
         return Ok(());
     };
-    engines(run, &path, &range, line, pinned);
+    engines(run, &path, &range, line, pinned)?;
     for other in manifests.iter().filter(|other| other.as_str() != path) {
         let Some(manifest) = repo::read_json(tree, other)? else {
             continue;
@@ -214,8 +214,8 @@ fn engines(
     range: &str,
     line: usize,
     pinned: Option<Version>,
-) {
-    let problem = match (Range::parse(range), pinned) {
+) -> Result<()> {
+    let problem = match (Range::parse(range)?, pinned) {
         (None, _) => Some(format!(
             "{path} engines.node \"{range}\" is not a range Gate reads"
         )),
@@ -239,6 +239,7 @@ fn engines(
             "write a range from the .nvmrc version to the next major, such as \">=24.11.0 <25\"",
         );
     }
+    Ok(())
 }
 
 /// A range with its white space collapsed, for comparing.

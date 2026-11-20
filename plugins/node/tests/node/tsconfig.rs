@@ -307,3 +307,23 @@ fn files_a_reads_grant_adds_from_outside_the_project_are_not_its_own() {
     ];
     assert_eq!(member("service", "apps/s", &files), Vec::<String>::new());
 }
+
+#[test]
+fn a_chain_passes_through_a_json_file_of_any_name() {
+    let files = [
+        ("tsconfig.json", "{ \"extends\": \"./config/base.json\" }"),
+        (
+            "config/base.json",
+            "{ \"extends\": \"../../../tsconfig.base.json\" }",
+        ),
+    ];
+    assert_eq!(member("service", "apps/s", &files), Vec::<String>::new());
+    let broken = [
+        ("tsconfig.json", "{ \"extends\": \"./config/base.json\" }"),
+        ("config/base.json", "{ \"compilerOptions\": {} }"),
+    ];
+    assert_eq!(
+        member("service", "apps/s", &broken),
+        ["base tsconfig.json:1 tsconfig.json"]
+    );
+}

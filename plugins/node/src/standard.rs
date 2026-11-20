@@ -30,15 +30,16 @@ pub(crate) const DIFFERENCES: &[Difference] = &[
     Difference {
         row: Row::Private,
         kinds: &[Kind::Library],
-        cell: "no private: true, and a publishConfig",
-        reason: "a published package must not be private, and says where it is published",
+        cell: "a publishConfig, unless private: true marks a package of the workspace",
+        reason: "a published package says where it is published; a workspace package is never \
+                 published",
     },
     Difference {
         row: Row::Published,
         kinds: &[Kind::Library],
-        cell: "exports, files, sideEffects and repository",
-        reason: "they say what a consumer may import and what the tarball holds; a package that is \
-                 not published has no consumer",
+        cell: "exports, files, sideEffects and repository; exports alone when private",
+        reason: "they say what a consumer may import and what the tarball holds; a workspace \
+                 package is still imported through its exports",
     },
     Difference {
         row: Row::Dev,

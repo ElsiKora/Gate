@@ -100,6 +100,10 @@ fn the_plugin_options_are_checked_before_any_rule_runs() {
             "each separate entry is { path",
         ),
         ("{}", "write options = { kind"),
+        (
+            r#"{"kind": "service", "path": "spikes/x"}"#,
+            "remove or rename the key; the options are kind, separate and base",
+        ),
         (r#"{"kind": "service", "base": 1}"#, "base is a path"),
     ];
     for (options, expected) in cases.into_iter().chain(advice) {

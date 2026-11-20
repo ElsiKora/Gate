@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use gate_sdk::{NoOptions, Result, Rule, Run};
+use gate_sdk::{NoOptions, Result, Rule, Run, Tree};
 
 use crate::json::{Node, Value};
 use crate::repo::{self, directory, file_name, join, normalize, within};
@@ -34,13 +34,14 @@ impl Rule for Tsconfig {
         let project = run.project().to_owned();
         let base_path = settings.base_of(&project);
         let mut configs = BTreeMap::new();
-        for path in repo::own_paths(&tree) {
-            let name = file_name(&path);
+        let own = repo::own_paths(&tree);
+        for path in &own {
+            let name = file_name(path);
             if name.starts_with("tsconfig")
                 && repo::is_json(name)
-                && let Some(config) = repo::read_json(&tree, &path)?
+                && let Some(config) = repo::read_json(&tree, path)?
             {
-                configs.insert(path, config);
+                configs.insert(path.clone(), config);
             }
         }
         if configs.is_empty() {
@@ -70,7 +71,7 @@ impl Rule for Tsconfig {
                 );
             }
             let line = config.member("extends").map(|member| member.line);
-            match reaches(&configs, path, &project, &base_path) {
+            match reaches(&tree, &configs, &own, path, (&project, &base_path))? {
                 Reach::Base => {}
                 Reach::Nowhere => crate::report(
                     run.report(),
@@ -237,8 +238,16 @@ enum Reach {
     Nowhere,
 }
 
-/// Where the configuration at `start` goes through `extends`.
-fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &str) -> Reach {
+/// Where the configuration at `start` goes through `extends`. The chain may pass through any
+/// JSON file of the project (`./config/base.json`), not only a `tsconfig*.json`: one that is not
+/// among `configs` is read from the tree when the chain reaches it.
+fn reaches(
+    tree: &Tree<'_>,
+    configs: &BTreeMap<String, Node>,
+    own: &[String],
+    start: &str,
+    (project, base): (&str, &str),
+) -> Result<Reach> {
     let mut seen = BTreeSet::new();
     let mut queue = vec![start.to_owned()];
     let mut leaves = None;
@@ -246,14 +255,24 @@ fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &
         if !seen.insert(path.clone()) {
             continue;
         }
-        let Some(config) = configs.get(&path) else {
-            continue;
+        let read;
+        let config = match configs.get(&path) {
+            Some(config) => config,
+            None => match repo::read_json(tree, &path)? {
+                Some(config) => {
+                    read = config;
+                    &read
+                }
+                None => continue,
+            },
         };
         for specifier in extends(config) {
             let exists = |candidate: &str| {
                 candidate == base
                     || (within(candidate, project)
-                        && configs.contains_key(&relative(candidate, project)))
+                        && own
+                            .iter()
+                            .any(|known| *known == relative(candidate, project)))
             };
             let Some(repository) = target(project, &path, specifier, &exists) else {
                 let written = specifier
@@ -266,14 +285,14 @@ fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &
                 continue;
             };
             if repository == base {
-                return Reach::Base;
+                return Ok(Reach::Base);
             }
             if within(&repository, project) {
                 queue.push(relative(&repository, project));
             }
         }
     }
-    leaves.map_or(Reach::Nowhere, Reach::Leaves)
+    Ok(leaves.map_or(Reach::Nowhere, Reach::Leaves))
 }
 
 /// The relative path from the repository directory `from` to the repository path `to`.

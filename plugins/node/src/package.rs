@@ -80,11 +80,12 @@ impl Rule for Package {
 fn published(run: &mut Run<'_, NoOptions>, manifest: &Node, kind: Kind) {
     let private = manifest.member("private");
     let is_private = private.and_then(|member| member.value.as_bool()) == Some(true);
+    // A library with `private: true` is a package of the workspace that is never published: it
+    // needs no `publishConfig` and none of the fields that describe a tarball.
     if let Some(difference) = difference(kind, Row::Private) {
-        if is_private && let Some(member) = private {
-            forbid(run, member.line, "private", difference.reason);
+        if !is_private {
+            require(run, manifest, "publishConfig", kind, difference.reason);
         }
-        require(run, manifest, "publishConfig", kind, difference.reason);
     } else if !is_private {
         if let Some(member) = private {
             crate::report(
@@ -112,8 +113,18 @@ fn published(run: &mut Run<'_, NoOptions>, manifest: &Node, kind: Kind) {
     let library = difference(kind, Row::Published);
     for field in PUBLISHED {
         match (library, manifest.member(field)) {
-            (Some(difference), None) => require(run, manifest, field, kind, difference.reason),
-            (None, Some(member)) => forbid(
+            (Some(difference), None) if !is_private => {
+                require(run, manifest, field, kind, difference.reason);
+            }
+            (Some(_), None) if field == "exports" => require(
+                run,
+                manifest,
+                field,
+                kind,
+                "a workspace package is imported through its exports under NodeNext resolution",
+            ),
+            // `repository` says where the source lives, which is true of any project.
+            (None, Some(member)) if field != "repository" => forbid(
                 run,
                 member.line,
                 field,

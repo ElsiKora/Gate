@@ -85,7 +85,11 @@ fn advice(message: &str) -> &'static str {
                             install of its own>\" } and has no other key";
     const KIND: &str = "write options = { kind = \"<kind>\" } with one of service, frontend, \
                         infrastructure, library, monorepo-root";
-    let about_separate = message.contains("`job`") || message.contains("`path`");
+    // A `separate` entry's own error: an unknown key there lists `path` and `job` as the expected
+    // ones, and a missing one names it. A top-level `path` or `job` is an unknown option instead.
+    let about_separate = message.contains("expected `path` or `job`")
+        || message.contains("missing field `path`")
+        || message.contains("missing field `job`");
     if message.contains("unknown field") {
         if about_separate {
             SEPARATE

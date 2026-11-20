@@ -14,12 +14,15 @@ The rule reads the `package.json` at the project root:
 
 - **`#missing`**: the file exists, and has the fields every kind has: `name`, `version`,
   `license`, `type` and `engines.node` (present; `node/node-version` checks its value). A project
-  that is not a library has `private`. A library has `publishConfig`, `exports`, `files`,
-  `sideEffects` and `repository`.
+  that is not a library has `private`. A published library (no `private: true`) has
+  `publishConfig`, `exports`, `files`, `sideEffects` and `repository`. A library with
+  `private: true` is a package of the workspace that is never published: it has `exports`, since
+  NodeNext resolution imports a package through it, and needs none of the others.
 - **`#value`**: `type` is `"module"`, in every kind. In a kind other than library, `private` is
   `true`; `false`, `"true"` or any other value is reported.
-- **`#forbidden`**: a library does not set `private` to `true`. A kind other than library has none
-  of `exports`, `files`, `sideEffects` and `repository`. No kind has `workspaces`:
+- **`#forbidden`**: a kind other than library has none of `exports`, `files` and `sideEffects`;
+  `repository`, which says where the source lives, is allowed in every kind. No kind has
+  `workspaces`:
   `pnpm-workspace.yaml` lists the workspace's packages.
 
 A missing field is reported at the file; a forbidden field or a wrong value at its line.
@@ -28,11 +31,13 @@ The kinds are `service`, `frontend`, `infrastructure`, `library` and `monorepo-r
 every field but two rows of the standard's table of differences (`DIFFERENCES` in
 `src/standard.rs`); a kind not named in a row has the common cell:
 
-- `private`: a `library` has "no private: true, and a publishConfig", because "a published package
-  must not be private, and says where it is published". Every other kind has `private: true`.
-- `exports`, `files`, `sideEffects` and `repository`: a `library` has the four fields, because
-  "they say what a consumer may import and what the tarball holds; a package that is not
-  published has no consumer". Every other kind has none of them.
+- `private`: a `library` has "a publishConfig, unless private: true marks a package of the
+  workspace", because "a published package says where it is published; a workspace package is
+  never published". Every other kind has `private: true`.
+- `exports`, `files`, `sideEffects` and `repository`: a published `library` has the four fields,
+  and a private one has `exports`, because "they say what a consumer may import and what the
+  tarball holds; a workspace package is still imported through its exports". Every other kind
+  has none of the first three.
 
 Every field and value the rule enforces is fixed by the plugin's standard; none is configurable.
 
@@ -88,6 +93,7 @@ The message names the path relative to the project root. The finding's target is
 Add the fields the kind has and remove the ones it has not. A service, frontend, infrastructure
 project or monorepo root is `"private": true` and describes no published package. A library drops
 `private`, says where it is published in `publishConfig`, and lists what a consumer may import in
-`exports` and what the tarball holds in `files`. Write `"type": "module"` and give a file that must
+`exports` and what the tarball holds in `files`; a library that only the workspace imports keeps
+`"private": true` and its `exports`. Write `"type": "module"` and give a file that must
 stay CommonJS the `.cjs` extension. List workspace packages in `pnpm-workspace.yaml`, not in
 `workspaces`.

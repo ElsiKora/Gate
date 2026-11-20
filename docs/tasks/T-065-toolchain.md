@@ -91,8 +91,8 @@ every cell that is not "same" has its reason. The rows are what the project-scop
 | # | Subject | Service | Frontend | Infrastructure | Library | Monorepo root | Reason for each cell that is not "same" |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `name`, `version`, `license`, `type: "module"` | same | same | same | same | same | |
-| 2 | `private: true` | same | same | same | absent, with `publishConfig` | same | Library: a published package must not be private, and says where it is published. |
-| 3 | `exports`, `files`, `sideEffects`, `repository` | absent | absent | absent | required | absent | Library: what a consumer may import and what the tarball holds; nothing else is published. |
+| 2 | `private: true` | same | same | same | absent, with `publishConfig`; or present for a package of the workspace, without `publishConfig` | same | Library: a published package says where it is published; a workspace package is never published (the lead's verification, 2026-11-20). |
+| 3 | `exports`, `files`, `sideEffects`, `repository` | absent but `repository` | absent but `repository` | absent but `repository` | required; `exports` alone when private | absent but `repository` | Library: what a consumer may import and what the tarball holds; a workspace package is still imported through its `exports` under NodeNext. `repository` says where the source lives and is allowed in every kind (the lead's verification, 2026-11-20). |
 | 4 | `engines.node` | same | same | same | same | same | |
 | 5 | scripts `build`, `lint`, `lint:fix`, `typecheck`, `test` | same | same | same | same | same | In a monorepo root each delegates to the workspace runner; the names do not change. |
 | 6 | scripts `format`, `format:fix` | same | same | same | absent in a workspace member | same | Formatting is repository-wide with one configuration (section 3, `node/formatter`); a member that formats itself would format part of the tree with the root's settings anyway. |
@@ -464,6 +464,35 @@ nine at their level, and named on the plugin's page in the guide.
     branch for it).
 14. **The plugin changelog** names the plugin interface `gate:plugin@0.3.0`.
 15. **Section 1** now says what the code does: the `tsconfig` rules declare no language.
+
+### The verification of `f5b7eb4` (the lead, 2026-11-20), one small round
+
+1. **`#editorconfig` reports a key only when the Prettier option it maps to is absent from
+   `.prettierrc.json`.** Read from Prettier 3.10.1, the npm `latest` on 2026-11-20 (tarball
+   `prettier-3.10.1.tgz`, SHA-1 `00b1c1872f9650ec22093d5bdafdca0fe6760f77`), file `index.mjs`:
+   `src/config/editorconfig/editorconfig-to-prettier.js` maps `indent_style` and
+   `indent_size = tab` to `useTabs`, `indent_size` (when `useTabs` is false) or else `tab_width`
+   to `tabWidth`, `max_line_length` to `printWidth`, `quote_type` to `singleQuote` and
+   `end_of_line` to `endOfLine`; the bundled `editorconfig-without-wasm` parser defaults
+   `tab_width` to a numeric `indent_size` and turns `indent_size = tab` into `tab_width` when
+   there is one; and `resolveConfig` (`src/config/resolve-config.js`) merges
+   `{ ...editorConfigured, ...mergeOverrides(result, filePath) }`, so the Prettier configuration
+   wins. Since the standard sets `printWidth`, `max_line_length` is no longer reported under it.
+2. **A template's `${…}`** is tokenized as code, recursively: strings, templates and comments
+   inside it. A regular expression after a value-like token is read as a division; that
+   contrived case is accepted and commented.
+3. **`extends` passes through any JSON file of the project**, not only `tsconfig*.json`.
+4. **`./x` and `../x`** are local paths, reported with the help to write `file:./x`, never read
+   as `<owner>/<repo>`.
+5. **`node/package`**: a `library` with `private: true` is a package of the workspace: no
+   `publishConfig`, none of `files`, `sideEffects`, `repository`, but `exports`, which NodeNext
+   resolution needs. A published library keeps the full rule. `repository` is no longer
+   forbidden in a service, nor in the other kinds that are not a library, since it says where the
+   source lives (rows 2 and 3 of the table above).
+6. **Nits**: a top-level `path` or `job` gets the unknown-option advice, not the `separate`
+   advice; the range steps use `checked_add`, and a version part too large to step past is a
+   configuration error naming the range; the guide says `workspace:*`; the `differs` help has a
+   test.
 
 ### Proof of the fix round
 

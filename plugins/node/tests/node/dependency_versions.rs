@@ -289,3 +289,37 @@ fn a_manifest_with_a_byte_order_mark_is_read() {
         ["range package.json:3 caret"]
     );
 }
+
+#[test]
+fn a_bare_local_path_is_read_as_a_path_not_a_git_url() {
+    let manifest = r#"{"dependencies": {"up": "../x", "here": "./vendor/y"}}"#;
+    let findings = Fixture::new("library", &[("package.json", manifest)])
+        .check(RULE, "{}")
+        .expect("the rule runs");
+    let helps: Vec<&str> = findings
+        .iter()
+        .map(|finding| finding.help.as_deref().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        helps,
+        [
+            "write file:../x; a local package is named with the file: protocol",
+            "write file:./vendor/y; a local package is named with the file: protocol"
+        ]
+    );
+    let files = [
+        (
+            "pnpm-workspace.yaml",
+            "packages:\n  - apps/*\ncatalog:\n  left-pad: 1.3.0\n",
+        ),
+        ("package.json", r#"{"name": "root"}"#),
+        (
+            "apps/a/package.json",
+            r#"{"name": "a", "dependencies": {"x": "../../vendor/x"}}"#,
+        ),
+    ];
+    assert_eq!(
+        Fixture::new("monorepo-root", &files).lines(RULE),
+        ["range apps/a/package.json:1 x"]
+    );
+}
