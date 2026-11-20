@@ -6,7 +6,7 @@
 | Release | v0.3.0 (plugin nestjs 0.3.0 with the core, on `gate:plugin@0.3.0`; merges after the v0.2.1 tag) |
 | Writer | "Gate 002", from 2026-11-20 (first "Gate 003: host foundations") |
 | Reviewer | a session that did not write it |
-| Depends on | `main` at `v0.2.1` (`5da3272`) |
+| Depends on | `main` at `a8e511d` (v0.2.1 and the first 0.3.0 batch) |
 | Touches | `plugins/nestjs/src/rules/semantics/wrappers/`, `plugins/nestjs/tests/wrappers.rs`, `plugins/nestjs/rules/wrappers.md`, `plugins/nestjs/CHANGELOG.md` |
 
 ## Goal
@@ -50,8 +50,13 @@ The plugin CHANGELOG entry is under `# 0.3.0 (unreleased)` / `### Breaking Chang
 2026-11-20T10:14:04+00:00: Gate 002 takes over as writer. The branch is rebased onto `main` at
 `5da3272` (v0.2.1); the one conflict was the plugin CHANGELOG, whose `# 0.3.0 (unreleased)` / `###
 Breaking Changes` section now sits above the released 0.2.1 section. Lane round 208 on `0576b2b`
-(now `031db59`) failed one test,
+(the `feat` commit) failed one test,
 `own_parameters_are_named_and_reassigned_or_defaulted_ones_and_locals_are_not`, on the branch's own
-assertion (that the scope form drops the finding); `3262226` (now `aa99cf5`) changed it to what the
-scope form is for, an unchanged target when a line is added above. Rounds 208 and 232 built into
-another task's target directory, so neither counts. Next: one lane round on T-044's own target.
+assertion (that the scope form drops the finding); `3262226` ("the scope form stays put when lines
+are added above") changed it to what the scope form is for, an unchanged target when a line is added
+above. Rounds 208 and 232 built into another task's target directory, so neither counts. Next: one
+lane round on T-044's own target.
+2026-11-20T10:22:46+00:00: rebased again, onto `main` at `a8e511d`, the first 0.3.0 batch, as the
+lead asked; it applied without a conflict, and the batch changed nothing under `plugins/nestjs` (its
+SDK change is the generators' plugin options and seeds). Round 341 on `b06cb87` was stopped in
+clippy for the new base. Next: one lane round on T-044's own target.
