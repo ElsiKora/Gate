@@ -1,6 +1,6 @@
 //! `ledger/manifest`.
 
-use crate::{Files, findings, seen};
+use crate::{Files, findings, input, keys, seen};
 
 const MANIFEST: &str = "docs/ledger/manifest.json";
 const INDEX: &str = "docs/ledger/decision-index.md";
@@ -29,12 +29,25 @@ fn manifest(files: &Files) -> Vec<crate::Seen> {
 }
 
 #[test]
-fn a_well_formed_manifest_passes_and_an_untracked_one_turns_the_rule_off() {
+fn a_well_formed_manifest_passes_and_an_untracked_one_is_an_input_finding() {
     assert_eq!(manifest(&tree()), []);
     let files = tree()
         .without(MANIFEST)
         .with("README.md", "see docs/old-ledger\n");
-    assert_eq!(manifest(&files), []);
+    assert_eq!(
+        manifest(&files),
+        [input("manifest", MANIFEST, "its option manifest")]
+    );
+    // The key is the path, so the finding keeps its fingerprint wherever the message changes.
+    assert_eq!(
+        keys("manifest", "", "", &files),
+        [(
+            "input".to_owned(),
+            MANIFEST.to_owned(),
+            None,
+            Some(MANIFEST.to_owned())
+        )]
+    );
 }
 
 #[test]

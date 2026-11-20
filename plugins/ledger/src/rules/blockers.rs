@@ -5,6 +5,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
 
 use crate::catalog::{Catalog, Findings};
+use crate::input::{self, INPUT};
 use crate::records::{Ledger, Record, compile};
 use crate::settings::Settings;
 
@@ -24,13 +25,13 @@ impl Rule for Blockers {
     const NAME: &'static str = "blockers";
     const TITLE: &'static str =
         "A planned record names no closed blocker and a started record no blocker";
-    const ASPECTS: &'static [&'static str] = &["closed-blocker", "started-blocker"];
+    const ASPECTS: &'static [&'static str] = &["closed-blocker", INPUT, "started-blocker"];
 
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
         let settings = Settings::read(run)?;
         let tree = run.tree();
 
-        if !tree.contains(&settings.implementation) {
+        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
             return Ok(());
         }
 

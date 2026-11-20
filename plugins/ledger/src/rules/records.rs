@@ -3,9 +3,10 @@
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Error, Rule, Run};
+use gate_sdk::{Error, Need, Rule, Run};
 
 use crate::catalog::Catalog;
+use crate::input::{self, INPUT};
 use crate::records::{PENDING_PATTERNS, PENDING_VALUES, Tracking, analyse};
 use crate::settings::Settings;
 use crate::text::pattern;
@@ -59,6 +60,7 @@ impl Rule for Records {
     const TITLE: &'static str = "Ledger records keep their fields, counterparts, commits, dependencies and closure evidence";
     const ASPECTS: &'static [&'static str] = &[
         "dependency-cycle",
+        INPUT,
         "parity-fields",
         "record-closure",
         "record-commit",
@@ -71,9 +73,9 @@ impl Rule for Records {
 
     fn check(&self, run: &mut Run<'_, RecordsOptions>) -> gate_sdk::Result<()> {
         let settings = Settings::read(run)?;
-        let options = run.options();
         let tree = run.tree();
-        let pending_patterns = options
+        let pending_patterns = run
+            .options()
             .pending_patterns
             .iter()
             .map(|source| {
@@ -85,10 +87,11 @@ impl Rule for Records {
             })
             .collect::<gate_sdk::Result<Vec<_>>>()?;
 
-        if !tree.contains(&settings.implementation) {
+        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
             return Ok(());
         }
 
+        let options = run.options();
         let tracking = Tracking {
             settings: &settings,
             pending_values: &options.pending_values,
@@ -129,22 +132,28 @@ impl Rule for RecordStatus {
     const NAME: &'static str = "record-status";
     const TITLE: &'static str =
         "A paired plan record, its implementation and its verification share one allowed status";
+    const ASPECTS: &'static [&'static str] = &[INPUT];
+    const NEEDS: &'static [Need] = &[Need {
+        key: "parity",
+        when: None,
+        why: "the rule compares the statuses of the paired plan, implementation and verification records: set parity to the plan whose headings pair with them",
+    }];
 
     fn check(&self, run: &mut Run<'_, RecordStatusOptions>) -> gate_sdk::Result<()> {
         let settings = Settings::read(run)?;
-        let options = run.options();
         let tree = run.tree();
 
-        if options.allowed.as_ref().is_some_and(Vec::is_empty) {
+        if run.options().allowed.as_ref().is_some_and(Vec::is_empty) {
             return Err(Error::config(
                 "ledger/record-status option allowed is empty; list the allowed statuses or remove the option",
             ));
         }
 
-        if !tree.contains(&settings.implementation) {
+        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
             return Ok(());
         }
 
+        let options = run.options();
         let tracking = Tracking {
             settings: &settings,
             pending_values: &[],

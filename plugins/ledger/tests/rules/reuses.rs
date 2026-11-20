@@ -1,6 +1,6 @@
 //! `ledger/reuses`.
 
-use crate::{Files, IMPLEMENTATION, PARITY, error, findings, keys, ledger, seen};
+use crate::{Files, IMPLEMENTATION, PARITY, error, findings, input, keys, ledger, seen};
 
 const CATALOG: &str = "docs/reference/mechanisms.md";
 const OPTIONS: &str = r#"{"catalog":"docs/reference/mechanisms.md"}"#;
@@ -40,11 +40,22 @@ fn a_specific_reason_and_known_keys_pass() {
 }
 
 #[test]
-fn the_rule_is_off_without_a_catalog_or_an_implementation_file() {
+fn the_catalog_is_required_and_a_missing_implementation_file_is_reported() {
     let files = tree().edit(IMPLEMENTATION, REUSES, "");
-    assert_eq!(findings("reuses", "", PARITY, &files), []);
-    let files = files.without(IMPLEMENTATION);
-    assert_eq!(reuses(&files), []);
+    let message = error("reuses", "", PARITY, &files);
+    assert!(message.contains("missing field `catalog`"), "{message}");
+    assert_eq!(
+        error("reuses", r#"{"catalog":""}"#, PARITY, &files),
+        "rule reuses: ledger/reuses option catalog is empty; name the catalog of shared mechanisms"
+    );
+    assert_eq!(
+        reuses(&files.without(IMPLEMENTATION)),
+        [input(
+            "reuses",
+            IMPLEMENTATION,
+            "[plugins.ledger] options implementation"
+        )]
+    );
 }
 
 #[test]
@@ -261,28 +272,15 @@ fn catalog_entry_problems_are_one_finding_per_entry() {
 }
 
 #[test]
-fn without_a_decision_index_every_decision_passes() {
-    let files = tree()
-        .edit(
-            CATALOG,
-            "  - Decisions: `D-ONE-001`\n  - Path",
-            "  - Decisions: `D-NONE-001`\n  - Path",
-        )
-        .without("docs/ledger/decision-index.md");
-    assert_eq!(reuses(&files), []);
-}
-
-#[test]
-fn a_missing_catalog_is_reported() {
-    let files = tree().without(CATALOG);
+fn a_missing_decision_index_or_catalog_is_an_input_finding() {
+    let index = "docs/ledger/decision-index.md";
     assert_eq!(
-        reuses(&files),
-        [seen(
-            "catalog-entry",
-            CATALOG,
-            None,
-            "the catalog of shared mechanisms is missing; the Reuses fields name its keys"
-        ),]
+        reuses(&tree().without(index)),
+        [input("reuses", index, "[plugins.ledger] options decisions")]
+    );
+    assert_eq!(
+        reuses(&tree().without(CATALOG)),
+        [input("reuses", CATALOG, "its option catalog")]
     );
 }
 

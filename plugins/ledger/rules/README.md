@@ -34,7 +34,7 @@ outside the project is read only when `[plugins.ledger] reads` grants it.
 | `verification` | string | `"docs/ledger/verification.md"` | The entry file of the verification records. |
 | `follow-ups` | string | `"docs/ledger/follow-ups.md"` | The entry file of the follow-up records. |
 | `blockers` | string | `"docs/ledger/production-blockers.md"` | The entry file of the production blocker records. |
-| `parity` | table | absent | A plan whose headings pair with implementation and verification records; absent, the paired checks are off. |
+| `parity` | table | absent | A plan whose headings pair with implementation and verification records; absent, the paired checks are off, and `ledger/record-status`, which needs it, stops the run with exit 2. |
 | `closed-statuses` | array of string | `["closed", "complete", "complete (external prerequisite)", "completed", "done", "passed", "verified"]` | The statuses that close a record, compared with the status in lowercase. |
 | `planned-prefixes` | array of string | `["planned"]` | A status that starts with one of these is planned work. |
 | `started-prefixes` | array of string | `["in progress", "in-progress"]` | A status that starts with one of these is started work. |

@@ -8,7 +8,7 @@ use gate_agents_format::{CLASSES, Rule as AgentRule, RuleFile, STATUSES};
 use gate_sdk::{Report, Result, Rule, Run};
 use regex::Regex;
 
-use crate::load::{Agents, RootOptions, at};
+use crate::load::{Agents, INPUT, RootOptions, at};
 
 static AREA: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"^[A-Z][A-Z0-9]{1,7}$").ok());
 
@@ -25,10 +25,14 @@ impl Rule for RuleRegistry {
 
     const NAME: &'static str = "rule-registry";
     const TITLE: &'static str = "Rule registry, headings and metadata lines agree";
+    const ASPECTS: &'static [&'static str] = &[INPUT];
 
     fn check(&self, run: &mut Run<'_, RootOptions>) -> Result<()> {
         let agents = Agents::load(&run.tree(), &run.options().root)?;
         let report = run.report();
+        if !agents.has_rules(report, "agents/rule-registry", INPUT) {
+            return Ok(());
+        }
         let mut areas: BTreeMap<&str, &str> = BTreeMap::new();
 
         for file in &agents.rules {

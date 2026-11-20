@@ -1,6 +1,6 @@
 //! `ledger/blockers`.
 
-use crate::{FOLLOW_UPS, IMPLEMENTATION, PARITY, PLAN, findings, ledger, seen};
+use crate::{FOLLOW_UPS, IMPLEMENTATION, PARITY, PLAN, findings, input, ledger, seen};
 
 const BASE_BLOCKED: &str = "  - Blocked by: none\n  - Reuses";
 
@@ -175,7 +175,11 @@ fn a_ledger_of_another_project_is_read_through_its_relative_paths() {
     );
     assert_eq!(
         findings("blockers", "", "", &shared),
-        [],
-        "the default paths name nothing in this project"
+        [input(
+            "blockers",
+            IMPLEMENTATION,
+            "[plugins.ledger] options implementation"
+        )],
+        "the default paths name nothing in this project, so the rule reports the file it cannot read"
     );
 }

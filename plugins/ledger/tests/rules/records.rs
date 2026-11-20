@@ -2,7 +2,7 @@
 
 use crate::{
     BLOCKERS, Files, IMPLEMENTATION, OID_A, OID_B, PARITY, PLAN, VERIFICATION, error, findings,
-    ledger, seen,
+    input, ledger, seen,
 };
 
 fn records(files: &Files) -> Vec<crate::Seen> {
@@ -15,9 +15,24 @@ fn a_consistent_ledger_passes() {
 }
 
 #[test]
-fn an_untracked_implementation_file_turns_the_rule_off() {
+fn an_untracked_implementation_file_or_parity_plan_is_an_input_finding() {
     let files = ledger().without(IMPLEMENTATION).without(BLOCKERS);
-    assert_eq!(records(&files), []);
+    assert_eq!(
+        records(&files),
+        [input(
+            "records",
+            IMPLEMENTATION,
+            "[plugins.ledger] options implementation"
+        )]
+    );
+    assert_eq!(
+        records(&ledger().without(PLAN)),
+        [input(
+            "records",
+            PLAN,
+            "[plugins.ledger] options parity.plan"
+        )]
+    );
 }
 
 #[test]

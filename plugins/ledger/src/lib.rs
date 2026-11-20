@@ -13,6 +13,7 @@ mod block;
 mod catalog;
 pub mod generators;
 mod index;
+mod input;
 mod records;
 pub mod rules;
 mod settings;

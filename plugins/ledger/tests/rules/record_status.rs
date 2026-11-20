@@ -1,6 +1,6 @@
 //! `ledger/record-status`.
 
-use crate::{IMPLEMENTATION, PARITY, PLAN, VERIFICATION, error, findings, ledger, seen};
+use crate::{IMPLEMENTATION, PARITY, PLAN, VERIFICATION, error, findings, input, ledger, seen};
 
 #[test]
 fn matching_statuses_pass() {
@@ -63,11 +63,27 @@ fn a_status_outside_the_allowed_list_is_reported_once_per_file() {
 }
 
 #[test]
-fn without_parity_or_an_implementation_file_the_rule_reports_nothing() {
+fn a_missing_implementation_file_or_plan_is_an_input_finding() {
+    // Without parity the rule pairs nothing; the host refuses that configuration, since the rule
+    // needs parity (`x-gate-needs`), and the end-to-end tests run that refusal.
     let files = ledger().edit(VERIFICATION, "`completed`", "`passed`");
     assert_eq!(findings("record-status", "", "", &files), []);
-    let files = files.without(IMPLEMENTATION);
-    assert_eq!(findings("record-status", "", PARITY, &files), []);
+    assert_eq!(
+        findings("record-status", "", PARITY, &files.without(IMPLEMENTATION)),
+        [input(
+            "record-status",
+            IMPLEMENTATION,
+            "[plugins.ledger] options implementation"
+        )]
+    );
+    assert_eq!(
+        findings("record-status", "", PARITY, &ledger().without(PLAN)),
+        [input(
+            "record-status",
+            PLAN,
+            "[plugins.ledger] options parity.plan"
+        )]
+    );
 }
 
 #[test]

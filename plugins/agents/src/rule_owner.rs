@@ -7,7 +7,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Result, Rule, Run};
 
-use crate::load::{Agents, at, default_root, strict_text};
+use crate::load::{Agents, INPUT, at, default_root, strict_text};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -47,14 +47,15 @@ impl Rule for RuleOwner {
 
     const NAME: &'static str = "rule-owner";
     const TITLE: &'static str = "Every rule file owner is an accepted decision";
+    const ASPECTS: &'static [&'static str] = &[INPUT];
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let tree = run.tree();
-        let options = run.options();
-        let agents = Agents::load(&tree, &options.root)?;
-        if agents.rules.is_empty() {
+        let agents = Agents::load(&tree, &run.options().root)?;
+        if !agents.has_rules(run.report(), "agents/rule-owner", INPUT) {
             return Ok(());
         }
+        let options = run.options();
         let index = strict_text(&tree, &options.decisions)?.map(|text| statuses(&text));
         let accepted = |owner: &str| {
             index

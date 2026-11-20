@@ -174,7 +174,10 @@ agents = { source = "ElsiKora/Gate:agents@0.2.0" }
 in the root `gate.toml`'s `[rules]` (`"agents/no-claude-md" = "error"`); a project's file may not set
 it.
 
-`gate sync` writes the generated files; `gate sync --check` reports drift. The rules: `instruction-references`,
+`gate sync` writes the generated files; `gate sync --check` reports drift. An enabled rule or generator
+whose input is missing fails: a rule that reads the rule files reports an empty `<root>/rules` as
+`#input`, `instruction-references` reports a missing `entry`, and `agents-block` reports both as
+`gate/sync#agents/agents-block`. The rules: `instruction-references`,
 `no-claude-md`, `rule-enforcement`, `rule-file-size`, `rule-ids`, `rule-owner`, `rule-references`,
 `rule-registry`, `skills` ([pages](../../plugins/agents/rules)).
 
@@ -183,7 +186,11 @@ it.
 A decision ledger: Markdown records with ids, statuses and closers, the decision index, and the
 decisions and owners exceptions cite. Every rule reads the shared `[plugins.ledger] options` (the
 ledger's file paths, the closing statuses, the paired plan); see
-[the plugin's page](../../plugins/ledger/rules/README.md).
+[the plugin's page](../../plugins/ledger/rules/README.md). An enabled rule reports each file it reads
+that is not tracked as `#input`, so a project without its ledger fails rather than passes; the ledger
+manifest is the one list of what a complete ledger holds. `ledger/closing-notes` needs its `field`,
+`ledger/reuses` its `catalog`, and `ledger/record-status` the shared `parity`: without them the run
+stops with exit 2.
 
 ```toml
 # docs/gate.toml, the project that holds the ledger
@@ -509,8 +516,11 @@ runs ([configuration.md](configuration.md#project)). The table above lists them:
 - `git` ships `git/recommended`, described under [`git`](#git), and `ci` ships `ci/recommended`,
   every rule at `error`.
 
-The other plugins (`agents`, `ledger`, `markdown`, `nestjs`, `typescript`) ship none: turn
-their rules on one by one in `[rules]`. `gate list` shows the result.
+The other plugins (`agents`, `ledger`, `markdown`, `nestjs`, `typescript`) ship none: turn their
+rules on one by one in `[rules]`. `gate list` shows the result. A preset never turns on a rule that
+needs an option only the project can give, such as the ledger's `field`, `catalog` or `parity`:
+enabled from a preset, a rule reports the files to create, never a configuration error for an option
+the project did not know about.
 
 ## 🔌 Plugins of Your Own
 

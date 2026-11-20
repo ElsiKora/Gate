@@ -7,6 +7,7 @@ use gate_sdk::{Error, Rule, Run};
 use regex::Regex;
 
 use crate::catalog::{Catalog, Findings};
+use crate::input::{self, INPUT};
 use crate::records::{Ledger, Record, compile};
 use crate::settings::Settings;
 
@@ -14,21 +15,23 @@ use crate::settings::Settings;
 #[derive(Debug, Default)]
 pub struct ClosingNotes;
 
-/// The options of `ledger/closing-notes`.
-#[derive(Debug, Default, Deserialize, JsonSchema)]
+/// The options of `ledger/closing-notes`. `field` is required: the field is the project's own, and
+/// without it the rule would check nothing.
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(
     crate = "gate_sdk::serde",
-    default,
     deny_unknown_fields,
     rename_all = "kebab-case"
 )]
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct Options {
     /// The record field that lists the temporary differences, such as
-    /// ``"`TEMPORARY_DELTA` records"``; empty turns the rule off.
+    /// ``"`TEMPORARY_DELTA` records"``.
+    #[schemars(length(min = 1))]
     pub field: String,
     /// Letters an entry label may carry before its number: with `["A"]`, both `(2)` and `(A2)`
     /// start an entry.
+    #[serde(default)]
     pub entry_label_letters: Vec<String>,
 }
 
@@ -38,23 +41,30 @@ impl Rule for ClosingNotes {
     const NAME: &'static str = "closing-notes";
     const TITLE: &'static str =
         "A temporary difference whose exact closer is closed carries a dated closing note";
+    const ASPECTS: &'static [&'static str] = &[INPUT];
 
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
         let settings = Settings::read(run)?;
-        let options = run.options();
         let tree = run.tree();
         let products = settings
             .parity
             .as_ref()
             .map(|parity| parity.products.as_slice())
             .unwrap_or_default();
-        let patterns = Patterns::new(options, products)?;
 
-        if options.field.is_empty() || !tree.contains(&settings.implementation) {
+        if run.options().field.trim().is_empty() {
+            return Err(Error::config(
+                "ledger/closing-notes option field is empty; name the record field that lists the temporary differences",
+            ));
+        }
+
+        let patterns = Patterns::new(run.options(), products)?;
+
+        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
             return Ok(());
         }
 
-        let name = entry_name(&options.field);
+        let name = entry_name(&run.options().field);
         let ledger = Ledger::read(&Catalog::new(tree), &settings)?;
         let mut findings = Findings::default();
 

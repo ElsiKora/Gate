@@ -21,7 +21,12 @@ A `removed` rule is not checked. In the other direction, every norm of the confi
 starts with `RULE-` must name a rule that a rule file defines with class `gate`; that finding has no
 location, since the configuration line is the core's.
 
-Scope: project. Reads history: no. Aspects: none.
+`#input`: `<root>/rules` holds no rule file (`*.md` directly in it), reported once at the directory
+and keyed by it; the rule checks nothing else until it does. A project without its agent docs fails
+the rule: create a rule file, point `root` at the agent docs, or turn the input off with
+`levels = { input = "off" }` and a `decision`.
+
+Scope: project. Reads history: no. Aspects: `input`; the other findings have no aspect.
 
 ## Options
 
