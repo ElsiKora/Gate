@@ -479,6 +479,15 @@ lead ruled on each, and accepted rulings 10 to 13, which the fix round proposed.
 
 ## Resume point
 
+2026-11-20T10:06:58+00:00: the review's fix round on `task/T-066-containers-hygiene`, rebased on
+`main` `e7d5a27` (`73d7bb9`): `baa12ad` (LFS sizes), `ea1296f` (tracked-secrets), `b914b7e` (docker),
+`9ece780` and `3877751` (docs, the monorepo test), `8134ac3` (the nestjs changelog entry), `e5b9b50`
+(the rulings above). Lane round 338 on `3877751`, on T-066's own target directories, exit 0: fmt,
+clippy, test (1126 passed, 0 failed), deny and the release build; every changed crate compiled from
+`T-066/round-wt` and the twelve new tests listed and passing. Round 334 on `8134ac3` had two
+failures of new tests, fixed in `3877751`. Next: the lead's independent check of `baa12ad` and
+`ea1296f`, then the merge into 0.3.0. The monorepo root-preset gap is T-071.
+
 2026-11-20T08:28:37+00:00: lane round 326 on `570922c`, on T-066's own target directories, exit 0:
 fmt, clippy, test (`--workspace --no-fail-fast`: 1092 passed, 0 failed), deny and the release build.
 Its logs show every changed crate compiled from `T-066/round-wt` (gate-runtime, gate-host, gate-sdk,
