@@ -1,6 +1,9 @@
 //! `cdk/environment`: no account id or unlisted region in the tree, the configuration file named
-//! by the one context key, no process environment read outside `lib/config/`, and no real
-//! configuration tracked.
+//! by the one context key, no `process.env` read outside `lib/config/`, and no real configuration
+//! tracked.
+//!
+//! `cdk.context.json` is not read for account ids: the CDK writes its lookups there, each key
+//! naming the account, and AWS asks that the file be committed so a synth is deterministic.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::SourceFile;
@@ -18,6 +21,9 @@ use crate::standard::{CONTEXT_KEY, account_ids, regions};
 pub struct Environment;
 
 const ACCOUNT_HELP: &str = "read the account from the configuration file";
+
+/// The file the CDK writes its context lookups to, which the app commits.
+const CONTEXT_FILE: &str = "cdk.context.json";
 
 impl Rule<Cdk> for Environment {
     type Options = NoOptions;
@@ -55,6 +61,7 @@ impl Rule<Cdk> for Environment {
                 });
             }
             if has_extension(&path, "json")
+                && path != CONTEXT_FILE
                 && !path.ends_with("package-lock.json")
                 && !path.split('/').any(|segment| segment == "node_modules")
                 && let Some(contents) = tree.text(&path)
@@ -194,16 +201,18 @@ fn reads(file: &SourceFile<'_>, path: &str, found: &mut Vec<Owned>) {
                     help: "move the value into the configuration file",
                 });
             }
-            AstKind::IdentifierReference(reference)
-                if reference.name.as_str() == "process" && !path.starts_with("lib/config/") =>
+            AstKind::StaticMemberExpression(member)
+                if member.property.name == "env"
+                    && matches!(unwrap(&member.object), Expression::Identifier(object) if object.name == "process")
+                    && !path.starts_with("lib/config/") =>
             {
                 found.push(Owned {
                     aspect: "process-env",
                     path: path.to_owned(),
-                    line: Some(file.line(reference.span.start)),
-                    key: "process".to_owned(),
+                    line: Some(file.line(member.span.start)),
+                    key: "process.env".to_owned(),
                     message: format!(
-                        "{path} reads the process environment; only lib/config/ reads it"
+                        "{path} reads process.env; only lib/config/ reads the process environment"
                     ),
                     help: "read the value from the configuration, which lib/config/ builds",
                 });

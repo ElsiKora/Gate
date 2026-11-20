@@ -7,6 +7,7 @@
 //! Built for `wasm32-wasip2` it is the component `cdk.wasm`; natively it is a library the tests
 //! call through [`PLUGIN`].
 
+pub mod follow;
 pub mod options;
 pub mod rules;
 pub mod sources;
@@ -18,6 +19,7 @@ pub use self::sources::Cdk;
 use self::rules::app::App;
 use self::rules::barrels::Barrels;
 use self::rules::construct_ids::ConstructIds;
+use self::rules::container_health::ContainerHealth;
 use self::rules::declarations::Declarations;
 use self::rules::environment::Environment;
 use self::rules::file_names::FileNames;
@@ -45,6 +47,7 @@ const RECOMMENDED: &str = r#"{
     "tags": { "level": "error" },
     "removal-policy": { "level": "error" },
     "nag": { "level": "error" },
+    "container-health": { "level": "error" },
     "tests": { "level": "error" }
 }"#;
 
@@ -64,6 +67,7 @@ const ADOPTION: &str = r#"{
     "tags": { "level": "error" },
     "removal-policy": { "level": "error" },
     "nag": { "level": "error" },
+    "container-health": { "level": "error" },
     "tests": { "level": "warning" }
 }"#;
 
@@ -86,6 +90,7 @@ gate_sdk::plugin! {
         Tags,
         RemovalPolicy,
         Nag,
+        ContainerHealth,
         Tests,
     ],
     generators: [],

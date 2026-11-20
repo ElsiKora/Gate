@@ -4,6 +4,7 @@
 pub mod app;
 pub mod barrels;
 pub mod construct_ids;
+pub mod container_health;
 pub mod declarations;
 pub mod environment;
 pub mod file_names;

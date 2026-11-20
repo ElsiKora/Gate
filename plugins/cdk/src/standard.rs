@@ -239,10 +239,10 @@ pub fn kebab(pascal: &str) -> String {
     text
 }
 
-/// Whether `token` has the form of an AWS region: `eu-west-1`, `us-gov-east-1`.
+/// Whether `token` has the form of an AWS region: `eu-west-1`, `us-gov-east-1`, `cn-north-1`.
 #[must_use]
 pub fn is_region(token: &str) -> bool {
-    const AREAS: [&str; 9] = ["af", "ap", "ca", "eu", "il", "me", "mx", "sa", "us"];
+    const AREAS: [&str; 10] = ["af", "ap", "ca", "cn", "eu", "il", "me", "mx", "sa", "us"];
     let words: Vec<&str> = token.split('-').collect();
     let (area, middle, number) = match words.as_slice() {
         [area, direction, number] => (*area, vec![*direction], *number),
@@ -307,6 +307,8 @@ mod tests {
     fn regions_and_accounts_are_found_in_text() {
         assert!(is_region("eu-west-1"));
         assert!(is_region("us-gov-east-1"));
+        assert!(is_region("cn-north-1"));
+        assert!(is_region("cn-northwest-1"));
         assert!(!is_region("east-west-1"));
         assert!(!is_region("eu-west"));
         assert_eq!(regions("arn:aws:s3:eu-central-1:x"), ["eu-central-1"]);
