@@ -6,7 +6,7 @@
 | Release | v0.3.0 (a host fix and its tests) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | the lead |
-| Depends on | `main` at `308eca9b` (T-071 and T-057 merged) |
+| Depends on | `main` at `2ef2cc61` (T-071, T-057 and the Gate 001 stack merged) |
 | Touches | `crates/gate/tests/plugins.rs`, `crates/gate-host/src/{workspace,plugins}.rs`, `crates/gate-host/tests/host/config.rs`, `CHANGELOG.md` |
 
 ## Goal
@@ -76,6 +76,5 @@ The independent review of `5e3fc9c7` found nothing blocking and asked for three 
 
 ## Resume point
 
-2026-11-20T22:52:06+00:00: the review's three additions are written on `308eca9b` and pushed. The
-Gate 001 stack merges first, as it also changes `workspace.rs`; then the branch rebases onto
-`main`, takes the stack's `workspace.rs` as it is, and runs one round.
+2026-11-20T23:23:48+00:00: rebased onto `main` at `2ef2cc61` (the Gate 001 stack merged), with no
+conflict in `workspace.rs`; pushed, and the lane round is queued.
