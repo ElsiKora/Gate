@@ -1,16 +1,39 @@
 //! The ci plugin's rules run natively through the SDK against synthetic trees.
 
 mod actions_pinned;
+mod checkout_credentials;
+mod concurrency;
+mod environment;
 mod fixture;
+mod names;
+mod node_setup;
+mod permissions;
+mod runner_pinned;
+mod secrets_in_steps;
+mod timeout;
 mod workflow_run_target;
 
 use fixture::Fixture;
+
+const RULES: [&str; 11] = [
+    "actions-pinned",
+    "workflow-run-target",
+    "permissions",
+    "concurrency",
+    "timeout",
+    "runner-pinned",
+    "checkout-credentials",
+    "secrets-in-steps",
+    "environment",
+    "node-setup",
+    "names",
+];
 
 #[test]
 fn every_rule_reads_the_repository_and_refuses_unknown_options() {
     let info = gate_sdk::describe(&ci::PLUGIN);
     let names: Vec<&str> = info.rules.iter().map(|rule| rule.name.as_str()).collect();
-    assert_eq!(names, ["actions-pinned", "workflow-run-target"]);
+    assert_eq!(names, RULES);
     for rule in &info.rules {
         assert_eq!(rule.scope, gate_sdk::Scope::Repository);
         let schema: serde_json::Value =
@@ -49,4 +72,92 @@ fn a_workflow_that_is_not_yaml_or_a_bad_glob_stops_the_run() {
         error.message().contains("workflows is not a valid glob"),
         "{error}"
     );
+}
+
+#[test]
+fn the_recommended_preset_turns_every_rule_on_at_error() {
+    let info = gate_sdk::describe(&ci::PLUGIN);
+    let presets: Vec<&str> = info
+        .presets
+        .iter()
+        .map(|preset| preset.name.as_str())
+        .collect();
+    assert_eq!(presets, ["recommended"]);
+    let rules: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&info.presets[0].rules).expect("the preset is JSON");
+    let named: Vec<&str> = rules.keys().map(String::as_str).collect();
+    assert_eq!(named, RULES);
+    for (rule, settings) in &rules {
+        assert_eq!(
+            settings,
+            &serde_json::json!({ "level": "error" }),
+            "{rule} is at error"
+        );
+    }
+}
+
+/// A workflow that breaks every rule of the standard once.
+const BROKEN: &str = "\
+on: [push, pull_request]
+permissions: write-all
+concurrency:
+  group: ci
+  cancel-in-progress: true
+env:
+  TOKEN: ${{ secrets.TOKEN }}
+jobs:
+  build_all:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567
+  notify:
+    uses: ./.github/workflows/notify.yml
+";
+
+#[test]
+fn a_workflow_that_breaks_the_standard_gets_a_finding_of_every_rule() {
+    let workflow_run = "name: Follow\non:\n  workflow_run:\n    workflows: [Nothing]\njobs: {}\n";
+    let fixture = Fixture::new(&[
+        (".github/workflows/ci.yml", BROKEN),
+        (".github/workflows/follow.yml", workflow_run),
+    ]);
+    for rule in RULES {
+        let findings = fixture.check(rule, "{}").expect("runs");
+        assert_ne!(
+            fixture::lines(&findings),
+            Vec::<String>::new(),
+            "{rule} reports the broken workflow"
+        );
+    }
+}
+
+/// Gate's own workflows meet the standard they ship.
+#[test]
+fn gate_s_own_workflows_pass_every_rule() {
+    let directory =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows");
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(&directory).expect("the repository's workflows") {
+        let path = entry.expect("an entry").path();
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("a UTF-8 name")
+            .to_owned();
+        let text = std::fs::read_to_string(&path).expect("a workflow");
+        files.push((format!(".github/workflows/{name}"), text));
+    }
+    assert!(files.len() >= 3, "{files:?}");
+    let borrowed: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect();
+    let fixture = Fixture::new(&borrowed);
+    for rule in RULES {
+        let findings = fixture.check(rule, "{}").expect("runs");
+        assert_eq!(fixture::lines(&findings), Vec::<String>::new(), "{rule}");
+    }
 }

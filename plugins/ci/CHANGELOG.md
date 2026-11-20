@@ -2,6 +2,29 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:ci@<version>`.
 
+## Unreleased
+
+### Added
+
+- The preset `ci/recommended`: every rule of the plugin at `error`, one standard taken the same way
+  in every repository. The workflow `gate sync` writes meets it.
+- `ci/permissions`: no write scope in a workflow's own `permissions`, every job sets its own, no
+  `read-all` or `write-all`.
+- `ci/concurrency`: every workflow has a concurrency group, and `cancel-in-progress: true` only in a
+  workflow that runs for pull requests alone.
+- `ci/timeout`: every job that runs steps sets `timeout-minutes`, at most `max-minutes` when set.
+- `ci/runner-pinned`: no `runs-on` label that matches `moving` (`*-latest` by default).
+- `ci/checkout-credentials`: every checkout sets `persist-credentials: false`.
+- `ci/secrets-in-steps`: no secret in a workflow's or a job's `env`, no `secrets: inherit`.
+- `ci/environment`: a job that writes `contents`, `deployments`, `id-token` or `packages` runs in an
+  environment.
+- `ci/node-setup`: `actions/setup-node` with `node-version-file` and `cache`, once per job.
+- `ci/names`: every workflow, job and step named; a workflow's file is its name in kebab case; job
+  ids in kebab case; no duplicate job or workflow names.
+- `ci/actions-pinned` reports a commit pin without its full release in a comment
+  (`# v4.2.2`), as the new aspect `version-comment` with the option of the same name. The pin
+  finding keeps the empty aspect, so its fingerprint is unchanged.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ci-v0.1.0...plugin-ci-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

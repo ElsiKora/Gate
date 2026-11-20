@@ -18,7 +18,7 @@ impl Rule for WorkflowRunTarget {
     const SCOPE: Scope = Scope::Repository;
 
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let workflows = load(&run.tree(), run.options())?;
+        let workflows = load(&run.tree(), &run.options().workflows)?;
         let names: BTreeSet<&str> = workflows.iter().map(Workflow::name).collect();
 
         for workflow in &workflows {

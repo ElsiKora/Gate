@@ -77,3 +77,24 @@ pub fn lines(findings: &[Finding]) -> Vec<String> {
         })
         .collect()
 }
+
+/// Each finding as `<aspect or -> <line> <key or ->`, in report order.
+pub fn aspects(findings: &[Finding]) -> Vec<String> {
+    findings
+        .iter()
+        .map(|finding| {
+            let line = match &finding.location {
+                Some(gate_sdk::Location::File(location)) => {
+                    location.span.map_or(0, |span| span.line)
+                }
+                _ => panic!("a finding names its file: {finding:?}"),
+            };
+            let aspect = if finding.aspect.is_empty() {
+                "-"
+            } else {
+                finding.aspect.as_str()
+            };
+            format!("{aspect} {line} {}", finding.key.as_deref().unwrap_or("-"))
+        })
+        .collect()
+}
