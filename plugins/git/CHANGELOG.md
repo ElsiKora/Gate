@@ -38,6 +38,19 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 
 ### Bug Fixes
 
+- An exception of `git/commit-message`, `git/branch-name` or `git/no-ci-skip` is due only in a run
+  that judged its target, so an exception keyed by a pushed commit's id no longer fails every
+  pre-commit, commit-msg and later push run, and one for a branch name no longer fails every run
+  on another branch. Each rule judges the targets of its exceptions in every run:
+  - `git/commit-message` reads each excepted commit id the head's history holds, that commit alone
+    (one ancestry question and one single-commit `git log` per id, no walk of the history), and
+    checks its message with the current options; an id the history no longer holds (reworded,
+    dropped, squashed) has no finding. An exception a commit no longer needs, under new options
+    or after a rewrite, is reported in every run.
+  - `git/branch-name` judges each excepted name as a hook judges it, `prohibited` included, so an
+    exception for `main` holds in CI too, and one for a name the policy now allows is reported.
+  - `git/no-ci-skip` judges its history and each excepted commit id; an id outside the history has
+    no finding.
 - `git/commit-message`'s `body-full-stop` judges the body above its trailer block, the block
   `git interpret-trailers` and `prohibited-trailers` find. A body that ends with a full stop and
   then a `Co-authored-by` block no longer fails it, also when the block holds an issue reference

@@ -147,6 +147,39 @@ pub(crate) fn ahead(git: &Git<'_>, main: &str, head: &str) -> Vec<Commit> {
         .collect()
 }
 
+/// Whether `text` is a full commit id: 40 (SHA-1) or 64 (SHA-256) lower-case hex digits, as a
+/// finding on a commit names it.
+pub(crate) fn is_commit_id(text: &str) -> bool {
+    matches!(text.len(), 40 | 64)
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// The targets of `exceptions` that are full commit ids, in order, without repeats.
+pub(crate) fn excepted_commits(exceptions: &[String]) -> Vec<&str> {
+    let mut ids: Vec<&str> = Vec::new();
+    for target in exceptions {
+        if is_commit_id(target) && !ids.contains(&target.as_str()) {
+            ids.push(target);
+        }
+    }
+    ids
+}
+
+/// The commit `id` when `head`'s history holds it, read alone (`git log <id>^!`, no walk of the
+/// history); `None` when it does not, or there is no head: the commit was rewritten or dropped.
+pub(crate) fn held_commit(git: &Git<'_>, id: &str, head: Option<&str>) -> Option<Commit> {
+    let head = head?;
+    if !git.is_ancestor(id, head) {
+        return None;
+    }
+    git.log(&format!("{id}^!"))
+        .into_iter()
+        .next()
+        .map(Commit::new)
+}
+
 /// The branch a reference names: `refs/heads/<branch>` and `refs/remotes/<remote>/<branch>` name
 /// `<branch>`; any other reference is a branch name already.
 pub(crate) fn branch(reference: &str) -> &str {

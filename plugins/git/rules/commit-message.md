@@ -314,3 +314,29 @@ Reword the message and commit again; a commit that already exists is reworded wi
 `git commit --amend` (the last one) or `git rebase -i` (an older one) before it is pushed. A commit
 already shared, which cannot be reworded, gets an exception by its commit id. A message with a type
 the project uses beyond the reference's twelve gets it in `types`.
+
+```toml
+[[exception]]
+rule = "git/commit-message"
+target = "<the commit's full id>"
+reason = "pushed before the hooks were on"
+```
+
+## What a run judges
+
+The exceptions of the rule are due (reported as `gate/exceptions` when they match no finding) only
+for what a run judged:
+
+- the message being written, in the `commit-msg` hook: its header, each body line and each trailer,
+  the targets of its findings;
+- the commits a push adds, by id;
+- in every run, each commit id an exception names. One the head's history holds is read alone, one
+  ancestry question and one single-commit `git log` per id, never a walk of the history, and checked
+  with the current options; one it no longer holds (reworded, dropped, or squashed into main) has no
+  finding.
+
+So an exception for a shared commit holds in the `pre-commit` and `commit-msg` hooks and in later
+pushes, and it is reported once it accepts nothing: after a rewrite, or when new options pass the
+commit. A run with N excepted ids asks N ancestry questions and reads at most N commits. A history
+cut short by a shallow clone hides an older commit, so its exception is reported there: the CI job
+fetches the whole history for a rule that reads it unless `fetch-depth` says otherwise.

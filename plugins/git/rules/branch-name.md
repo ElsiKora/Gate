@@ -145,3 +145,8 @@ rule = "git/branch-name"
 target = "support-2026"
 reason = "the support branch of the 2026 line"
 ```
+
+A run judges the branch it checks and, in every run, each name an exception names, by the verdict a
+hook gives, `prohibited` included: an exception for `main` holds outside a hook too, and one for a
+name the policy now allows is reported as `gate/exceptions` in every run. The exceptions of other
+names are not due on a branch.

@@ -4,8 +4,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use gate_sdk::{
-    CheckRequest, Commit, CommitRange, Finding, GitHost, Host, Location, RuleRun, SyncState,
-    TreeHost,
+    CheckOutput, CheckRequest, Commit, CommitRange, Finding, GitHost, Host, Location, RuleRun,
+    SyncState, TreeHost,
 };
 
 struct Entry {
@@ -152,20 +152,36 @@ impl Repo {
         settings: &str,
         options: &str,
     ) -> gate_sdk::Result<Vec<Finding>> {
+        self.check_excepted(name, settings, options, &[])
+            .map(|output| output.findings)
+    }
+
+    /// [`Repo::check`] with the targets of the rule's exceptions `exceptions`: the findings and
+    /// what the rule judged.
+    pub fn check_excepted(
+        &self,
+        name: &str,
+        settings: &str,
+        options: &str,
+        exceptions: &[&str],
+    ) -> gate_sdk::Result<CheckOutput> {
         let request = CheckRequest {
             project: String::new(),
             rules: vec![RuleRun {
                 name: name.to_owned(),
                 options: options.to_owned(),
                 options_file: None,
-                exceptions: Vec::new(),
+                exceptions: exceptions
+                    .iter()
+                    .map(|target| (*target).to_owned())
+                    .collect(),
             }],
             plugin_options: settings.to_owned(),
             languages: String::new(),
             norms: Vec::new(),
             rule_decisions: Vec::new(),
         };
-        gate_sdk::check(&git::PLUGIN, self, &request)
+        gate_sdk::check_output(&git::PLUGIN, self, &request)
     }
 }
 
@@ -250,6 +266,11 @@ impl GitHost for Repo {
 
     fn log(&self, range: &str) -> Vec<Commit> {
         let ids = match range.split_once("..") {
+            // `<id>^!`: the commit alone.
+            None if range.ends_with("^!") => self
+                .find(range.trim_end_matches("^!"))
+                .into_iter()
+                .collect(),
             Some((from, to)) => {
                 let excluded = self.ancestry(from);
                 self.ancestry(to)

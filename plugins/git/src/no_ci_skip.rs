@@ -7,7 +7,7 @@ use gate_sdk::{Location, Need, Rule, Run, Scope};
 
 use crate::commit_message::above_scissors;
 use crate::forms::Kind;
-use crate::history::{History, release_version};
+use crate::history::{History, excepted_commits, release_version};
 use crate::settings::{self, Settings, pattern};
 
 /// The rule.
@@ -82,9 +82,14 @@ impl Rule for NoCiSkip {
         let forms = settings.forms(release.as_ref())?;
         let directive = pattern("directive-pattern", &run.options().directive_pattern)?;
         let trailer = pattern("trailer-pattern", &run.options().trailer_pattern)?;
+        // The run judges the message being written, its whole history, and each commit an
+        // exception names: one outside that history has no finding.
+        let mut judged = Vec::new();
         // The message being written (the commit-msg hook), which no history holds yet.
         if let Some(message) = run.message()? {
             let message = above_scissors(&message);
+            let header = message.lines().next().unwrap_or_default().to_owned();
+            judged.push(header.clone());
             let release_form = forms.iter().any(|form| form.kind == Kind::Release);
             let exempt = release_form
                 && release
@@ -94,7 +99,6 @@ impl Rule for NoCiSkip {
                 && let Some(found) = directive.find(&message).or_else(|| trailer.find(&message))
             {
                 let token = found.as_str().trim().to_owned();
-                let header = message.lines().next().unwrap_or_default().to_owned();
                 run.report()
                     .finding(
                         "",
@@ -111,6 +115,12 @@ impl Rule for NoCiSkip {
             }
         }
         let history = History::read(&run.git()?, &settings, "git/no-ci-skip")?;
+        judged.extend(history.commits.iter().map(|commit| commit.id.clone()));
+        judged.extend(
+            excepted_commits(run.exceptions())
+                .into_iter()
+                .map(str::to_owned),
+        );
 
         for commit in &history.commits {
             if history.is_release(commit, &forms, release.as_ref()) {
@@ -139,6 +149,7 @@ impl Rule for NoCiSkip {
                 );
         }
 
+        run.judges_only(judged);
         Ok(())
     }
 }
