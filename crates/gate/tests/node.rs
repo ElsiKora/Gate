@@ -182,7 +182,7 @@ fn broken() -> Vec<(&'static str, String)> {
                 "tsconfig.base.json" => text.replace("    \"noImplicitOverride\": true,\n", ""),
                 "apps/api/eslint.config.mjs" => "export default [];\n".to_owned(),
                 "packages/lib/package.json" => {
-                    text.replace("\"license\"", "\"private\": true,\n  \"license\"")
+                    text.replace("\"license\"", "\"workspaces\": [],\n  \"license\"")
                 }
                 "apps/api/package.json" => text.replace(
                     "\"test\": \"node --test\"",
