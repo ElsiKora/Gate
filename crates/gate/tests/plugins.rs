@@ -7312,7 +7312,8 @@ fn one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content() {
         assert_eq!(status, Some(code), "{preset}: {said}");
         let mut expected: Vec<String> = SERVICE_INDEXES
             .iter()
-            .map(|index| format!("{level}[docs/layout#unfilled] {index}"))
+            // Each index's marker line is its third line.
+            .map(|index| format!("{level}[docs/layout#unfilled] {index}:3:1"))
             .chain(
                 RULE_FILE_RULES
                     .iter()
