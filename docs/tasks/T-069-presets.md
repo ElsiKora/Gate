@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | the lead approved the design (8ed5d16) with the rulings below; code on the branch, in the lane |
+| Status | green in lane round 322 on `bb9cf53`; ready for review |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -148,6 +148,40 @@ and tests, so the rebase stays mechanical. It merges last of the 0.3.0 branches 
   from this task's round checkout and lists each new test by name. Each new preset test fails with
   a rule taken out of its preset.
 
+## Proof
+
+Lane ticket 322 on `bb9cf53`, 2026-11-20T07:21:59+00:00 to 2026-11-20T07:45:29+00:00
+(`round-inner.sh`, its own target directory, logs kept under the ticket):
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| test | `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0, 1074 passed, 0 failed |
+| deny | `cargo deny --offline --locked check` (advisories, bans, licenses, sources ok) | 0 |
+| release build | `cargo build --release --offline --locked -j 4` | 0 |
+
+The test log shows `Compiling` for `gate-plugin-agents`, `gate-plugin-ci`, `gate-plugin-git`,
+`gate-plugin-ledger`, `gate-plugin-markdown`, `gate-plugin-nestjs`, `gate-plugin-typescript` and
+`gate` from the round's own checkout of `bb9cf53`, and lists by name, each `ok`, the seven preset
+tests (`both_presets_turn_on_every_rule_but_the_ones_left_out` in each plugin) and
+`a_project_that_extends_an_adoption_preset_is_told_at_warning_and_passes`.
+
+Each mutation, applied to the round's tree, made its exact test fail (exit 101):
+
+| Mutation | Test |
+| --- | --- |
+| `agents`: `rule-ids` taken out of `recommended` | `agents` `presets::both_presets_turn_on_every_rule_but_the_ones_left_out` |
+| `ci`: `actions-pinned` taken out of `recommended` | `ci` `presets::both_presets_turn_on_every_rule_but_the_ones_left_out` |
+| `git`: the branch template taken out of `adoption` | `git` `presets::both_presets_turn_on_every_rule_but_the_ones_left_out` |
+| `ledger`: `manifest` taken out of `adoption` | `ledger` `presets::both_presets_turn_on_every_rule_but_the_ones_left_out` |
+| `markdown`: `frontmatter` taken out of `recommended` | `markdown` `presets::both_presets_turn_on_every_rule_but_the_ones_left_out` |
+| `nestjs`: `api-readiness` taken out of `adoption` | `nestjs` `both_presets_turn_on_every_rule_but_the_ones_left_out` |
+| `typescript`: `parse` taken out of `adoption` | `typescript` `both_presets_turn_on_every_rule_but_the_ones_left_out` |
+| `ci/adoption` gives `actions-pinned` `error` | `gate` `a_project_that_extends_an_adoption_preset_is_told_at_warning_and_passes` |
+
 ## Resume point
 
-2026-11-20T05:29:29+00:00: presets, tests, guide and changelog are on the branch; lane round queued.
+2026-11-20T07:48:28+00:00: green in lane round 322 on `bb9cf53`; waiting for the review. The branch
+merges last of the 0.3.0 branches and is rebased then (string-enums moves to the typescript presets;
+T-064's error-string-shim and any rule T-061 or T-062 add get a decision).
