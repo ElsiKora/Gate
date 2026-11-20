@@ -1,5 +1,6 @@
 //! A small YAML writer for the generated workflow: block maps and lists, strings plain when that is
-//! unambiguous and double-quoted otherwise. Deterministic: keys keep their order.
+//! unambiguous and double-quoted otherwise. Deterministic: keys keep their order. A `uses` value
+//! written `<pin> # <release>` becomes the pin and a comment, as a workflow writes it by hand.
 
 use serde_json::Value;
 
@@ -33,8 +34,24 @@ fn write_map(map: &serde_json::Map<String, Value>, indent: usize, lines: &mut Ve
                 lines.push(format!("{pad}{key}:"));
                 write_list(items, indent + 2, lines);
             }
+            Value::String(text) if key == "uses" => {
+                lines.push(format!("{pad}{key}: {}", uses(text)))
+            }
             other => lines.push(format!("{pad}{key}: {}", scalar(other))),
         }
+    }
+}
+
+/// A `uses` value: `<pin> # <release>` as the pin followed by the release as a comment, when the
+/// pin is a plain scalar and the release one line; anything else as a string.
+fn uses(text: &str) -> String {
+    match text.split_once(" # ") {
+        Some((pin, release))
+            if is_plain(pin) && !release.trim().is_empty() && !release.contains(['\n', '\r']) =>
+        {
+            format!("{pin} # {}", release.trim())
+        }
+        _ => string(text),
     }
 }
 
@@ -104,4 +121,29 @@ fn is_plain(text: &str) -> bool {
         && !text.contains(" #")
         && !text.chars().any(char::is_control)
         && !RESERVED.contains(&text.to_ascii_lowercase().as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::to_yaml;
+
+    #[test]
+    fn a_uses_release_is_a_comment_after_the_pin_and_elsewhere_a_hash_is_quoted() {
+        let pin = "actions/checkout@0123456789abcdef0123456789abcdef01234567";
+        let text = to_yaml(&json!({
+            "steps": [
+                { "name": "Check out", "uses": format!("{pin} # v4.2.2") },
+                { "uses": pin },
+                { "run": "echo a # b" },
+            ],
+        }));
+        assert_eq!(
+            text,
+            format!(
+                "steps:\n  - name: Check out\n    uses: {pin} # v4.2.2\n  - uses: {pin}\n  - run: \"echo a # b\"\n"
+            )
+        );
+    }
 }

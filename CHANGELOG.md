@@ -109,7 +109,28 @@ stay at 0.2.0. To upgrade, set `[gate] version = "0.2.1"`, pin `ElsiKora/Gate:gi
 `ElsiKora/Gate:nestjs@0.2.1` where you use them, run `gate lock`, then `gate sync` and `gate init` as
 the entries below say.
 
+### Breaking Changes
+
+- **host:** each job of `[ci.github]` needs `timeout-minutes`: a job without it is a configuration
+  error (exit 2) that names the job, where before the workflow gave the job GitHub's six hours. To
+  upgrade, add `timeout-minutes = <minutes>` to every `[ci.github.jobs.<id>]`, a little above the
+  job's usual time, run `gate sync` and commit the workflow.
+- **host:** the workflow `gate sync` writes meets the `ci/recommended` standard: its top-level
+  `permissions` is `{}` (every job already set its own), the checkout step is named
+  `Check out the repository`, the `changes` job has a 15-minute timeout, and the aggregate job is
+  named by its id, so its check name is unchanged, with a 5-minute timeout. A workflow written by
+  0.2.x is drift; run `gate sync`.
+
 ### Features
+
+- **host:** `[ci.github]` `checkout` and a step's `uses` take the release after the pin,
+  `actions/checkout@<sha> # v4.2.2`, which `gate sync` writes as a comment after the pin, as a
+  workflow written by hand carries it; the pin before ` # ` is checked as before. A job takes
+  `environment`, the deployment environment whose protection rules guard what it writes.
+- **ci:** the plugin holds GitHub Actions workflows to one standard, turned on with
+  `extends = ["ci/recommended"]`: job permissions, concurrency, timeouts, versioned runners, release
+  comments on action pins, checkout credentials, secrets in steps, environments for jobs that write,
+  Node setup and names. See `plugins/ci/CHANGELOG.md`.
 
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per
   workflow file and ref: a newer pull-request run cancels the older one still in progress, and a

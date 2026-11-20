@@ -552,7 +552,7 @@ fn sync_state_holds_the_cores_hook_and_ci_files_and_what_sync_would_remove() {
     let action = "0123456789abcdef0123456789abcdef01234567";
     let configuration = |hooks: &str| {
         format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[generate]\n\"probe/write\" = {{ options = {{ files = {{ \"gen/a.md\" = \"a\\n\" }} }} }}\n\n[rules]\n\"probe/git\" = {{ level = \"error\", options = {{ sync_state = [\"HEAD~1\", \"HEAD\"] }} }}\n\n[hooks]\n{hooks}\n\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{action}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check\"]\n"
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[generate]\n\"probe/write\" = {{ options = {{ files = {{ \"gen/a.md\" = \"a\\n\" }} }} }}\n\n[rules]\n\"probe/git\" = {{ level = \"error\", options = {{ sync_state = [\"HEAD~1\", \"HEAD\"] }} }}\n\n[hooks]\n{hooks}\n\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{action}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check\"]\n"
         )
     };
     repo.write(
@@ -1331,7 +1331,7 @@ fn the_ci_workflow_answers_as_drifting_when_a_component_of_the_commit_does_not_l
     let source = "acme/rules:probe@0.1.0";
     let action = "0123456789abcdef0123456789abcdef01234567";
     let toml = format!(
-        "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[generate]\n\"probe/write\" = {{ options = {{ files = {{ \"gen/a.md\" = \"a\\n\" }} }} }}\n\n[rules]\n\"probe/git\" = {{ level = \"error\", options = {{ sync_state = [\"HEAD~1\"] }} }}\n\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{action}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check\"]\n"
+        "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[generate]\n\"probe/write\" = {{ options = {{ files = {{ \"gen/a.md\" = \"a\\n\" }} }} }}\n\n[rules]\n\"probe/git\" = {{ level = \"error\", options = {{ sync_state = [\"HEAD~1\"] }} }}\n\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{action}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check\"]\n"
     );
     let pinned = lock(
         source,
@@ -5688,4 +5688,137 @@ fn a_file_a_filter_stores_as_a_pointer_has_the_pointers_size_in_every_mode() {
     let (code, findings) = hygiene_check_with(&repo, &["--staged"]);
     assert_eq!(findings, only_the_twin, "index");
     assert_eq!(code, Some(1));
+}
+
+/// The ci plugin built from this tree.
+fn ci_component() -> &'static (PathBuf, Vec<u8>) {
+    component("gate-plugin-ci", "ci")
+}
+
+/// A commit for the pins of the generated workflow.
+const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// A root configuration that takes `ci/recommended` and whose `[ci.github]` uses every key.
+fn ci_standard_root() -> String {
+    format!(
+        r#"[gate]
+version = "{VERSION}"
+
+[project]
+name = "server"
+extends = ["ci/recommended"]
+
+[plugins.ci]
+source = "acme/rules:ci@0.1.0"
+
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+name = "Gate"
+branches = ["main"]
+checkout = "actions/checkout@{PIN} # v4.2.2"
+runs-on = "ubuntu-24.04"
+aggregate = "gate-passed"
+setup = [
+  {{ name = "Set up Node", uses = "actions/setup-node@{PIN} # v4.4.0", with = {{ node-version-file = ".nvmrc", cache = "npm" }} }},
+]
+
+[ci.github.jobs.lint]
+name = "Lint"
+timeout-minutes = 20
+budget = 300
+fetch-depth = 0
+run = ["check --push"]
+
+[ci.github.jobs.unit]
+name = "Unit tests"
+runs-on = "ubuntu-24.04"
+timeout-minutes = 30
+projects = ["server"]
+working-directory = "apps"
+services = {{ postgres = {{ image = "postgres:17" }} }}
+steps = [{{ name = "Install", run = "npm ci" }}]
+after = [
+  {{ name = "Upload the reports", if = "always()", uses = "actions/upload-artifact@{PIN} # v4.6.2", with = {{ path = "reports/" }} }},
+]
+run = ["run unit --push"]
+
+[ci.github.jobs.publish]
+name = "Publish"
+timeout-minutes = 15
+environment = "release"
+permissions = {{ contents = "write" }}
+run = ["check"]
+
+[steps]
+unit = {{ run = "true" }}
+"#
+    )
+}
+
+#[test]
+fn the_generated_workflow_meets_the_ci_standard() {
+    let ci = format!("ci={}", ci_component().0.display());
+    let repo = Repo::empty();
+    repo.write("gate.toml", &ci_standard_root());
+    repo.write(".nvmrc", "24\n");
+    repo.write("apps/index.ts", "export const one = 1;\n");
+    repo.commit("configure");
+    let output = repo.gate(&["sync", "--plugin", &ci]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let workflow = std::fs::read_to_string(repo.path().join(".github/workflows/gate.yml"))
+        .expect("the generated workflow");
+    assert!(
+        workflow.contains(&format!(
+            "\n      - name: Check out the repository\n        uses: actions/checkout@{PIN} # v4.2.2\n"
+        )),
+        "the release is a comment after the pin: {workflow}"
+    );
+    assert!(workflow.contains("\npermissions: {}\n"), "{workflow}");
+    repo.commit("sync");
+
+    let output = repo.gate(&["check", "--plugin", &ci]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert!(
+        !text(&output.stdout).contains("[ci/"),
+        "{}",
+        text(&output.stdout)
+    );
+
+    // The rules ran: a workflow written by hand next to it is reported, the generated one is not.
+    repo.write(
+        ".github/workflows/other.yml",
+        "on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make\n",
+    );
+    repo.commit("a workflow by hand");
+    let output = repo.gate(&["check", "--plugin", &ci]);
+    let reported = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{reported}{}",
+        text(&output.stderr)
+    );
+    for rule in [
+        "ci/names",
+        "ci/permissions",
+        "ci/concurrency",
+        "ci/timeout",
+        "ci/runner-pinned",
+    ] {
+        assert!(reported.contains(&format!("[{rule}")), "{rule}: {reported}");
+    }
+    assert!(
+        reported.contains(".github/workflows/other.yml"),
+        "{reported}"
+    );
+    assert!(
+        !reported.contains(".github/workflows/gate.yml"),
+        "{reported}"
+    );
 }

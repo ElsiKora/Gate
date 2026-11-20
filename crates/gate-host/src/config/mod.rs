@@ -904,53 +904,7 @@ impl Config {
                 .or(self.section_at("ci"));
             let fail =
                 |message: String| self.error(at, format!("[ci.github] jobs.{id}: {message}"));
-            if job.name.trim().is_empty() {
-                return Err(fail("name is empty".to_owned()));
-            }
-            if job.run.is_empty() {
-                return Err(fail(
-                    "run is empty; list the gate commands the job runs".to_owned(),
-                ));
-            }
-            for command in &job.run {
-                check_gate_command(command).map_err(fail)?;
-                if command
-                    .split_whitespace()
-                    .any(|word| word == "--commit-message" || word.starts_with("--commit-message="))
-                {
-                    return Err(fail(format!(
-                        "{command:?}: a job has no commit message file; --commit-message belongs in a [hooks] commit-msg entry"
-                    )));
-                }
-            }
-            if job.budget == Some(0) {
-                return Err(fail(
-                    "budget is 0; give seconds above 0 or remove it".to_owned(),
-                ));
-            }
-            if job.timeout_minutes == Some(0) {
-                return Err(fail(
-                    "timeout-minutes is 0; give minutes above 0 or remove it".to_owned(),
-                ));
-            }
-            if job.projects.iter().any(|project| project.trim().is_empty()) {
-                return Err(fail("projects has an empty name".to_owned()));
-            }
-            for (index, step) in job.steps.iter().enumerate() {
-                check_ci_step(step, false)
-                    .map_err(|message| fail(format!("steps {}: {message}", index + 1)))?;
-            }
-            for (index, step) in job.after.iter().enumerate() {
-                check_ci_step(step, true)
-                    .map_err(|message| fail(format!("after {}: {message}", index + 1)))?;
-            }
-            for service in job.services.values() {
-                if !service.is_object() {
-                    return Err(fail(
-                        "services: each service is a table (image, ports, env, options)".to_owned(),
-                    ));
-                }
-            }
+            check_ci_job(job).map_err(fail)?;
         }
 
         Ok(())
@@ -1247,8 +1201,20 @@ const SHELL_SYNTAX: &[char] = &[
 ];
 
 /// Checks that an action reference is pinned by commit.
+/// Checks an action reference: pinned by commit, optionally followed by ` # ` and the release the
+/// commit is, which the workflow carries as a comment.
 fn check_pinned(uses: &str) -> std::result::Result<(), String> {
-    let pinned = uses.split_once('@').is_some_and(|(action, commit)| {
+    let (pin, release) = uses
+        .split_once(" # ")
+        .map_or((uses, None), |(pin, release)| (pin, Some(release)));
+    if let Some(release) = release
+        && (release.trim().is_empty() || release.chars().any(char::is_control))
+    {
+        return Err(format!(
+            "{uses:?}: the release after \" # \" is empty or spans lines; write it on one line, as v4.2.2"
+        ));
+    }
+    let pinned = pin.split_once('@').is_some_and(|(action, commit)| {
         let mut parts = action.split('/');
         let owner = parts.next().unwrap_or_default();
         let repo = parts.next().unwrap_or_default();
@@ -1264,7 +1230,7 @@ fn check_pinned(uses: &str) -> std::result::Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "{uses:?} is not pinned by commit; write <owner>/<repo>@<40 lowercase hex digits of the commit>"
+            "{uses:?} is not pinned by commit; write <owner>/<repo>@<40 lowercase hex digits of the commit> # <release>"
         ))
     }
 }
@@ -1285,6 +1251,69 @@ fn check_aggregate(github: &CiGithub) -> std::result::Result<(), String> {
             "aggregate = \"{aggregate}\": the id is a job of [ci.github.jobs]; the aggregate is a job of its own, so choose an id no job has"
         ));
     }
+    Ok(())
+}
+
+/// The checks of one `[ci.github.jobs.<id>]` table; the error is the message after the job's
+/// name.
+fn check_ci_job(job: &CiJob) -> std::result::Result<(), String> {
+    if job.name.trim().is_empty() {
+        return Err("name is empty".to_owned());
+    }
+    if job.run.is_empty() {
+        return Err("run is empty; list the gate commands the job runs".to_owned());
+    }
+    for command in &job.run {
+        check_gate_command(command)?;
+        if command
+            .split_whitespace()
+            .any(|word| word == "--commit-message" || word.starts_with("--commit-message="))
+        {
+            return Err(format!(
+                "{command:?}: a job has no commit message file; --commit-message belongs in a [hooks] commit-msg entry"
+            ));
+        }
+    }
+    if job.budget == Some(0) {
+        return Err("budget is 0; give seconds above 0 or remove it".to_owned());
+    }
+    match job.timeout_minutes {
+        None => {
+            return Err(
+                "timeout-minutes is not set; give the job's time limit in minutes \
+                 (timeout-minutes = 30), a little above its usual time"
+                    .to_owned(),
+            );
+        }
+        Some(0) => {
+            return Err("timeout-minutes is 0; give minutes above 0".to_owned());
+        }
+        Some(_) => {}
+    }
+    if job
+        .environment
+        .as_ref()
+        .is_some_and(|environment| environment.trim().is_empty())
+    {
+        return Err("environment is empty; name the environment or remove the key".to_owned());
+    }
+    if job.projects.iter().any(|project| project.trim().is_empty()) {
+        return Err("projects has an empty name".to_owned());
+    }
+    for (index, step) in job.steps.iter().enumerate() {
+        check_ci_step(step, false).map_err(|message| format!("steps {}: {message}", index + 1))?;
+    }
+    for (index, step) in job.after.iter().enumerate() {
+        check_ci_step(step, true).map_err(|message| format!("after {}: {message}", index + 1))?;
+    }
+    for service in job.services.values() {
+        if !service.is_object() {
+            return Err(
+                "services: each service is a table (image, ports, env, options)".to_owned(),
+            );
+        }
+    }
+
     Ok(())
 }
 
