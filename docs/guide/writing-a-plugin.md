@@ -17,7 +17,7 @@ repository. The rule inside it is covered in [writing-a-rule.md](writing-a-rule.
 - **One call per project.** One `check` call carries every enabled rule of the plugin with its options,
   so the plugin reads and parses each file once for all of its rules.
 
-The interface is the WIT package `gate:plugin`, kept in `wit/` and sketched in
+The interface is the WIT package `gate:plugin@0.3.0`, kept in `wit/` and sketched in
 [architecture.md](../architecture.md#4-plugin-interface). The Rust SDK wraps it; any language that builds WebAssembly components can implement it directly.
 
 ## 📋 Prerequisites

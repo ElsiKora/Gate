@@ -177,7 +177,7 @@ Gate/
 ├── crates/gate-test/      # The fixture harness for plugins
 ├── wit/                   # The plugin interface (gate:plugin)
 ├── languages/typescript/  # The TypeScript language library
-├── plugins/               # The shared plugins: typescript, git, markdown, agents, ledger, nestjs, frontend, ci
+├── plugins/               # The shared plugins, one directory each (see Plugins below)
 ├── examples/              # A minimal plugin, built in CI
 ├── scripts/               # Release and build scripts, the reproducible component build
 ├── spike/                 # The measurement that chose the plugin form (spike/RESULTS.md)
@@ -431,17 +431,23 @@ check to require in branch protection.
 
 ## 🧩 Plugins
 
-| Plugin | What it checks |
-| --- | --- |
-| `typescript` | Every tracked TypeScript and JavaScript source parses. Also the language library other plugins link. |
-| `git` | Commit history rules |
-| `markdown` | Documentation front matter, local links and required sections |
-| `agents` | Agent rule files and skills; generates the Claude Code adapters and the `AGENTS.md` rule table |
-| `ledger` | Decision ledger records, statuses, blockers and closers, and the decisions and owners exceptions cite |
-| `nestjs` | NestJS services built on [NestJS-Crud-Automator](https://github.com/ElsiKora/NestJS-Crud-Automator) |
-| `frontend` | React apps and libraries on one standard: layout, names, imports, API calls, environment, text, assets; packs for Vite, Next.js and libraries |
-| `ci` | GitHub Actions workflows: actions pinned by commit, `workflow_run` targets that exist |
+| Plugin | What it checks | Presets |
+| --- | --- | --- |
+| `agents` | Agent rule files and skills; generates the Claude Code adapters and the `AGENTS.md` rule table | none |
+| `cdk` | AWS CDK apps written in TypeScript: layout, names, `cdk.json`, environments, stack names, construct ids, physical names, tags, removal policies, cdk-nag, tests | `cdk/recommended`, `cdk/adoption` |
+| `ci` | GitHub Actions workflows on one standard: actions pinned by commit with a release comment, job permissions, concurrency, timeouts, versioned runners, checkout credentials, secrets in steps, environments, Node setup, names, `workflow_run` targets that exist | `ci/recommended` |
+| `docker` | Image files and compose files: pinned images, stages, a user that is not root, no secret written in, loopback ports, health checks | `docker/recommended`, `docker/adoption` |
+| `docs` | One documentation layout per kind of project; generates the index pages a layout requires | `docs/recommended`, `docs/adoption` |
+| `frontend` | React apps and libraries on one standard: layout, names, imports, API calls, environment, text, assets; packs for Vite, Next.js and libraries | `frontend/recommended`, `frontend/adoption` |
+| `git` | Commit messages, branch names, the history of main and CI-skip directives | `git/recommended` |
+| `ledger` | Decision ledger records, statuses, blockers and closers, and the decisions and owners exceptions cite | none |
+| `markdown` | Documentation front matter, local links and required sections | none |
+| `nestjs` | NestJS services built on [NestJS-Crud-Automator](https://github.com/ElsiKora/NestJS-Crud-Automator) | none |
+| `node` | One Node toolchain per kind of project: pnpm, the Node version, exact dependencies, Prettier, ESLint, manifest fields, scripts, the TypeScript base | `node/recommended`, `node/adoption` |
+| `repository` | What no repository should track: secrets in tracked files, large files | `repository/recommended`, `repository/adoption` |
+| `typescript` | Every tracked TypeScript and JavaScript source parses, imports go through barrels, string variants are enums. Also the language library other plugins link. | none |
 
+A plugin without presets has its rules turned on one by one in `[rules]`.
 The [plugins guide](docs/guide/plugins.md) lists their rules and options. Your own plugin is pinned the
 same way as these: see [writing a plugin](docs/guide/writing-a-plugin.md).
 
@@ -467,12 +473,12 @@ same way as these: see [writing a plugin](docs/guide/writing-a-plugin.md).
 | Lock, verified fetch, cache, launcher, release workflow | ✅ Done |
 | Hooks, CI jobs, steps, suites, tools, `doctor` | ✅ Done |
 | Shared plugins: `typescript`, `git`, `markdown`, `agents`, `ledger`, `nestjs`, `ci` | ✅ Done |
+| Shared plugins: `cdk`, `docker`, `docs`, `frontend`, `node`, `repository` | ✅ Done |
+| `git`: branch names and commit messages | ✅ Done |
+| `typescript/barrel-imports` | ✅ Done |
 | `v0.1.0`, the first public release | ✅ Done |
 | Faster full checks on large trees and long histories | 🚧 In Progress |
-| `git`: branch names and commit messages | 🚧 In Progress |
-| `typescript/barrel-imports` | 🚧 In Progress |
 | Cargo and Go workspace discovery | 🚧 In Progress |
-| `frontend`: one standard for React apps and libraries | 🚧 In Progress |
 
 ## ❓ FAQ
 

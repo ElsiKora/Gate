@@ -33,26 +33,27 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 
 ## 🧩 The Shared Plugins
 
-| Plugin | Scope | Languages | Reads history | Generators |
-| --- | --- | --- | --- | --- |
-| `typescript` | project | TypeScript, JavaScript | no | none |
-| `git` | repository | none | yes | none |
-| `markdown` | project | Markdown | no | none |
-| `docs` | project | none | no | `docs/layout` |
-| `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` |
-| `ledger` | project | none | no | none |
-| `nestjs` | project | TypeScript | no | none |
-| `node` | repository, project | none | no | none |
-| `cdk` | project | TypeScript | no | none |
-| `frontend` | project | TypeScript | no | none |
-| `ci` | repository | none | no | none |
-| `docker` | project | none | no | none |
-| `repository` | repository | none | no | none |
+| Plugin | Scope | Languages | Reads history | Generators | Presets |
+| --- | --- | --- | --- | --- | --- |
+| `typescript` | project | TypeScript, JavaScript | no | none | none |
+| `git` | repository | none | yes | none | `git/recommended` |
+| `markdown` | project | Markdown | no | none | none |
+| `docs` | project | none | no | `docs/layout` | `docs/recommended`, `docs/adoption` |
+| `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` | none |
+| `ledger` | project | none | no | `ledger/decision-counts`, `ledger/review-progress` | none |
+| `nestjs` | project | TypeScript | no | none | none |
+| `node` | repository, project | none | no | none | `node/recommended`, `node/adoption` |
+| `cdk` | project | TypeScript | no | none | `cdk/recommended`, `cdk/adoption` |
+| `frontend` | project | TypeScript | no | none | `frontend/recommended`, `frontend/adoption` |
+| `ci` | repository | none | no | none | `ci/recommended` |
+| `docker` | project | none | no | none | `docker/recommended`, `docker/adoption` |
+| `repository` | repository | none | no | none | `repository/recommended`, `repository/adoption` |
 
 ### `typescript`
 
 The TypeScript language: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, and the rules
-of any TypeScript code: every tracked source parses, and string variants are enums. The parser, module resolution (`tsconfig` paths, package exports) and source tables live in the TypeScript
+of any TypeScript code: every tracked source parses, a folder with a barrel is imported through
+it, and string variants are enums. The parser, module resolution (`tsconfig` paths, package exports) and source tables live in the TypeScript
 language library, which other plugins link; see [writing-a-rule.md](writing-a-rule.md#5-languages).
 
 ```toml
@@ -66,12 +67,15 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 | Rule | Checks |
 | --- | --- |
 | [`typescript/parse`](../../plugins/typescript/rules/parse.md) | every tracked TypeScript or JavaScript source parses into a syntax tree |
+| [`typescript/barrel-imports`](../../plugins/typescript/rules/barrel-imports.md) | a folder with a barrel is imported from outside only through its barrel, and only for names it exports |
 | [`typescript/string-enums`](../../plugins/typescript/rules/string-enums.md) | string-literal variant contracts use enums, in every `.ts` file, with `test-roots` for the tests |
 
 ### `git`
 
-Commit history rules. They read the commits under review: the commit message in `commit-msg`, the
-pushed range in `pre-push` and in CI.
+Commit messages, branch names and the history of main. They read the commits under review: the
+commit message in `commit-msg`, the pushed range in `pre-push` and in CI. `git/recommended` turns on
+`git/branch-name` with the template `:type/:ticket-:name` and `git/commit-message` with
+`header-min-length` and `scope-max-length` at `warning`.
 
 ```toml
 [plugins.git]
@@ -88,8 +92,10 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 
 | Rule | Checks |
 | --- | --- |
-| `git/main-history` | every first-parent commit of main since activation follows the git policy |
-| `git/no-ci-skip` | no commit since activation carries a CI-skip directive except the release commit |
+| [`git/commit-message`](../../plugins/git/rules/commit-message.md) | the message being written and each pushed commit's message have the conventional form; prohibited trailers and body lines are refused |
+| [`git/branch-name`](../../plugins/git/rules/branch-name.md) | the branch a push updates, or the checked-out branch, has a name the template or pattern allows |
+| [`git/main-history`](../../plugins/git/rules/main-history.md) | every first-parent commit of main since activation follows the git policy |
+| [`git/no-ci-skip`](../../plugins/git/rules/no-ci-skip.md) | no commit since activation carries a CI-skip directive except the release commit |
 
 ### `markdown`
 
@@ -496,13 +502,19 @@ repository = { source = "ElsiKora/Gate:repository@0.3.0" }
 ## 🎛 Presets
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
-`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. Each
-plugin new in 0.3.0 ships two: `<plugin>/recommended`, every rule at error, and `<plugin>/adoption`,
-every rule at warning (`docs`, `docker` and `repository`; `repository/recommended` keeps
-`repository/large-files#large` at `warning`); `cdk` ships `cdk/recommended` and `cdk/adoption`,
-which differs: it warns only on the renames and keeps the other rules at error. `git` ships
-`git/recommended` and `ci` ships `ci/recommended`, every rule at error. Turn the rules of the other
-plugins on one by one in `[rules]`; `gate list` shows the result.
+`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. The
+table above lists them:
+
+- `docs`, `docker`, `frontend`, `node` and `repository` ship `<plugin>/recommended`, every rule at
+  `error`, and `<plugin>/adoption`, every rule at `warning`. `repository/recommended` keeps
+  `repository/large-files#large` at `warning`.
+- `cdk` ships `cdk/recommended`, every rule at `error`, and `cdk/adoption`, which warns only on the
+  renames and keeps the other rules at `error`.
+- `git` ships `git/recommended`, described under [`git`](#git), and `ci` ships `ci/recommended`,
+  every rule at `error`.
+
+The other plugins (`agents`, `ledger`, `markdown`, `nestjs`, `typescript`) ship none: turn
+their rules on one by one in `[rules]`. `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 
