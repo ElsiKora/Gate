@@ -6,7 +6,8 @@ A Vite app runs TanStack Router's plugin on src/app/routes and src/app/route-tre
 
 `frontend/route-files` and `frontend/layout` hold the route folder of a Vite app at `src/app/routes/`
 and its generated tree at `src/app/route-tree.gen.ts`; the router must read and write the same
-places. In the Vite configuration (`vite.config.ts`, `.mts`, `.js` or `.mjs`):
+places. In the Vite configuration (the first of `vite.config.js`, `.mjs`, `.ts`, `.cjs`, `.mts`, `.cts`,
+in Vite's order):
 
 - `plugin`: no Vite configuration, or one that does not call `tanstackRouter` (or
   `TanStackRouterVite`) of `@tanstack/router-plugin/vite`.

@@ -120,6 +120,15 @@ pub fn messages(name: &str, pack: &str, files: &[(&str, &str)]) -> Vec<String> {
         .collect()
 }
 
+/// The help texts of the rule's findings, for the tests that read one.
+pub fn helps(name: &str, pack: &str, files: &[(&str, &str)]) -> Vec<String> {
+    run_raw(name, "{}", &format!(r#"{{ "pack": "{pack}" }}"#), files)
+        .expect("the rule runs")
+        .into_iter()
+        .filter_map(|finding| finding.help)
+        .collect()
+}
+
 /// `files` without the file `path`, to show that the piece is required.
 pub fn without<'f>(files: &[(&'f str, &'f str)], path: &str) -> Vec<(&'f str, &'f str)> {
     assert!(

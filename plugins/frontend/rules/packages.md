@@ -5,8 +5,18 @@ package.json names one tool per job, and the router and translation library of t
 ## What it checks and why
 
 Two tools for one job mean two ways to do it and two sets of rules to know. The rule reads the
-`dependencies` and `devDependencies` of `package.json`; a tool is one or more packages, and a project
-uses a tool when it names any of them.
+`dependencies` of `package.json`, and in a library also its `peerDependencies`, which the app
+installs for it; `devDependencies` are the build's tools and do not count. A tool is one or more
+packages, and a project uses a tool when it names any of them. A package another one requires beside
+it counts as part of that one, not as a tool of its own:
+
+| Package | Its companions |
+| --- | --- |
+| `@mui/material` | `@emotion/react`, `@emotion/styled` |
+| `@mui/joy` | `@emotion/react`, `@emotion/styled` |
+| `@chakra-ui/react` | `@emotion/react`, `@emotion/styled` |
+
+So `@mui/material` with Emotion beside Tailwind is one styling tool, Tailwind.
 
 - `job`: two or more tools of one job (`axios` and `ky` for `http-client`). Target
   `package.json#<job>`.

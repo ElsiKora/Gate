@@ -106,6 +106,15 @@ pub const NEXT_APP: &str = "app";
 /// The file that keeps Next.js from reading `src/pages` as the Pages Router.
 pub const NEXT_PAGES_README: &str = "pages/README.md";
 
+/// The files Next.js looks up at the project root, beside its app folder: the proxy (formerly the
+/// middleware) and the instrumentation hooks. The code rules read them.
+pub const NEXT_ROOT_FILES: [&str; 4] = [
+    "middleware.ts",
+    "proxy.ts",
+    "instrumentation.ts",
+    "instrumentation-client.ts",
+];
+
 impl Pack {
     /// The files the pack allows directly in the source root, by name.
     #[must_use]
@@ -190,6 +199,17 @@ impl Pack {
         }
     }
 
+    /// The one folder of generated code: the API client a generator writes from an `OpenAPI`
+    /// document, inside the client's folder. Its names and its tree are the generator's.
+    #[must_use]
+    pub fn generated_folder(self) -> &'static str {
+        if self.library() {
+            "src/api/generated"
+        } else {
+            "src/shared/api/generated"
+        }
+    }
+
     /// The folder of the translation messages, one `<locale>.json` per locale.
     #[must_use]
     pub fn messages_folder(self) -> &'static str {
@@ -212,8 +232,9 @@ impl Pack {
     }
 }
 
-/// The slice groups of a project: each a folder of `widgets/`, `features/` or `entities/` that holds
-/// folders only, none of them a segment or `@x`.
+/// The slice groups of a project: each a folder of `widgets/`, `features/` or `entities/` whose
+/// folders are slices, none of them a segment or `@x`. A file of the group's own makes it no slice;
+/// `frontend/layout` reports it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Groups {
     folders: BTreeSet<String>,
@@ -230,14 +251,14 @@ impl Groups {
         }
         for path in paths {
             let parts: Vec<&str> = path.split('/').collect();
-            let [SOURCE_ROOT, layer, unit, child, ..] = parts.as_slice() else {
+            let [SOURCE_ROOT, layer, unit, child, below @ ..] = parts.as_slice() else {
                 continue;
             };
-            if Layer::from_name(layer).is_none_or(|found| !found.grouped()) {
+            if below.is_empty() || Layer::from_name(layer).is_none_or(|found| !found.grouped()) {
                 continue;
             }
             let folder = format!("{SOURCE_ROOT}/{layer}/{unit}");
-            if parts.len() == 4 || SLICE_SEGMENTS.contains(child) || *child == CROSS_IMPORT {
+            if SLICE_SEGMENTS.contains(child) || *child == CROSS_IMPORT {
                 slices.insert(folder);
             } else {
                 candidates.insert(folder);
@@ -315,7 +336,7 @@ pub fn place<'p>(pack: Pack, groups: &Groups, path: &'p str) -> Option<Place<'p>
     };
 
     Some(match layer {
-        Layer::App if parts.len() > 2 => segmented(layer, Unit::App, 1),
+        Layer::App => segmented(layer, Unit::App, 1),
         Layer::Shared if parts.len() > 2 => segmented(layer, Unit::Shared, 1),
         _ if layer.sliced() && parts.len() > 2 => {
             let grouped = groups.contains(&format!("{SOURCE_ROOT}/{}/{}", parts[0], parts[1]));
@@ -484,6 +505,15 @@ mod tests {
         assert!(groups.contains("src/features/auth"));
         assert!(!groups.contains("src/features/sign-out"));
         assert!(!groups.contains("src/entities/user"));
+        // A folder with a file of its own and a slice below it is a group that holds a file.
+        let holding = Groups::new(
+            app,
+            [
+                "src/features/auth/index.ts",
+                "src/features/auth/sign-in/index.ts",
+            ],
+        );
+        assert!(holding.contains("src/features/auth"));
         let at = |path| place(app, &groups, path);
 
         assert_eq!(
@@ -519,6 +549,11 @@ mod tests {
             Some((Unit::App, Some("providers")))
         );
         assert_eq!(at("src/main.tsx").map(|place| place.unit), Some(Unit::Root));
+        // The generated route tree, directly in src/app/, is the app's.
+        assert_eq!(
+            at("src/app/route-tree.gen.ts").map(|place| (place.unit, place.segment)),
+            Some((Unit::App, None))
+        );
         assert_eq!(
             at("src/modules/x.ts").map(|place| place.unit),
             Some(Unit::None)

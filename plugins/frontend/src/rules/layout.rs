@@ -14,7 +14,7 @@ use crate::options::{PACK, Pack};
 use crate::rules::{Found, report};
 use crate::standard::{
     CROSS_IMPORT, FileName, Groups, Layer, NEXT_APP, NEXT_PAGES_README, OPEN_SEGMENTS,
-    SLICE_SEGMENTS, SOURCE_ROOT, VITE_ROUTE_TREE, kebab, name_of,
+    SLICE_SEGMENTS, SOURCE_ROOT, VITE_ROUTE_TREE, kebab, name_of, within,
 };
 
 /// The rule.
@@ -92,7 +92,7 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
         if parts.len() == 1 {
             tree.root_file(path, parts[0]);
         } else if tree.pack.library() {
-            tree.library(&parts);
+            tree.library(path, &parts);
         } else {
             tree.app(path, &parts);
         }
@@ -168,7 +168,7 @@ impl Tree<'_> {
     }
 
     /// A file of a library, whose source root is one shared layer.
-    fn library(&mut self, parts: &[&str]) {
+    fn library(&mut self, path: &str, parts: &[&str]) {
         let segment = parts[0];
         let folder = format!("{SOURCE_ROOT}/{segment}");
         if !self.pack.shared_segments().contains(&segment) {
@@ -183,7 +183,9 @@ impl Tree<'_> {
             ));
             return;
         }
-        self.reserved(&folder, &parts[1..]);
+        if !within(path, self.pack.generated_folder()) {
+            self.reserved(&folder, &parts[1..]);
+        }
     }
 
     /// A file of an app, below a folder of `src/`.
@@ -296,7 +298,9 @@ impl Tree<'_> {
                 .named("index.ts"),
             );
         }
-        self.reserved(&folder, &parts[2..]);
+        if !within(path, pack.generated_folder()) {
+            self.reserved(&folder, &parts[2..]);
+        }
     }
 
     /// A file of a sliced layer: in a slice, or in a slice of a group.

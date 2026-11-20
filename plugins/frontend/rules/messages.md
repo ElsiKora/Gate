@@ -8,13 +8,18 @@ Messages are `src/shared/i18n/messages/<locale>.json` (a library's `src/i18n/mes
 locale, nested objects of strings; a key is the dotted path of a leaf.
 
 - `locale-keys`: a key one locale has and the base locale lacks, or the other way round, reported at
-  the locale that differs; a messages folder without the base locale's file.
+  the locale that differs; a messages folder without the base locale's file. With i18next a plural
+  form (`items_few`) one locale has and another lacks is not reported when that locale has another
+  form of the same key: each language has its own plural forms.
 - `empty`: a message that is empty or white space.
 - `unknown-key`: a literal key the code passes to its translation function that the base locale
   lacks. The function is bound as the pack's library binds it: in `nextjs`, next-intl's
   `const t = useTranslations("ns")` or `await getTranslations("ns" | { namespace })`, with `t(…)`,
   `t.rich(…)`, `t.markup(…)` and `t.raw(…)`; in the other packs, react-i18next's
-  `const { t } = useTranslation(ns, { keyPrefix })`. A key that is not a literal is not read.
+  `const { t } = useTranslation(ns, { keyPrefix })`. A key that is not a literal is not read. With
+  i18next, `t(key, { count })` is satisfied by `key` or any of `key_zero`, `key_one`, `key_two`,
+  `key_few`, `key_many`, `key_other` and their `key_ordinal_<form>`; `t(key, { context: "x" })` by
+  `key_x` or `key`, and with both by the plural forms of either.
 
 A file that is not JSON stops the run with an error that names it. Target `<path>#<key>`.
 

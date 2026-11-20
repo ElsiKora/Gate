@@ -54,8 +54,125 @@ fn import_alias_passes_the_one_alias_in_each_form() {
             "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"src/*\"] } } }",
         ),
     ];
-    assert_eq!(check("import-alias", LIBRARY, &extended), vec![]);
+    assert_eq!(check("import-alias", VITE, &extended), vec![]);
     assert_eq!(check("import-alias", NEXT, &[TSCONFIG]), vec![]);
+
+    // A library imports by relative paths: its tsconfig is not read.
+    let no_paths = [("tsconfig.json", "{ \"compilerOptions\": {} }")];
+    assert_eq!(check("import-alias", LIBRARY, &no_paths), vec![]);
+}
+
+#[test]
+fn import_alias_follows_references_and_extends() {
+    // create-vite: the root tsconfig only names the app's and the tools' projects.
+    let root = (
+        "tsconfig.json",
+        "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }, { \"path\": \"./tsconfig.node.json\" }] }",
+    );
+    let node = (
+        "tsconfig.node.json",
+        "{ \"include\": [\"vite.config.ts\"] }",
+    );
+    let referenced = [
+        root,
+        (
+            "tsconfig.app.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } }, \"include\": [\"src\"] }",
+        ),
+        node,
+    ];
+    assert_eq!(check("import-alias", VITE, &referenced), vec![]);
+    let wrong = [
+        root,
+        (
+            "tsconfig.app.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./app/*\"] } } }",
+        ),
+        node,
+    ];
+    assert_eq!(
+        check("import-alias", VITE, &wrong),
+        vec![row("tsconfig", "tsconfig.app.json", None)]
+    );
+
+    // extends as an array, the last entry that gives paths winning, a path without .json.
+    let array = [
+        (
+            "tsconfig.json",
+            "{ \"extends\": [\"./tsconfig.paths\", \"./tsconfig.strict.json\"] }",
+        ),
+        (
+            "tsconfig.strict.json",
+            "{ \"compilerOptions\": { \"strict\": true } }",
+        ),
+        (
+            "tsconfig.paths.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }",
+        ),
+    ];
+    assert_eq!(check("import-alias", VITE, &array), vec![]);
+    let string = [
+        ("tsconfig.json", "{ \"extends\": \"./tsconfig.base\" }"),
+        (
+            "tsconfig.base.json",
+            "{ \"compilerOptions\": { \"paths\": { \"~/*\": [\"./src/*\"] } } }",
+        ),
+    ];
+    assert_eq!(
+        check("import-alias", VITE, &string),
+        vec![
+            row("tsconfig", "tsconfig.base.json", None),
+            row("tsconfig", "tsconfig.base.json", None),
+        ]
+    );
+}
+
+#[test]
+fn import_alias_reads_each_vite_config_name_and_alias_form() {
+    // Vite looks up .cjs and .cts too: a configuration there without the alias is reported.
+    for name in ["vite.config.cjs", "vite.config.cts"] {
+        let files = [
+            TSCONFIG,
+            (name, "module.exports = { resolve: { alias: {} } };\n"),
+        ];
+        assert_eq!(
+            check("import-alias", VITE, &files),
+            vec![row("vite", name, None)],
+            "{name}"
+        );
+    }
+
+    let config = |alias: &str| {
+        format!(
+            "import path from \"node:path\";\nconst srcPath = path.resolve(__dirname, \"./src\");\nconst aliases = {{ \"@\": srcPath }};\nexport default {{ resolve: {{ alias: {alias} }} }};\n"
+        )
+    };
+    // A regular expression for @/, and values the rule cannot read without running the file.
+    for alias in [
+        "[{ find: /^@\\//, replacement: path.resolve(__dirname, \"./src\") }]",
+        "{ \"@\": srcPath }",
+        "aliases",
+    ] {
+        let text = config(alias);
+        assert_eq!(
+            check(
+                "import-alias",
+                VITE,
+                &[TSCONFIG, ("vite.config.ts", text.as_str())]
+            ),
+            vec![],
+            "{alias}"
+        );
+    }
+    let elsewhere = config("[{ find: /^@\\//, replacement: \"/lib\" }]");
+    assert_eq!(
+        check(
+            "import-alias",
+            VITE,
+            &[TSCONFIG, ("vite.config.ts", elsewhere.as_str())]
+        ),
+        vec![row("vite", "vite.config.ts", None)]
+    );
 }
 
 #[test]
@@ -206,8 +323,14 @@ fn packages_allows_one_tool_per_job_and_the_pack_s_choices() {
 #[test]
 fn packages_reports_two_tools_of_a_job_and_a_tool_the_pack_does_not_use() {
     let two = manifest(
-        &["axios", "zustand", "@tanstack/react-router"],
-        &["ky", "@reduxjs/toolkit"],
+        &[
+            "axios",
+            "zustand",
+            "@tanstack/react-router",
+            "ky",
+            "@reduxjs/toolkit",
+        ],
+        &[],
     );
     let messages = support::messages("packages", VITE, &[("package.json", two.as_str())]);
     assert_eq!(
@@ -250,6 +373,49 @@ fn packages_reports_two_tools_of_a_job_and_a_tool_the_pack_does_not_use() {
             custom,
             &[("package.json", charts.as_str())]
         ),
+        vec![row("job", "package.json", None)]
+    );
+}
+
+#[test]
+fn packages_counts_what_the_build_ships() {
+    // devDependencies are tools of the build, not of the app.
+    let development = manifest(
+        &["axios", "@tanstack/react-router"],
+        &["ky", "react-router-dom"],
+    );
+    assert_eq!(
+        check("packages", VITE, &[("package.json", development.as_str())]),
+        vec![]
+    );
+    // peerDependencies count in a library, which asks the app for them, and not in an app.
+    let peer = r#"{ "name": "lib", "peerDependencies": { "react-router-dom": "1.0.0" } }"#;
+    assert_eq!(
+        check("packages", LIBRARY, &[("package.json", peer)]),
+        vec![row("pack", "package.json", None)]
+    );
+    assert_eq!(check("packages", VITE, &[("package.json", peer)]), vec![]);
+}
+
+#[test]
+fn packages_counts_a_required_companion_as_part_of_its_package() {
+    // MUI requires Emotion beside it; Tailwind is then the one styling tool chosen.
+    let material = manifest(
+        &[
+            "@mui/material",
+            "@emotion/react",
+            "@emotion/styled",
+            "tailwindcss",
+        ],
+        &[],
+    );
+    assert_eq!(
+        check("packages", VITE, &[("package.json", material.as_str())]),
+        vec![]
+    );
+    let emotion = manifest(&["@emotion/react", "@emotion/styled", "tailwindcss"], &[]);
+    assert_eq!(
+        check("packages", VITE, &[("package.json", emotion.as_str())]),
         vec![row("job", "package.json", None)]
     );
 }

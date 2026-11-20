@@ -7,7 +7,9 @@ One module reads the environment, each key by a literal member with the public p
 Bundlers replace only literal reads of public keys, and one module makes the list of every key the
 app needs. The environment modules are `src/shared/config/env.ts`, and in Next.js also
 `src/shared/config/server-env.ts` for keys the browser must never see; an inventory of the app's
-environment keys reads them. A read is `import.meta.env` or `process.env` (when the file declares no `process`):
+environment keys reads them. The files of `src/`, of Next.js's root `app/` and Next.js's root files
+(`middleware.ts`, `proxy.ts`, `instrumentation.ts`, `instrumentation-client.ts`) are read. A read is
+`import.meta.env` or `process.env` (when the file declares no `process`):
 
 - `outside`: a read in any other file; in a library, any read at all.
 - `dynamic`: in an environment module, a read other than a literal member: `env[key]`, destructuring,

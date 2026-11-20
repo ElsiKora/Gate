@@ -1,5 +1,5 @@
-//! `frontend/packages`: one tool per job in `package.json` (HTTP client, store, router, translation,
-//! styling), and the router and translation library the pack names.
+//! `frontend/packages`: one tool per job in the `dependencies` of `package.json` (HTTP client,
+//! store, router, translation, styling), and the router and translation library the pack names.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -45,6 +45,14 @@ type Tool = (&'static str, &'static [&'static str]);
 
 /// A default job: its name and its tools.
 type Job = (&'static str, &'static [Tool]);
+
+/// The packages another package requires beside it, which count as part of it and not as a tool of
+/// their own: a component library's styling engine.
+const COMPANIONS: &[(&str, &[&str])] = &[
+    ("@mui/material", &["@emotion/react", "@emotion/styled"]),
+    ("@mui/joy", &["@emotion/react", "@emotion/styled"]),
+    ("@chakra-ui/react", &["@emotion/react", "@emotion/styled"]),
+];
 
 /// The default jobs.
 const JOBS: &[Job] = &[
@@ -176,11 +184,21 @@ fn check(
     let Some(manifest) = json(project, PACKAGE_JSON)? else {
         return Ok(Vec::new());
     };
-    let declared: BTreeSet<&str> = ["dependencies", "devDependencies"]
+    let sections: &[&str] = if project.pack.library() {
+        &["dependencies", "peerDependencies"]
+    } else {
+        &["dependencies"]
+    };
+    let mut declared: BTreeSet<&str> = sections
         .iter()
         .filter_map(|section| manifest.get(section).and_then(Value::as_object))
         .flat_map(|section| section.keys().map(String::as_str))
         .collect();
+    for (package, companions) in COMPANIONS {
+        if declared.contains(package) {
+            declared.retain(|name| !companions.contains(name));
+        }
+    }
     let mut found = Vec::new();
 
     for (job, tools) in jobs {

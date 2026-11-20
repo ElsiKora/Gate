@@ -18,12 +18,15 @@ pub const TSCONFIG: &str = "tsconfig.json";
 /// The npm manifest of the project.
 pub const PACKAGE_JSON: &str = "package.json";
 
-/// The names a Vite configuration takes, in the order Vite looks for them.
-pub const VITE_CONFIGS: [&str; 4] = [
+/// The names a Vite configuration takes, in the order Vite looks for them (its
+/// `DEFAULT_CONFIG_FILES`).
+pub const VITE_CONFIGS: [&str; 6] = [
     "vite.config.js",
     "vite.config.mjs",
     "vite.config.ts",
+    "vite.config.cjs",
     "vite.config.mts",
+    "vite.config.cts",
 ];
 
 /// How many `extends` a tsconfig is followed through.
@@ -102,35 +105,119 @@ pub fn json(project: &Project<'_, '_>, path: &str) -> gate_sdk::Result<Option<Va
         })
 }
 
-/// The `compilerOptions.paths` of the project's tsconfig, following its relative `extends` through
-/// tracked files; `None` when no tsconfig of the chain sets them.
+/// One tsconfig that declares `compilerOptions.paths`, and those paths.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeclaredPaths {
+    /// The file that declares them.
+    pub file: String,
+    /// The `paths` object.
+    pub paths: Map<String, Value>,
+}
+
+/// The `compilerOptions.paths` the project's tsconfig gives, read as the TypeScript resolver reads
+/// them: from the tsconfig `[languages.typescript]` names and each project its `references` name,
+/// each through its `extends` (a string or an array, the last entry winning, a path written with or
+/// without `.json`) to the file that declares them. One entry per config that has paths, in the order
+/// found; empty when none has. An `extends` of a package is not followed.
 ///
 /// # Errors
-/// When a tsconfig of the chain cannot be read or is not JSON.
-pub fn tsconfig_paths(project: &Project<'_, '_>) -> gate_sdk::Result<Option<Map<String, Value>>> {
-    let mut path = TSCONFIG.to_owned();
+/// When a tsconfig on the way cannot be read or is not JSON.
+pub fn tsconfig_paths(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<DeclaredPaths>> {
+    let mut queue = vec![project.tsconfig.clone()];
+    let mut seen = Vec::new();
+    let mut declared: Vec<DeclaredPaths> = Vec::new();
 
-    for _ in 0..EXTENDS_DEPTH {
-        let Some(config) = json(project, &path)? else {
-            return Ok(None);
-        };
-        if let Some(paths) = config
-            .pointer("/compilerOptions/paths")
-            .and_then(Value::as_object)
-        {
-            return Ok(Some(paths.clone()));
+    while let Some(path) = queue.pop() {
+        if seen.contains(&path) || seen.len() > EXTENDS_DEPTH * EXTENDS_DEPTH {
+            continue;
         }
-        let Some(next) = config
-            .get("extends")
-            .and_then(Value::as_str)
-            .and_then(|extends| joined(&path, extends))
-        else {
-            return Ok(None);
+        seen.push(path.clone());
+        let Some(config) = json(project, &path)? else {
+            continue;
         };
-        path = next;
+        if let Some(found) = effective_paths(project, &path, &config, 0)?
+            && !declared.iter().any(|known| known.file == found.file)
+        {
+            declared.push(found);
+        }
+        let references = config.get("references").and_then(Value::as_array);
+        for reference in references.into_iter().flatten().rev() {
+            if let Some(file) = reference
+                .get("path")
+                .and_then(Value::as_str)
+                .and_then(|named| config_file(project, &path, named, true))
+            {
+                queue.push(file);
+            }
+        }
     }
 
+    Ok(declared)
+}
+
+/// The paths `config` (the file `path`) gives: its own, or those of the last `extends` entry that
+/// gives any.
+fn effective_paths(
+    project: &Project<'_, '_>,
+    path: &str,
+    config: &Value,
+    depth: usize,
+) -> gate_sdk::Result<Option<DeclaredPaths>> {
+    if let Some(paths) = config
+        .pointer("/compilerOptions/paths")
+        .and_then(Value::as_object)
+    {
+        return Ok(Some(DeclaredPaths {
+            file: path.to_owned(),
+            paths: paths.clone(),
+        }));
+    }
+    if depth >= EXTENDS_DEPTH {
+        return Ok(None);
+    }
+    let extends: Vec<&str> = match config.get("extends") {
+        Some(Value::String(one)) => vec![one.as_str()],
+        Some(Value::Array(many)) => many.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    for named in extends.into_iter().rev() {
+        let Some(base) = config_file(project, path, named, false) else {
+            continue;
+        };
+        let Some(base_config) = json(project, &base)? else {
+            continue;
+        };
+        if let Some(found) = effective_paths(project, &base, &base_config, depth + 1)? {
+            return Ok(Some(found));
+        }
+    }
     Ok(None)
+}
+
+/// The tracked config file `named` names from the config `from`: a relative path, with or without
+/// `.json`; for a project reference also a folder, which holds `tsconfig.json`, or a path written
+/// without `./`. `None` for a package or a file that is not tracked.
+fn config_file(
+    project: &Project<'_, '_>,
+    from: &str,
+    named: &str,
+    reference: bool,
+) -> Option<String> {
+    let relative = if named.starts_with("./") || named.starts_with("../") {
+        named.to_owned()
+    } else if reference {
+        format!("./{named}")
+    } else {
+        return None;
+    };
+    let base = joined(from, &relative)?;
+    [
+        base.clone(),
+        format!("{base}.json"),
+        format!("{}/{TSCONFIG}", base.trim_end_matches('/')),
+    ]
+    .into_iter()
+    .find(|candidate| project.contains(candidate))
 }
 
 /// The project's Vite configuration, by the first of [`VITE_CONFIGS`] that is tracked.

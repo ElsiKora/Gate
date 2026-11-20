@@ -12,7 +12,7 @@ to layers. The route file reads its parameters and renders a page of `src/pages/
   `<path>#Route`).
 - `nextjs`, the root `app/`: a `.ts` or `.tsx` file is a route file when it is a special file of a
   segment (`page`, `layout`, `loading`, `error`, `not-found`, `template`, `default`, `global-error`,
-  `forbidden`, `unauthorized`, the metadata files `sitemap`, `robots`, `manifest`, `icon`,
+  `global-not-found`, `forbidden`, `unauthorized`, the metadata files `sitemap`, `robots`, `manifest`, `icon`,
   `apple-icon`, `opengraph-image`, `twitter-image`, and `route`). `foreign` is any other code file in
   `app/`. `export` is a special file without a default export, or a `route` file that exports no
   HTTP method handler (`GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`).

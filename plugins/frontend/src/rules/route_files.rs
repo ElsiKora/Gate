@@ -15,12 +15,13 @@ use crate::standard::{FileName, NEXT_APP, name_of, within};
 pub struct RouteFiles;
 
 /// The Next.js files of a route segment that export their content as the default export.
-pub const NEXT_DEFAULT_FILES: [&str; 17] = [
+pub const NEXT_DEFAULT_FILES: [&str; 18] = [
     "apple-icon",
     "default",
     "error",
     "forbidden",
     "global-error",
+    "global-not-found",
     "icon",
     "layout",
     "loading",

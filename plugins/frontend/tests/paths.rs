@@ -34,6 +34,12 @@ const NEXT_APP: &[(&str, &str)] = &[
         "export default function Page() { return null; }\n",
     ),
     ("app/icon.png", ""),
+    ("app/opengraph-image.png", ""),
+    ("app/opengraph-image.alt.txt", "A synthetic image.\n"),
+    (
+        "app/global-not-found.tsx",
+        "export default function GlobalNotFound() { return null; }\n",
+    ),
     (
         "src/app/providers/providers.tsx",
         "export function Providers() { return null; }\n",
@@ -66,7 +72,14 @@ const NEXT_APP: &[(&str, &str)] = &[
     ("src/entities/invoice/index.ts", "export {};\n"),
     ("src/shared/api/index.ts", "export {};\n"),
     ("src/shared/api/client.ts", "export {};\n"),
+    ("src/shared/api/generated/models/UserDto.ts", "export {};\n"),
+    (
+        "src/shared/api/generated/petstore.schemas.ts",
+        "export {};\n",
+    ),
+    ("src/shared/api/generated/model/user-dto.ts", "export {};\n"),
     ("src/shared/config/index.ts", "export {};\n"),
+    ("src/shared/config/index.server.ts", "export {};\n"),
     ("src/shared/config/env.ts", "export {};\n"),
     ("src/shared/i18n/index.ts", "export {};\n"),
     ("src/shared/i18n/messages/en.json", "{}"),
@@ -111,6 +124,8 @@ const LIBRARY_TREE: &[(&str, &str)] = &[
     ),
     ("src/ui/flags.svg", ""),
     ("src/model/use-phone.ts", "export function usePhone() {}\n"),
+    ("src/api/generated/models/UserDto.ts", "export {};\n"),
+    ("src/api/generated/model/user-dto.ts", "export {};\n"),
 ];
 
 #[test]
@@ -218,6 +233,7 @@ fn layout_reports_every_departure_once_at_its_folder() {
             row("cross-import", "src/entities/user/@x/deep/order.ts", None),
             row("cross-import", "src/features/like/@x", None),
             row("group", "src/features/auth/social", None),
+            row("group", "src/widgets/menu/index.ts", None),
             row("layer", "src/modules", None),
             row("next-pages", "pages/index.tsx", None),
             row("reserved", "src/features/like/ui/lib", None),
@@ -225,7 +241,6 @@ fn layout_reports_every_departure_once_at_its_folder() {
             row("segment", "src/entities/user/helpers", None),
             row("segment", "src/entities/user/user.ts", None),
             row("segment", "src/features/ui", None),
-            row("segment", "src/widgets/menu/side", None),
             row("shared", "src/shared/assets", None),
             row("shared", "src/shared/config", None),
             row("shared", "src/shared/index.ts", None),
@@ -237,6 +252,47 @@ fn layout_reports_every_departure_once_at_its_folder() {
             row("slice", "src/features/no-index", None),
             row("source-root", "components", None),
         ]
+    );
+}
+
+#[test]
+fn layout_reports_a_file_of_a_group_s_own() {
+    // A folder with child slices is a group even when it holds a file of its own; the file is
+    // reported, not the slices as segments of a slice.
+    let files = [
+        ("src/features/auth/index.ts", "export {};\n"),
+        ("src/features/auth/sign-in/index.ts", "export {};\n"),
+    ];
+    assert_eq!(
+        check("layout", NEXT, &files),
+        vec![row("group", "src/features/auth/index.ts", None)]
+    );
+}
+
+#[test]
+fn the_generated_client_is_reported_outside_its_folder() {
+    // The names and the tree the standard tree passes inside src/shared/api/generated/.
+    let files = [
+        ("src/shared/api/index.ts", "export {};\n"),
+        ("src/shared/api/models/UserDto.ts", "export {};\n"),
+        ("src/shared/api/petstore.schemas.ts", "export {};\n"),
+        ("src/shared/api/model/user-dto.ts", "export {};\n"),
+    ];
+    assert_eq!(
+        check("file-names", NEXT, &files),
+        vec![
+            row("file", "src/shared/api/models/UserDto.ts", None),
+            row("suffix", "src/shared/api/petstore.schemas.ts", None),
+        ]
+    );
+    assert_eq!(
+        check("layout", NEXT, &files),
+        vec![row("reserved", "src/shared/api/model", None)]
+    );
+    let library = [("src/api/model/user-dto.ts", "export {};\n")];
+    assert_eq!(
+        check("layout", LIBRARY, &library),
+        vec![row("reserved", "src/api/model", None)]
     );
 }
 
@@ -274,6 +330,7 @@ fn file_names_reads_each_router_syntax_only_in_its_route_folder() {
             "export const Route = 1;\n",
         ),
         ("src/app/route-tree.gen.ts", "export {};\n"),
+        ("src/shared/ui/card.lazy.tsx", "export {};\n"),
     ];
     assert_eq!(
         check("file-names", VITE, &files),
@@ -286,6 +343,7 @@ fn file_names_reads_each_router_syntax_only_in_its_route_folder() {
             row("folder", "src/shared/ui/Button", None),
             row("suffix", "src/shared/config/index.server.ts", None),
             row("suffix", "src/shared/lib/user.helper.ts", None),
+            row("suffix", "src/shared/ui/card.lazy.tsx", None),
         ]
     );
 
@@ -296,6 +354,12 @@ fn file_names_reads_each_router_syntax_only_in_its_route_folder() {
         ("app/UserCard/page.tsx", "export default 1;\n"),
         ("src/widgets/[id]/index.ts", "export {};\n"),
         ("src/entities/user/index.server.ts", "export {};\n"),
+        ("app/blog/twitter-image.alt.txt", "A synthetic image.\n"),
+        ("app/blog/hero.alt.txt", "A synthetic image.\n"),
+        (
+            "src/shared/ui/opengraph-image.alt.txt",
+            "A synthetic image.\n",
+        ),
     ];
     assert_eq!(
         check("file-names", NEXT, &next),
@@ -303,6 +367,8 @@ fn file_names_reads_each_router_syntax_only_in_its_route_folder() {
             row("folder", "app/$id", None),
             row("folder", "app/UserCard", None),
             row("folder", "src/widgets/[id]", None),
+            row("suffix", "app/blog/hero.alt.txt", None),
+            row("suffix", "src/shared/ui/opengraph-image.alt.txt", None),
         ]
     );
 }
@@ -392,4 +458,15 @@ fn a_missing_pack_is_a_configuration_error_that_names_the_three() {
         &[("src/main.tsx", "")],
     );
     assert!(unknown.is_err(), "an unknown pack is refused");
+}
+
+#[test]
+fn an_option_of_the_wrong_type_is_a_configuration_error() {
+    let wrong = run_raw(
+        "asset-placement",
+        r#"{ "extensions": "svg" }"#,
+        r#"{ "pack": "nextjs" }"#,
+        &[("src/shared/ui/logo.svg", "")],
+    );
+    assert!(wrong.is_err(), "a string where a list belongs is refused");
 }

@@ -1,6 +1,7 @@
 //! `frontend/file-names`: every file and folder name under `src/` (and the root `app/` of Next.js)
 //! is kebab-case, its only dotted parts are `test`, `stories`, `module`, `d` and in Next.js
-//! `server`, a route folder takes its router's syntax, and `@x` names only an entity's folder.
+//! `server`, a route folder takes its router's syntax, and `@x` names only an entity's folder. The
+//! generated API client keeps the names its generator writes.
 
 use std::collections::BTreeSet;
 
@@ -45,7 +46,8 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
     let mut found = Vec::new();
 
     let paths = project.paths.iter().copied().filter(|path| {
-        within(path, SOURCE_ROOT) || (pack == Pack::Nextjs && within(path, NEXT_APP))
+        (within(path, SOURCE_ROOT) && !within(path, pack.generated_folder()))
+            || (pack == Pack::Nextjs && within(path, NEXT_APP))
     });
 
     for path in paths {
@@ -98,7 +100,8 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
 
         for part in &file.dotted {
             let allowed = pack.dotted_parts().contains(part)
-                || (routed && pack == Pack::ReactVite && *part == "lazy");
+                || (routed && pack == Pack::ReactVite && *part == "lazy")
+                || (routed && pack == Pack::Nextjs && next_alt_text(&file));
             if !allowed {
                 found.push(
                     Found::at(
@@ -117,6 +120,14 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
     }
 
     found
+}
+
+/// Whether `file` is the alt text Next.js reads beside a social image: `opengraph-image.alt.txt`,
+/// `twitter-image.alt.txt`.
+fn next_alt_text(file: &FileName<'_>) -> bool {
+    matches!(file.stem, "opengraph-image" | "twitter-image")
+        && file.dotted == ["alt"]
+        && file.extension == "txt"
 }
 
 /// Whether the folder of `segments`, named `@x`, is directly in the root of an entity slice, which

@@ -127,11 +127,20 @@ fn check(project: &Project<'_, '_>, base_locale: &str) -> gate_sdk::Result<Vec<F
         return Ok(found);
     };
 
+    let plurals = project.pack != Pack::Nextjs;
     for locale in &locales {
         if locale.path == base.path {
             continue;
         }
+        let other_forms = |key: &str, keys: &BTreeSet<String>| {
+            plurals
+                && plural_stem(key)
+                    .is_some_and(|stem| keys.iter().any(|known| plural_stem(known) == Some(stem)))
+        };
         for key in locale.keys.difference(&base.keys) {
+            if other_forms(key.as_str(), &base.keys) {
+                continue;
+            }
             found.push(
                 Found::at(
                     "locale-keys",
@@ -146,6 +155,9 @@ fn check(project: &Project<'_, '_>, base_locale: &str) -> gate_sdk::Result<Vec<F
             );
         }
         for key in base.keys.difference(&locale.keys) {
+            if other_forms(key.as_str(), &locale.keys) {
+                continue;
+            }
             found.push(
                 Found::at(
                     "locale-keys",
@@ -172,8 +184,8 @@ fn unknown_keys(
         let Some(file) = project.parse(path)? else {
             continue;
         };
-        for (key, line) in used_keys(project.pack, &file) {
-            if !base.keys.contains(&key) {
+        for (key, line, form) in used_keys(project.pack, &file) {
+            if !form.satisfied(&key, &base.keys) {
                 found.push(
                     Found::at(
                         "unknown-key",
@@ -188,6 +200,48 @@ fn unknown_keys(
         }
     }
     Ok(())
+}
+
+/// The plural forms i18next appends to a key used with `count`: `key_one`, `key_other`, and the
+/// ordinal forms `key_ordinal_one` and the like.
+const PLURAL_FORMS: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
+
+/// How the code passes a key to i18next's `t`: with `count` (a plural), with a literal `context`,
+/// or with neither. next-intl writes plurals inside the message and reads no suffix.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct Form {
+    plural: bool,
+    context: Option<String>,
+}
+
+impl Form {
+    /// Whether `keys` hold a message for `key` in this form: `key` itself; with a context `x`,
+    /// `key_x`; with a count, `key_<form>` or `key_ordinal_<form>`, after the context when there
+    /// is one.
+    fn satisfied(&self, key: &str, keys: &BTreeSet<String>) -> bool {
+        let mut stems = vec![key.to_owned()];
+        if let Some(context) = &self.context {
+            stems.push(format!("{key}_{context}"));
+        }
+        stems.iter().any(|stem| {
+            keys.contains(stem)
+                || (self.plural
+                    && PLURAL_FORMS.iter().any(|form| {
+                        keys.contains(&format!("{stem}_{form}"))
+                            || keys.contains(&format!("{stem}_ordinal_{form}"))
+                    }))
+        })
+    }
+}
+
+/// The key a plural key is a form of: `items` for `items_one` or `items_ordinal_few`. Locales hold
+/// the forms their language has, so a form one locale lacks is no missing message.
+fn plural_stem(key: &str) -> Option<&str> {
+    PLURAL_FORMS.iter().find_map(|form| {
+        key.strip_suffix(form)
+            .and_then(|rest| rest.strip_suffix('_'))
+            .map(|rest| rest.strip_suffix("_ordinal").unwrap_or(rest))
+    })
 }
 
 /// Calls `leaf` with the dotted key of every leaf of `value`.
@@ -209,8 +263,8 @@ fn leaves(value: &Value, prefix: &str, leaf: &mut dyn FnMut(&str, &Value)) {
 }
 
 /// The literal keys `file` passes to its translation functions, as the pack binds them, each with
-/// its namespace or key prefix, and the line of the call.
-fn used_keys(pack: Pack, file: &SourceFile<'_>) -> Vec<(String, u32)> {
+/// its namespace or key prefix, the line of the call and the form it asks for.
+fn used_keys(pack: Pack, file: &SourceFile<'_>) -> Vec<(String, u32, Form)> {
     let bound = bound_functions(pack, file);
     let semantic = file.semantic();
     let nodes = semantic.nodes();
@@ -240,7 +294,12 @@ fn used_keys(pack: Pack, file: &SourceFile<'_>) -> Vec<(String, u32)> {
             } else {
                 format!("{prefix}.{key}")
             };
-            keys.push((full, file.line(call.span.start)));
+            let form = if pack == Pack::Nextjs {
+                Form::default()
+            } else {
+                form(call)
+            };
+            keys.push((full, file.line(call.span.start), form));
         }
     }
 
@@ -314,6 +373,24 @@ fn first_text(call: &CallExpression<'_>) -> Option<String> {
         .first()
         .and_then(Argument::as_expression)
         .and_then(string_like)
+}
+
+/// The form an i18next `t` call asks for: its options, the second argument, with `count` and a
+/// literal `context`.
+fn form(call: &CallExpression<'_>) -> Form {
+    let Some(Expression::ObjectExpression(options)) =
+        call.arguments.get(1).and_then(Argument::as_expression)
+    else {
+        return Form::default();
+    };
+    let plural = options.properties.iter().any(|property| match property {
+        ObjectPropertyKind::ObjectProperty(property) => {
+            property.key.static_name().as_deref() == Some("count")
+        }
+        ObjectPropertyKind::SpreadProperty(_) => false,
+    });
+    let context = Some(property_text(options, "context")).filter(|text| !text.is_empty());
+    Form { plural, context }
 }
 
 /// next-intl's namespace: the first argument, or its `namespace` property.

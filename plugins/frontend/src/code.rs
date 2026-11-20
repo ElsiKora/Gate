@@ -7,14 +7,17 @@ use gate_sdk::Run;
 use gate_typescript::call::{Sources, TypeScriptCall, parsed, settings};
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
-    BindingPattern, Declaration, ExportDefaultDeclarationKind, IdentifierReference,
-    ImportOrExportKind, Statement,
+    Argument, BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind,
+    Expression, IdentifierReference, ImportOrExportKind, ModuleExportName, Statement,
+    TSModuleReference,
 };
 use gate_typescript::value::string_like;
 use gate_typescript::{SourceFile, TypeScript};
 
 use crate::options::Pack;
-use crate::standard::{FileName, Groups, NEXT_APP, Place, SOURCE_ROOT, name_of, place, within};
+use crate::standard::{
+    FileName, Groups, NEXT_APP, NEXT_ROOT_FILES, Place, SOURCE_ROOT, name_of, place, within,
+};
 
 /// The project of one run: its pack, its tracked paths outside the skipped folders, and its
 /// TypeScript view. `'s` is the borrow of the call's shared sources, `'o` what they hold.
@@ -25,6 +28,8 @@ pub struct Project<'s, 'o> {
     pub paths: Vec<&'o str>,
     /// The slice groups among the paths.
     pub groups: Groups,
+    /// The tsconfig `[languages.typescript]` names, relative to the project root.
+    pub tsconfig: String,
     typescript: &'s TypeScript<'o>,
 }
 
@@ -62,6 +67,7 @@ impl<'s, 'o> Project<'s, 'o> {
             pack,
             paths,
             groups,
+            tsconfig: settings.tsconfig,
             typescript,
         })
     }
@@ -99,9 +105,19 @@ impl<'s, 'o> Project<'s, 'o> {
         })
     }
 
-    /// The code of [`Project::code`] and the route files of [`Project::routes`].
+    /// The files Next.js looks up at the project root ([`NEXT_ROOT_FILES`]) that are tracked; none
+    /// in the other packs.
+    pub fn next_roots(&self) -> impl Iterator<Item = &'o str> + '_ {
+        self.paths
+            .iter()
+            .copied()
+            .filter(|path| self.pack == Pack::Nextjs && NEXT_ROOT_FILES.contains(path))
+    }
+
+    /// The code of [`Project::code`], the route files of [`Project::routes`] and the root files of
+    /// [`Project::next_roots`].
     pub fn all_code(&self) -> impl Iterator<Item = &'o str> + '_ {
-        self.code().chain(self.routes())
+        self.code().chain(self.routes()).chain(self.next_roots())
     }
 
     /// Whether `path` is tracked and outside the skipped folders.
@@ -172,7 +188,8 @@ pub struct Import {
 }
 
 /// Every module `file` loads, in source order: import declarations, re-exports, `import()`
-/// expressions with a literal specifier and `import("...")` types.
+/// expressions with a literal specifier, `import("...")` types, `import x = require("...")` and a
+/// call of the global `require` with one literal argument.
 #[must_use]
 pub fn imports(file: &SourceFile<'_>) -> Vec<Import> {
     let mut found = Vec::new();
@@ -203,6 +220,18 @@ pub fn imports(file: &SourceFile<'_>) -> Vec<Import> {
                 import.span.start,
                 true,
             ),
+            AstKind::TSImportEqualsDeclaration(import) => match &import.module_reference {
+                TSModuleReference::ExternalModuleReference(reference) => (
+                    reference.expression.value.as_str().to_owned(),
+                    import.span.start,
+                    import.import_kind == ImportOrExportKind::Type,
+                ),
+                _ => continue,
+            },
+            AstKind::CallExpression(call) => match required(file, call) {
+                Some(specifier) => (specifier, call.span.start, false),
+                None => continue,
+            },
             _ => continue,
         };
 
@@ -217,6 +246,20 @@ pub fn imports(file: &SourceFile<'_>) -> Vec<Import> {
     found
 }
 
+/// The module a call of the global `require` with one literal argument loads.
+fn required(file: &SourceFile<'_>, call: &CallExpression<'_>) -> Option<String> {
+    let Expression::Identifier(callee) = &call.callee else {
+        return None;
+    };
+    let [argument] = call.arguments.as_slice() else {
+        return None;
+    };
+    if callee.name != "require" || !is_global(file, callee) {
+        return None;
+    }
+    argument.as_expression().and_then(string_like)
+}
+
 /// One name a file exports.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Export {
@@ -228,6 +271,10 @@ pub struct Export {
     pub type_only: bool,
     /// Whether the export names a module (`export { a } from "./a"`).
     pub reexport: bool,
+    /// Whether the exported value is a function: a function or class declaration, or a `const`
+    /// bound to a function or class expression, or to `memo(...)` or `forwardRef(...)` of one. A
+    /// re-export from another module is not known to be one.
+    pub function: bool,
 }
 
 /// What a file exports: its names in source order, and whether an `export *` may add more.
@@ -251,20 +298,21 @@ impl Exports {
 #[must_use]
 pub fn exports(file: &SourceFile<'_>) -> Exports {
     let mut found = Exports::default();
-    let mut add = |name: &str, start: u32, type_only: bool, reexport: bool| {
+    let mut add = |name: &str, start: u32, type_only: bool, reexport: bool, function: bool| {
         found.names.push(Export {
             name: name.to_owned(),
             line: file.line(start),
             type_only,
             reexport,
+            function,
         });
     };
 
     for statement in &file.program().body {
         match statement {
             Statement::ExportDeclaration(export) => {
-                declared_names(&export.declaration, &mut |name, type_only| {
-                    add(name, export.span.start, type_only, false);
+                declared_names(&export.declaration, &mut |name, type_only, function| {
+                    add(name, export.span.start, type_only, false, function);
                 });
             }
             Statement::ExportNamedDeclaration(export) => {
@@ -275,6 +323,7 @@ pub fn exports(file: &SourceFile<'_>) -> Exports {
                         export.export_kind == ImportOrExportKind::Type
                             || specifier.export_kind == ImportOrExportKind::Type,
                         false,
+                        local_function(file, &specifier.local),
                     );
                 }
             }
@@ -286,12 +335,13 @@ pub fn exports(file: &SourceFile<'_>) -> Exports {
                         export.export_kind == ImportOrExportKind::Type
                             || specifier.export_kind == ImportOrExportKind::Type,
                         true,
+                        false,
                     );
                 }
             }
             Statement::ExportAllDeclaration(export) => {
                 if let Some(name) = &export.exported {
-                    add(name.name().as_str(), export.span.start, false, true);
+                    add(name.name().as_str(), export.span.start, false, true, false);
                 }
             }
             Statement::ExportDefaultDeclaration(export) => add(
@@ -302,6 +352,11 @@ pub fn exports(file: &SourceFile<'_>) -> Exports {
                     ExportDefaultDeclarationKind::TSInterfaceDeclaration(_)
                 ),
                 false,
+                matches!(
+                    export.declaration,
+                    ExportDefaultDeclarationKind::FunctionDeclaration(_)
+                        | ExportDefaultDeclarationKind::ClassDeclaration(_)
+                ),
             ),
             _ => {}
         }
@@ -313,28 +368,83 @@ pub fn exports(file: &SourceFile<'_>) -> Exports {
     found
 }
 
-/// The names a declaration binds, each with whether it is a type only.
-fn declared_names(declaration: &Declaration<'_>, add: &mut dyn FnMut(&str, bool)) {
+/// The names a declaration binds, each with whether it is a type only and whether its value is a
+/// function ([`Export::function`]).
+fn declared_names(declaration: &Declaration<'_>, add: &mut dyn FnMut(&str, bool, bool)) {
     match declaration {
         Declaration::VariableDeclaration(variables) => {
             for declarator in &variables.declarations {
-                binding_names(&declarator.id, &mut |name| add(name, false));
+                let function = matches!(declarator.id, BindingPattern::BindingIdentifier(_))
+                    && declarator.init.as_ref().is_some_and(function_value);
+                binding_names(&declarator.id, &mut |name| add(name, false, function));
             }
         }
         Declaration::FunctionDeclaration(function) => {
             if let Some(id) = &function.id {
-                add(id.name.as_str(), false);
+                add(id.name.as_str(), false, true);
             }
         }
         Declaration::ClassDeclaration(class) => {
             if let Some(id) = &class.id {
-                add(id.name.as_str(), false);
+                add(id.name.as_str(), false, true);
             }
         }
-        Declaration::TSTypeAliasDeclaration(alias) => add(alias.id.name.as_str(), true),
-        Declaration::TSInterfaceDeclaration(interface) => add(interface.id.name.as_str(), true),
-        Declaration::TSEnumDeclaration(enumeration) => add(enumeration.id.name.as_str(), false),
+        Declaration::TSTypeAliasDeclaration(alias) => add(alias.id.name.as_str(), true, false),
+        Declaration::TSInterfaceDeclaration(interface) => {
+            add(interface.id.name.as_str(), true, false);
+        }
+        Declaration::TSEnumDeclaration(enumeration) => {
+            add(enumeration.id.name.as_str(), false, false);
+        }
         _ => {}
+    }
+}
+
+/// Whether `value` is a function: a function or class expression, or `memo(...)` or
+/// `forwardRef(...)` (also as a member, `React.memo(...)`) of one.
+fn function_value(value: &Expression<'_>) -> bool {
+    match value {
+        Expression::ArrowFunctionExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ClassExpression(_) => true,
+        Expression::CallExpression(call) => {
+            let wrapper = match &call.callee {
+                Expression::Identifier(callee) => callee.name.as_str(),
+                Expression::StaticMemberExpression(member) => member.property.name.as_str(),
+                _ => "",
+            };
+            matches!(wrapper, "memo" | "forwardRef")
+                && call
+                    .arguments
+                    .first()
+                    .and_then(Argument::as_expression)
+                    .is_some_and(function_value)
+        }
+        _ => false,
+    }
+}
+
+/// Whether the local name an `export { name }` exports is declared as a function in `file`.
+fn local_function(file: &SourceFile<'_>, local: &ModuleExportName<'_>) -> bool {
+    let ModuleExportName::IdentifierReference(identifier) = local else {
+        return false;
+    };
+    let semantic = file.semantic();
+    let Some(symbol) = identifier
+        .reference_id
+        .get()
+        .and_then(|reference| semantic.scoping().get_reference(reference).symbol_id())
+    else {
+        return false;
+    };
+    let node = semantic.symbol_declaration(symbol);
+    match node.kind() {
+        AstKind::Function(_) | AstKind::Class(_) => true,
+        AstKind::VariableDeclarator(declarator) => {
+            matches!(declarator.id, BindingPattern::BindingIdentifier(_))
+                && declarator.init.as_ref().is_some_and(function_value)
+        }
+        _ => false,
     }
 }
 

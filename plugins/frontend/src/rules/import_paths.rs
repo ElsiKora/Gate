@@ -8,7 +8,9 @@ use gate_typescript::call::TypeScriptCall;
 use crate::code::{Project, imports};
 use crate::options::{PACK, Pack};
 use crate::rules::{Found, report};
-use crate::standard::{CROSS_IMPORT, Layer, OPEN_SEGMENTS, Place, Unit};
+use crate::standard::{
+    CROSS_IMPORT, Layer, NEXT_APP, OPEN_SEGMENTS, Place, SOURCE_ROOT, Unit, VITE_ROUTE_TREE, within,
+};
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -39,11 +41,9 @@ impl Rule<TypeScriptCall> for ImportPaths {
 }
 
 fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
-    let pack = project.pack;
     let mut found = Vec::new();
     for path in project.all_code() {
-        let origin = project.place(path);
-        let importer_unit = origin.map_or(Unit::None, |place| place.unit);
+        let origin = project.place(path).map_or(Unit::None, |place| place.unit);
         let Some(file) = project.parse(path)? else {
             continue;
         };
@@ -53,64 +53,133 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
             let Some(target) = project.resolve(path, specifier)? else {
                 continue;
             };
-            let Some(imported) = project.place(&target) else {
-                continue;
-            };
 
             let finding = if specifier.starts_with('.') {
-                if importer_unit == Unit::None || imported.unit == importer_unit {
-                    continue;
-                }
-                Found::at(
-                    "relative-exit",
-                    path,
-                    format!(
-                        "{path} imports {specifier}, which leaves its slice by a relative path"
-                    ),
-                    format!("name the target from the source root, as {ALIAS}<path below src/>"),
-                )
-            } else if let Some(rest) = specifier.strip_prefix(ALIAS) {
-                if importer_unit != Unit::None && imported.unit == importer_unit {
-                    Found::at(
-                        "absolute-inside",
-                        path,
-                        format!(
-                            "{path} imports {specifier}, a module of its own slice, through {ALIAS}"
-                        ),
-                        "import inside a slice by a relative path",
-                    )
-                } else if public(pack, importer_unit, &imported, rest) {
-                    continue;
-                } else {
-                    Found::at(
-                        "public-api",
-                        path,
-                        format!(
-                            "{path} imports {specifier}, past the public API of {}",
-                            api_of(&imported)
-                        ),
-                        format!(
-                            "import {ALIAS}{} and export what is needed from its index.ts",
-                            api_of(&imported)
-                        ),
-                    )
-                }
+                relative(project, path, origin, specifier, &target)
+            } else if specifier.starts_with(ALIAS) {
+                aliased(project, path, origin, specifier, &target)
             } else {
-                Found::at(
-                    "alias",
-                    path,
-                    format!("{path} imports {specifier}, an alias other than {ALIAS}"),
-                    format!(
-                        "name the target as {ALIAS}<path below src/>, and remove the alias from tsconfig.json"
-                    ),
-                )
+                project.place(&target).map(|_| {
+                    Found::at(
+                        "alias",
+                        path,
+                        format!("{path} imports {specifier}, an alias other than {ALIAS}"),
+                        format!(
+                            "name the target as {ALIAS}<path below src/>, and remove the alias from tsconfig.json"
+                        ),
+                    )
+                })
             };
 
-            found.push(finding.line(import.line).named(specifier));
+            if let Some(finding) = finding {
+                found.push(finding.line(import.line).named(specifier));
+            }
         }
     }
 
     Ok(found)
+}
+
+/// The finding about the relative import `specifier` of `path`, of the unit `origin`, that resolves
+/// to `target`: one that leaves the unit, or for a file outside the source root its folder.
+fn relative(
+    project: &Project<'_, '_>,
+    path: &str,
+    origin: Unit<'_>,
+    specifier: &str,
+    target: &str,
+) -> Option<Found> {
+    if let Some(folder) = home(path) {
+        if home(target) == Some(folder) {
+            return None;
+        }
+        let left = if folder.is_empty() {
+            "the project root"
+        } else {
+            "app/"
+        };
+        return Some(Found::at(
+            "relative-exit",
+            path,
+            format!("{path} imports {specifier}, which leaves {left} by a relative path"),
+            format!("name a target in src/ as {ALIAS}<path below src/>"),
+        ));
+    }
+    let imported = project.place(target)?;
+    if origin == Unit::None
+        || imported.unit == origin
+        || (origin == Unit::Root && target == VITE_ROUTE_TREE)
+    {
+        return None;
+    }
+    Some(Found::at(
+        "relative-exit",
+        path,
+        format!("{path} imports {specifier}, which leaves its slice by a relative path"),
+        format!("name the target from the source root, as {ALIAS}<path below src/>"),
+    ))
+}
+
+/// The finding about the `@/` import `specifier` of `path`, of the unit `origin`, that resolves to
+/// `target`: one inside its own unit, or one past the target's public API.
+fn aliased(
+    project: &Project<'_, '_>,
+    path: &str,
+    origin: Unit<'_>,
+    specifier: &str,
+    target: &str,
+) -> Option<Found> {
+    let pack = project.pack;
+    let rest = specifier.strip_prefix(ALIAS)?;
+    let imported = project.place(target)?;
+    if origin != Unit::None && imported.unit == origin {
+        return Some(Found::at(
+            "absolute-inside",
+            path,
+            format!("{path} imports {specifier}, a module of its own slice, through {ALIAS}"),
+            "import inside a slice by a relative path",
+        ));
+    }
+    if public(pack, origin, &imported, rest) {
+        return None;
+    }
+    let help = match without_index(rest).filter(|bare| public(pack, origin, &imported, bare)) {
+        Some(bare) => format!("write {ALIAS}{bare}; a public API is imported by its folder"),
+        None => format!(
+            "import {ALIAS}{} and export what is needed from its index.ts",
+            api_of(&imported)
+        ),
+    };
+    Some(Found::at(
+        "public-api",
+        path,
+        format!(
+            "{path} imports {specifier}, past the public API of {}",
+            api_of(&imported)
+        ),
+        help,
+    ))
+}
+
+/// The folder a file outside the source root keeps its relative imports in: the root `app/` of
+/// Next.js for its files, the project root (`""`) for Next.js's root files; `None` for a file under
+/// the source root.
+fn home(path: &str) -> Option<&'static str> {
+    if within(path, SOURCE_ROOT) {
+        None
+    } else if within(path, NEXT_APP) {
+        Some(NEXT_APP)
+    } else {
+        Some("")
+    }
+}
+
+/// `rest` without a trailing `/index`, `/index.ts` or `/index.tsx`: the folder it names.
+fn without_index(rest: &str) -> Option<&str> {
+    let rest = rest.trim_end_matches('/');
+    ["/index.tsx", "/index.ts", "/index"]
+        .iter()
+        .find_map(|suffix| rest.strip_suffix(suffix))
 }
 
 /// The public API an import from outside should name: `<layer>/<slice>`, or `shared/<segment>`.
@@ -124,11 +193,11 @@ fn api_of(imported: &Place<'_>) -> String {
 
 /// Whether `rest`, a specifier below `@/` that leaves the importing slice for `imported`, names a
 /// public API: a slice (its `index.server` too in Next.js), an entity's `@x` file from another
-/// entity, a shared segment, or for `ui` and `lib` one level below it. The app layer and a
-/// library have none to check.
+/// entity, a shared segment (its `index.server` too in Next.js), or for `ui` and `lib` one level
+/// below it. The app layer and a library have none to check. `/index` is not a public API's name:
+/// the folder is.
 fn public(pack: Pack, origin: Unit<'_>, imported: &Place<'_>, rest: &str) -> bool {
     let rest = rest.trim_end_matches('/');
-    let rest = rest.strip_suffix("/index").unwrap_or(rest);
     match imported.unit {
         Unit::Slice(layer, slice) => {
             let Some(inner) = rest
@@ -159,7 +228,10 @@ fn public(pack: Pack, origin: Unit<'_>, imported: &Place<'_>, rest: &str) -> boo
             };
             match (parts.next(), parts.next()) {
                 (None, _) => true,
-                (Some(_), None) => OPEN_SEGMENTS.contains(&segment),
+                (Some(part), None) => {
+                    OPEN_SEGMENTS.contains(&segment)
+                        || (pack == Pack::Nextjs && part == "index.server")
+                }
                 _ => false,
             }
         }

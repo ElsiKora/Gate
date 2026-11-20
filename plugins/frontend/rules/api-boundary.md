@@ -5,7 +5,9 @@ Only the API segment of the shared layer talks to the network.
 ## What it checks and why
 
 One client holds the base URL, the authorization header, retries and error mapping; a raw call skips
-all of them. Outside `src/shared/api/` (a library's `src/api/`):
+all of them. Outside `src/shared/api/` (a library's `src/api/`), in the files of `src/`, of Next.js's
+root `app/` and Next.js's root files (`middleware.ts`, `proxy.ts`, `instrumentation.ts`,
+`instrumentation-client.ts`):
 
 - `raw-call`: an import (not type-only) of an HTTP package of `packages`, or of a subpath of it; a
   reference to a global of `globals` that the file does not declare, also as a member of `window`,

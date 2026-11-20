@@ -50,7 +50,9 @@ Next.js), and the segments `ui`, `model`, `api`, `lib` and `config`. `widgets`, 
 `entities` may group slices one level deep (`features/auth/sign-in/`). An entity may offer another
 entity a cross-import file, `entities/user/@x/order.ts`. A segment of `shared` is reached through its
 `index.ts`, except `ui` and `lib`, which are reached one level down (`@/shared/ui/button`). The app
-layer has no `ui` segment, and assets sit in the `ui` segment of what shows them.
+layer has no `ui` segment, and assets sit in the `ui` segment of what shows them. Generated code has
+one place, `src/shared/api/generated/` (a library's `src/api/generated/`): its names and its tree are
+the generator's, and only the import rules read it.
 
 A Next.js app keeps the App Router in the root `app/`, whose route files render pages of
 `src/pages/`, and a root `pages/README.md` that keeps Next.js from reading `src/pages/` as the Pages

@@ -18,14 +18,16 @@ that departs:
 - `slice`: a file directly in a sliced layer (`pages`, `widgets`, `features`, `entities`); a slice
   folder that is not kebab-case; a slice without `index.ts`, its public API (target
   `<slice>#index.ts`); an `index.tsx` in a slice root, since a public API only re-exports.
-- `group`: in `widgets`, `features` and `entities`, a folder that holds slices and no file of its own
-  is a group. A file directly in a group, and a group inside a group, are reported; one level of groups
-  is allowed (`features/auth/sign-in/`).
+- `group`: in `widgets`, `features` and `entities`, a folder with a child folder that is no segment
+  (`ui`, `model`, `api`, `lib`, `config`) nor `@x` is a group. A file directly in a group (target the
+  file: `features/auth/index.ts` beside `features/auth/sign-in/`), and a group inside a group, are
+  reported; one level of groups is allowed (`features/auth/sign-in/`).
 - `segment`: a file in a slice root other than its public API (`index.ts`, and `index.server.ts` in
   Next.js); a folder of a slice that is not one of `ui`, `model`, `api`, `lib`, `config`; a segment
   folder directly on a sliced layer (`features/ui/`).
 - `reserved`: a folder inside a segment named after a segment (`ui/model/`, `lib/api/`); a segment
-  name says the kind of a whole segment.
+  name says the kind of a whole segment. The generated client, `src/shared/api/generated/` (a
+  library's `src/api/generated/`), keeps the tree its generator writes and is not read for it.
 - `app`: a file directly in `src/app/` (other than the generated `src/app/route-tree.gen.ts` of a Vite
   app); a folder of it that is not one of its segments: `entrypoint`, `providers`, `store`, `styles`,
   `config`, `lib`, and `routes` in a Vite app. The app layer has no `ui` segment.

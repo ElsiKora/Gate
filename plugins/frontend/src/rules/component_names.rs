@@ -4,7 +4,7 @@
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
 
-use crate::code::{Project, exports};
+use crate::code::{Export, Project, exports};
 use crate::options::PACK;
 use crate::rules::{Found, report};
 use crate::standard::{FileName, name_of, pascal_of};
@@ -77,12 +77,7 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
                     .line(export.line)
                     .named("default"),
                 );
-            } else if !export.type_only
-                && export
-                    .name
-                    .starts_with(|character: char| character.is_ascii_uppercase())
-                && !export.name.starts_with(&component)
-            {
+            } else if component_like(export) && !export.name.starts_with(&component) {
                 found.push(
                     Found::at(
                         "extra",
@@ -101,4 +96,17 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     }
 
     Ok(found)
+}
+
+/// Whether `export` is a component: a function, a class or a `const` bound to a function, whose
+/// name starts with a capital letter and is not all capitals (`MAX_SIZE` is a constant). Types,
+/// enums and other values are not components.
+fn component_like(export: &Export) -> bool {
+    let name = export.name.as_str();
+    !export.type_only
+        && export.function
+        && name.starts_with(|character: char| character.is_ascii_uppercase())
+        && !name.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        })
 }

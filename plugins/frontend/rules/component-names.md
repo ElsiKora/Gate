@@ -9,8 +9,10 @@ segment (of a slice, of `shared/ui`, of a library's `src/ui`) named `user-card.t
 
 - `name`: does not export `UserCard` as a value (target `<path>#UserCard`). A file with an
   `export *` may export it and is not reported.
-- `extra`: exports another value whose name starts with a capital letter, a component, that does not
-  start with `UserCard` (`UserCardHeader` passes, `Avatar` does not). Types are not read.
+- `extra`: exports another component whose name does not start with `UserCard` (`UserCardHeader`
+  passes, `Avatar` does not). A component is a function, a class, or a `const` bound to a function, a
+  class or `memo(…)` or `forwardRef(…)` of one, whose name starts with a capital letter and is not all
+  capitals. Constants (`MAX_SIZE`, an object `Theme`), enums and types are not read.
 - `default-export`: has a default export; a component is exported by its name.
 
 `index.tsx` and files with a dotted part (`.stories`, `.test`) are not read. Next.js route files

@@ -68,6 +68,23 @@ fn import_direction_lets_layers_point_down_only() {
 }
 
 #[test]
+fn the_generated_client_imports_from_shared_only() {
+    let generated = "src/shared/api/generated/petstore.schemas.ts";
+    let files = [
+        ("src/entities/user/index.ts", "export const user = 1;\n"),
+        ("src/shared/lib/format.ts", "export const format = 1;\n"),
+        (
+            generated,
+            "import { format } from \"../../lib/format\";\nimport { user } from \"@/entities/user\";\n",
+        ),
+    ];
+    assert_eq!(
+        check("import-direction", NEXT, &files),
+        vec![row("layer", generated, Some(2))]
+    );
+}
+
+#[test]
 fn import_paths_keeps_one_alias_and_relative_imports_inside_a_unit() {
     let files = [
         (
@@ -143,12 +160,17 @@ fn import_paths_holds_imports_from_outside_to_the_public_api() {
         ("src/shared/config/index.ts", "export const config = 1;\n"),
         ("src/shared/config/env.ts", "export const env = 1;\n"),
         (
+            "src/shared/config/index.server.ts",
+            "export const serverEnv = 1;\n",
+        ),
+        (
             "src/widgets/header/ui/header.tsx",
-            "import { user } from \"@/entities/user\";\nimport { store } from \"@/entities/user/model/store\";\nexport { store as again } from \"@/entities/user/model/store\";\nconst later = import(\"@/entities/user/model/store\");\nimport { Form } from \"@/features/auth/sign-in\";\nimport { Button } from \"@/shared/ui/button\";\nimport { Button as Raw } from \"@/shared/ui/button/button\";\nimport { config } from \"@/shared/config\";\nimport { env } from \"@/shared/config/env\";\nimport { secret } from \"@/entities/user/index.server\";\nimport { offered } from \"@/entities/user/@x/invoice\";\nimport { Form as Inner } from \"@/features/auth/sign-in/ui/form\";\n",
+            "import { user } from \"@/entities/user\";\nimport { store } from \"@/entities/user/model/store\";\nexport { store as again } from \"@/entities/user/model/store\";\nconst later = import(\"@/entities/user/model/store\");\nimport { Form } from \"@/features/auth/sign-in\";\nimport { Button } from \"@/shared/ui/button\";\nimport { Button as Raw } from \"@/shared/ui/button/button\";\nimport { config } from \"@/shared/config\";\nimport { env } from \"@/shared/config/env\";\nimport { secret } from \"@/entities/user/index.server\";\nimport { offered } from \"@/entities/user/@x/invoice\";\nimport { Form as Inner } from \"@/features/auth/sign-in/ui/form\";\nimport { serverEnv } from \"@/shared/config/index.server\";\nimport { user as viaIndex } from \"@/entities/user/index\";\nimport { user as viaFile } from \"@/entities/user/index.ts\";\nimport { user as viaSlash } from \"@/entities/user/\";\n",
         ),
     ];
     let header = "src/widgets/header/ui/header.tsx";
-    let sidesteps = [2, 3, 4, 7, 9, 11, 12];
+    // An index file named past its folder is no public API's name; a trailing slash is.
+    let sidesteps = [2, 3, 4, 7, 9, 11, 12, 14, 15];
     assert_eq!(
         check("import-paths", NEXT, &files),
         sidesteps
@@ -156,14 +178,122 @@ fn import_paths_holds_imports_from_outside_to_the_public_api() {
             .map(|line| row("public-api", header, Some(*line)))
             .collect::<Vec<_>>()
     );
-    // index.server is a public API in Next.js only.
+    // index.server is a public API in Next.js only, of a slice and of a shared segment.
     let mut vite: Vec<_> = sidesteps
         .iter()
-        .chain(&[10])
+        .chain(&[10, 13])
         .map(|line| row("public-api", header, Some(*line)))
         .collect();
     vite.sort();
     assert_eq!(check("import-paths", VITE, &files), vite);
+}
+
+#[test]
+fn import_paths_tells_to_import_a_public_api_by_its_folder() {
+    let files = [
+        ("src/entities/user/index.ts", "export const user = 1;\n"),
+        (
+            "src/entities/user/model/store.ts",
+            "export const store = 1;\n",
+        ),
+        (
+            "src/widgets/header/ui/header.tsx",
+            "import { user } from \"@/entities/user/index\";\nimport { user as again } from \"@/entities/user/index.ts\";\nimport { store } from \"@/entities/user/model/store\";\n",
+        ),
+    ];
+    let mut helps = support::helps("import-paths", NEXT, &files);
+    helps.sort();
+    assert_eq!(
+        helps,
+        [
+            "import @/entities/user and export what is needed from its index.ts",
+            "write @/entities/user; a public API is imported by its folder",
+            "write @/entities/user; a public API is imported by its folder",
+        ]
+    );
+}
+
+#[test]
+fn import_paths_lets_the_app_and_the_entry_reach_the_route_tree() {
+    let files = [
+        ("src/app/route-tree.gen.ts", "export const routeTree = 1;\n"),
+        (
+            "src/app/entrypoint/router.ts",
+            "import { routeTree } from \"../route-tree.gen\";\nexport const router = routeTree;\n",
+        ),
+        (
+            "src/main.tsx",
+            "import { routeTree } from \"./app/route-tree.gen\";\nimport { router } from \"./app/entrypoint/router\";\n",
+        ),
+    ];
+    assert_eq!(
+        check("import-paths", VITE, &files),
+        vec![row("relative-exit", "src/main.tsx", Some(2))]
+    );
+}
+
+#[test]
+fn import_paths_reads_require_and_next_s_own_folders() {
+    let files = [
+        ("src/entities/user/index.ts", "export const user = 1;\n"),
+        (
+            "src/entities/user/model/store.ts",
+            "export const store = 1;\n",
+        ),
+        ("app/_parts/card.tsx", "export const Card = 1;\n"),
+        (
+            "app/blog/page.tsx",
+            "import { Card } from \"../_parts/card\";\nimport { user } from \"../../src/entities/user\";\nexport default function Page() { return null; }\n",
+        ),
+        (
+            "middleware.ts",
+            "import { store } from \"@/entities/user/model/store\";\nimport { user } from \"./src/entities/user\";\nexport function middleware() {}\n",
+        ),
+        (
+            "instrumentation.ts",
+            "import { hook } from \"./instrumentation-client\";\nexport function register() {}\n",
+        ),
+        ("instrumentation-client.ts", "export const hook = 1;\n"),
+        (
+            "src/widgets/header/ui/header.tsx",
+            "const store = require(\"@/entities/user/model/store\");\nimport raw = require(\"@/entities/user/model/store\");\nconst user = require(\"@/entities/user\");\nexport function Header() { return null; }\n",
+        ),
+    ];
+    let header = "src/widgets/header/ui/header.tsx";
+    assert_eq!(
+        check("import-paths", NEXT, &files),
+        vec![
+            row("public-api", "middleware.ts", Some(1)),
+            row("public-api", header, Some(1)),
+            row("public-api", header, Some(2)),
+            row("relative-exit", "app/blog/page.tsx", Some(2)),
+            row("relative-exit", "middleware.ts", Some(2)),
+        ]
+    );
+}
+
+#[test]
+fn the_code_rules_read_next_s_root_files() {
+    let files = [
+        (
+            "proxy.ts",
+            "export function proxy() { return fetch(\"/x\"); }\n",
+        ),
+        (
+            "instrumentation.ts",
+            "export const key = process.env.SECRET_KEY;\n",
+        ),
+        ("instrumentation-client.ts", "export {};\n"),
+    ];
+    assert_eq!(
+        check("api-boundary", NEXT, &files),
+        vec![row("raw-call", "proxy.ts", Some(1))]
+    );
+    assert_eq!(
+        check("env-access", NEXT, &files),
+        vec![row("outside", "instrumentation.ts", Some(1))]
+    );
+    assert_eq!(check("env-access", VITE, &files), vec![]);
 }
 
 #[test]
@@ -200,6 +330,23 @@ fn component_names_ties_a_ui_file_to_its_component() {
             ),
             row("extra", "src/entities/user/ui/user-avatar.tsx", Some(1)),
             row("name", "src/entities/user/ui/user-avatar.tsx", None),
+        ]
+    );
+}
+
+#[test]
+fn component_names_counts_functions_and_classes_as_components_only() {
+    let path = "src/entities/user/ui/user-card.tsx";
+    let files = [(
+        path,
+        "export function UserCard() { return null; }\nexport const MAX_SIZE = 1;\nexport const DEFAULT_RENDER = () => null;\nexport enum Tone { Light }\nexport interface Shape {}\nexport type Kind = 1;\nexport const Theme = { dark: true };\nexport const Badge = () => null;\nexport class Panel {}\nconst Frame = memo(() => null);\nexport { Frame };\n",
+    )];
+    assert_eq!(
+        check("component-names", NEXT, &files),
+        vec![
+            row("extra", path, Some(8)),
+            row("extra", path, Some(9)),
+            row("extra", path, Some(11)),
         ]
     );
 }
@@ -301,7 +448,15 @@ fn api_boundary_keeps_the_network_in_the_api_segment() {
         ),
         (
             "src/entities/user/ui/user-card.tsx",
-            "import { client } from \"@/shared/api\";\nfetch(\"/a\");\nwindow.fetch(\"/b\");\nglobalThis.fetch(\"/c\");\n",
+            "import { client } from \"@/shared/api\";\nfetch(\"/a\");\nwindow.fetch(\"/b\");\nglobalThis.fetch(\"/c\");\nself.fetch(\"/d\");\n",
+        ),
+        (
+            "src/entities/user/model/upload.ts",
+            "import adapter from \"axios/unsafe/fetch\";\nimport { near } from \"axios-like\";\n",
+        ),
+        (
+            "src/app/providers/query.ts",
+            "import { client } from \"@/shared/api\";\n",
         ),
         (
             "src/entities/user/model/use-user.ts",
@@ -316,11 +471,27 @@ fn api_boundary_keeps_the_network_in_the_api_segment() {
                 "src/entities/user/ui/user-card.tsx",
                 Some(1)
             ),
+            row("raw-call", "src/entities/user/model/upload.ts", Some(1)),
             row("raw-call", "src/entities/user/model/use-user.ts", Some(1)),
             row("raw-call", "src/entities/user/ui/user-card.tsx", Some(2)),
             row("raw-call", "src/entities/user/ui/user-card.tsx", Some(3)),
             row("raw-call", "src/entities/user/ui/user-card.tsx", Some(4)),
+            row("raw-call", "src/entities/user/ui/user-card.tsx", Some(5)),
         ]
+    );
+
+    // A library's entry re-exports the client; its other segments do not import it.
+    let library = [
+        ("src/api/index.ts", "export const client = 1;\n"),
+        ("src/index.ts", "export { client } from \"./api\";\n"),
+        (
+            "src/ui/card.tsx",
+            "import { client } from \"../api\";\nexport function Card() { return null; }\n",
+        ),
+    ];
+    assert_eq!(
+        check("api-boundary", LIBRARY, &library),
+        vec![row("client-import", "src/ui/card.tsx", Some(1))]
     );
 }
 
@@ -350,7 +521,7 @@ fn env_access_keeps_literal_public_reads_in_the_environment_module() {
     let next = [
         (
             "src/shared/config/env.ts",
-            "export const api = process.env.NEXT_PUBLIC_API_URL;\nexport const secret = process.env.DATABASE_URL;\n",
+            "export const api = process.env.NEXT_PUBLIC_API_URL;\nexport const secret = process.env.DATABASE_URL;\nexport const mode = process.env.NODE_ENV;\n",
         ),
         (
             "src/shared/config/server-env.ts",
@@ -429,11 +600,11 @@ fn messages_compares_the_locales_and_the_keys_the_code_uses() {
         ),
         (
             "src/widgets/home/ui/home.tsx",
-            "import { useTranslations } from \"next-intl\";\nexport function Home() {\n  const t = useTranslations(\"home\");\n  return <>{t(\"title\")}{t(\"missing\")}{t.rich(\"lead\")}</>;\n}\n",
+            "import { useTranslations } from \"next-intl\";\nexport function Home() {\n  const t = useTranslations(\"home\");\n  t.rich(\"rich\");\n  t.markup(\"markup\");\n  t.raw(\"raw\");\n  return <>{t(\"title\")}{t(\"missing\")}{t.rich(\"lead\")}</>;\n}\n",
         ),
         (
             "app/page.tsx",
-            "import { getTranslations } from \"next-intl/server\";\nexport default async function Page() {\n  const t = await getTranslations({ namespace: \"home\" });\n  return t(\"gone\");\n}\n",
+            "import { getTranslations } from \"next-intl/server\";\nexport default async function Page() {\n  const t = await getTranslations({ namespace: \"home\" });\n  t(\"title\");\n  return t(\"gone\");\n}\n",
         ),
     ];
     assert_eq!(
@@ -442,8 +613,11 @@ fn messages_compares_the_locales_and_the_keys_the_code_uses() {
             row("empty", "src/shared/i18n/messages/en.json", None),
             row("locale-keys", "src/shared/i18n/messages/de.json", None),
             row("locale-keys", "src/shared/i18n/messages/de.json", None),
-            row("unknown-key", "app/page.tsx", Some(4)),
+            row("unknown-key", "app/page.tsx", Some(5)),
             row("unknown-key", "src/widgets/home/ui/home.tsx", Some(4)),
+            row("unknown-key", "src/widgets/home/ui/home.tsx", Some(5)),
+            row("unknown-key", "src/widgets/home/ui/home.tsx", Some(6)),
+            row("unknown-key", "src/widgets/home/ui/home.tsx", Some(7)),
         ]
     );
 
@@ -460,6 +634,33 @@ fn messages_compares_the_locales_and_the_keys_the_code_uses() {
     assert_eq!(
         messages("messages", VITE, &vite),
         vec!["src/widgets/home/ui/home.tsx shows the message a.c, which src/shared/i18n/messages/en.json lacks".to_owned()]
+    );
+}
+
+#[test]
+fn messages_reads_i18next_plurals_and_contexts() {
+    let home = "src/widgets/home/ui/home.tsx";
+    let files = [
+        (
+            "src/shared/i18n/messages/en.json",
+            r#"{ "item_one": "An item", "item_other": "Items", "place_ordinal_two": "Second", "friend": "A friend", "gift_male": "His gift" }"#,
+        ),
+        (
+            "src/shared/i18n/messages/pl.json",
+            r#"{ "item_one": "x", "item_few": "x", "item_many": "x", "item_other": "x", "place_ordinal_two": "x", "friend": "x", "gift_male": "x" }"#,
+        ),
+        (
+            home,
+            "import { useTranslation } from \"react-i18next\";\nexport function Home({ count }: { count: number }) {\n  const { t } = useTranslation();\n  t(\"item\", { count });\n  t(\"place\", { count, ordinal: true });\n  t(\"friend\", { context: \"female\" });\n  t(\"gift\", { context: \"male\" });\n  t(\"item\");\n  t(\"gift\");\n  return null;\n}\n",
+        ),
+    ];
+    // A locale holds the plural forms of its language: pl's few and many are no extra messages.
+    assert_eq!(
+        check("messages", VITE, &files),
+        vec![
+            row("unknown-key", home, Some(8)),
+            row("unknown-key", home, Some(9)),
+        ]
     );
 }
 
@@ -491,6 +692,10 @@ fn route_files_holds_each_router_to_its_files_and_exports() {
             "export async function GET() { return new Response(); }\n",
         ),
         ("app/api/broken/route.ts", "export const handler = 1;\n"),
+        (
+            "app/global-not-found.tsx",
+            "export default function GlobalNotFound() { return null; }\n",
+        ),
     ];
     assert_eq!(
         check("route-files", NEXT, &next),
@@ -592,5 +797,21 @@ fn style_files_keeps_global_styles_in_the_app_styles_segment() {
             row("import", "src/shared/ui/card/card.tsx", Some(2)),
             row("orphan", "src/shared/ui/card/badge.module.css", None),
         ]
+    );
+}
+
+#[test]
+fn style_files_lets_the_vite_entry_import_the_global_stylesheet() {
+    let files = [
+        ("src/app/styles/globals.css", ""),
+        ("src/main.tsx", "import \"./app/styles/globals.css\";\n"),
+        (
+            "src/shared/ui/card/card.tsx",
+            "import \"@/app/styles/globals.css\";\nexport function Card() { return null; }\n",
+        ),
+    ];
+    assert_eq!(
+        check("style-files", VITE, &files),
+        vec![row("import", "src/shared/ui/card/card.tsx", Some(1))]
     );
 }
