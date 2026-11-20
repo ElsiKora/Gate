@@ -75,8 +75,13 @@ configuration); the CHANGELOG entry under Breaking says the table is renamed and
 
 ## Resume point
 
-2026-11-20T17:58:09+00:00: rebased onto `main` at `7f62554`. Main's `check_presets` reads
-`self.declarations`, and `presets()` takes a `&PluginInfo`, so `check_decisions` walks the
-declarations too and runs for every declared plugin, whether or not the run loads it. The entries
-are in the 0.3.0 CHANGELOG section. T-059, T-061 and T-052 are stacked on this branch in that
-order, and one lane round on T-052's tip counts for all four; next: that round.
+2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on T-052's tip `d52d7a0`, on `main`
+at `4c09a04`, was green: fmt, clippy, test, deny, release build, sync, actionlint and the leak scan
+all exit 0; all 18 changed crates compiled from the round's own checkout, and the 7 tests this
+branch adds passed by name. Main then moved to `d0c6cda` (T-071 workspace presets, the frontend and
+ci plugins, T-075, T-081, T-082), so the stack is rebased onto it: the CHANGELOG keeps main's
+Breaking and Features entries before this branch's, and the runtime probe keeps main's `both` preset
+beside `lenient`. `check_decisions` still walks the declarations scope by scope, so a preset that
+`[workspace] extends` turns on at a root that is not a project gives the default of its
+repository-scope rules. T-059, T-061 and T-052 are stacked on this branch in that order; next: one
+lane round on T-052's tip for all four.
