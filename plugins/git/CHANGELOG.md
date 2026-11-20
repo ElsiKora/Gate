@@ -21,6 +21,22 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   a commit before the push (`git rebase -i`), or, when it is already shared, give it an exception by
   its commit id. Commits already on the remote ref or on main are not checked.
 
+### Added
+
+- `git/commit-message` takes `prohibited-body-lines`, regular expressions of the body lines the
+  message being written and the pushed commits' messages may not carry, empty by default: each is
+  searched in every line after the header that is neither blank nor in the trailer block, and each
+  line one matches is a finding of the new aspect `prohibited-body-lines`, an ignored message
+  included. A note such as `Generated with ...`, which is no trailer, can now be refused. A pattern
+  that does not compile, or an empty one, is a configuration error.
+
+### Bug Fixes
+
+- `git/commit-message`'s `body-full-stop` judges the body above its trailer block, the block
+  `git interpret-trailers` and `prohibited-trailers` find. A body that ends with a full stop and
+  then a `Co-authored-by` block no longer fails it, and a body that is only a trailer block passes;
+  a body without a full stop above the block still fails.
+
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.2.0...plugin-git-v0.2.1) (2026-11-20)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.

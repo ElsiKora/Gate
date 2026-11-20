@@ -77,9 +77,10 @@ Each check is an aspect named after the commitlint rule it ports, and is reporte
 | `subject-max-length` | The subject is longer than `subject-max-length`. |
 | `body-leading-blank` | There is a body, and the message's second line is not blank. |
 | `body-max-line-length` | A body line without a URL is longer than `body-max-line-length`. |
-| `body-full-stop` | The body does not end with `.`. |
+| `body-full-stop` | The body, above its trailer block, does not end with `.`; a body that is only a trailer block passes. |
 | `footer-leading-blank` | There is a footer, and the line before it is not blank. |
 | `footer-max-line-length` | A footer line without a URL is longer than `footer-max-line-length`. |
+| `prohibited-body-lines` | A body line matches one of `prohibited-body-lines`; one finding per line. |
 | `prohibited-trailers` | A trailer of the message's trailer block matches one of `prohibited-trailers`; one finding per trailer. |
 
 A case check skips text in backquotes or quotes (`` add the `README` `` is lower case), and passes
@@ -105,7 +106,7 @@ in the rule's entry instead:
 ```
 
 Scope: repository. Reads history: yes (the message, through the host's git interface). Aspects: the
-22 above.
+23 above.
 
 ## Options
 
@@ -127,10 +128,11 @@ UTF-16 code units: a character outside the Basic Multilingual Plane, such as an 
 | `ignores` | list of strings | `[]` | Regular expressions of messages that are not checked, besides the default ignores. |
 | `default-ignores` | boolean | `true` | Whether commitlint's default ignores apply. |
 | `prohibited-trailers` | list of strings | `[]` | Regular expressions of the trailers the message being written may not carry. |
+| `prohibited-body-lines` | list of strings | `[]` | Regular expressions of the body lines the message being written may not carry. |
 
 ### Regular expressions
 
-`header-pattern`, `ignores` and `prohibited-trailers` are read as JavaScript reads a regular
+`header-pattern`, `ignores`, `prohibited-trailers` and `prohibited-body-lines` are read as JavaScript reads a regular
 expression without flags, which is how the reference reads the first two. Every pattern option of
 the git plugin is read the same way:
 `template`, `pattern` and `subject` of [`git/branch-name`](branch-name.md), `directive-pattern` and
@@ -215,6 +217,31 @@ With it, a message ending in `Co-Authored-By: Example Agent` fails, one ending i
 prose after it. A pattern that does not compile, and an empty one, which would refuse every
 trailer, are errors that name the option and fail the run.
 
+The trailer block is also where `body-full-stop` stops reading: the body is judged above it, so a
+body that ends with a full stop and then a `Co-authored-by: A Person` block passes, and a body
+that is only a trailer block has no prose to end. `body-max-line-length` still reads every line.
+
+### Prohibited body lines
+
+`prohibited-body-lines` refuses lines of the body, such as a note that a tool or an assistant wrote
+the message, which is no trailer and which `prohibited-trailers` therefore does not see. The body
+lines are the lines after the header that are not blank and not in the trailer block, found as
+above: comment lines, a trailing `Conflicts:` block and the scissors section are not part of the
+message, and the second line counts even when no blank line comes before it. Each pattern is
+searched in each body line as written, and every line one matches is a finding that names it. An
+ignored message is checked too. The header and the trailers are not body lines; a trailer is
+`prohibited-trailers`' to refuse:
+
+```toml
+[rules]
+"git/commit-message" = { level = "error", options = { prohibited-body-lines = ['^[Gg]enerated (with|by) '], prohibited-trailers = ['^[Gg]enerated-([Ww]ith|[Bb]y): '] } }
+```
+
+With it, a body line `Generated with an assistant.` fails `prohibited-body-lines`, a trailer
+`Generated-with: an assistant` fails `prohibited-trailers`, and a line `A generator writes it.`
+passes. A pattern that does not compile, and an empty one, which would refuse every body line, are
+errors that name the option and fail the run.
+
 ## Example finding
 
 Committing with the message `feature(auth): add the login form`:
@@ -248,6 +275,9 @@ The rule gives the verdicts of `@commitlint/cli` 20.5.3 with that configuration,
 - The comment character is always `#`; the reference reads git's `core.commentChar`.
 - A push checks `<base>..<head>`, as `commitlint --from <base> --to <head>` does; for a new branch,
   with no base, it checks the head commit alone, where the reference needs a `--from`.
+- `body-full-stop` judges the body above its trailer block; the reference reads trailers as body,
+  so a message whose last paragraph is `Co-authored-by: A Person` fails it there.
+- `prohibited-body-lines` has no counterpart in the reference.
 - `prohibited-trailers` has no counterpart in the reference. It finds the trailer block as git does
   without configuration: the tokens of `trailer.<token>.key` do not count as lines git writes, and
   the separator is always `:`.

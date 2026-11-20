@@ -67,6 +67,10 @@ pub struct Options {
     /// messages may not carry, each searched in every trailer of its trailer block, written
     /// `Token: value`. An ignored message is checked too.
     pub prohibited_trailers: Vec<String>,
+    /// Regular expressions of the body lines the message being written and the pushed commits'
+    /// messages may not carry, each searched in every line after the header that is neither
+    /// blank nor in the trailer block. An ignored message is checked too.
+    pub prohibited_body_lines: Vec<String>,
 }
 
 impl Default for Options {
@@ -89,6 +93,7 @@ impl Default for Options {
             ignores: Vec::new(),
             default_ignores: true,
             prohibited_trailers: Vec::new(),
+            prohibited_body_lines: Vec::new(),
         }
     }
 }
@@ -116,6 +121,7 @@ const ASPECTS: &[&str] = &[
     "body-full-stop",
     "footer-leading-blank",
     "footer-max-line-length",
+    "prohibited-body-lines",
     "prohibited-trailers",
 ];
 
@@ -208,7 +214,32 @@ fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit
             finding.help(advice(&help));
         }
     }
-    // A trailer stays in history whatever the header says, so an ignored message is checked too.
+    // A body line and a trailer stay in history whatever the header says, so an ignored message is
+    // checked too.
+    for line in body_lines(message) {
+        let Some(pattern) = patterns
+            .prohibited_lines
+            .iter()
+            .find(|(_, prohibited)| prohibited.is_match(line))
+            .map(|(text, _)| text)
+        else {
+            continue;
+        };
+        let finding = run.report().finding(
+            "prohibited-body-lines",
+            location.clone(),
+            text(format!(
+                "the body line {line:?} is prohibited: it matches prohibited-body-lines {pattern:?}"
+            )),
+        );
+        match commit {
+            Some(commit) => finding
+                .target(commit.id.as_str())
+                .key(format!("{} {line}", commit.id)),
+            None => finding.target(line).key(line),
+        };
+        finding.help(advice("remove the line from the message"));
+    }
     for trailer in trailers(message) {
         let Some(pattern) = patterns
             .prohibited
@@ -275,6 +306,8 @@ struct Patterns {
     ignores: Vec<Regex>,
     /// `prohibited-trailers`, each with the text it was written as.
     prohibited: Vec<(String, Regex)>,
+    /// `prohibited-body-lines`, each with the text it was written as.
+    prohibited_lines: Vec<(String, Regex)>,
     /// A quoted span, which a case check skips.
     quoted: Regex,
     /// A first character that has a case.
@@ -301,20 +334,18 @@ impl Patterns {
             .iter()
             .map(|text| javascript("ignores", text, WRITE_IGNORE))
             .collect::<Result<Vec<_>>>()?;
-        let prohibited = options
-            .prohibited_trailers
-            .iter()
-            .map(|text| {
-                if text.is_empty() {
-                    return Err(Error::config(format!(
-                        "git/commit-message prohibited-trailers has an empty pattern, which \
-                         refuses every trailer; {WRITE_TRAILER}"
-                    )));
-                }
-                javascript("prohibited-trailers", text, WRITE_TRAILER)
-                    .map(|pattern| (text.clone(), pattern))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let prohibited = refusals(
+            "prohibited-trailers",
+            &options.prohibited_trailers,
+            "trailer",
+            WRITE_TRAILER,
+        )?;
+        let prohibited_lines = refusals(
+            "prohibited-body-lines",
+            &options.prohibited_body_lines,
+            "body line",
+            WRITE_BODY_LINE,
+        )?;
         let breaking = if options.header_pattern.is_some() {
             None
         } else {
@@ -328,6 +359,7 @@ impl Patterns {
             header,
             ignores,
             prohibited,
+            prohibited_lines,
             quoted: builtin(
                 "the quoted-span pattern",
                 &format!("`{any}*?`|\"{any}*?\"|'{any}*?'"),
@@ -353,6 +385,34 @@ const WRITE_HEADER: &str = "write a JavaScript regular expression without lookar
 /// What to write in `ignores`.
 const WRITE_IGNORE: &str = "write a JavaScript regular expression without lookaround or \
                             backreferences that the messages to skip match, such as \"^Merge \"";
+
+/// The patterns of the option `option`, each with the text it was written as. An empty pattern,
+/// which would refuse every `what`, and one that does not compile are configuration errors that
+/// name the option and say what to `write`.
+fn refusals(
+    option: &str,
+    texts: &[String],
+    what: &str,
+    write: &str,
+) -> Result<Vec<(String, Regex)>> {
+    texts
+        .iter()
+        .map(|text| {
+            if text.is_empty() {
+                return Err(Error::config(format!(
+                    "git/commit-message {option} has an empty pattern, which refuses every \
+                     {what}; {write}"
+                )));
+            }
+            javascript(option, text, write).map(|pattern| (text.clone(), pattern))
+        })
+        .collect()
+}
+
+/// What to write in `prohibited-body-lines`.
+const WRITE_BODY_LINE: &str = "write a JavaScript regular expression without lookaround or \
+                               backreferences that the body lines to refuse match, such as \
+                               \"^Generated with \"";
 
 /// What to write in `prohibited-trailers`.
 const WRITE_TRAILER: &str = "write a JavaScript regular expression without lookaround or \
@@ -616,18 +676,23 @@ fn log_end(lines: &[&str]) -> usize {
     start.unwrap_or(lines.len())
 }
 
-/// The trailers of `message` as `git interpret-trailers` finds them, each unfolded and written
-/// `Token: value`. They are the lines of its last paragraph, never the first (the title), when
-/// every line of it is a trailer or continues one (starts with white space), or when it holds a
-/// line of [`GIT_GENERATED`] and at least a quarter of its lines are trailers. Comment lines, a
-/// trailing old-style `Conflicts:` block and what follows the scissors line are not part of the
-/// message.
-fn trailers(message: &str) -> Vec<String> {
+/// A message as git reads it for its trailers: the lines above the scissors line and before a
+/// trailing run of comment lines, empty lines and an old-style `Conflicts:` block, without comment
+/// lines and trailing blank lines; and where its trailer block starts, when it has one.
+struct Kept<'m> {
+    lines: Vec<&'m str>,
+    block: Option<usize>,
+}
+
+/// `message` as [`Kept`]. The trailer block is the last paragraph, never the first (the title),
+/// when every line of it is a trailer or continues one (starts with white space), or when it holds
+/// a line of [`GIT_GENERATED`] and at least a quarter of its lines are trailers.
+fn kept(message: &str) -> Kept<'_> {
     let above: Vec<&str> = lines(message)
         .into_iter()
         .take_while(|line| *line != SCISSORS)
         .collect();
-    let kept: Vec<&str> = above[..log_end(&above)]
+    let mut kept: Vec<&str> = above[..log_end(&above)]
         .iter()
         .copied()
         .filter(|line| !line.starts_with('#'))
@@ -637,18 +702,20 @@ fn trailers(message: &str) -> Vec<String> {
         .iter()
         .rposition(|line| !blank(line))
         .map_or(0, |last| last + 1);
-    let kept = &kept[..end];
+    kept.truncate(end);
     // The first paragraph is the title; without a blank line after it there is no other.
     let Some(start) = kept.iter().rposition(blank).map(|at| at + 1) else {
-        return Vec::new();
+        return Kept {
+            lines: kept,
+            block: None,
+        };
     };
-    let block = &kept[start..];
 
     let mut trailer_lines = 0_usize;
     let mut other_lines = 0_usize;
     let mut recognized = false;
     let mut after_trailer = false;
-    for line in block {
+    for line in &kept[start..] {
         if line.starts_with(is_git_space) {
             if !after_trailer {
                 other_lines += 1;
@@ -667,9 +734,36 @@ fn trailers(message: &str) -> Vec<String> {
     }
     let is_block =
         trailer_lines > 0 && (other_lines == 0 || (recognized && trailer_lines * 3 >= other_lines));
-    if !is_block {
-        return Vec::new();
+    Kept {
+        lines: kept,
+        block: is_block.then_some(start),
     }
+}
+
+/// The lines `prohibited-body-lines` reads in `message`: each line after the header that is
+/// neither blank nor in the trailer block, as [`Kept`] finds them.
+fn body_lines(message: &str) -> Vec<&str> {
+    let kept = kept(message);
+    let blank = |line: &&str| trim_git(line).is_empty();
+    let end = kept.block.unwrap_or(kept.lines.len());
+    kept.lines[..end]
+        .iter()
+        .copied()
+        .skip_while(blank)
+        .skip(1)
+        .filter(|line| !blank(line))
+        .collect()
+}
+
+/// The trailers of `message` as `git interpret-trailers` finds them, each unfolded and written
+/// `Token: value`: the lines of its trailer block (see [`kept`]). Comment lines, a trailing
+/// old-style `Conflicts:` block and what follows the scissors line are not part of the message.
+fn trailers(message: &str) -> Vec<String> {
+    let kept = kept(message);
+    let Some(start) = kept.block else {
+        return Vec::new();
+    };
+    let block = &kept.lines[start..];
 
     let mut found: Vec<(&str, String)> = Vec::new();
     let mut after_trailer = false;
@@ -1210,6 +1304,30 @@ fn subject_checks(
     }
 }
 
+/// `body` without the trailer block of the message `raw` when the body ends with that block as a
+/// paragraph of its own, and without the white space before it; `body` itself otherwise.
+fn above_trailers<'b>(body: &'b str, raw: &str) -> &'b str {
+    let kept = kept(raw);
+    let Some(start) = kept.block else {
+        return body;
+    };
+    let block = &kept.lines[start..];
+    let body_lines = lines(body);
+    let Some(split) = body_lines.len().checked_sub(block.len()) else {
+        return body;
+    };
+    let before = &body_lines[..split];
+    if body_lines[split..] != *block || before.last().is_some_and(|line| !trim_git(line).is_empty())
+    {
+        return body;
+    }
+    // The lines before the block are the start of `body`, each followed by one line feed.
+    let length: usize = before.iter().map(|line| line.len() + 1).sum();
+    body.get(..length.min(body.len()))
+        .unwrap_or(body)
+        .trim_end_matches(is_git_space)
+}
+
 fn body_checks(found: &mut Failures, parsed: &Parsed, options: &Options) {
     let raw = lines(&parsed.raw);
     if let Some(body) = present(parsed.body.as_ref()) {
@@ -1232,7 +1350,8 @@ fn body_checks(found: &mut Failures, parsed: &Parsed, options: &Options) {
                 "wrap the body's lines",
             );
         }
-        if !body.ends_with('.') {
+        let above = above_trailers(body, &parsed.raw);
+        if !above.is_empty() && !above.ends_with('.') {
             found.add(
                 "body-full-stop",
                 "the body does not end with a full stop".to_owned(),
