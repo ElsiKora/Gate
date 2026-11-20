@@ -6178,6 +6178,25 @@ fn a_commit_message_check_whose_selected_rules_read_no_message_says_so() {
         stderr.contains("gate: warning: no selected rule reads the commit message"),
         "{stderr}"
     );
+
+    // Listing the changed projects runs no rule, so it warns of none.
+    let output = git.check(
+        "",
+        "\"git/commit-message\" = \"error\"\n\"git/branch-name\" = { level = \"error\", options = { pattern = \"^feature/.+$\" } }",
+        &[
+            "--commit-message",
+            &at,
+            "--rule",
+            "git/branch-name",
+            "--list-changed-projects",
+        ],
+    );
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    assert!(
+        !stderr.contains("gate: warning: no selected rule"),
+        "{stderr}"
+    );
 }
 
 #[test]

@@ -170,5 +170,15 @@ Each test fails before its change. They use synthetic plugins and trees.
   code 0`. Its logs show `gate`, `gate-host`, `gate-runtime`, `gate-sdk`, `gate-plugin-git` and
   `gate-runtime-probe` compiled from this worktree, none from another, and the twelve tests listed
   by name.
-- Next: the lead checks the fix round, then the consumer's cold `commit-msg` row, before and
-  after.
+- 2026-11-20T20:19:36+00:00: the review check of the fix round: every finding fixed in code, one blocking documents
+  fix. Rebased onto `main` at `18c0bf82` (T-075, T-067, T-078); conflicts only in `CHANGELOG.md`
+  and `crates/gate/tests/plugins.rs`, both sides kept; T-075's `commit_message.rs` merged without
+  conflict. The git plugin's `### Changed` block moves out of the released 0.2.1 section into its
+  0.3.0 Breaking Changes, without the sentence that said `git/commit-message` no longer reads
+  history (false since `5089a2b1`); the 0.2.1 section is identical to `main`'s. The root
+  `CHANGELOG.md` names `--base` among the refused selectors, as the code does; the guide's long
+  lines are rewrapped. The warning about a message check that ran no rule was already never
+  printed with `--list-changed-projects`, which returns before it; the warning test now proves
+  it. Not yet run in the lane on this tip.
+- Next: one round on this tip, reported by log; then the consumer's cold `commit-msg` row, before
+  and after.
