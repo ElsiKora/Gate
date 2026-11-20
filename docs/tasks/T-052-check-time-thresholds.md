@@ -67,16 +67,26 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
   nothing.
 - Do not edit docs/plan.md.
 
+## Proof
+
+Stack round 387 (ticket 000000000387) on T-052's tip `8361ffa`, the stack T-048, T-059, T-061, T-052
+on `main` at `308eca9`, in a fresh checkout with a target of its own (`CARGO_TARGET_DIR` per round),
+from 2026-11-20T22:53:37+00:00 to 2026-11-20T23:20:11+00:00: `cargo fmt --all --check` exit 0,
+`cargo clippy --locked --workspace --all-targets -- -D warnings` exit 0, `cargo deny --locked check`
+exit 0, `cargo build --release --locked` exit 0, `gate sync` and actionlint on the workflow the
+release build writes exit 0, leak scan exit 0. `cargo test --locked --workspace --no-fail-fast` exit
+101: 1478 passed, 1 failed, `a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, which
+the lead reports failing on `main` at `308eca9` itself (T-071 and T-057 together: it expects
+`git/branch-name` in a `--commit-message` run) and is fixed by T-071b; the lead ruled that the round
+counts with that failure alone. The log has `Compiling` from the round's checkout for all 18 crates
+the stack changes. The 4 tests this branch adds pass by name, the budget-table test after its CI job
+gained `timeout-minutes` (`8361ffa`), which round 382 found missing.
+
 ## Resume point
 
-2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on this branch's tip `d52d7a0`, the
-top of the stack T-048, T-059, T-061 on `main` at `4c09a04`, was green: fmt, clippy, test, deny,
-release build, sync, actionlint and the leak scan all exit 0; all 18 changed crates compiled from
-the round's own checkout, and the 4 tests this branch adds passed by name. Rebased onto T-061 on
-`main` at `d0c6cda`: main moved the checks of a CI job into `check_ci_job`, which now refuses a
-budget table through `check_budget`; main's sync state 7 (the workflow meets `ci/recommended`) is
-taken, so this branch's change of hooks and workflows is state 8; the guide's job example keeps
-main's `timeout-minutes` and writes the budget as a table; main's end-to-end test of the CI standard
-wrote `budget = 300`, which this branch refuses, so it writes the table too; the plan keeps main's
-rows and names the time thresholds where it named `--budget`. One lane round on this branch's tip
-counts for all four; next: that round.
+2026-11-20T23:21:26+00:00: rebased onto T-061 on `main` at `308eca9` (T-057). T-057's refusal of
+`--commit-message` beside a tree selector moves from `crates/gate/src/main.rs` into
+`CheckArgs::refusal` in `crates/gate-host/src/cli.rs`, between the `--target-ref` and threshold
+refusals, with its message unchanged, so `gate check` and the load-time check of hook and job
+entries share it. The plugin changelogs of ledger and agents and this Proof are docs-only commits on
+this tip. Stack round 387 counts for all four; next: the merge of the stack.

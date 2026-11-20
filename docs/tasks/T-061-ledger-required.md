@@ -176,28 +176,22 @@ SDK tests per rule, plus one end-to-end run per plugin through the built compone
   scan prints nothing.
 - Do not edit docs/plan.md unless the lead asks.
 
+## Proof
+
+Stack round 387 (ticket 000000000387) on T-052's tip `8361ffa`, the stack T-048, T-059, T-061, T-052
+on `main` at `308eca9`, in a fresh checkout with a target of its own (`CARGO_TARGET_DIR` per round),
+from 2026-11-20T22:53:37+00:00 to 2026-11-20T23:20:11+00:00: `cargo fmt --all --check` exit 0,
+`cargo clippy --locked --workspace --all-targets -- -D warnings` exit 0, `cargo deny --locked check`
+exit 0, `cargo build --release --locked` exit 0, `gate sync` and actionlint on the workflow the
+release build writes exit 0, leak scan exit 0. `cargo test --locked --workspace --no-fail-fast` exit
+101: 1478 passed, 1 failed, `a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, which
+the lead reports failing on `main` at `308eca9` itself (T-071 and T-057 together: it expects
+`git/branch-name` in a `--commit-message` run) and is fixed by T-071b; the lead ruled that the round
+counts with that failure alone. The log has `Compiling` from the round's checkout for all 18 crates
+the stack changes. The 16 tests this branch adds pass by name.
+
 ## Resume point
 
-2026-11-19: design written from `main` at `ec66737` and approved. Code written on T-059's tip:
-`plugins/ledger/src/input.rs` and the `input` aspect on every ledger rule that reads a file; the
-required `field`, `catalog` and `parity`; the agents rules and the `agents-block` generator; native
-tests (`plugins/ledger/tests/rules/presence.rs` for an absent, partial and complete ledger) and
-end-to-end tests in `crates/gate/tests/plugins.rs`; the rule pages, the guide and the CHANGELOG.
-Round 263 (ticket 000000000263, on `2cb3001`) stopped at clippy: `too_many_lines` in
-`instruction-references` (105/100); fixed by moving the command pattern and the files read into
-functions of their own. Rebased onto T-059 at `21d2d53`; the `agents()` test helper now uses the
-memoized `component()` that main's T-060 brought. Round 309 was a false green: it shared a target
-with T-059 and tested T-059's ledger and `gate` builds. Round 318 (own target, on `25033d5`)
-compiled every crate from this worktree and ran every new test; two end-to-end tests failed: the
-agents test ran `gate sync` before committing the rule file (sync reads the committed tree), and an
-existing test enabled `ledger/reuses` without the now required `catalog`. Both fixed. Round 330 (on
-`6c678e1`) green on T-059 at `21d2d53`. 2026-11-20T16:43:30+00:00: rebased onto T-059 at `c733d6a`,
-on main at `cee6491`; the guide keeps main's preset paragraph and adds the sentence on presets and
-required options. 2026-11-20T17:58:09+00:00: rebased onto T-059 at `904f5c7`, on main at `7f62554`;
-T-052 is stacked on this branch, and one lane round on T-052's tip counts for all four. Next: that
-round. 2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on T-052's tip `d52d7a0`, on
-`main` at `4c09a04`, was green in every step, with every changed crate compiled from the round's own
-checkout; the 16 tests this branch adds passed by name. Rebased onto T-059 on `main` at `d0c6cda`:
-the guide keeps main's preset paragraph, which now names `[workspace] extends` and the `frontend`
-and `ci` presets, and adds this branch's sentence on presets and required options after it. T-052 is
-stacked on this branch; next: one lane round on T-052's tip for all four.
+2026-11-20T23:21:26+00:00: rebased onto T-059 on `main` at `308eca9` without conflict; the ledger
+and agents changelogs list this branch's changes in their 0.3.0 sections (commit on T-052's tip).
+Stack round 387 counts for all four (see Proof); next: the merge of the stack.
