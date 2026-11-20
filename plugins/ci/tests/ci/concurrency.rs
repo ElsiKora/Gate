@@ -61,3 +61,43 @@ jobs: {}
         ]
     );
 }
+
+#[test]
+fn a_workflow_only_called_by_another_needs_no_group_of_its_own() {
+    let called = "\
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+jobs: {}
+";
+    let fixture = Fixture::new(&[
+        (".github/workflows/build.yml", called),
+        (
+            ".github/workflows/listed.yml",
+            "on: [workflow_call]\njobs: {}\n",
+        ),
+    ]);
+    assert_eq!(
+        lines(&fixture.check("concurrency", "{}").expect("runs")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_called_workflow_that_also_runs_on_its_own_needs_a_group() {
+    let both = "\
+on:
+  workflow_call:
+  workflow_dispatch:
+jobs: {}
+";
+    let fixture = Fixture::new(&[(".github/workflows/build.yml", both)]);
+    let findings = fixture.check("concurrency", "{}").expect("runs");
+    assert_eq!(aspects(&findings), ["missing 1 -"]);
+    assert_eq!(
+        lines(&findings),
+        [".github/workflows/build.yml:1 the workflow has no concurrency group"]
+    );
+}

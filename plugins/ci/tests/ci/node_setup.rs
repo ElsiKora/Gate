@@ -61,3 +61,26 @@ jobs:
         ]
     );
 }
+
+#[test]
+fn a_version_from_the_matrix_passes() {
+    let workflow = format!(
+        "\
+jobs:
+  test:
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/setup-node@{SHA} # v4.4.0
+        with:
+          node-version: ${{{{ matrix.node }}}}
+          cache: npm
+"
+    );
+    let fixture = Fixture::new(&[(".github/workflows/ci.yml", &workflow)]);
+    assert_eq!(
+        lines(&fixture.check("node-setup", "{}").expect("runs")),
+        Vec::<String>::new()
+    );
+}

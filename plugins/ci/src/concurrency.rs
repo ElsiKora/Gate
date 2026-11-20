@@ -35,7 +35,12 @@ impl Rule for Concurrency {
                         .and_then(Node::scalar)
                         .is_some_and(|group| !group.trim().is_empty())
             });
-            if !grouped {
+            // A workflow only ever called by another runs in its caller's group, and a group of its
+            // own named after `github.workflow` (the caller's name) would wait on the caller itself.
+            let triggered = triggers(workflow);
+            let called_only =
+                !triggered.is_empty() && triggered.iter().all(|event| event == "workflow_call");
+            if !grouped && !called_only {
                 let line = concurrency.map_or(1, |node| node.line);
                 run.report()
                     .finding(
@@ -56,7 +61,7 @@ impl Rule for Concurrency {
             if cancel.scalar() != Some("true") {
                 continue;
             }
-            let others: Vec<String> = triggers(workflow)
+            let others: Vec<String> = triggered
                 .into_iter()
                 .filter(|trigger| !CANCELLABLE.contains(&trigger.as_str()))
                 .collect();

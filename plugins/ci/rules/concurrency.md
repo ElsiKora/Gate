@@ -11,7 +11,9 @@ default branch, a deploy or a publish, which must run to their end. The rule rea
 file the `workflows` glob matches and reports:
 
 - `missing`: a workflow without a top-level `concurrency` that names a `group` (a plain
-  `concurrency: <group>` counts as one);
+  `concurrency: <group>` counts as one), unless its only trigger is `workflow_call`: a called
+  workflow runs inside its caller's group, and a group of its own named after `github.workflow`
+  (which there is the caller's name) would wait on the caller and never start;
 - `cancel`: `cancel-in-progress` set to the literal `true` in a workflow that runs on any event
   other than `pull_request`, `pull_request_target` or `merge_group`.
 

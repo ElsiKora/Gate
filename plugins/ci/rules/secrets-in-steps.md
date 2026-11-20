@@ -8,7 +8,8 @@ A variable in a workflow's or a job's `env` reaches every step under it, and eve
 steps run. A secret there is readable by code that never needed it. The rule reads every workflow
 file the `workflows` glob matches and reports:
 
-- `workflow-env`: a variable of the workflow's top-level `env` whose value reads `secrets.`;
+- `workflow-env`: a variable of the workflow's top-level `env` whose value is an expression
+  (`${{ ... }}`) that reads `secrets.`; plain text such as `see secrets.md` is not one;
 - `job-env`: the same in a job's `env`;
 - `inherit`: `secrets: inherit` on a job that calls a reusable workflow, which passes it every
   secret of the repository.

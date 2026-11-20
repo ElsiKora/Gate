@@ -1,14 +1,16 @@
 use crate::fixture::{Fixture, aspects, lines};
 
 #[test]
-fn a_secret_in_a_step_passes() {
+fn a_secret_in_a_step_and_plain_text_naming_a_secrets_file_pass() {
     let workflow = "\
 env:
   MODE: release
+  NOTES: see secrets.md
 jobs:
   deploy:
     env:
       REGION: eu
+      HELP: rotate the keys in secrets.toml
     steps:
       - run: ./deploy
         env:

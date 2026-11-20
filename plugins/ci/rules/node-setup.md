@@ -10,7 +10,9 @@ twice in one job is a sign of two ways of installing the package manager. The ru
 workflow file the `workflows` glob matches, and in each job every step that uses
 `actions/setup-node` (any ref), and reports:
 
-- `version-file`: the step has no `node-version-file` input;
+- `version-file`: the step has no `node-version-file` input and its `node-version` is not an
+  expression (`${{ matrix.node }}`: a version the workflow computes, such as a test matrix, is
+  chosen on purpose);
 - `cache`: the step has no `cache` input;
 - `once`: a second such step in the same job.
 

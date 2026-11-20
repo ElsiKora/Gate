@@ -3,7 +3,7 @@
 
 use gate_sdk::{Location, Rule, Run, Scope};
 
-use crate::workflows::{Options, Workflow, load, steps};
+use crate::workflows::{Options, Workflow, is_expression, load, steps};
 use gate_sdk::yaml::Node;
 
 /// The action the rule reads.
@@ -69,7 +69,11 @@ fn check_step(
     }
     let with = step.get("with");
     let input = |name: &str| with.and_then(|with| with.get(name));
-    if input("node-version-file").is_none() {
+    // A version the workflow computes (a matrix entry, an output) is chosen on purpose, not typed in.
+    let computed = input("node-version")
+        .and_then(Node::scalar)
+        .is_some_and(is_expression);
+    if input("node-version-file").is_none() && !computed {
         run.report()
             .finding(
                 "version-file",

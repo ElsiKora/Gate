@@ -2,7 +2,7 @@
 
 use gate_sdk::{Location, Rule, Run, Scope};
 
-use crate::workflows::{Options, Workflow, load};
+use crate::workflows::{Options, Workflow, is_expression, load};
 use gate_sdk::yaml::Node;
 
 /// The rule.
@@ -66,7 +66,11 @@ fn secret_variables(env: &Node) -> Vec<(String, usize)> {
     env.mapping()
         .unwrap_or_default()
         .iter()
-        .filter(|(_, value)| value.scalar().is_some_and(|text| text.contains("secrets.")))
+        .filter(|(_, value)| {
+            value
+                .scalar()
+                .is_some_and(|text| is_expression(text) && text.contains("secrets."))
+        })
         .map(|(name, value)| (name.scalar().unwrap_or("").to_owned(), value.line))
         .collect()
 }
