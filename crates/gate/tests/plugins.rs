@@ -4795,3 +4795,122 @@ fn after_gate_sync_no_check_compiles_a_plugin_again() {
         );
     }
 }
+
+/// One `[plugins."<source>"]` entry of a `gate.lock`, for a second plugin pinned beside the first.
+fn lock_entry(source: &str, url: &str) -> String {
+    format!(
+        "\n[plugins.\"{source}\"]\nurl = \"{url}\"\nsha256 = \"{}\"\n",
+        "c".repeat(64)
+    )
+}
+
+/// `gate check` with the built docker and repository plugins, as JSON: the exit code and each
+/// finding as `rule#aspect path:line`, sorted.
+fn hygiene_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
+    let docker = format!(
+        "docker={}",
+        component("gate-plugin-docker", "docker").0.display()
+    );
+    let repository = format!(
+        "repository={}",
+        component("gate-plugin-repository", "repository")
+            .0
+            .display()
+    );
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &docker,
+        "--plugin",
+        &repository,
+        "--format",
+        "json",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut findings: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            format!(
+                "{}#{} {}:{}",
+                finding["rule"].as_str().unwrap_or(""),
+                finding["aspect"].as_str().unwrap_or(""),
+                finding["location"]["path"].as_str().unwrap_or(""),
+                finding["location"]["span"]["line"].as_u64().unwrap_or(0)
+            )
+        })
+        .collect();
+    findings.sort();
+    (output.status.code(), findings)
+}
+
+#[test]
+fn the_docker_and_repository_rules_report_exactly_the_planted_files_and_pass_without_them() {
+    let repo = Repo::empty();
+    let docker = "acme/rules:docker@0.3.0";
+    let repository = "acme/rules:repository@0.3.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n\n[rules]\n\"repository/tracked-secrets\" = \"error\"\n\"repository/large-files\" = \"error\"\n\n[[profiles]]\nprojects = [\"apps/*\"]\n\n[profiles.rules]\n\"docker/dockerfile\" = \"error\"\n\"docker/compose\" = \"error\"\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &(lock(
+            docker,
+            "https://example.invalid/docker.wasm",
+            &"b".repeat(64),
+        ) + &lock_entry(repository, "https://example.invalid/repository.wasm")),
+    );
+    let digest = "0123456789abcdef".repeat(4);
+    repo.write("apps/api/gate.toml", "[project]\nname = \"api\"\n");
+    repo.write(
+        "apps/api/Dockerfile",
+        &format!(
+            "ARG NODE=node@sha256:{digest}\n\nFROM ${{NODE}} AS build\nWORKDIR /app\nCOPY src ./src\nRUN cp -r src out\n\nFROM ${{NODE}} AS runtime\nARG SOURCE\nARG REVISION\nARG VERSION\nLABEL org.opencontainers.image.source=$SOURCE \\\n      org.opencontainers.image.revision=$REVISION \\\n      org.opencontainers.image.version=$VERSION\nWORKDIR /app\nCOPY --from=build /app/out ./out\nUSER node\nCMD [\"node\", \"out/main.js\"]\n"
+        ),
+    );
+    repo.write("apps/api/Dockerfile.dockerignore", "**\n!src\n");
+    repo.write(
+        "apps/api/docker-compose.development.yml",
+        &format!(
+            "services:\n  api-development-database:\n    image: postgres@sha256:{digest}\n    environment:\n      POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:?set it in the shell}}\n    ports:\n      - \"127.0.0.1::5432\"\n    healthcheck:\n      test: [\"CMD\", \"pg_isready\"]\n  api-development-server:\n    build: .\n    depends_on:\n      api-development-database:\n        condition: service_healthy\n"
+        ),
+    );
+    repo.write("apps/api/.env.example", "DATABASE_URL=\n");
+    repo.write("apps/api/src/main.js", "console.log(\"api\");\n");
+
+    // The plants: a private key block in a fixture, and an image of 2 MiB.
+    let body: String = (0..20)
+        .map(|line| format!("{}\n", "QUJD".repeat(16 + line % 2)))
+        .collect();
+    let kind = "PRIVATE";
+    repo.write(
+        "apps/api/test/fixture.pem",
+        &format!("-----BEGIN {kind} KEY-----\n{body}-----END {kind} KEY-----\n"),
+    );
+    let mut image = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    image.resize(2 * 1024 * 1024, 0);
+    std::fs::create_dir_all(repo.path().join("docs")).expect("directories");
+    std::fs::write(repo.path().join("docs/hero.png"), image).expect("write");
+    repo.commit("a service with two planted files");
+
+    let (code, findings) = hygiene_check(&repo);
+    assert_eq!(
+        findings,
+        [
+            "repository/large-files#large docs/hero.png:0",
+            "repository/tracked-secrets#private-key apps/api/test/fixture.pem:1"
+        ]
+    );
+    assert_eq!(code, Some(1));
+
+    repo.git(&["rm", "-q", "apps/api/test/fixture.pem", "docs/hero.png"]);
+    repo.commit("the plants removed");
+    let (code, findings) = hygiene_check(&repo);
+    assert_eq!(findings, Vec::<String>::new());
+    assert_eq!(code, Some(0));
+}

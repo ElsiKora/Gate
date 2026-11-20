@@ -31,6 +31,12 @@ the entries below say.
 
 ### Features
 
+- **plugin-docker:** a new plugin, `docker` 0.3.0, with `docker/dockerfile` and `docker/compose`, and
+  the presets `docker/recommended` and `docker/adoption`.
+- **plugin-repository:** a new plugin, `repository` 0.3.0, with `repository/tracked-secrets` and
+  `repository/large-files`, and the presets `repository/recommended` and `repository/adoption`.
+- **sdk:** `gate_sdk::yaml`, behind the feature `yaml`: a YAML reader that keeps each node's line,
+  for rules that report at a line of a YAML file.
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per
   workflow file and ref: a newer pull-request run cancels the older one still in progress, and a
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run

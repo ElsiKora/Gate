@@ -42,6 +42,8 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `ledger` | project | none | no | none |
 | `nestjs` | project | TypeScript | no | none |
 | `ci` | repository | none | no | none |
+| `docker` | project | none | no | none |
+| `repository` | repository | none | no | none |
 
 ### `typescript`
 
@@ -217,12 +219,49 @@ ci = { source = "ElsiKora/Gate:ci@0.2.0" }
 | [`ci/actions-pinned`](../../plugins/ci/rules/actions-pinned.md) | actions and reusable workflows are pinned by a full commit SHA |
 | [`ci/workflow-run-target`](../../plugins/ci/rules/workflow-run-target.md) | `workflow_run` triggers name workflows that exist |
 
+### `docker`
+
+Image files and compose files: pinned images, stages, a user that is not root, no secret written in,
+ports on the loopback address only, and the health check where the orchestrator reads it.
+
+```toml
+[plugins.docker]
+source = "ElsiKora/Gate:docker@0.3.0"
+options = { registries = ["docker.io"] }  # optional; secret-names too
+
+[project]
+extends = ["docker/recommended"]
+```
+
+| Rule | Checks |
+| --- | --- |
+| [`docker/dockerfile`](../../plugins/docker/rules/dockerfile.md) | image files are named `Dockerfile`, pinned, staged, run as a user, carry the OCI labels and no health check, and ignore and hold no secret |
+| [`docker/compose`](../../plugins/docker/rules/compose.md) | compose files and services are named for their purpose, images are pinned, secrets stay out outside end-to-end files, ports stay local, and awaited services declare a health check |
+
+### `repository`
+
+What no repository should track, whatever its languages.
+
+```toml
+[plugins]
+repository = { source = "ElsiKora/Gate:repository@0.3.0" }  # in the root gate.toml
+
+[project]
+extends = ["repository/recommended"]
+```
+
+| Rule | Checks |
+| --- | --- |
+| [`repository/tracked-secrets`](../../plugins/repository/rules/tracked-secrets.md) | no environment file, key file, private key, token of a published shape or literal `.npmrc` credential is tracked; findings never hold the value |
+| [`repository/large-files`](../../plugins/repository/rules/large-files.md) | no file over 1 MiB is tracked unless `extra` declares it with its job; over 5 MiB is `huge` |
+
 ## 🎛 Presets
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
-`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. None of
-the shared plugins ships a preset yet, so turn their rules on one by one in `[rules]`; `gate list` shows
-the result.
+`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides.
+`docker` and `repository` ship two each: `<plugin>/recommended`, every rule at `error`, and
+`<plugin>/adoption`, every rule at `warning` for a repository on its way there. Turn the other shared
+plugins' rules on one by one in `[rules]`; `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 

@@ -1,0 +1,23 @@
+[package]
+name = "gate-plugin-repository"
+description = "The repository plugin of Gate: no secret and no large file is tracked, whatever the language"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.3.0"
+
+[lib]
+# The component is `repository.wasm`; the rlib lets the native tests call the plugin.
+name = "repository"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

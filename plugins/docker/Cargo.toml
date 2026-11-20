@@ -1,0 +1,22 @@
+[package]
+name = "gate-plugin-docker"
+description = "The docker plugin of Gate: images are pinned, staged, run as a user and ignore what must never enter them; compose files are named, pinned and keep secrets out"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.3.0"
+
+[lib]
+# The component is `docker.wasm`; the rlib lets the native tests call the plugin.
+name = "docker"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk = { workspace = true, features = ["yaml"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
