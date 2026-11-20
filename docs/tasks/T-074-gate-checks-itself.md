@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design; waiting for the lead |
+| Status | done; ready for the lead |
 | Release | 0.3.0 timeframe, built on the released 0.2.1 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |
 | Depends on | `main` at `cee6491` |
-| Touches | `gate.toml`, `gate.lock`, `bin/gate`, `.githooks/*`, `.github/workflows/gate.yml` (all new, at the root), `AGENTS.md` if the lead extends the type list; nothing under `crates/` or `plugins/` |
+| Touches | `gate.toml`, `gate.lock`, `bin/gate`, `.githooks/*`, `.github/workflows/gate.yml` (all new, at the root), `AGENTS.md` (the commit types and one line on the hooks); nothing under `crates/` or `plugins/` |
 
 ## Goal
 
@@ -58,7 +58,7 @@ ci = { source = "ElsiKora/Gate:ci@0.2.0" }
   '^[Cc]o-[Aa]uthored-[Bb]y: .*([Cc]laude|[Aa]nthropic|[Cc]opilot|[Oo]pen[Aa][Ii]|[Cc]hat[Gg][Pp][Tt]|[Gg]emini|[Cc]odex|[Cc]ursor|\b[Aa]gent\b|\b[Bb]ot\b|\bAI\b|\b[Aa]ssistant\b)',
   '^[Gg]enerated-([Ww]ith|[Bb]y): ',
 ] } }
-"git/branch-name" = { level = "error", options = { pattern = '^(task/T-[0-9]{3}[a-z]?-[a-z0-9.-]+|lead/[a-z0-9.-]+|release/v[0-9]+[.][0-9]+[.][0-9]+)$', max-length = 60, prohibited = ["master"] } }
+"git/branch-name" = { level = "error", options = { pattern = '^(main|task/T-[0-9]{3}[a-z]?-[a-z0-9.-]+|lead/[a-z0-9.-]+|release/v[0-9]+[.][0-9]+[.][0-9]+|(agent|claude)/[A-Za-z0-9._/-]+)$', min-length = 4, max-length = 80, prohibited = ["master"] } }
 "agents/instruction-references" = "error"
 "agents/no-claude-md" = "error"
 "markdown/local-links" = { level = "error", options = { roots = ["docs", "plugins"], extra-files = ["README.md", "AGENTS.md", "CHANGELOG.md"] } }
@@ -184,40 +184,84 @@ In CI, `branch-name` runs without `--hook`, so a push to `main` passes. A commit
 `--no-verify` skips the `commit-msg` hook, and CI does not catch it, because 0.2.1 reads no message
 in a pushed range. Decision 5 below covers this.
 
-## Decisions for the lead
+### Hooks on a shared `core.hooksPath`
 
-1. **Types.** Option (a): extend AGENTS.md to list `refactor`, `perf`, `style` and `revert`, which
-   history uses, and keep them in `types`. Option (b): keep AGENTS.md's six and drop the four from
-   `types`. Proposal: (a).
-2. **`prohibited`.** Proposal: `["master"]`, so that the lead can commit and push on `main`. The
-   other option is `[]`.
-3. **Desktop worktree branches.** `agent/*` branches fail `branch-name` in every hook, because
-   `core.hooksPath` is shared. Option (a): add `agent/[a-z0-9.-]+` to the pattern. Option (b): writers
-   work only on `task/*` branches, as AGENTS.md says, and the lead's sessions use `lead/*`.
-   Proposal: (b), and the lead's session renames its branch before its next commit.
-4. **"Generated with" in the body.** git 0.2.1 cannot refuse it. Proposal: a git plugin follow-up
-   adds an aspect for body lines that match a pattern (`prohibited-lines`), and also makes the
-   trailer paragraph stop counting as body for `body-full-stop`. Both are changes under `plugins/`,
-   outside this task.
-5. **History and CI.** `main-history` and `no-ci-skip` stay off. They need an activation commit
-   and custom forms, because main merges `task/*` branches and has no `chore(release)` commits.
-   Proposal: a follow-up, with commit messages in a pushed range checked by `check --push` in the
-   same change, so that CI catches `--no-verify`.
-6. **Left off.**
-   - `agents/rule-references` would fire on the plugin pages that name rule ids as examples.
-   - `markdown/frontmatter` would fire because no page here has front matter.
+`core.hooksPath` is shared by every worktree of a clone, and this machine has 113 worktrees of this
+repository (`git worktree list`). Most are on branches that have no `gate.toml` and no `bin/gate`.
+This was proved on a scratch clone with `extensions.worktreeConfig` on, as on this machine. After
+`bin/gate sync` set `core.hooksPath=.githooks`:
+
+- **A worktree on a branch from `cee6491`, without the files, is neither blocked nor broken.** The
+  relative path resolves in each worktree, and that worktree has no `.githooks/`, so git runs no hook.
+  `GIT_TRACE=1 git commit` shows no hook, and the commit took 0.08 s.
+- **The cost stays small.** At a load average of 29 (`uptime`), three commits in a row through
+  the hooks took 1.14 s, 0.42 s and 0.42 s, the first with a cold cache. Ten commits started at once in
+  ten worktrees each took between 1.03 s and 1.29 s, and all exited 0.
+- **The hooks work in practice.** These all ran through the hooks with the final configuration:
+  - a `Merge task/...: ...` merge on `main` passed;
+  - a commit on a `claude/*` branch passed;
+  - a message without a type was refused.
+- **The lane's round worktrees run no hook.**
+  - The lane script runs no git command.
+  - A round script runs only `git worktree add --detach`, `git log` and `git worktree remove`, and
+    `GIT_TRACE=1` shows no hook for them. Gate generates no `post-checkout` hook.
+  - As a guard, a round script turns hooks off in its own worktree with
+    `git -C <round-wt> config --worktree core.hooksPath /dev/null`. On the scratch clone, a worktree
+    with that setting committed a message without a type, and its neighbour without the setting
+    refused the same message.
+  - T-066b's round script now does this. It lives outside the repository.
+
+`core.hooksPath` is not set on the live repository by this task. After the merge, one `bin/gate sync`
+on `main` turns the hooks on for every worktree of that clone, as the line added to AGENTS.md says.
+
+## Decisions (the lead's answers)
+
+1. **Types: (a).** AGENTS.md now lists `refactor`, `perf`, `style` and `revert` beside the six.
+2. **`prohibited = ["master"]`.** The lead merges on `main` by design. `main` is also in the pattern,
+   and `min-length = 4` lets it through: the default `min-length` of 5 refused it in hook runs.
+3. **App worktree branches are allowed.** The pattern also takes `agent/*` and `claude/*`, and
+   `max-length = 80` fits the app's names. In hook runs with `--commit-message` and with `--push`,
+   these names pass on the scratch clone: `main`, `agent/t-011-public-presentation-1bd727`,
+   `claude/t-068-frontend-plugin-7143a8`, `lead/batch-3`, `task/T-074-gate-checks-itself` and
+   `release/v0.3.0`. These are refused: `master`, `feature/x` and `mainline`.
+4. **"Generated with" body lines** are a follow-up, T-075. See "Follow-ups".
+5. **`--no-verify` in CI** is a follow-up: move the pin to 0.3.0 at release. See "Follow-ups".
+6. **`agents/rule-references` and `markdown/frontmatter` stay off.**
+
+## Follow-ups
+
+- **T-075 (git plugin 0.3.0, assigned by the lead).**
+  - Add a prohibited body-line pattern to `git/commit-message`, so that a `Generated with ...` body
+    line is refused. 0.2.1 lets it through, measured with `bin/gate check --commit-message`.
+  - Make `body-full-stop` ignore the trailer paragraph. In 0.2.1, a person's `Co-authored-by` fails
+    it, so `body-full-stop` stays off here until then.
+- **Pin 0.3.0 at release.** On 0.3.0, `git/commit-message` checks every commit a push adds (T-055).
+  Moving this repository's pins to 0.3.0 at release therefore catches a `--no-verify` commit in CI.
+  `main-history` and `no-ci-skip` stay off for now.
 
 ## Done when
 
-- `gate.toml`, `gate.lock`, `bin/gate`, `.githooks/*` and `.github/workflows/gate.yml` are committed
-  at the root, with the lead's answers applied.
-- On the pushed tip, `bin/gate check` and `bin/gate sync --check` exit 0.
-- These commit messages are run through `bin/gate check --commit-message`. An AI `Co-Authored-By` and
-  a `Generated-with:` trailer exit 1; a person's `Co-authored-by` exits 0.
-- The leak scan prints nothing. There is no change under `crates/` or `plugins/`, so no lane round is
-  needed.
+- [x] `gate.toml`, `gate.lock`, `bin/gate`, `.githooks/*` and `.github/workflows/gate.yml` are
+  committed at the root, and AGENTS.md lists the ten types.
+- [x] On the tip:
+  - `bin/gate check` gives `7 rules, 0 errors, 0 warnings`;
+  - `bin/gate sync --check` gives `4 generated files, 0 out of date`;
+  - `bin/gate lock` leaves `gate.lock` unchanged.
+- [x] Through `bin/gate check --commit-message`:
+  - an AI `Co-Authored-By` trailer and a `Generated-with:` trailer are refused by
+    `prohibited-trailers`;
+  - a person's `Co-authored-by`, a `Merge task/...` merge and a `refactor(...)` commit pass.
+- [x] The hooks on a shared `core.hooksPath` block nothing on branches without the files, as shown
+  in "Hooks on a shared `core.hooksPath`" above.
+- [x] The leak scan prints nothing. There is no change under `crates/` or `plugins/`, so there is no
+  lane round.
 
 ## Resume point
+
+2026-11-20T17:06:52+00:00: the design was approved with the lead's six answers. The configuration,
+the hooks, the workflow and the AGENTS.md lines were committed and proved: the shared hooks were
+checked on a scratch clone, and the branch names in hook runs. Next: the lead's review and merge, then
+one `bin/gate sync` on `main`.
 
 2026-11-20T17:00:18+00:00: branch `task/T-074-gate-checks-itself` from `main` `cee6491`. The design
 above was measured on an export. Next: the lead's answers to the six decisions, then the files.
