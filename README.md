@@ -177,7 +177,7 @@ Gate/
 ├── crates/gate-test/      # The fixture harness for plugins
 ├── wit/                   # The plugin interface (gate:plugin)
 ├── languages/typescript/  # The TypeScript language library
-├── plugins/               # The shared plugins: typescript, git, markdown, agents, ledger, nestjs, ci
+├── plugins/               # The shared plugins: typescript, git, markdown, agents, ledger, nestjs, frontend, ci
 ├── examples/              # A minimal plugin, built in CI
 ├── scripts/               # Release and build scripts, the reproducible component build
 ├── spike/                 # The measurement that chose the plugin form (spike/RESULTS.md)
@@ -438,6 +438,7 @@ check to require in branch protection.
 | `agents` | Agent rule files and skills; generates the Claude Code adapters and the `AGENTS.md` rule table |
 | `ledger` | Decision ledger records, statuses, blockers and closers, and the decisions and owners exceptions cite |
 | `nestjs` | NestJS services built on [NestJS-Crud-Automator](https://github.com/ElsiKora/NestJS-Crud-Automator) |
+| `frontend` | React apps and libraries on one standard: layout, names, imports, API calls, environment, text, assets; packs for Vite, Next.js and libraries |
 | `ci` | GitHub Actions workflows: actions pinned by commit, `workflow_run` targets that exist |
 
 The [plugins guide](docs/guide/plugins.md) lists their rules and options. Your own plugin is pinned the
@@ -470,6 +471,7 @@ same way as these: see [writing a plugin](docs/guide/writing-a-plugin.md).
 | `git`: branch names and commit messages | 🚧 In Progress |
 | `typescript/barrel-imports` | 🚧 In Progress |
 | Cargo and Go workspace discovery | 🚧 In Progress |
+| `frontend`: one standard for React apps and libraries | 🚧 In Progress |
 
 ## ❓ FAQ
 

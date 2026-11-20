@@ -1,0 +1,225 @@
+//! `frontend/file-names`: every file and folder name under `src/` (and the root `app/` of Next.js)
+//! is kebab-case, its only dotted parts are `test`, `stories`, `module`, `d` and in Next.js
+//! `server`, a route folder takes its router's syntax, and `@x` names only an entity's folder. The
+//! generated API client keeps the names its generator writes.
+
+use std::collections::BTreeSet;
+
+use gate_sdk::{NoOptions, Rule, Run};
+use gate_typescript::call::TypeScriptCall;
+
+use crate::code::Project;
+use crate::options::{PACK, Pack};
+use crate::rules::{Found, report};
+use crate::standard::{
+    CROSS_IMPORT, FileName, NEXT_APP, SOURCE_ROOT, VITE_ROUTE_TREE, camel, kebab, within,
+};
+
+/// The rule.
+#[derive(Debug, Default)]
+pub struct FileNames;
+
+impl Rule<TypeScriptCall> for FileNames {
+    type Options = NoOptions;
+
+    const NAME: &'static str = "file-names";
+    const TITLE: &'static str =
+        "Files and folders under src/ are kebab-case, with route folders in their router's syntax";
+    const ASPECTS: &'static [&'static str] = &["file", "folder", "suffix"];
+    const LANGUAGES: &'static [&'static str] = &["typescript"];
+    const NEEDS: &'static [gate_sdk::Need] = &[PACK];
+
+    fn check(&self, run: &mut Run<'_, NoOptions, TypeScriptCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let project = Project::new(run, shared)?;
+            let found = check(&project);
+            report(run, found);
+            Ok(())
+        })
+    }
+}
+
+fn check(project: &Project<'_, '_>) -> Vec<Found> {
+    let pack = project.pack;
+    let route_folder = pack.route_folder();
+    let mut folders = BTreeSet::new();
+    let mut found = Vec::new();
+
+    let paths = project.paths.iter().copied().filter(|path| {
+        (within(path, SOURCE_ROOT) && !within(path, pack.generated_folder()))
+            || (pack == Pack::Nextjs && within(path, NEXT_APP))
+    });
+
+    for path in paths {
+        let segments: Vec<&str> = path.split('/').collect();
+        let (name, folder_names) = segments.split_last().unwrap_or((&"", &[]));
+
+        for depth in 1..folder_names.len() {
+            let folder = segments[..=depth].join("/");
+            if !folders.insert(folder.clone()) {
+                continue;
+            }
+            let routed =
+                route_folder.is_some_and(|root| within(&folder, root) && folder.len() > root.len());
+            if folder_names[depth] == CROSS_IMPORT {
+                if !cross_import_folder(project, &segments[..=depth]) {
+                    found.push(Found::at(
+                        "folder",
+                        &folder,
+                        format!("folder {folder}/ is an @x folder outside the root of an entity"),
+                        "only an entity slice holds @x, directly in its root",
+                    ));
+                }
+                continue;
+            }
+            if !folder_name(pack, folder_names[depth], routed) {
+                found.push(Found::at(
+                    "folder",
+                    &folder,
+                    format!("folder {folder}/ is not {}", form(pack, routed)),
+                    "rename the folder",
+                ));
+            }
+        }
+
+        if name.starts_with('.') || (path == VITE_ROUTE_TREE && pack == Pack::ReactVite) {
+            continue;
+        }
+
+        let routed = route_folder.is_some_and(|root| within(path, root));
+        let file = FileName::new(name);
+
+        if !file_stem(pack, file.stem, routed) {
+            found.push(Found::at(
+                "file",
+                path,
+                format!("file {path} is not {}", form(pack, routed)),
+                "rename the file in kebab-case; a component file is named after its component, user-card.tsx for UserCard",
+            ));
+        }
+
+        for part in &file.dotted {
+            let allowed = pack.dotted_parts().contains(part)
+                || (routed && pack == Pack::ReactVite && *part == "lazy")
+                || (routed && pack == Pack::Nextjs && next_alt_text(&file));
+            if !allowed {
+                found.push(
+                    Found::at(
+                        "suffix",
+                        path,
+                        format!(
+                            "file {path} carries the part .{part}; the only dotted parts are .{}",
+                            pack.dotted_parts().join(", .")
+                        ),
+                        "let the segment say the kind: name.helper.ts is lib/name.ts, name.service.ts is api/name.ts",
+                    )
+                    .named(part),
+                );
+            }
+        }
+    }
+
+    found
+}
+
+/// Whether `file` is the alt text Next.js reads beside a social image: `opengraph-image.alt.txt`,
+/// `twitter-image.alt.txt`.
+fn next_alt_text(file: &FileName<'_>) -> bool {
+    matches!(file.stem, "opengraph-image" | "twitter-image")
+        && file.dotted == ["alt"]
+        && file.extension == "txt"
+}
+
+/// Whether the folder of `segments`, named `@x`, is directly in the root of an entity slice, which
+/// may sit in a group.
+fn cross_import_folder(project: &Project<'_, '_>, segments: &[&str]) -> bool {
+    match segments {
+        [SOURCE_ROOT, "entities", _, _] => true,
+        [SOURCE_ROOT, "entities", group, _, _] => project
+            .groups
+            .contains(&format!("{SOURCE_ROOT}/entities/{group}")),
+        _ => false,
+    }
+}
+
+/// What a name in that place must be, for a message.
+fn form(pack: Pack, routed: bool) -> &'static str {
+    match (pack, routed) {
+        (Pack::ReactVite, true) => {
+            "kebab-case or a TanStack Router name ($param, _pathless, (group), __root)"
+        }
+        (Pack::Nextjs, true) => {
+            "kebab-case or a Next.js route name ([param], [...rest], [[...rest]], (group), @slot)"
+        }
+        _ => "kebab-case",
+    }
+}
+
+/// Whether a folder name is allowed.
+fn folder_name(pack: Pack, name: &str, routed: bool) -> bool {
+    kebab(name)
+        || (routed
+            && match pack {
+                Pack::ReactVite => vite_route_name(name),
+                Pack::Nextjs => next_route_name(name),
+                Pack::ReactLibrary => false,
+            })
+}
+
+/// Whether a file stem is allowed.
+fn file_stem(pack: Pack, stem: &str, routed: bool) -> bool {
+    kebab(stem)
+        || (routed && pack == Pack::ReactVite && (stem == "__root" || vite_route_name(stem)))
+}
+
+/// A `TanStack` Router path segment: `$param`, `$` (splat), `_pathless`, `(group)`.
+fn vite_route_name(name: &str) -> bool {
+    if name == "$" {
+        return true;
+    }
+    if let Some(parameter) = name.strip_prefix('$') {
+        return camel(parameter);
+    }
+    if let Some(pathless) = name.strip_prefix('_') {
+        return kebab(pathless);
+    }
+    group(name)
+}
+
+/// A Next.js App Router segment: `[param]`, `[...rest]`, `[[...rest]]`, `(group)`, `@slot`, and an
+/// intercepting route's `(.)`, `(..)` or `(...)` prefixes before one of those or a kebab name.
+fn next_route_name(name: &str) -> bool {
+    let mut rest = name;
+    while let Some(after) = ["(...)", "(..)", "(.)"]
+        .iter()
+        .find_map(|prefix| rest.strip_prefix(prefix))
+    {
+        rest = after;
+    }
+    if rest.len() < name.len() && kebab(rest) {
+        return true;
+    }
+    if let Some(slot) = rest.strip_prefix('@') {
+        return kebab(slot);
+    }
+    if let Some(inner) = rest
+        .strip_prefix("[[...")
+        .and_then(|inner| inner.strip_suffix("]]"))
+    {
+        return camel(inner);
+    }
+    if let Some(inner) = rest
+        .strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+    {
+        return camel(inner.strip_prefix("...").unwrap_or(inner));
+    }
+    group(rest)
+}
+
+/// A route group: `(name)` with a kebab name.
+fn group(name: &str) -> bool {
+    name.strip_prefix('(')
+        .and_then(|inner| inner.strip_suffix(')'))
+        .is_some_and(kebab)
+}

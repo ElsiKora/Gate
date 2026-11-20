@@ -4,7 +4,8 @@
 //! one parse per file and run, line numbers, module resolution with tsconfig `paths`, source
 //! owner tables ([`owners`]), environment coverage ([`env`]), import bindings ([`binding`], [`binder`]), module edges
 //! ([`modules`]), static value folding ([`value`]), JavaScript text semantics ([`javascript`],
-//! [`js`]) and the syntax helpers rule plugins share ([`syntax`]).
+//! [`js`]), the syntax helpers rule plugins share ([`syntax`]) and the call state that lets the
+//! rules of one plugin call share their sources and parses ([`call`]).
 //!
 //! Every parse of one run allocates into one [`Allocator`] that lives as long as the run, so a
 //! parsed [`SourceFile`] is shared by every rule that reads it. The oxc crates are re-exported so
@@ -16,6 +17,7 @@
 
 pub mod binder;
 pub mod binding;
+pub mod call;
 pub mod env;
 pub mod javascript;
 pub mod js;

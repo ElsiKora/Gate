@@ -1,0 +1,21 @@
+[package]
+name = "gate-plugin-frontend"
+description = "The frontend plugin of Gate: one standard for React apps and libraries (layout, names, imports, API, environment, text, assets), with packs for Vite, Next.js and libraries"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version = "0.3.0"
+
+[lib]
+# The component is `frontend.wasm`; the rlib lets the native tests call the plugin.
+name = "frontend"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+gate-typescript.workspace = true
+regex-automata.workspace = true
+
+[lints]
+workspace = true
