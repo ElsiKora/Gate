@@ -3,7 +3,9 @@
 The plugin is versioned on its own; its source is `ElsiKora/Gate:cdk@<version>`. A rule id, aspect,
 option or finding message that changes is a breaking change.
 
-## Unreleased
+# 0.3.0 (unreleased)
+
+Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
 
 ### Added
 

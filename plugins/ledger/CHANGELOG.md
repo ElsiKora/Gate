@@ -8,6 +8,16 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
+# 0.3.0 (unreleased)
+
+Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
+
+### Features
+
+- **ledger:** rebuilt for the plugin interface `gate:plugin@0.3.0`, whose `generate` call also
+  passes the `[plugins.ledger]` options. Its rules, its generators, their options and the files
+  they write are unchanged; pin `ledger@0.3.0` with the 0.3.0 core.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.1.0...plugin-ledger-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

@@ -5,6 +5,8 @@ versioning; a rule id, aspect, option or finding message that changes is a break
 
 # 0.3.0 (unreleased)
 
+Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
+
 ### Added
 
 - The `frontend` plugin: one standard for React apps and libraries. The option `pack` names the
