@@ -356,26 +356,29 @@ fn a_seeded_page_is_unfilled_until_its_marker_line_is_deleted() {
 #[test]
 fn a_listed_delegated_entry_is_linked_by_the_seed_and_must_be_tracked() {
     let options = r#"{"kind": "service", "delegated": ["agents", "ledger"]}"#;
-    let seeded = Fixture::from_output(&Fixture::new(&[]).generate(options).expect("seeds"))
-        .replaced(MARKER, "");
-    let tracked = seeded
-        .with("docs/agents/rules/general.md", "# General\n")
-        .with("docs/ledger/manifest.json", "{}\n");
-    assert_eq!(check(&tracked, options), Vec::<String>::new());
+    let tracked = || {
+        Fixture::from_output(&Fixture::new(&[]).generate(options).expect("seeds"))
+            .replaced(MARKER, "")
+            .with("docs/agents/rules/general.md", "# General\n")
+            .with("docs/ledger/manifest.json", "{}\n")
+    };
+    let unlinked = || {
+        tracked().replaced(
+            "| [ledger/](ledger/) | work records, verification, follow-ups |\n",
+            "",
+        )
+    };
+    assert_eq!(check(&tracked(), options), Vec::<String>::new());
     assert_eq!(
-        check(&tracked.without("docs/ledger/manifest.json"), options),
+        check(&tracked().without("docs/ledger/manifest.json"), options),
         ["delegated-missing docs/ledger ledger"]
     );
-    let unlinked = tracked.replaced(
-        "| [ledger/](ledger/) | work records, verification, follow-ups |\n",
-        "",
-    );
     assert_eq!(
-        check(&unlinked, options),
+        check(&unlinked(), options),
         ["index docs/README.md link ledger"]
     );
     assert_eq!(
-        check(&unlinked.without("docs/ledger/manifest.json"), options),
+        check(&unlinked().without("docs/ledger/manifest.json"), options),
         [
             "delegated-missing docs/ledger ledger",
             "index docs/README.md link ledger"
@@ -384,7 +387,7 @@ fn a_listed_delegated_entry_is_linked_by_the_seed_and_must_be_tracked() {
     );
     let unlisted = r#"{"kind": "service", "delegated": ["agents"]}"#;
     assert_eq!(
-        check(&unlinked, unlisted),
+        check(&unlinked(), unlisted),
         ["index docs/README.md link ledger"],
         "a delegated directory that exists needs its row, listed or not"
     );
