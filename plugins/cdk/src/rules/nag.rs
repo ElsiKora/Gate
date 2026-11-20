@@ -76,10 +76,10 @@ impl Rule<Cdk> for Nag {
                 let Some(file) = parsed(typescript, path)? else {
                     continue;
                 };
-                let nag_uses = uses(&file);
+                let mut nag_uses = uses(&file);
                 if path == ENTRY {
                     entry_read = true;
-                    registered.extend(nag_uses.registered);
+                    registered.extend(std::mem::take(&mut nag_uses.registered));
                 }
                 for found in nag_uses.found(path) {
                     report(run, found);

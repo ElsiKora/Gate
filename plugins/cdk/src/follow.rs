@@ -99,24 +99,24 @@ pub enum Property<'e, 'a> {
     Unknown,
 }
 
-/// The value `object` holds under `name`, through the spreads of same-file object literals.
+/// The value `literal` holds under `name`, through the spreads of same-file object literals.
 #[must_use]
 pub fn property<'e, 'a>(
     file: &SourceFile<'a>,
-    object: &'e ObjectExpression<'a>,
+    literal: &'e ObjectExpression<'a>,
     name: &str,
 ) -> Property<'e, 'a> {
-    property_at(file, object, name, 0)
+    property_at(file, literal, name, 0)
 }
 
 fn property_at<'e, 'a>(
     file: &SourceFile<'a>,
-    object: &'e ObjectExpression<'a>,
+    literal: &'e ObjectExpression<'a>,
     name: &str,
     depth: usize,
 ) -> Property<'e, 'a> {
     let mut held = Property::Absent;
-    for item in &object.properties {
+    for item in &literal.properties {
         match item {
             ObjectPropertyKind::ObjectProperty(entry) => {
                 match key_name(&entry.key, entry.computed) {
@@ -251,9 +251,8 @@ fn class_constructs(
     name: &str,
     depth: usize,
 ) -> gate_sdk::Result<bool> {
-    let Some(superclass) = find_class(file, name).and_then(|class| class.super_class.as_ref())
-    else {
+    let Some(heritage) = find_class(file, name).and_then(|class| class.heritage.as_ref()) else {
         return Ok(false);
     };
-    constructs(typescript, path, file, superclass, depth)
+    constructs(typescript, path, file, &heritage.expression, depth)
 }

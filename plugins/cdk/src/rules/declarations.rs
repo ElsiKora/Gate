@@ -110,7 +110,7 @@ fn judge<'p>(file: &SourceFile<'_>, path: &'p str, named: Option<(&str, &str)>) 
     }
 
     if entities.len() > 1 {
-        let names: Vec<&str> = entities.iter().map(|entity| entity.name.as_str()).collect();
+        let listed: Vec<&str> = entities.iter().map(|entity| entity.name.as_str()).collect();
         found.push(Found {
             aspect: "count",
             path,
@@ -119,7 +119,7 @@ fn judge<'p>(file: &SourceFile<'_>, path: &'p str, named: Option<(&str, &str)>) 
             message: format!(
                 "{path} declares {} entities ({}); a file declares one",
                 entities.len(),
-                names.join(", ")
+                listed.join(", ")
             ),
             help: "move each entity into a file of its own, named for it",
         });

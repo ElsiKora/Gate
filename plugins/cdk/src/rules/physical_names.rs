@@ -91,14 +91,14 @@ fn judge<'p>(
     Ok(found)
 }
 
-/// The properties of `object` and of the same-file object literals it spreads.
+/// The properties of `literal` and of the same-file object literals it spreads.
 fn own_properties<'e, 'a>(
     file: &SourceFile<'a>,
-    object: &'e ObjectExpression<'a>,
+    literal: &'e ObjectExpression<'a>,
     depth: usize,
 ) -> Vec<&'e ObjectProperty<'a>> {
     let mut properties: Vec<&'e ObjectProperty<'a>> = Vec::new();
-    for item in &object.properties {
+    for item in &literal.properties {
         match item {
             ObjectPropertyKind::ObjectProperty(property) => properties.push(property),
             ObjectPropertyKind::SpreadProperty(spread) if depth < 4 => {
