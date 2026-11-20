@@ -5,10 +5,9 @@
 use gate_sdk::serde_json::Value;
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::SourceFile;
-use gate_typescript::binding::ImportBindings;
 use gate_typescript::call::TypeScriptCall;
 use gate_typescript::oxc_ast::AstKind;
-use gate_typescript::oxc_ast::ast::Expression;
+use gate_typescript::oxc_ast::ast::{Expression, ImportOrExportKind};
 use gate_typescript::oxc_span::GetSpan;
 
 use crate::code::Project;
@@ -174,12 +173,37 @@ fn aliased(file: &SourceFile<'_>) -> bool {
     })
 }
 
-/// Whether `file` calls the plugin that makes Vite read the tsconfig `paths`.
+/// Whether `file` calls the plugin that makes Vite read the tsconfig `paths`: a call of a name it
+/// imports from the package, by a default, named or namespace import.
 fn reads_tsconfig(file: &SourceFile<'_>) -> bool {
-    let Some(bindings) = ImportBindings::new(file, TSCONFIG_PATHS_PLUGIN, false) else {
-        return false;
-    };
-    file.semantic().nodes().iter().any(|node| {
-        matches!(node.kind(), AstKind::CallExpression(call) if bindings.resolve(&call.callee).is_some())
+    let semantic = file.semantic();
+    let nodes = semantic.nodes();
+    let mut symbols = Vec::new();
+    for node in nodes.iter() {
+        if let AstKind::ImportDeclaration(import) = node.kind()
+            && import.import_kind != ImportOrExportKind::Type
+            && import.source.value == TSCONFIG_PATHS_PLUGIN
+        {
+            symbols.extend(
+                import
+                    .specifiers
+                    .iter()
+                    .flatten()
+                    .filter_map(|specifier| specifier.local().symbol_id.get()),
+            );
+        }
+    }
+
+    symbols.into_iter().any(|symbol| {
+        semantic
+            .scoping()
+            .get_resolved_references(symbol)
+            .any(|reference| {
+                let node = nodes.get_node(reference.node_id());
+                matches!(
+                    nodes.parent_kind(node.id()),
+                    AstKind::CallExpression(call) if call.callee.span() == node.span()
+                )
+            })
     })
 }

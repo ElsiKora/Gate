@@ -3288,9 +3288,15 @@ fn the_frontend_component_passes_each_standard_tree_and_reports_a_departure() {
             "{pack}: {}",
             text(&output.stderr)
         );
+        // A library's src/ holds segments, so the folder departs as a segment, not as a layer.
+        let aspect = if pack == "react-library" {
+            "shared"
+        } else {
+            "layer"
+        };
         let stdout = text(&output.stdout);
         assert!(
-            stdout.contains("error[frontend/layout] src/components"),
+            stdout.contains(&format!("error[frontend/layout#{aspect}] src/components")),
             "{pack}: {stdout}"
         );
     }
