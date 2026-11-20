@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead (2026-11-19) with the rulings in "Decisions"; code on `task/T-065-node-plugin`, in its first lane round |
+| Status | code proven on `task/T-065-node-plugin` (round 276); ready for review; Gate 007's frontend ESLint options to fold in when they arrive |
 | Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -345,9 +345,50 @@ test. Each case is one that would let a broken change through, or block a good o
   release build exit 0, and the leak scan prints nothing.
 - Do not edit docs/plan.md unless the lead asks.
 
+## Proof
+
+Lane ticket 276 on `ed68f9a`, 2026-11-20T01:14:15+00:00 to 2026-11-20T01:26:02+00:00, `one-gate` exit
+0 (`round-inner.sh`):
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| test | `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0, 1098 passed, 0 failed |
+| deny | `cargo deny --offline --locked check` (advisories, bans, licenses, sources ok) | 0 |
+| release build | `cargo build --release --offline --locked -j 4` | 0 |
+
+The plugin's tests are its 13 unit tests and the 48 tests of `plugins/node/tests/node`; the end to end
+test `crates/gate/tests/node.rs` runs the built component on a synthetic workspace (a root, a service
+and a library) and passed: exit 0 on the standard tree, exit 1 with one finding per rule after one
+change against each.
+
+Each mutation, applied to the round's tree, made its exact test fail (exit 101):
+
+| Mutation | Test |
+| --- | --- |
+| `dependency_versions.rs`: the exactness check of an install root without a workspace never fires | `dependency_versions::without_a_workspace_every_installed_version_is_exact_and_peers_may_range` |
+| `scripts.rs`: the synonym table is empty | `scripts::a_synonym_of_a_standard_name_is_reported_with_that_name` |
+| `tsconfig.rs`: the `extends` chain is never followed to the base | `tsconfig::a_configuration_that_repeats_the_flags_instead_of_extending_is_a_copy` |
+
+Rounds 270 and 272 to 275 stopped at clippy or at one test; each fix is its own commit on the branch.
+
+### Open for the lead
+
+- **The base's flags without a root project.** `node/tsconfig#flags` is checked by the project that
+  owns the base. In a workspace whose root is not a Gate project, no project owns
+  `tsconfig.base.json`, so its flags are not checked. A member could check them if the base were in
+  its `reads`, or a repository-scope check could; either is a design change.
+- **`node/node-version` and `separate`.** A separate install root's `.nvmrc` is reported as `#form`,
+  and its `engines.node` must equal the root's: one Node version for the whole repository. The other
+  two rules that read `separate` treat such a root as an install of its own.
+- **Smaller limits, as written:** `catalog:` references are not matched against the catalog's
+  entries; other managers' lockfiles and `package.json` files in test fixtures are reported, with
+  `separate` as the only way out; a relative `extends` without `.json` is read as a `.json` file; a
+  pre-release is an exact dependency version but not an exact `packageManager` or `.nvmrc` version.
+
 ## Resume point
 
-2026-11-19: design written from `main` at `ec66737`, after a read-only survey of six repositories
-(two backend services, a pnpm monorepo, three frontends). The lead approved it at `c0208ba` with the
-rulings now in "Decisions"; the public `@elsikora/eslint-config` 3.10.2 was read and fixes no Prettier
-option. Next: the code on a branch from `main`, then one lane round.
+2026-11-20T01:26:43+00:00: round 276 green on `ed68f9a` as above; ready for review. Next: Gate 007's frontend ESLint
+options (shared-config options, rule ids, folder-naming ignores, import order, i18next mode), folded
+into `node/linter` when they arrive, then a round.
