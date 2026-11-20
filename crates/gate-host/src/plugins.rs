@@ -635,9 +635,27 @@ impl Loaded {
             &JsonSchemaValidator,
         )?;
         workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
+        self.check_presets(workspace)?;
         self.check_needs(workspace, filter)?;
         self.check_generators(workspace)?;
         workspace.check_rule_filter(filter, &declaration)
+    }
+
+    /// Checks that every `extends` entry of every scope names a preset its plugin declares, and that
+    /// each such preset reads, for every declared plugin whether or not the run runs it.
+    ///
+    /// # Errors
+    /// Fails on the first preset the plugin does not declare, naming the entry; or, as a broken
+    /// plugin, on a preset that is not a JSON object of rules.
+    fn check_presets(&self, workspace: &Workspace) -> Result<()> {
+        for (_, settings) in scopes(workspace) {
+            for (name, declared) in &self.declarations {
+                if settings.plugins.contains_key(name) {
+                    presets(&declared.info, name, settings)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Checks that in every scope the `[plugins.<name>] options` hold each key that an enabled rule
@@ -751,6 +769,8 @@ impl Loaded {
             return Ok(Arc::clone(self));
         }
         let lock = crate::lock::verify_with(workspace, &self.overrides.keys().cloned().collect())?;
+        // The run's plugins load again with the missing ones: a `Loaded` holds one runtime, and a
+        // plugin is instantiated by the runtime that compiled it. Their modules come from the cache.
         let mut names: BTreeSet<PluginName> = self.plugins.keys().cloned().collect();
         names.extend(missing);
         let loaded = load(workspace, lock.as_ref(), &self.overrides, &Needed::Only(names))?
@@ -794,6 +814,7 @@ impl Loaded {
             &snapshot,
             workspace,
             run_git,
+            filter,
             Arc::clone(self),
         ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
@@ -1750,6 +1771,9 @@ struct GitHistory {
     overrides: Arc<Overrides>,
     /// The run's plugins, which also answer `sync-state` under the run's configuration.
     run_loaded: Arc<Loaded>,
+    /// The run's `--rule` filter: the run's configuration is checked with it again when it
+    /// answers `sync-state`, as when the run started.
+    filter: RuleFilter,
     /// Each `--plugin` build's name and sha256, as every `sync-state` key holds them; hashed once.
     builds: OnceLock<String>,
     /// The run's workspace: its configuration answers `sync-state` at a commit whose own
@@ -2150,6 +2174,7 @@ impl GitHistory {
         snapshot: &Snapshot,
         workspace: &Workspace,
         run_git: RunGit,
+        filter: &RuleFilter,
         run_loaded: Arc<Loaded>,
     ) -> Self {
         Self {
@@ -2160,6 +2185,7 @@ impl GitHistory {
             hook: run_git.hook,
             overrides: Arc::clone(&run_loaded.overrides),
             run_loaded,
+            filter: filter.clone(),
             builds: OnceLock::new(),
             run_workspace: workspace.clone(),
             run: OnceLock::new(),
@@ -2515,14 +2541,15 @@ impl GitHistory {
         Ok(plugins)
     }
 
-    /// The run's configuration hash and plugins, computed once. The plugins are the run's own,
-    /// checked against every rule of the configuration, not only those the run's filter allows.
+    /// The run's configuration hash and plugins, computed once. The plugins are the run's own with
+    /// the generator plugins, and the configuration is checked as the run checked it, with the
+    /// run's filter: a rule's needs follow `--rule` on both paths.
     fn run_context(&self) -> Result<&RunContext> {
         self.run
             .get_or_init(|| {
                 let workspace = &self.run_workspace;
                 let loaded = self.run_loaded.with_generators(workspace)?;
-                loaded.validate(workspace, &RuleFilter::new(Vec::new()))?;
+                loaded.validate(workspace, &self.filter)?;
                 Ok(RunContext {
                     hash: configuration_hash(workspace)?,
                     loaded: Some(loaded),

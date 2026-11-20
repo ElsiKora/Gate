@@ -17,14 +17,15 @@ use crate::cache::{Cache, Sha256Sum};
 /// Raised when an entry written before would be read differently.
 const FORMAT: u32 = 1;
 
-/// The name of this core's entry in a plugin's directory: the digest of the entry format, the
-/// plugin interface and the core version, so no other core reads it.
+/// The name of this core's entry in a plugin's directory, so no other core reads it.
 fn key() -> String {
-    let digest = Sha256::digest(format!(
-        "{FORMAT}\0{}\0{}\0",
-        gate_runtime::INTERFACE,
-        env!("CARGO_PKG_VERSION")
-    ));
+    key_for(FORMAT, gate_runtime::INTERFACE, env!("CARGO_PKG_VERSION"))
+}
+
+/// The name of the entry of a core with this entry format, plugin interface and version: the
+/// digest of the three.
+fn key_for(format: u32, interface: &str, version: &str) -> String {
+    let digest = Sha256::digest(format!("{format}\0{interface}\0{version}\0"));
     Sha256Sum::from_digest(&digest).as_str().to_owned()
 }
 
@@ -36,14 +37,12 @@ pub(super) fn read(cache: &Cache, plugin: &Sha256Sum) -> Option<PluginInfo> {
     Some(stored.into())
 }
 
-/// Stores what the plugin with this sha256 declares, unless an entry is there already. A cache
-/// that cannot be written costs the next run a load of the plugin, not a failure, so nothing is
-/// reported.
+/// Stores what the plugin with this sha256 declares, in place of any entry there: one that does
+/// not parse, or names another plugin, is replaced by the run that loaded the plugin because of
+/// it. A cache that cannot be written costs the next run a load of the plugin, not a failure, so
+/// nothing is reported.
 pub(super) fn write(cache: &Cache, plugin: &Sha256Sum, info: &PluginInfo) {
     let key = key();
-    if cache.declaration(plugin, &key).exists() {
-        return;
-    }
     let Ok(bytes) = serde_json::to_vec(&Stored::from(info)) else {
         return;
     };
@@ -235,6 +234,37 @@ mod tests {
         write(&cache, &plugin, &info());
         assert_eq!(read(&cache, &plugin), Some(info()));
         assert_eq!(read(&cache, &other), None);
+    }
+
+    #[test]
+    fn a_stored_declaration_is_replaced_when_written_again() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let cache = Cache::at(directory.path());
+        let plugin = Sha256Sum::from_digest(&Sha256::digest(b"plugin"));
+        let path = cache.declaration(&plugin, &key());
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("directories");
+        std::fs::write(&path, b"{\"name\":").expect("entry");
+
+        write(&cache, &plugin, &info());
+        assert_eq!(read(&cache, &plugin), Some(info()));
+    }
+
+    #[test]
+    fn the_entry_name_changes_with_the_format_the_interface_and_the_core_version() {
+        let name = key_for(1, "gate:plugin@0.2.0", "0.2.1");
+        assert_eq!(name, key_for(1, "gate:plugin@0.2.0", "0.2.1"));
+        let changed = [
+            key_for(2, "gate:plugin@0.2.0", "0.2.1"),
+            key_for(1, "gate:plugin@0.3.0", "0.2.1"),
+            key_for(1, "gate:plugin@0.2.0", "0.2.2"),
+        ];
+        for other in changed {
+            assert_ne!(other, name);
+        }
+        assert_eq!(
+            key(),
+            key_for(FORMAT, gate_runtime::INTERFACE, env!("CARGO_PKG_VERSION"))
+        );
     }
 
     #[test]
