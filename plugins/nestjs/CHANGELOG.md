@@ -18,8 +18,12 @@ a rule id, aspect, option or finding message that changes is a breaking change.
   - `asset-storage`'s aspect `cloudfront-cdk-only` is `cloudfront-infrastructure-only`; its message
     says CloudFront belongs to the infrastructure-as-code project.
 - `nestjs/string-enums` moves to the `typescript` plugin as `typescript/string-enums`, which reads
-  every tracked `.ts` file and takes `test-roots`. Its aspect `error-string-shim` is the rule
-  `nestjs/error-string-shim`, whose option `enum-names` was `shim-enum-names`.
+  every tracked `.ts` file and takes `test-roots`. No alias keeps the old id: a `[rules]` entry or a
+  profile that names `nestjs/string-enums` is a configuration error (exit 2); rename each one to
+  `typescript/string-enums`.
+- The aspect `error-string-shim` of `nestjs/string-enums` is the rule `nestjs/error-string-shim`,
+  whose option `enum-names` was `shim-enum-names`; add it to `[rules]` and to every profile that had
+  `nestjs/string-enums` on.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.1.0...plugin-nestjs-v0.2.0) (2026-11-19)
 

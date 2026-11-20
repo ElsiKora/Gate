@@ -10,7 +10,7 @@ use gate_typescript::value::unwrap;
 use gate_typescript::{SourceFile, TypeScript};
 
 use crate::options::PluginOptions;
-use crate::rules::{Found, argument, file_name, imported_from, is_naming_call, report, text};
+use crate::rules::{Found, argument, imported_from, is_naming_call, report, text};
 use crate::sources::{Cdk, app_files, parsed};
 use crate::standard::kebab;
 

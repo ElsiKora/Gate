@@ -126,9 +126,9 @@ impl Rule for StringEnums {
         let mut findings = Findings::default();
 
         for path in tree.paths() {
-            if !Path::new(&path)
+            if Path::new(&path)
                 .extension()
-                .is_some_and(|extension| extension == "ts")
+                .is_none_or(|extension| extension != "ts")
                 || path.ends_with(".d.ts")
                 || typescript.settings().skips(&path)
             {

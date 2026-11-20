@@ -140,14 +140,13 @@ fn uses(file: &SourceFile<'_>) -> Uses {
                     None => {}
                 }
             }
-            AstKind::CallExpression(call) => {
-                if nag
-                    .resolve(&call.callee)
-                    .is_some_and(|path| path.first().is_some_and(|name| name == "NagSuppressions"))
-                {
-                    uses.legacy
-                        .push((file.line(call.span.start), "NagSuppressions".to_owned()));
-                }
+            AstKind::CallExpression(call)
+                if nag.resolve(&call.callee).is_some_and(|path| {
+                    path.first().is_some_and(|name| name == "NagSuppressions")
+                }) =>
+            {
+                uses.legacy
+                    .push((file.line(call.span.start), "NagSuppressions".to_owned()));
             }
             _ => {}
         }

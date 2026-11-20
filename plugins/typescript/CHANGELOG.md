@@ -4,6 +4,13 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:typescript@<ver
 
 ## Unreleased
 
+### Breaking Changes
+
+- `typescript/string-enums` replaces `nestjs/string-enums`, and no alias keeps the old id: a
+  `[rules]` entry or a profile that names `nestjs/string-enums` is a configuration error (exit 2);
+  rename each one to `typescript/string-enums` and declare this plugin. Its option
+  `shim-enum-names` is gone; the check is the rule `nestjs/error-string-shim`.
+
 ### Added
 
 - `typescript/string-enums`, moved from the `nestjs` plugin: string-literal variant contracts use

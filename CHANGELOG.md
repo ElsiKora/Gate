@@ -10,6 +10,21 @@ Each shared plugin keeps its own changelog next to its code.
 
 ## Unreleased
 
+### Breaking Changes
+
+- **plugin-typescript:** `nestjs/string-enums` is now `typescript/string-enums`, and no alias keeps the
+  old id: a `[rules]` entry or a profile that names `nestjs/string-enums` is a configuration error
+  (exit 2, `plugin nestjs has no rule string-enums`). Rename the entry and every profile that sets
+  it to `typescript/string-enums` and declare the `typescript` plugin; the option
+  `shim-enum-names` is gone from it.
+- **plugin-nestjs:** the aspect `error-string-shim` of `nestjs/string-enums` is now the rule
+  `nestjs/error-string-shim`, its option `enum-names` (was `shim-enum-names`). Add the rule to
+  `[rules]` and to every profile that had `nestjs/string-enums` on.
+- **plugin-nestjs:** `layout.cdk-root` and `layout.cdk-code-folders` are removed and the rules no
+  longer read a CDK app; list the app as a project of its own with the `cdk` plugin. The
+  `asset-storage` aspect `cloudfront-cdk-only` is `cloudfront-infrastructure-only`; rename it in
+  `levels` and exceptions.
+
 ### Features
 
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per

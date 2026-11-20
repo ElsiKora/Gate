@@ -371,3 +371,8 @@ file only: fourteen rules (`cdk/declarations` and `cdk/barrels` take the pieces 
 changelog, the guide section; section 6 done in `nestjs` and `typescript` (`string-enums` moved,
 `nestjs/error-string-shim` added). Next: the first lane round, with cdk among the wasm builds,
 then its fixes.
+2026-11-20T02:44:10+00:00: round 1 at `3286ab7` stopped at clippy (an unused import, `nonminimal_bool`,
+`collapsible_match`); fixed. The 0.3.0 Breaking Changes for the moved and new rule ids are in the root,
+`nestjs` and `typescript` changelogs, and an end-to-end test proves `nestjs/string-enums` is now an
+unknown-rule configuration error. Neither `nestjs` nor `typescript` ships a preset, so the two rules
+join none; asked the lead. Next: round 2.

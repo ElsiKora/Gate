@@ -2964,6 +2964,24 @@ fn bad_option_check(package: &str, library: &str, name: &str, rules: &str) -> Ou
 }
 
 #[test]
+fn the_moved_nestjs_string_enums_id_is_an_unknown_rule() {
+    // 0.3.0 moved the rule to typescript/string-enums and keeps no alias of the old id.
+    let output = bad_option_check(
+        "gate-plugin-nestjs",
+        "nestjs",
+        "nestjs",
+        r#""nestjs/string-enums" = "error""#,
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("plugin nestjs has no rule string-enums"),
+        "{message}"
+    );
+}
+
+#[test]
 fn a_nestjs_option_its_rule_refuses_is_a_configuration_error() {
     // A pattern that is no regular expression: no schema can refuse it, the rule does.
     let output = bad_option_check(
