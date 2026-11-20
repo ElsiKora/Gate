@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | the review's fix round green in lane round 290 on `7075135`; ready for the second review |
+| Status | the verification's small round green in lane round 310 on `86d28f0`, a tree with `main` at `e9e1434` merged in; ready to merge |
 | Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -528,7 +528,43 @@ Each mutation, applied to the round's tree, made its exact test fail (exit 101):
 | `tsconfig.rs`: the base a project holds is read | `tsconfig::a_base_inside_a_member_package_is_left_to_tsconfig_base` |
 | `tsconfig.rs`: a solution-style configuration is read as any other | `tsconfig::a_solution_configuration_is_checked_through_its_references` |
 
+### Proof of the verification round
+
+`main` at `e9e1434` (with T-056) is merged into the branch (`3dbc1b9`), not rebased. Lane ticket
+310 on `86d28f0`, 2026-11-20T04:49:40+00:00 to 2026-11-20T05:19:02+00:00 (`round-inner.sh`):
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| test | `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0, 1135 passed, 0 failed |
+| deny | `cargo deny --offline --locked check` (advisories, bans, licenses, sources ok) | 0 |
+| release build | `cargo build --release --offline --locked -j 4` | 0 |
+
+The plugin's tests are its 17 unit tests and the 73 tests of `plugins/node/tests/node`; the end to
+end test `crates/gate/tests/node.rs` passed. The round's test log shows `Compiling
+gate-plugin-node` and `Compiling gate` from the round's own checkout of `86d28f0`, and lists every
+test below by name. Round 301 on `3dbc1b9` failed only that end to end test: a private library no
+longer gives `node/package#forbidden`, so its broken tree now adds a `workspaces` key to the
+library (`86d28f0`).
+
+Each new or changed test fails with its fix reverted: each mutation, applied to the round's tree,
+made its exact test fail (exit 101):
+
+| Mutation | Test |
+| --- | --- |
+| `formatter.rs`: `printWidth` counts as absent from `.prettierrc.json` | `formatter::an_editorconfig_key_is_read_only_where_prettierrc_leaves_its_option_unset` |
+| `formatter.rs`: `quote_type = single` is not read | `formatter::an_editorconfig_that_changes_prettier_s_output_is_reported` |
+| `js.rs`: a substitution is skipped by counting braces, not tokenized | `js::tests::a_substitution_is_read_as_code` |
+| `tsconfig.rs`: `extends` follows only `tsconfig*.json` files | `tsconfig::a_chain_passes_through_a_json_file_of_any_name` |
+| `dependency_versions.rs`: `./x` and `../x` are not read as paths | `dependency_versions::a_bare_local_path_is_read_as_a_path_not_a_git_url` |
+| `package.rs`: a private library needs no `exports` | `package::a_private_library_is_a_workspace_package_that_still_has_exports` |
+| `package.rs`: `repository` is forbidden outside a library | `package::a_service_may_say_where_its_source_lives` |
+| `semver.rs`: the next major wraps instead of `checked_add` | `semver::tests::a_version_part_too_large_to_step_is_a_configuration_error` |
+| `settings.rs`: any message naming `path` gets the `separate` advice | `the_plugin_options_are_checked_before_any_rule_runs` |
+| `node_version.rs`: the `differs` help loses "the root's" | `node_version::another_manifest_with_another_range_differs` |
+
 ## Resume point
 
-2026-11-20T02:54:55+00:00: the review's 15 items, the presets, `node/tsconfig-base` and the lead's
-ESLint ruling are on the branch, green in lane round 290 on `7075135`. Waiting for the second review.
+2026-11-20T05:19:49+00:00: the verification's items 1 to 6 are on the branch with `main` at
+`e9e1434` merged in, green in lane round 310 on `86d28f0`. Ready to merge.
