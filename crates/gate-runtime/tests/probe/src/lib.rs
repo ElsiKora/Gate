@@ -11,7 +11,8 @@ pub struct ProbeOptions {
     label: Option<String>,
 }
 
-/// Reads the `paths` of its options and lists `list`, one finding per answer, and reports the
+/// Reads the `paths` of its options, asks the size of `sizes` and lists `list`, one finding per
+/// answer, and reports the
 /// plugin's `label` when it is set; reports one more finding at `at` (with aspect `aspect`) when it
 /// is set, one at commit `commit`, and, with `at_options_file`, one at the file its options came
 /// from, whose message is what reading that file answers; with `fail`, fails with that text after
@@ -26,6 +27,8 @@ pub struct Read;
 pub struct ReadOptions {
     #[serde(default)]
     paths: Vec<String>,
+    #[serde(default)]
+    sizes: Vec<String>,
     #[serde(default)]
     list: Option<String>,
     #[serde(default)]
@@ -58,6 +61,12 @@ impl Rule for Read {
             messages.push(match tree.bytes(path) {
                 Some(bytes) => format!("{path}: {}", String::from_utf8_lossy(&bytes)),
                 None => format!("{path}: none"),
+            });
+        }
+        for path in &run.options().sizes {
+            messages.push(match tree.size(path) {
+                Some(size) => format!("size {path}: {size}"),
+                None => format!("size {path}: none"),
             });
         }
         if let Some(prefix) = &run.options().list {

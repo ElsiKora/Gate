@@ -87,6 +87,10 @@ pub struct ReadSet {
     /// The repository paths the call read, with the blob id read; `None` for a granted path that is
     /// not tracked.
     pub read: BTreeMap<String, Option<String>>,
+    /// The repository paths whose size the call asked (`tree.size`), with the blob id and the
+    /// size answered; `None` for a granted path that is not tracked. Only the size counts: other
+    /// contents of the same size answer the same.
+    pub sized: BTreeMap<String, Option<(String, u64)>>,
     /// Whether the call asked for the run's change selection.
     pub changed: bool,
     /// What the call asked git, each with the commit ids (or, for `branch`, the name; for `range`,
@@ -98,15 +102,16 @@ pub struct ReadSet {
 }
 
 impl ReadSet {
-    /// The number of entries: listed prefixes, read paths and git questions.
+    /// The number of entries: listed prefixes, read paths, sized paths and git questions.
     pub(crate) fn entries(&self) -> usize {
-        self.listed.len() + self.read.len() + self.git.len()
+        self.listed.len() + self.read.len() + self.sized.len() + self.git.len()
     }
 
     /// Adds what `other` recorded.
     pub fn merge(&mut self, other: Self) {
         self.listed.extend(other.listed);
         self.read.extend(other.read);
+        self.sized.extend(other.sized);
         self.changed |= other.changed;
         self.git.extend(other.git);
     }

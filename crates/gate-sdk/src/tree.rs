@@ -65,6 +65,15 @@ impl<'h> Tree<'h> {
         self.host.read(path)
     }
 
+    /// The size in bytes of the blob git stores for a tracked file, without reading its contents;
+    /// `None` when it is not tracked or not granted. In the working tree, a file that matches its
+    /// index entry has the size of the index's blob (a file Git LFS moved has its pointer's size),
+    /// and a file that differs from it its own size.
+    #[must_use]
+    pub fn size(&self, path: &str) -> Option<u64> {
+        self.host.size(path)
+    }
+
     /// The text of a tracked file, decoded as UTF-8 with replacement characters, as Node reads a
     /// file; `None` when it is not tracked or not granted.
     #[must_use]

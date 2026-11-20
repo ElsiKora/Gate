@@ -126,6 +126,11 @@ interface tree {
   paths: func(prefix: string) -> list<string>;
   /// The bytes of a tracked path; none when it is not tracked or not granted.
   read: func(path: string) -> option<list<u8>>;
+  /// The size in bytes of the blob git stores for a tracked path, without its contents; none when
+  /// it is not tracked or not granted. In a commit or the index it is the blob's size; in the
+  /// working tree, a file that matches its index entry has the size of the index's blob, and a file
+  /// that differs from it its own size. The read set records the path, its blob id and its size.
+  size: func(path: string) -> option<u64>;
   /// The paths the run's change selection names, when the run has one.
   changed: func() -> option<list<string>>;
 }

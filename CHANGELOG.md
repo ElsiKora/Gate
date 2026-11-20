@@ -50,6 +50,16 @@ Each shared plugin keeps its own changelog next to its code.
   under `typescript/string-enums`. Entries of the renamed
   `asset-storage` aspect are stale and `gate baseline prune` drops them; accept the findings again
   the same way.
+- **plugin-nestjs:** `nestjs/raw-config-access` reports under aspects. Its finding of 0.2 is now
+  `boundary`; a file outside the boundary that reads `process.env` is `process-env`; and the keys the
+  raw configuration getters and `process.env` read are compared with the project's `.env.example`
+  (`undeclared`, `unread`, `dynamic`, `example-missing`, `example-syntax`; options `example-file`,
+  `getters`, `external-keys`). A baseline entry's fingerprint holds the aspect, so after the upgrade
+  check that `gate check` reports the same files under `boundary`, then run `gate baseline write`
+  once.
+- **plugin interface:** `gate:plugin@0.3.0` adds `tree.size`, the size of a tracked file without its
+  contents. A rule that asks only sizes is answered from the result cache (format 4) until a size
+  changes. Plugins built for 0.2.0 do not load; take their 0.3.0 releases.
 
 ### Features
 
@@ -77,6 +87,12 @@ Each shared plugin keeps its own changelog next to its code.
   ids, physical names, properties, tags, removal policies, cdk-nag 3 registered on the App, ECS
   container health checks and unit tests) and the presets `recommended` and `adoption`. Its rules
   are on [plugins/cdk/rules](plugins/cdk/rules/README.md).
+- **plugin-docker:** a new plugin, `docker` 0.3.0, with `docker/dockerfile` and `docker/compose`, and
+  the presets `docker/recommended` and `docker/adoption`.
+- **plugin-repository:** a new plugin, `repository` 0.3.0, with `repository/tracked-secrets` and
+  `repository/large-files`, and the presets `repository/recommended` and `repository/adoption`.
+- **sdk:** `gate_sdk::yaml`, behind the feature `yaml`: a YAML reader that keeps each node's line,
+  for rules that report at a line of a YAML file.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

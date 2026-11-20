@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use gate_runtime::{
     Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
-    Runtime, Tree,
+    Runtime, Size, Tree,
 };
 use gate_sdk::{Commit, CommitRange, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
@@ -866,9 +866,11 @@ impl Loaded {
         }
 
         let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
+        let size = |path: &str| snapshot.size(path);
         let inputs = results::Inputs {
             paths: &tree_paths,
             blob: &blob,
+            size: &size,
             changed: changed_paths.as_deref(),
         };
         let calls: Vec<_> = planned
@@ -1265,9 +1267,11 @@ impl Generators for PluginGenerators<'_> {
             .unwrap_or_default();
         let grant = self.grant(project, name);
         let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
+        let size = |path: &str| snapshot.size(path);
         let inputs = results::Inputs {
             paths: &tree.paths,
             blob: &blob,
+            size: &size,
             changed: None,
         };
         let cache = Cache::from_env().ok();
@@ -1744,6 +1748,18 @@ impl Tree for SnapshotTree {
             id,
             bytes: bytes.to_vec(),
         }))
+    }
+
+    fn size(&self, path: &str) -> std::result::Result<Option<Size>, HostError> {
+        let Some(bytes) = self.snapshot.size(path).map_err(host)? else {
+            return Ok(None);
+        };
+        let id = self
+            .snapshot
+            .blob_id(path)
+            .map(|id| id.as_str().to_owned())
+            .unwrap_or_default();
+        Ok(Some(Size { id, bytes }))
     }
 
     fn changed(&self) -> Option<&[String]> {

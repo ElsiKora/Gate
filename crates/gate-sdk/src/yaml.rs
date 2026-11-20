@@ -1,4 +1,5 @@
-//! YAML documents as a tree of nodes, each with the line where it starts.
+//! YAML documents as a tree of nodes, each with the line where it starts: the form the rules about
+//! workflow, compose and workspace files read. Enabled by the SDK's `yaml` feature.
 
 use std::collections::HashMap;
 
@@ -8,23 +9,30 @@ use yaml_rust2::scanner::{Marker, TScalarStyle};
 /// A node's value. A plain empty, `~`, `null` or `Null` scalar is [`Value::Null`]; every other
 /// scalar keeps its text, whatever it would mean in YAML 1.1 (`on` stays the string `on`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Value {
+pub enum Value {
+    /// A plain empty, `~`, `null` or `Null` scalar.
     Null,
+    /// Any other scalar, as written.
     Scalar(String),
+    /// A sequence, in order.
     Sequence(Vec<Node>),
+    /// A mapping, its entries in order; a repeated key stays.
     Mapping(Vec<(Node, Node)>),
 }
 
 /// One node and the one-based line where it starts.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Node {
-    pub(crate) value: Value,
-    pub(crate) line: usize,
+pub struct Node {
+    /// The node's value.
+    pub value: Value,
+    /// The one-based line where the node starts.
+    pub line: usize,
 }
 
 impl Node {
     /// The value of the first entry whose key is the scalar `key`.
-    pub(crate) fn get(&self, key: &str) -> Option<&Node> {
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&Node> {
         let Value::Mapping(entries) = &self.value else {
             return None;
         };
@@ -34,21 +42,27 @@ impl Node {
             .map(|(_, value)| value)
     }
 
-    pub(crate) fn scalar(&self) -> Option<&str> {
+    /// The text of a scalar; `None` for any other node.
+    #[must_use]
+    pub fn scalar(&self) -> Option<&str> {
         match &self.value {
             Value::Scalar(text) => Some(text),
             _ => None,
         }
     }
 
-    pub(crate) fn sequence(&self) -> Option<&[Node]> {
+    /// The items of a sequence; `None` for any other node.
+    #[must_use]
+    pub fn sequence(&self) -> Option<&[Node]> {
         match &self.value {
             Value::Sequence(items) => Some(items),
             _ => None,
         }
     }
 
-    pub(crate) fn mapping(&self) -> Option<&[(Node, Node)]> {
+    /// The entries of a mapping; `None` for any other node.
+    #[must_use]
+    pub fn mapping(&self) -> Option<&[(Node, Node)]> {
         match &self.value {
             Value::Mapping(entries) => Some(entries),
             _ => None,
@@ -157,7 +171,7 @@ impl MarkedEventReceiver for Builder {
 ///
 /// # Errors
 /// The parser's message when `text` is not valid YAML.
-pub(crate) fn parse(text: &str) -> Result<Node, String> {
+pub fn parse(text: &str) -> Result<Node, String> {
     let mut builder = Builder::default();
     Parser::new_from_str(text)
         .load(&mut builder, false)

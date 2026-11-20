@@ -45,6 +45,8 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `node` | repository, project | none | no | none |
 | `cdk` | project | TypeScript | no | none |
 | `ci` | repository | none | no | none |
+| `docker` | project | none | no | none |
+| `repository` | repository | none | no | none |
 
 ### `typescript`
 
@@ -353,15 +355,75 @@ ci = { source = "ElsiKora/Gate:ci@0.2.0" }
 | [`ci/actions-pinned`](../../plugins/ci/rules/actions-pinned.md) | actions and reusable workflows are pinned by a full commit SHA |
 | [`ci/workflow-run-target`](../../plugins/ci/rules/workflow-run-target.md) | `workflow_run` triggers name workflows that exist |
 
+### `docker`
+
+Image files and compose files: pinned images, stages, a user that is not root, no secret written in,
+ports on the loopback address only, and the health check where the orchestrator reads it.
+
+```toml
+[plugins.docker]
+source = "ElsiKora/Gate:docker@0.3.0"
+options = { registries = ["docker.io"] }  # optional, as are image-files, secret-names, secret-metadata-words
+
+[project]
+extends = ["docker/recommended"]
+```
+
+Both docker rules are project-scope: in a monorepo, put `extends = ["docker/recommended"]` in a
+`[[profiles]]` entry for the projects that build images.
+
+| Rule | Checks |
+| --- | --- |
+| [`docker/dockerfile`](../../plugins/docker/rules/dockerfile.md) | image files are named `Dockerfile`, pinned, staged, run as a user, carry the OCI labels and no health check, and ignore and hold no secret |
+| [`docker/compose`](../../plugins/docker/rules/compose.md) | compose files and services are named for their purpose, images are pinned, secrets stay out outside end-to-end files, ports stay local, and awaited services declare a health check |
+
+### `repository`
+
+What no repository should track, whatever its languages.
+
+```toml
+# the root gate.toml of a single project
+[plugins]
+repository = { source = "ElsiKora/Gate:repository@0.3.0" }
+
+[project]
+extends = ["repository/recommended"]
+```
+
+`repository/recommended` sets both rules to `error` and `large-files#large` to `warning`: a file over
+1 MiB is a warning, one over 5 MiB (`huge`) an error. Both rules are repository-scope: they run once
+over the whole repository and are configured in the root file only; a profile or a project file
+cannot turn them on. A monorepo root has no `[project]` and so extends no preset
+([configuration.md](configuration.md#project)); it sets what the preset sets in its `[rules]`:
+
+```toml
+# the root gate.toml of a monorepo
+[workspace]
+projects = ["apps/*"]
+
+[plugins]
+repository = { source = "ElsiKora/Gate:repository@0.3.0" }
+
+[rules]
+"repository/tracked-secrets" = "error"
+"repository/large-files" = { level = "error", levels = { large = "warning" } }
+```
+
+| Rule | Checks |
+| --- | --- |
+| [`repository/tracked-secrets`](../../plugins/repository/rules/tracked-secrets.md) | no environment file, key file, private key, token of a published shape or literal `.npmrc` credential is tracked; findings never hold the value |
+| [`repository/large-files`](../../plugins/repository/rules/large-files.md) | no file over 1 MiB is tracked unless `extra` declares it with its job; over 5 MiB is `huge` |
+
 ## 🎛 Presets
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
 `extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. Each
 plugin new in 0.3.0 ships two: `<plugin>/recommended`, every rule at error, and `<plugin>/adoption`,
-every rule at warning (`docs/recommended`, `docs/adoption`); `cdk` ships `cdk/recommended` and
-`cdk/adoption`, which differs: it warns only on the renames and keeps the other rules at error.
-`git` ships `git/recommended`. Turn the rules of the other plugins on one by one in `[rules]`;
-`gate list` shows the result.
+every rule at warning (`docs`, `docker` and `repository`; `repository/recommended` keeps
+`repository/large-files#large` at `warning`); `cdk` ships `cdk/recommended` and `cdk/adoption`,
+which differs: it warns only on the renames and keeps the other rules at error. `git` ships
+`git/recommended`. Turn the rules of the other plugins on one by one in `[rules]`; `gate list`
+shows the result.
 
 ## 🔌 Plugins of Your Own
 

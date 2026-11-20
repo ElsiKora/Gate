@@ -6,7 +6,7 @@
 //! set, plus what the read set alone cannot say again: for each listed prefix, a digest of the
 //! tracked paths below it; for a call that asked for the change selection, a digest of it. A
 //! stored result is reused when each listed prefix lists the same paths, each read path has the
-//! same blob id (or is still untracked), the change selection is the same, and each git question
+//! same blob id (or is still untracked), each sized path the same size, the change selection is the same, and each git question
 //! that goes through a ref, or asks `sync-state`, answers what it was recorded with. A question
 //! about commit ids never changes and is not asked again, except an `is-ancestor` no and a
 //! `read-at` none, which a fetch of the commit can change.
@@ -31,7 +31,7 @@ use super::{Cache, Sha256Sum};
 use crate::error::{Error, Result};
 
 /// Raised when an entry written before would be read differently.
-const FORMAT: u32 = 3;
+const FORMAT: u32 = 4;
 
 /// A stored call: its findings, its read set, and the digests that check the read set again.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -52,6 +52,8 @@ pub(crate) struct Inputs<'a> {
     pub(crate) paths: &'a [String],
     /// The blob id of a tracked path.
     pub(crate) blob: &'a dyn Fn(&str) -> Option<String>,
+    /// The size of a tracked path; an error when it cannot be read.
+    pub(crate) size: &'a dyn Fn(&str) -> Result<Option<u64>>,
     /// The paths the run's change selection names, when it has one.
     pub(crate) changed: Option<&'a [String]>,
 }
@@ -116,6 +118,19 @@ impl Stored {
         for (path, blob) in &self.read_set.read {
             if (inputs.blob)(path) != *blob {
                 return Some(format!("the file {path:?}"));
+            }
+        }
+        for (path, recorded) in &self.read_set.sized {
+            let holds = match (recorded, (inputs.blob)(path)) {
+                (None, None) => true,
+                (Some((id, _)), Some(now)) if *id == now => true,
+                (Some((_, size)), Some(_)) => {
+                    (inputs.size)(path).is_ok_and(|now| now == Some(*size))
+                }
+                _ => false,
+            };
+            if !holds {
+                return Some(format!("the size of {path:?}"));
             }
         }
         if self.changed != self.read_set.changed.then(|| selection(inputs.changed)) {
@@ -218,6 +233,12 @@ fn encode(stored: &Stored) -> Value {
         .iter()
         .map(|(path, blob)| (path.clone(), json!(blob)))
         .collect();
+    let sized: Map<String, Value> = stored
+        .read_set
+        .sized
+        .iter()
+        .map(|(path, size)| (path.clone(), json!(size)))
+        .collect();
     let git: Vec<Value> = stored
         .read_set
         .git
@@ -238,6 +259,7 @@ fn encode(stored: &Stored) -> Value {
         "files": files,
         "listed": stored.listed,
         "read": read,
+        "sized": sized,
         "changed": stored.changed,
         "git": git,
     })
@@ -271,6 +293,22 @@ fn decode(value: &Value) -> Option<Stored> {
         .iter()
         .map(|(path, blob)| Some((path.clone(), optional(blob)?)))
         .collect::<Option<BTreeMap<_, _>>>()?;
+    let sized = value
+        .get("sized")?
+        .as_object()?
+        .iter()
+        .map(|(path, size)| {
+            let size = match size {
+                Value::Null => None,
+                Value::Array(pair) => match pair.as_slice() {
+                    [id, bytes] => Some((id.as_str()?.to_owned(), bytes.as_u64()?)),
+                    _ => return None,
+                },
+                _ => return None,
+            };
+            Some((path.clone(), size))
+        })
+        .collect::<Option<BTreeMap<_, _>>>()?;
     let changed = optional(value.get("changed")?)?;
     let git = value
         .get("git")?
@@ -284,6 +322,7 @@ fn decode(value: &Value) -> Option<Stored> {
     let read_set = ReadSet {
         listed: listed.keys().cloned().collect::<BTreeSet<_>>(),
         read,
+        sized,
         changed: changed.is_some(),
         git,
     };
@@ -423,12 +462,17 @@ mod tests {
             .read
             .insert("apps/a/x.ts".to_owned(), Some("b1".to_owned()));
         read_set.read.insert("apps/a/missing".to_owned(), None);
+        read_set
+            .sized
+            .insert("apps/a/big.png".to_owned(), Some(("b2".to_owned(), 7)));
+        read_set.sized.insert("apps/a/gone.png".to_owned(), None);
         read_set.changed = true;
         read_set.git.insert(GitQuery::Head, vec!["c".repeat(40)]);
         let paths = vec!["apps/a/x.ts".to_owned(), "apps/b/y.ts".to_owned()];
         let inputs = Inputs {
             paths: &paths,
             blob: &|_| None,
+            size: &|_| Ok(None),
             changed: None,
         };
         let stored = Stored::new(
@@ -478,6 +522,43 @@ mod tests {
             &inputs,
         );
         assert_eq!(decode(&encode(&generated)), Some(generated));
+    }
+
+    #[test]
+    fn a_sized_path_holds_while_its_size_does_and_asks_the_size_only_when_its_contents_changed() {
+        let mut read_set = ReadSet::default();
+        read_set
+            .sized
+            .insert("big.png".to_owned(), Some(("b1".to_owned(), 7)));
+        read_set.sized.insert("absent.png".to_owned(), None);
+        let paths = vec!["big.png".to_owned()];
+        let check = |blob: Option<&str>, size: Option<u64>| {
+            let blob_now = |path: &str| (path == "big.png").then(|| blob.map(str::to_owned))?;
+            let asked = std::cell::Cell::new(false);
+            let size_now = |_: &str| -> Result<Option<u64>> {
+                asked.set(true);
+                Ok(size)
+            };
+            let inputs = Inputs {
+                paths: &paths,
+                blob: &blob_now,
+                size: &size_now,
+                changed: None,
+            };
+            let stored = Stored::new(Vec::new(), read_set.clone(), &inputs);
+            (stored.changed_input(&inputs, None), asked.get())
+        };
+
+        assert_eq!(check(Some("b1"), None), (None, false));
+        assert_eq!(check(Some("b2"), Some(7)), (None, true));
+        assert_eq!(
+            check(Some("b2"), Some(8)),
+            (Some("the size of \"big.png\"".to_owned()), true)
+        );
+        assert_eq!(
+            check(None, None),
+            (Some("the size of \"big.png\"".to_owned()), false)
+        );
     }
 
     #[test]

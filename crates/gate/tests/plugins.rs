@@ -1036,6 +1036,43 @@ fn sync_check_answers_from_the_stored_outputs_until_an_input_changes() {
 }
 
 #[test]
+fn a_rule_that_asked_only_sizes_is_answered_from_the_cache_until_a_size_changes() {
+    let repo = probe_repo(
+        r#""probe/read" = { level = "error", options = { sizes = ["big.bin", "absent.bin", "../two/gate.toml"] } }"#,
+    );
+    repo.write("apps/one/big.bin", "12345");
+    repo.commit("a file whose size the rule asks");
+    let sizes = [
+        "size ../two/gate.toml: none",
+        "size absent.bin: none",
+        "size big.bin: 5",
+    ];
+
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages, sizes);
+    assert_eq!(ran, ["one"]);
+
+    // Other contents of the same size: the stored result holds.
+    repo.write("apps/one/big.bin", "abcde");
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages, sizes);
+    assert!(ran.is_empty(), "{ran:?}");
+
+    // Another size: the call runs again.
+    repo.write("apps/one/big.bin", "123456");
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages[2], "size big.bin: 6");
+    assert_eq!(ran, ["one"]);
+
+    // The file that was absent appears: the call runs again.
+    repo.write("apps/one/absent.bin", "x");
+    repo.git(&["add", "apps/one/absent.bin"]);
+    let (messages, ran, _) = probe_timings(&repo);
+    assert_eq!(messages[1], "size absent.bin: 1");
+    assert_eq!(ran, ["one"]);
+}
+
+#[test]
 fn a_warm_run_answers_the_runs_generators_from_the_cache_until_a_file_they_read_changes() {
     let repo =
         probe_repo(r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1"] } }"#);
@@ -5387,4 +5424,268 @@ fn the_docs_presets_enable_the_layout_rule_at_their_level() {
             "{preset}: {report}"
         );
     }
+}
+
+/// One `[plugins."<source>"]` entry of a `gate.lock`, for a second plugin pinned beside the first.
+fn lock_entry(source: &str, url: &str) -> String {
+    format!(
+        "\n[plugins.\"{source}\"]\nurl = \"{url}\"\nsha256 = \"{}\"\n",
+        "c".repeat(64)
+    )
+}
+
+/// `gate check` with the built docker and repository plugins, as JSON: the exit code and each
+/// finding as `rule#aspect path:line`, sorted.
+fn hygiene_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
+    hygiene_check_with(repo, &[])
+}
+
+/// [`hygiene_check`] with more `arguments` (`--staged`, `--rev <commit>`).
+fn hygiene_check_with(repo: &Repo, arguments: &[&str]) -> (Option<i32>, Vec<String>) {
+    let docker = format!(
+        "docker={}",
+        component("gate-plugin-docker", "docker").0.display()
+    );
+    let repository = format!(
+        "repository={}",
+        component("gate-plugin-repository", "repository")
+            .0
+            .display()
+    );
+    let mut all = vec![
+        "check",
+        "--plugin",
+        &docker,
+        "--plugin",
+        &repository,
+        "--format",
+        "json",
+    ];
+    all.extend_from_slice(arguments);
+    let output = repo.gate(&all);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut findings: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            format!(
+                "{}#{} {}:{}",
+                finding["rule"].as_str().unwrap_or(""),
+                finding["aspect"].as_str().unwrap_or(""),
+                finding["location"]["path"].as_str().unwrap_or(""),
+                finding["location"]["span"]["line"].as_u64().unwrap_or(0)
+            )
+        })
+        .collect();
+    findings.sort();
+    (output.status.code(), findings)
+}
+
+#[test]
+fn the_docker_and_repository_rules_report_exactly_the_planted_files_and_pass_without_them() {
+    let repo = Repo::empty();
+    let docker = "acme/rules:docker@0.3.0";
+    let repository = "acme/rules:repository@0.3.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n\n[rules]\n\"repository/tracked-secrets\" = \"error\"\n\"repository/large-files\" = \"error\"\n\n[[profiles]]\nprojects = [\"apps/*\"]\n\n[profiles.rules]\n\"docker/dockerfile\" = \"error\"\n\"docker/compose\" = \"error\"\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &(lock(
+            docker,
+            "https://example.invalid/docker.wasm",
+            &"b".repeat(64),
+        ) + &lock_entry(repository, "https://example.invalid/repository.wasm")),
+    );
+    let digest = "0123456789abcdef".repeat(4);
+    repo.write("apps/api/gate.toml", "[project]\nname = \"api\"\n");
+    repo.write(
+        "apps/api/Dockerfile",
+        &format!(
+            "ARG NODE=node@sha256:{digest}\n\nFROM ${{NODE}} AS build\nWORKDIR /app\nCOPY src ./src\nRUN cp -r src out\n\nFROM ${{NODE}} AS runtime\nARG SOURCE\nARG REVISION\nARG VERSION\nLABEL org.opencontainers.image.source=$SOURCE \\\n      org.opencontainers.image.revision=$REVISION \\\n      org.opencontainers.image.version=$VERSION\nWORKDIR /app\nCOPY --from=build /app/out ./out\nUSER node\nCMD [\"node\", \"out/main.js\"]\n"
+        ),
+    );
+    repo.write("apps/api/Dockerfile.dockerignore", "**\n!src\n");
+    repo.write(
+        "apps/api/docker-compose.development.yml",
+        &format!(
+            "services:\n  api-development-database:\n    image: postgres@sha256:{digest}\n    environment:\n      POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:?set it in the shell}}\n    ports:\n      - \"127.0.0.1::5432\"\n    healthcheck:\n      test: [\"CMD\", \"pg_isready\"]\n  api-development-server:\n    build: .\n    depends_on:\n      api-development-database:\n        condition: service_healthy\n"
+        ),
+    );
+    repo.write("apps/api/.env.example", "DATABASE_URL=\n");
+    repo.write("apps/api/src/main.js", "console.log(\"api\");\n");
+
+    // The plants: a private key block in a fixture, and an image of 2 MiB.
+    let body: String = (0..20)
+        .map(|line| format!("{}\n", "QUJD".repeat(16 + line % 2)))
+        .collect::<Vec<_>>()
+        .concat();
+    let kind = "PRIVATE";
+    repo.write(
+        "apps/api/test/fixture.pem",
+        &format!("-----BEGIN {kind} KEY-----\n{body}-----END {kind} KEY-----\n"),
+    );
+    let mut image = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    image.resize(2 * 1024 * 1024, 0);
+    std::fs::create_dir_all(repo.path().join("docs")).expect("directories");
+    std::fs::write(repo.path().join("docs/hero.png"), image).expect("write");
+    repo.commit("a service with two planted files");
+
+    let (code, findings) = hygiene_check(&repo);
+    assert_eq!(
+        findings,
+        [
+            "repository/large-files#large docs/hero.png:0",
+            "repository/tracked-secrets#private-key apps/api/test/fixture.pem:1"
+        ]
+    );
+    assert_eq!(code, Some(1));
+
+    repo.git(&["rm", "-q", "apps/api/test/fixture.pem", "docs/hero.png"]);
+    repo.commit("the plants removed");
+    let (code, findings) = hygiene_check(&repo);
+    assert_eq!(findings, Vec::<String>::new());
+    assert_eq!(code, Some(0));
+}
+
+#[test]
+fn a_monorepo_sets_the_repository_rules_in_the_root_rules_with_large_at_warning() {
+    let repo = Repo::empty();
+    let docker = "acme/rules:docker@0.3.0";
+    let repository = "acme/rules:repository@0.3.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n\n[rules]\n\"repository/tracked-secrets\" = \"error\"\n\"repository/large-files\" = {{ level = \"error\", levels = {{ large = \"warning\" }} }}\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &(lock(
+            docker,
+            "https://example.invalid/docker.wasm",
+            &"b".repeat(64),
+        ) + &lock_entry(repository, "https://example.invalid/repository.wasm")),
+    );
+    repo.write("apps/api/gate.toml", "[project]\nname = \"api\"\n");
+    repo.write("apps/api/.env", "MODE=local\n");
+    std::fs::create_dir_all(repo.path().join("docs")).expect("directories");
+    std::fs::write(
+        repo.path().join("docs/large.bin"),
+        vec![1u8; 2 * 1024 * 1024],
+    )
+    .expect("write");
+    repo.commit("an environment file and a large file");
+
+    let docker_plugin = format!(
+        "docker={}",
+        component("gate-plugin-docker", "docker").0.display()
+    );
+    let repository_plugin = format!(
+        "repository={}",
+        component("gate-plugin-repository", "repository")
+            .0
+            .display()
+    );
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &docker_plugin,
+        "--plugin",
+        &repository_plugin,
+        "--format",
+        "json",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut findings: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            format!(
+                "{} {}#{} {}",
+                finding["level"].as_str().unwrap_or(""),
+                finding["rule"].as_str().unwrap_or(""),
+                finding["aspect"].as_str().unwrap_or(""),
+                finding["location"]["path"].as_str().unwrap_or("")
+            )
+        })
+        .collect();
+    findings.sort();
+    assert_eq!(
+        findings,
+        [
+            "error repository/tracked-secrets#env-file apps/api/.env",
+            "warning repository/large-files#large docs/large.bin"
+        ]
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_file_a_filter_stores_as_a_pointer_has_the_pointers_size_in_every_mode() {
+    let repo = Repo::empty();
+    let docker = "acme/rules:docker@0.3.0";
+    let repository = "acme/rules:repository@0.3.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n\n[rules]\n\"repository/large-files\" = \"error\"\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &(lock(
+            docker,
+            "https://example.invalid/docker.wasm",
+            &"b".repeat(64),
+        ) + &lock_entry(repository, "https://example.invalid/repository.wasm")),
+    );
+    // A filter as Git LFS installs one: the index holds a short pointer, the checkout the file.
+    repo.write(".gitattributes", "*.bin filter=pointer\n");
+    repo.git(&[
+        "config",
+        "filter.pointer.clean",
+        "cat >/dev/null; printf 'pointer to a large file\\n'",
+    ]);
+    repo.git(&[
+        "config",
+        "filter.pointer.smudge",
+        "cat >/dev/null; head -c 2097152 /dev/zero",
+    ]);
+    repo.git(&["config", "filter.pointer.required", "true"]);
+    let large = vec![0u8; 2 * 1024 * 1024];
+    std::fs::write(repo.path().join("media.bin"), &large).expect("write");
+    // The twin without a filter: git stores all of it.
+    std::fs::write(repo.path().join("media.dat"), &large).expect("write");
+    repo.write("notes.md", "notes\n");
+    repo.commit("a large file behind a filter and one without");
+    std::fs::remove_file(repo.path().join("media.bin")).expect("remove");
+    repo.git(&["checkout", "--", "media.bin"]);
+    assert_eq!(
+        std::fs::metadata(repo.path().join("media.bin"))
+            .expect("checked out")
+            .len(),
+        2 * 1024 * 1024,
+        "the checkout holds the smudged file"
+    );
+
+    let only_the_twin = ["repository/large-files#large media.dat:0"];
+    let (code, findings) = hygiene_check(&repo);
+    assert_eq!(findings, only_the_twin, "working tree");
+    assert_eq!(code, Some(1));
+    let (code, findings) = hygiene_check_with(&repo, &["--rev", "HEAD"]);
+    assert_eq!(findings, only_the_twin, "commit");
+    assert_eq!(code, Some(1));
+    repo.write("notes.md", "notes, staged\n");
+    repo.git(&["add", "notes.md"]);
+    let (code, findings) = hygiene_check_with(&repo, &["--staged"]);
+    assert_eq!(findings, only_the_twin, "index");
+    assert_eq!(code, Some(1));
 }

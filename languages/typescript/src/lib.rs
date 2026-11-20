@@ -2,7 +2,7 @@
 
 //! The TypeScript language library of gate: the TypeScript and JavaScript files of a [`Source`],
 //! one parse per file and run, line numbers, module resolution with tsconfig `paths`, source
-//! owner tables ([`owners`]), import bindings ([`binding`], [`binder`]), module edges
+//! owner tables ([`owners`]), environment coverage ([`env`]), import bindings ([`binding`], [`binder`]), module edges
 //! ([`modules`]), static value folding ([`value`]), JavaScript text semantics ([`javascript`],
 //! [`js`]) and the syntax helpers rule plugins share ([`syntax`]).
 //!
@@ -16,6 +16,7 @@
 
 pub mod binder;
 pub mod binding;
+pub mod env;
 pub mod javascript;
 pub mod js;
 mod lines;
@@ -397,6 +398,33 @@ impl<'a> SourceFile<'a> {
     pub fn line_bounds(&self, line: u32) -> Option<(u32, u32)> {
         self.lines
             .bounds(line, u32::try_from(self.source.len()).unwrap_or(u32::MAX))
+    }
+
+    /// The one-based line and column range of a syntax node's span, for a finding; columns count
+    /// bytes, and the end column is the last byte's.
+    #[must_use]
+    pub fn span(&self, span: oxc_span::Span) -> gate_sdk::Span {
+        let column = |offset: u32| {
+            let line = self.line(offset);
+            let start = self.line_bounds(line).map_or(0, |(start, _)| start);
+            (line, offset.saturating_sub(start) + 1)
+        };
+        let (line, column_start) = column(span.start);
+        let (end_line, end_column) = column(span.end.saturating_sub(1).max(span.start));
+        gate_sdk::Span {
+            line,
+            column: column_start,
+            end_line,
+            end_column,
+        }
+    }
+
+    /// The source text of a syntax node's span.
+    #[must_use]
+    pub fn text(&self, span: oxc_span::Span) -> &'a str {
+        self.source
+            .get(span.start as usize..span.end as usize)
+            .unwrap_or_default()
     }
 
     /// Scopes, symbols, references and parent links of the program, built on first use.

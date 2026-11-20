@@ -215,6 +215,15 @@ impl State {
         Ok(())
     }
 
+    fn record_size(&mut self, path: String, size: Option<(String, u64)>) -> wasmtime::Result<()> {
+        if self.read_set.sized.contains_key(&path) {
+            return Ok(());
+        }
+        self.admit(path.len() + size.as_ref().map_or(0, |(id, _)| id.len() + 8))?;
+        self.read_set.sized.insert(path, size);
+        Ok(())
+    }
+
     /// Counts one more read-set entry of `bytes`; past the limit the call fails.
     fn admit(&mut self, bytes: usize) -> wasmtime::Result<()> {
         self.read_set_bytes = self.read_set_bytes.saturating_add(bytes);
@@ -452,6 +461,19 @@ impl gate::plugin::tree::Host for State {
             .map_err(host)?;
         self.record_read(path, blob.as_ref().map(|blob| blob.id.clone()))?;
         Ok(blob.map(|blob| blob.bytes))
+    }
+
+    fn size(&mut self, path: String) -> wasmtime::Result<Option<u64>> {
+        let Some(path) = self.access.grant.to_repository(&path) else {
+            return Ok(None);
+        };
+        let tree = Arc::clone(&self.access.tree);
+        let size = self
+            .host_call("tree.size", || tree.size(&path))
+            .map_err(host)?;
+        let bytes = size.as_ref().map(|size| size.bytes);
+        self.record_size(path, size.map(|size| (size.id, size.bytes)))?;
+        Ok(bytes)
     }
 
     fn changed(&mut self) -> wasmtime::Result<Option<Vec<String>>> {

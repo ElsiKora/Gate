@@ -48,8 +48,28 @@ pub trait Tree: Send + Sync {
     /// The file is tracked but cannot be read.
     fn read(&self, path: &str) -> Result<Option<Blob>, HostError>;
 
+    /// The size and the content id of a tracked path; `None` when it is not tracked. The default
+    /// reads the contents; a core that knows the size without them answers it directly.
+    ///
+    /// # Errors
+    /// The file is tracked but its size cannot be read.
+    fn size(&self, path: &str) -> Result<Option<Size>, HostError> {
+        Ok(self.read(path)?.map(|blob| Size {
+            id: blob.id,
+            bytes: u64::try_from(blob.bytes.len()).unwrap_or(u64::MAX),
+        }))
+    }
+
     /// The paths the run's change selection names, when the run has one.
     fn changed(&self) -> Option<&[String]>;
+}
+
+/// The size in bytes of a tracked file and the id of its contents, recorded in the read set as a
+/// read of the file: the id fixes the size.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Size {
+    pub id: String,
+    pub bytes: u64,
 }
 
 /// The repository's history, for calls whose rules declare `reads-history`. Paths are

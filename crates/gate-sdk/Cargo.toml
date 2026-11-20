@@ -12,6 +12,11 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 wit-bindgen.workspace = true
+yaml-rust2 = { workspace = true, optional = true }
+
+[features]
+# `gate_sdk::yaml`: YAML documents as nodes with lines, for rules about YAML files.
+yaml = ["dep:yaml-rust2"]
 
 [lints]
 workspace = true

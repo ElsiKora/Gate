@@ -9,6 +9,12 @@ pub trait TreeHost {
     fn list(&self, prefix: &str) -> Vec<String>;
     /// The bytes of a tracked path; `None` when it is not tracked or not granted.
     fn read(&self, path: &str) -> Option<Vec<u8>>;
+    /// The size in bytes of a tracked path, without its contents; `None` when it is not tracked or
+    /// not granted. The default reads the contents, as a native fixture may.
+    fn size(&self, path: &str) -> Option<u64> {
+        self.read(path)
+            .map(|bytes| u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+    }
     /// The paths the run's change selection names, when the run has one.
     fn changed(&self) -> Option<Vec<String>>;
 }

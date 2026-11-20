@@ -5,6 +5,8 @@ a rule id, aspect, option or finding message that changes is a breaking change.
 
 # 0.3.0 (unreleased)
 
+Built for the plugin interface `gate:plugin@0.3.0`.
+
 ### Breaking Changes
 
 - The plugin holds no knowledge of AWS CDK apps; a CDK app is a project of the `cdk` plugin.
@@ -24,6 +26,13 @@ a rule id, aspect, option or finding message that changes is a breaking change.
 - The aspect `error-string-shim` of `nestjs/string-enums` is the rule `nestjs/error-string-shim`,
   whose option `enum-names` was `shim-enum-names`; add it to `[rules]` and to every profile that had
   `nestjs/string-enums` on.
+- `nestjs/raw-config-access` reports under aspects. Its finding of 0.2 is now `boundary`; a file
+  outside the boundary that reads `process.env` is `process-env`; and the keys the raw configuration
+  getters and `process.env` read are compared with the project's `.env.example`: `undeclared`,
+  `unread`, `dynamic`, `example-missing` and `example-syntax`, with the options `example-file`,
+  `getters` and `external-keys`. No finding holds a value of the example file. A baseline entry's
+  fingerprint holds the aspect: after the upgrade, check that `gate check` reports the same files
+  under `boundary`, then run `gate baseline write` once.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.2.0...plugin-nestjs-v0.2.1) (2026-11-20)
 

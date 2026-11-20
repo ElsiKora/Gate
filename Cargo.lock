@@ -875,7 +875,14 @@ dependencies = [
  "globset",
  "regex",
  "serde_json",
- "yaml-rust2",
+]
+
+[[package]]
+name = "gate-plugin-docker"
+version = "0.3.0"
+dependencies = [
+ "gate-sdk",
+ "serde_json",
 ]
 
 [[package]]
@@ -949,6 +956,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gate-plugin-repository"
+version = "0.3.0"
+dependencies = [
+ "gate-sdk",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "gate-plugin-typescript"
 version = "0.2.0"
 dependencies = [
@@ -987,6 +1003,7 @@ dependencies = [
  "serde",
  "serde_json",
  "wit-bindgen 0.63.0",
+ "yaml-rust2",
 ]
 
 [[package]]

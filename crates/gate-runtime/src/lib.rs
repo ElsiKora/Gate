@@ -19,7 +19,7 @@ mod state;
 
 pub use self::error::{Error, ErrorKind};
 pub use self::grant::{Grant, is_relative_glob};
-pub use self::host::{Blob, History, HostError, Tree};
+pub use self::host::{Blob, History, HostError, Size, Tree};
 pub use self::read_set::{GitQuery, ReadSet};
 pub use self::runtime::{
     Call, CallOutcome, CallTime, Config, HostTime, INTERFACE, Invocation, Plugin, Runtime,
