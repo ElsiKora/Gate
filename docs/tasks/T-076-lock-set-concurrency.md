@@ -141,3 +141,9 @@ helper; the outside-git case stated). Built: `files::replace`, `lock::Guard`, `G
 guard taken by `gate lock`, `gate lock --set` and `gate init`; tests 1 to 3 in
 `crates/gate/tests/distribution.rs`, test 4 in `files.rs`; the CHANGELOG entries. Next: one lane
 round on the pushed tip, then independent review.
+2026-11-20T21:47:35+00:00: lane round 381 on `390a0d82` (round 376 on `09405e32` stopped at
+clippy: two redundant `std::process::Stdio` paths, fixed in `390a0d82`): fmt, clippy, test, deny,
+the release build and the 13 plugin wasm builds exit 0; `gate-host` and `gate` compiled from this
+task's worktree; the five new tests ran and passed. The mutation step (the guard removed from
+`gate lock --set`) made test 1 fail on "the second run's pin is not lost", exit 101. Next:
+independent review.
