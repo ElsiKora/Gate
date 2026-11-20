@@ -83,7 +83,7 @@ impl Rule<TypeScriptCall> for StatePlacement {
 fn check(project: &Project<'_, '_>, stores: &[Store]) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
 
-    for path in project.code() {
+    for path in project.all_code() {
         let placed = project.place(path).is_some_and(|place| match place.unit {
             Unit::App => place.segment == Some("store"),
             _ => place.segment == Some("model"),

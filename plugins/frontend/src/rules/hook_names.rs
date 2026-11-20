@@ -41,7 +41,7 @@ pub fn is_hook(name: &str) -> bool {
 fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
 
-    for path in project.code() {
+    for path in project.all_code() {
         let name = FileName::new(name_of(path));
         if !name.dotted.is_empty() || name.stem == "index" {
             continue;
@@ -93,7 +93,7 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
                 "placement",
                 path,
                 format!(
-                    "{path} holds a hook outside a model or lib segment and the app layer's providers and store"
+                    "{path} holds a hook outside a model or lib segment and the app layer's providers, store and lib"
                 ),
                 "move the hook into the model segment of its slice, or into a lib segment when it knows no business",
             ));

@@ -168,7 +168,7 @@ fn unknown_keys(
     base: &Locale,
     found: &mut Vec<Found>,
 ) -> gate_sdk::Result<()> {
-    for path in project.code() {
+    for path in project.all_code() {
         let Some(file) = project.parse(path)? else {
             continue;
         };

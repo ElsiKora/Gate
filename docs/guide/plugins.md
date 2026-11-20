@@ -343,7 +343,7 @@ page are under [plugins/cdk/rules](../../plugins/cdk/rules/README.md).
 React apps and libraries held to one standard: Feature-Sliced layers under `src/`, kebab-case names,
 imports that point down through one alias, one module that talks to the network, one that reads the
 environment, every user-visible string through the translation layer, assets and styles in known
-places. The option `pack` (`react-vite`, `nextjs` or `react-library`) names the framework; every rule
+places, one tool for each job. The option `pack` (`react-vite`, `nextjs` or `react-library`) names the framework; every rule
 needs it. Nuxt and Vue are not covered. Links the TypeScript language library.
 
 ```toml
@@ -355,9 +355,6 @@ extends = ["frontend/recommended"]
 [plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 frontend = { source = "ElsiKora/Gate:frontend@0.3.0", options = { pack = "nextjs" } }
-
-[rules]
-"typescript/barrel-imports" = "error"
 ```
 
 `frontend/recommended` sets every rule to `error`; `frontend/adoption` sets every rule to `warning`, for
@@ -366,23 +363,26 @@ an existing app moving to the standard. The plugin's page is
 
 | Rule | Checks |
 | --- | --- |
-| `frontend/layout` | every file sits in the tree of the standard: layers, slices with `index.ts`, segments |
+| `frontend/layout` | every file sits in the tree of the standard: layers, slices with `index.ts`, groups, segments |
 | `frontend/file-names` | names under `src/` are kebab-case; route folders take their router's syntax |
 | `frontend/typescript-sources` | no JavaScript under `src/` |
 | `frontend/import-direction` | layers import only layers below them, and no sibling slice |
-| `frontend/import-paths` | one alias, `@/`; relative imports stay inside a slice or segment |
+| `frontend/import-paths` | one alias, `@/`, through the public API; relative imports stay inside a slice |
 | `frontend/component-names` | a `ui` file exports, by name, the component its name gives |
 | `frontend/hook-names` | a hook lives in a file of its own name, in a `model` or `lib` segment |
-| `frontend/state-placement` | stores are created in `model` segments or the app layer |
+| `frontend/state-placement` | stores are created in `model` segments or `app/store` |
 | `frontend/api-boundary` | only `shared/api` talks to the network; only `api` segments import it |
 | `frontend/env-access` | one module reads the environment, by literal public keys |
 | `frontend/literal-text` | no literal user-visible text in JSX |
 | `frontend/messages` | every locale has the same messages, none empty; the code uses only existing keys |
-| `frontend/asset-placement` | imported assets sit in the assets segment |
+| `frontend/asset-placement` | imported assets sit in the `ui` segment of what shows them |
 | `frontend/style-files` | global styles in one place; CSS modules beside their component |
 | `frontend/route-files` | the route folder holds route files with their required exports |
 | `frontend/client-boundary` | Next.js route files stay server components |
 | `frontend/colocated-files` | tests and stories sit beside the file they are about |
+| `frontend/import-alias` | `@/` for `src/` in the tsconfig and the Vite configuration, and no other alias |
+| `frontend/route-config` | a Vite app runs TanStack Router's plugin on the standard's route folders |
+| `frontend/packages` | one tool per job, and the router and translation library of the pack |
 
 ### `ci`
 

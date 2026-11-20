@@ -7,8 +7,9 @@ Route files stay server components; "use client" marks ui and model modules.
 In Next.js, a route file that is a client component loses server data loading and its `metadata`.
 A file whose first statements carry the directive `"use client"`:
 
-- `route-file`: is a route file (a special file of `src/app/`, as `frontend/route-files` reads it).
-- `placement`: is outside a `ui` or `model` segment and outside `src/app/` itself (the app's
+- `route-file`: is a route file (a special file of the root `app/`, as `frontend/route-files` reads
+  it).
+- `placement`: is outside a `ui` or `model` segment and outside `src/app/providers/` (the app's
   providers). Helpers and hooks need no directive; the boundary is a component.
 
 Packs: `nextjs`; the other packs have no server components and report nothing.
@@ -23,8 +24,8 @@ None. The rule reads the plugin's `pack` ([the plugin's page](README.md)).
 ## Example finding
 
 ```text
-error frontend/client-boundary src/app/page.tsx
-  src/app/page.tsx is a route file marked "use client"; route files stay server components
+error frontend/client-boundary app/page.tsx
+  app/page.tsx is a route file marked "use client"; route files stay server components
 ```
 
 ## How to fix it

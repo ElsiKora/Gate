@@ -6,20 +6,21 @@ Files and folders under src/ are kebab-case, with route folders in their router'
 
 One rule for every kind of file: `user-card.tsx`, `use-balance.ts`, `logo-dark.svg`. It is what
 Next.js special files already require, and it cannot break on a case-insensitive file system the way a
-case-only rename does.
+case-only rename does. The rule reads `src/` and, in Next.js, the root `app/`.
 
 - `file`: a file name whose part before the first dot is not kebab-case.
-- `folder`: a folder name under `src/` that is not kebab-case, reported once per folder.
-- `suffix`: a dotted part other than `test`, `stories`, `module` (a CSS module) and `d` (a
-  declaration file); the segment says the kind, so `name.helper.ts` is `lib/name.ts`. Target
-  `<path>#<part>`.
+- `folder`: a folder name that is not kebab-case, reported once per folder. `@x` is allowed only
+  directly in an entity slice.
+- `suffix`: a dotted part other than `test`, `stories`, `module` (a CSS module), `d` (a declaration
+  file) and, in Next.js, `server` (`index.server.ts`); the segment says the kind, so `name.helper.ts`
+  is `lib/name.ts`. Target `<path>#<part>`.
 
 Route folders take their router's syntax, and only there:
 
 - `react-vite`, below `src/app/routes/`: `$param` (camel-case), `$` (splat), `_pathless`, `(group)`;
   the file `__root.tsx`; the dotted part `lazy`. TanStack Router's generated `src/app/route-tree.gen.ts`
   is not read.
-- `nextjs`, below `src/app/`: `[param]`, `[...rest]`, `[[...rest]]` (camel-case parameters),
+- `nextjs`, below the root `app/`: `[param]`, `[...rest]`, `[[...rest]]` (camel-case parameters),
   `(group)`, `@slot`, and the intercepting prefixes `(.)`, `(..)`, `(...)`.
 
 Names starting with `.` are not read.

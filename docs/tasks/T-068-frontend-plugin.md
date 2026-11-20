@@ -452,7 +452,7 @@ The lead approved the design at `6ebd2b0` for code in v0.3.0 and answered the op
 
 ## Resume point
 
-2026-11-20T02:02:49+00:00: the design is revised for the second FSD pass (decision 11) as one docs commit, for the
-lead to read. The 17 rules are committed and their first lane round (ticket 283) is queued; they still
-implement the earlier tree. Next, once the lead has read the design: one code fix round over the 17
-rules and the three held rules of decision 10, then the lane.
+2026-11-20T02:23:10+00:00: the code fix round is written and not yet built. The 17 rules hold the tree
+of decision 11, the three rules of decision 10 (`import-alias`, `route-config`, `packages`) are added
+with their pages, and the tests cover the section 7 cases, each new check with a case that removes its
+piece. Next: the lane round of this commit after ticket 283, then the fixes it asks for.

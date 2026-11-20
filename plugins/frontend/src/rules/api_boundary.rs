@@ -81,7 +81,7 @@ fn check(project: &Project<'_, '_>, options: &Options) -> gate_sdk::Result<Vec<F
     let api = project.pack.api_folder();
     let mut found = Vec::new();
 
-    for path in project.code() {
+    for path in project.all_code() {
         if within(path, api) {
             continue;
         }

@@ -42,8 +42,8 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let pack = project.pack;
     let mut found = Vec::new();
     for path in project.all_code() {
-        let importer = project.place(path);
-        let importer_unit = importer.map_or(Unit::None, |place| place.unit);
+        let origin = project.place(path);
+        let importer_unit = origin.map_or(Unit::None, |place| place.unit);
         let Some(file) = project.parse(path)? else {
             continue;
         };
@@ -122,11 +122,11 @@ fn api_of(imported: &Place<'_>) -> String {
     }
 }
 
-/// Whether `rest`, a specifier below `@/` that leaves the importer's slice for `imported`, names a
+/// Whether `rest`, a specifier below `@/` that leaves the importing slice for `imported`, names a
 /// public API: a slice (its `index.server` too in Next.js), an entity's `@x` file from another
 /// entity, a shared segment, or for `ui` and `lib` one level below it. The app layer and a
 /// library have none to check.
-fn public(pack: Pack, importer: Unit<'_>, imported: &Place<'_>, rest: &str) -> bool {
+fn public(pack: Pack, origin: Unit<'_>, imported: &Place<'_>, rest: &str) -> bool {
     let rest = rest.trim_end_matches('/');
     let rest = rest.strip_suffix("/index").unwrap_or(rest);
     match imported.unit {
@@ -143,7 +143,7 @@ fn public(pack: Pack, importer: Unit<'_>, imported: &Place<'_>, rest: &str) -> b
                 "/index.server" => pack == Pack::Nextjs,
                 _ => {
                     layer == Layer::Entities
-                        && matches!(importer, Unit::Slice(Layer::Entities, _))
+                        && matches!(origin, Unit::Slice(Layer::Entities, _))
                         && inner
                             .strip_prefix('/')
                             .and_then(|after| after.strip_prefix(CROSS_IMPORT))

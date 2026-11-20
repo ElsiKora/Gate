@@ -14,12 +14,16 @@ const LIBRARY: &str = "react-library";
 fn import_direction_lets_layers_point_down_only() {
     let files = [
         (
-            "src/app/providers.tsx",
+            "src/app/providers/providers.tsx",
+            "import { Header } from \"@/widgets/header\";\n",
+        ),
+        (
+            "src/pages/home/index.ts",
             "import { Header } from \"@/widgets/header\";\n",
         ),
         (
             "src/widgets/header/index.ts",
-            "import { signIn } from \"@/features/sign-in\";\nimport { user } from \"@/entities/user\";\nimport { client } from \"@/shared/api\";\n",
+            "import { signIn } from \"@/features/sign-in\";\nimport { user } from \"@/entities/user\";\nimport { client } from \"@/shared/api\";\nimport { Home } from \"@/pages/home\";\n",
         ),
         (
             "src/features/sign-in/index.ts",
@@ -34,6 +38,18 @@ fn import_direction_lets_layers_point_down_only() {
             "export const user = 1;\nimport type { SignIn } from \"@/features/sign-in\";\n",
         ),
         (
+            "src/entities/user/@x/invoice.ts",
+            "export const user = 1;\n",
+        ),
+        (
+            "src/entities/invoice/index.ts",
+            "import { user } from \"@/entities/user/@x/invoice\";\n",
+        ),
+        (
+            "src/entities/order/index.ts",
+            "import { user } from \"@/entities/user/@x/invoice\";\n",
+        ),
+        (
             "src/shared/api/index.ts",
             "export const client = 1;\nimport { user } from \"@/entities/user\";\n",
         ),
@@ -41,9 +57,11 @@ fn import_direction_lets_layers_point_down_only() {
     assert_eq!(
         check("import-direction", NEXT, &files),
         vec![
+            row("cross-slice", "src/entities/order/index.ts", Some(1)),
             row("cross-slice", "src/features/sign-up/index.ts", Some(1)),
             row("layer", "src/entities/user/index.ts", Some(2)),
             row("layer", "src/shared/api/index.ts", Some(2)),
+            row("layer", "src/widgets/header/index.ts", Some(4)),
         ]
     );
     assert_eq!(check("import-direction", LIBRARY, &files), vec![]);
@@ -82,6 +100,73 @@ fn import_paths_keeps_one_alias_and_relative_imports_inside_a_unit() {
 }
 
 #[test]
+fn import_paths_holds_imports_from_outside_to_the_public_api() {
+    let files = [
+        ("src/entities/user/index.ts", "export const user = 1;\n"),
+        (
+            "src/entities/user/index.server.ts",
+            "export const secret = 1;\n",
+        ),
+        (
+            "src/entities/user/model/store.ts",
+            "export const store = 1;\n",
+        ),
+        (
+            "src/entities/user/@x/invoice.ts",
+            "export const offered = 1;\n",
+        ),
+        (
+            "src/entities/invoice/index.ts",
+            "export { offered } from \"@/entities/user/@x/invoice\";\n",
+        ),
+        (
+            "src/features/auth/sign-in/index.ts",
+            "export const Form = 1;\n",
+        ),
+        (
+            "src/features/auth/sign-in/ui/form.tsx",
+            "export const Form = 1;\n",
+        ),
+        (
+            "src/shared/ui/button/index.ts",
+            "export const Button = 1;\n",
+        ),
+        (
+            "src/shared/ui/button/button.tsx",
+            "export const Button = 1;\n",
+        ),
+        (
+            "src/shared/ui/card.tsx",
+            "import { format } from \"../lib/format\";\nexport const Card = format;\n",
+        ),
+        ("src/shared/lib/format.ts", "export const format = 1;\n"),
+        ("src/shared/config/index.ts", "export const config = 1;\n"),
+        ("src/shared/config/env.ts", "export const env = 1;\n"),
+        (
+            "src/widgets/header/ui/header.tsx",
+            "import { user } from \"@/entities/user\";\nimport { store } from \"@/entities/user/model/store\";\nexport { store as again } from \"@/entities/user/model/store\";\nconst later = import(\"@/entities/user/model/store\");\nimport { Form } from \"@/features/auth/sign-in\";\nimport { Button } from \"@/shared/ui/button\";\nimport { Button as Raw } from \"@/shared/ui/button/button\";\nimport { config } from \"@/shared/config\";\nimport { env } from \"@/shared/config/env\";\nimport { secret } from \"@/entities/user/index.server\";\nimport { offered } from \"@/entities/user/@x/invoice\";\nimport { Form as Inner } from \"@/features/auth/sign-in/ui/form\";\n",
+        ),
+    ];
+    let header = "src/widgets/header/ui/header.tsx";
+    let sidesteps = [2, 3, 4, 7, 9, 11, 12];
+    assert_eq!(
+        check("import-paths", NEXT, &files),
+        sidesteps
+            .iter()
+            .map(|line| row("public-api", header, Some(*line)))
+            .collect::<Vec<_>>()
+    );
+    // index.server is a public API in Next.js only.
+    let mut vite: Vec<_> = sidesteps
+        .iter()
+        .chain(&[10])
+        .map(|line| row("public-api", header, Some(*line)))
+        .collect();
+    vite.sort();
+    assert_eq!(check("import-paths", VITE, &files), vite);
+}
+
+#[test]
 fn component_names_ties_a_ui_file_to_its_component() {
     let files = [
         (
@@ -101,7 +186,7 @@ fn component_names_ties_a_ui_file_to_its_component() {
             "export function Anything() { return null; }\n",
         ),
         (
-            "src/app/page.tsx",
+            "app/page.tsx",
             "export default function Page() { return null; }\n",
         ),
     ];
@@ -146,6 +231,10 @@ fn hook_names_ties_a_hook_to_its_file_and_its_segment() {
             "src/entities/balance/index.ts",
             "export { useBalance } from \"./model/use-balance\";\n",
         ),
+        (
+            "src/app/providers/use-theme.ts",
+            "export function useTheme() {}\n",
+        ),
     ];
     assert_eq!(
         check("hook-names", NEXT, &files),
@@ -165,7 +254,7 @@ fn state_placement_finds_a_store_through_its_import_binding() {
             "import { create } from \"zustand\";\nexport const useCartStore = create(() => ({}));\n",
         ),
         (
-            "src/app/store.ts",
+            "src/app/store/store.ts",
             "import { configureStore } from \"@reduxjs/toolkit\";\nexport const store = configureStore({ reducer: {} });\n",
         ),
         (
@@ -180,10 +269,15 @@ fn state_placement_finds_a_store_through_its_import_binding() {
             "src/shared/lib/local.ts",
             "function create() {}\ncreate();\n",
         ),
+        (
+            "src/app/providers/store.ts",
+            "import { create } from \"zustand\";\nexport const useTheme = create(() => ({}));\n",
+        ),
     ];
     assert_eq!(
         check("state-placement", NEXT, &files),
         vec![
+            row("", "src/app/providers/store.ts", Some(2)),
             row("", "src/entities/cart/ui/cart.tsx", Some(2)),
             row("", "src/shared/lib/store.ts", Some(2)),
         ]
@@ -338,7 +432,7 @@ fn messages_compares_the_locales_and_the_keys_the_code_uses() {
             "import { useTranslations } from \"next-intl\";\nexport function Home() {\n  const t = useTranslations(\"home\");\n  return <>{t(\"title\")}{t(\"missing\")}{t.rich(\"lead\")}</>;\n}\n",
         ),
         (
-            "src/app/page.tsx",
+            "app/page.tsx",
             "import { getTranslations } from \"next-intl/server\";\nexport default async function Page() {\n  const t = await getTranslations({ namespace: \"home\" });\n  return t(\"gone\");\n}\n",
         ),
     ];
@@ -348,7 +442,7 @@ fn messages_compares_the_locales_and_the_keys_the_code_uses() {
             row("empty", "src/shared/i18n/messages/en.json", None),
             row("locale-keys", "src/shared/i18n/messages/de.json", None),
             row("locale-keys", "src/shared/i18n/messages/de.json", None),
-            row("unknown-key", "src/app/page.tsx", Some(4)),
+            row("unknown-key", "app/page.tsx", Some(4)),
             row("unknown-key", "src/widgets/home/ui/home.tsx", Some(4)),
         ]
     );
@@ -373,33 +467,37 @@ fn messages_compares_the_locales_and_the_keys_the_code_uses() {
 fn route_files_holds_each_router_to_its_files_and_exports() {
     let next = [
         (
-            "src/app/providers.tsx",
+            "src/app/providers/providers.tsx",
             "export function Providers() { return null; }\n",
         ),
         (
-            "src/app/page.tsx",
+            "app/page.tsx",
             "export default function Page() { return null; }\n",
         ),
         (
-            "src/app/(dashboard)/table.tsx",
+            "app/invoices/[invoiceId]/page.tsx",
+            "export { InvoicePage as default } from \"@/pages/invoice\";\n",
+        ),
+        (
+            "app/(dashboard)/table.tsx",
             "export function Table() { return null; }\n",
         ),
         (
-            "src/app/(dashboard)/layout.tsx",
+            "app/(dashboard)/layout.tsx",
             "export function Layout() { return null; }\n",
         ),
         (
-            "src/app/api/health/route.ts",
+            "app/api/health/route.ts",
             "export async function GET() { return new Response(); }\n",
         ),
-        ("src/app/api/broken/route.ts", "export const handler = 1;\n"),
+        ("app/api/broken/route.ts", "export const handler = 1;\n"),
     ];
     assert_eq!(
         check("route-files", NEXT, &next),
         vec![
-            row("export", "src/app/(dashboard)/layout.tsx", None),
-            row("export", "src/app/api/broken/route.ts", None),
-            row("foreign", "src/app/(dashboard)/table.tsx", None),
+            row("export", "app/(dashboard)/layout.tsx", None),
+            row("export", "app/api/broken/route.ts", None),
+            row("foreign", "app/(dashboard)/table.tsx", None),
         ]
     );
 
@@ -431,15 +529,19 @@ fn route_files_holds_each_router_to_its_files_and_exports() {
 fn client_boundary_keeps_route_files_on_the_server() {
     let files = [
         (
-            "src/app/providers.tsx",
+            "src/app/providers/providers.tsx",
             "\"use client\";\nexport function Providers() { return null; }\n",
         ),
         (
-            "src/app/page.tsx",
+            "src/app/store/store.ts",
+            "\"use client\";\nexport const store = 1;\n",
+        ),
+        (
+            "app/page.tsx",
             "\"use client\";\nexport default function Page() { return null; }\n",
         ),
         (
-            "src/app/blog/layout.tsx",
+            "app/blog/layout.tsx",
             "\"use client\";\nexport default function Layout() { return null; }\n",
         ),
         (
@@ -454,22 +556,24 @@ fn client_boundary_keeps_route_files_on_the_server() {
     assert_eq!(
         check("client-boundary", NEXT, &files),
         vec![
+            row("placement", "src/app/store/store.ts", None),
             row("placement", "src/shared/lib/format.ts", None),
-            row("route-file", "src/app/blog/layout.tsx", None),
-            row("route-file", "src/app/page.tsx", None),
+            row("route-file", "app/blog/layout.tsx", None),
+            row("route-file", "app/page.tsx", None),
         ]
     );
     assert_eq!(check("client-boundary", VITE, &files), vec![]);
 }
 
 #[test]
-fn style_files_keeps_global_styles_in_the_app_layer() {
+fn style_files_keeps_global_styles_in_the_app_styles_segment() {
     let files = [
+        ("src/app/styles/globals.css", ""),
+        ("src/app/styles/extra.css", ""),
         ("src/app/globals.css", ""),
-        ("src/app/extra.css", ""),
         (
-            "src/app/layout.tsx",
-            "import \"./globals.css\";\nimport \"./extra.css\";\nexport default function Layout() { return null; }\n",
+            "app/layout.tsx",
+            "import \"@/app/styles/globals.css\";\nimport \"@/app/styles/extra.css\";\nexport default function Layout() { return null; }\n",
         ),
         (
             "src/shared/ui/card/card.tsx",
@@ -482,7 +586,8 @@ fn style_files_keeps_global_styles_in_the_app_layer() {
     assert_eq!(
         check("style-files", NEXT, &files),
         vec![
-            row("global", "src/app/layout.tsx", Some(2)),
+            row("global", "app/layout.tsx", Some(2)),
+            row("global", "src/app/globals.css", None),
             row("global", "src/shared/ui/card/card.css", None),
             row("import", "src/shared/ui/card/card.tsx", Some(2)),
             row("orphan", "src/shared/ui/card/badge.module.css", None),

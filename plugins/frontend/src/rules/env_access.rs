@@ -87,7 +87,7 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let pack = project.pack;
     let mut found = Vec::new();
 
-    for path in project.code() {
+    for path in project.all_code() {
         let Some(file) = project.parse(path)? else {
             continue;
         };

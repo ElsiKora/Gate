@@ -99,7 +99,7 @@ fn check(
 ) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
 
-    for path in project.code() {
+    for path in project.all_code() {
         let name = FileName::new(name_of(path));
         if name.extension != "tsx" || name.test_or_story() {
             continue;

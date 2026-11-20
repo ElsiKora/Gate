@@ -1,6 +1,6 @@
 # `frontend/hook-names`
 
-A hook lives in a file of its own name, in a model or lib segment or the app layer.
+A hook lives in a file of its own name, in a model or lib segment.
 
 ## What it checks and why
 
@@ -12,7 +12,8 @@ nor are files with a dotted part.
   `use-balance.ts` (or `.tsx`). Target `<path>#<hook>`.
 - `export`: a `use-*` file that does not export the hook its name gives.
 - `placement`: a `use-*` file, or a file that exports a hook, outside a `model` or `lib` segment and
-  the app layer. A store built by a store library is a hook too (`use-cart-store.ts`).
+  the app layer's `providers`, `store` and `lib`. A store built by a store library is a hook too
+  (`use-cart-store.ts`).
 
 Packs: all three.
 
@@ -27,7 +28,7 @@ None. The rule reads the plugin's `pack` ([the plugin's page](README.md)).
 
 ```text
 error frontend/hook-names src/entities/balance/ui/use-toggle.ts
-  src/entities/balance/ui/use-toggle.ts holds a hook outside a model or lib segment and the app layer
+  src/entities/balance/ui/use-toggle.ts holds a hook outside a model or lib segment and the app layer's providers, store and lib
 ```
 
 ## How to fix it

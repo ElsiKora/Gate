@@ -3232,6 +3232,10 @@ fn the_frontend_component_passes_each_standard_tree_and_reports_a_departure() {
         (
             "react-vite",
             &[
+                (
+                    "vite.config.ts",
+                    "import { tanstackRouter } from \"@tanstack/router-plugin/vite\";\nexport default { plugins: [tanstackRouter({ routesDirectory: \"./src/app/routes\", generatedRouteTree: \"./src/app/route-tree.gen.ts\" })], resolve: { alias: { \"@\": \"/src\" } } };\n",
+                ),
                 ("src/main.tsx", "export {};\n"),
                 ("src/app/routes/__root.tsx", "export const Route = 1;\n"),
             ],
@@ -3239,12 +3243,13 @@ fn the_frontend_component_passes_each_standard_tree_and_reports_a_departure() {
         (
             "nextjs",
             &[
+                ("pages/README.md", "Keeps Next.js from reading src/pages.\n"),
                 (
-                    "src/app/layout.tsx",
+                    "app/layout.tsx",
                     "export default function Layout() { return null; }\n",
                 ),
                 (
-                    "src/app/page.tsx",
+                    "app/page.tsx",
                     "export default function Page() { return null; }\n",
                 ),
             ],

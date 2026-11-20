@@ -119,3 +119,16 @@ pub fn messages(name: &str, pack: &str, files: &[(&str, &str)]) -> Vec<String> {
         .map(|finding| finding.message)
         .collect()
 }
+
+/// `files` without the file `path`, to show that the piece is required.
+pub fn without<'f>(files: &[(&'f str, &'f str)], path: &str) -> Vec<(&'f str, &'f str)> {
+    assert!(
+        files.iter().any(|(tracked, _)| *tracked == path),
+        "{path} is in the tree"
+    );
+    files
+        .iter()
+        .copied()
+        .filter(|(tracked, _)| *tracked != path)
+        .collect()
+}

@@ -57,8 +57,8 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
             if !folders.insert(folder.clone()) {
                 continue;
             }
-            let routed = route_folder
-                .is_some_and(|routes| within(&folder, routes) && folder.len() > routes.len());
+            let routed =
+                route_folder.is_some_and(|root| within(&folder, root) && folder.len() > root.len());
             if folder_names[depth] == CROSS_IMPORT {
                 if !cross_import_folder(project, &segments[..=depth]) {
                     found.push(Found::at(
@@ -84,7 +84,7 @@ fn check(project: &Project<'_, '_>) -> Vec<Found> {
             continue;
         }
 
-        let routed = route_folder.is_some_and(|routes| within(path, routes));
+        let routed = route_folder.is_some_and(|root| within(path, root));
         let file = FileName::new(name);
 
         if !file_stem(pack, file.stem, routed) {

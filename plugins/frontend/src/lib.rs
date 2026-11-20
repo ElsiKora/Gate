@@ -1,14 +1,16 @@
 //! The `frontend` plugin: one standard for React apps and libraries. Its rules hold a project to
 //! one tree of Feature-Sliced layers under `src/`, kebab-case names, imports that point down through
-//! one alias, one module that talks to the network, one module that reads the environment, every
-//! user-visible string through the translation layer, and assets and styles in known places. The
-//! option `pack` (`react-vite`, `nextjs` or `react-library`) decides the few cells a framework
+//! one alias and each slice's public API, one module that talks to the network, one module that
+//! reads the environment, every user-visible string through the translation layer, assets and
+//! styles in known places, and the alias, router plugin and packages the toolchain files declare.
+//! The option `pack` (`react-vite`, `nextjs` or `react-library`) decides the few cells a framework
 //! forces ([`options`]).
 //!
 //! Built for `wasm32-wasip2` it is the component `frontend.wasm`; natively it is a library the tests
 //! call through [`PLUGIN`].
 
 pub mod code;
+pub mod config;
 pub mod options;
 pub mod rules;
 pub mod standard;
@@ -21,11 +23,14 @@ use self::rules::component_names::ComponentNames;
 use self::rules::env_access::EnvAccess;
 use self::rules::file_names::FileNames;
 use self::rules::hook_names::HookNames;
+use self::rules::import_alias::ImportAlias;
 use self::rules::import_direction::ImportDirection;
 use self::rules::import_paths::ImportPaths;
 use self::rules::layout::Layout;
 use self::rules::literal_text::LiteralText;
 use self::rules::messages::Messages;
+use self::rules::packages::Packages;
+use self::rules::route_config::RouteConfig;
 use self::rules::route_files::RouteFiles;
 use self::rules::state_placement::StatePlacement;
 use self::rules::style_files::StyleFiles;
@@ -49,7 +54,10 @@ const RECOMMENDED: &str = r#"{
     "style-files": { "level": "error" },
     "route-files": { "level": "error" },
     "client-boundary": { "level": "error" },
-    "colocated-files": { "level": "error" }
+    "colocated-files": { "level": "error" },
+    "import-alias": { "level": "error" },
+    "route-config": { "level": "error" },
+    "packages": { "level": "error" }
 }"#;
 
 /// The preset an existing project extends while it moves to the standard: every rule at `warning`,
@@ -71,7 +79,10 @@ const ADOPTION: &str = r#"{
     "style-files": { "level": "warning" },
     "route-files": { "level": "warning" },
     "client-boundary": { "level": "warning" },
-    "colocated-files": { "level": "warning" }
+    "colocated-files": { "level": "warning" },
+    "import-alias": { "level": "warning" },
+    "route-config": { "level": "warning" },
+    "packages": { "level": "warning" }
 }"#;
 
 gate_sdk::plugin! {
@@ -97,6 +108,9 @@ gate_sdk::plugin! {
         RouteFiles,
         ClientBoundary,
         ColocatedFiles,
+        ImportAlias,
+        RouteConfig,
+        Packages,
     ],
     generators: [],
     presets: [

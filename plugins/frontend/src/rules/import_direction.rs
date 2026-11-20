@@ -43,10 +43,10 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     }
 
     for path in project.code() {
-        let Some(importer) = project.place(path) else {
+        let Some(origin) = project.place(path) else {
             continue;
         };
-        let Some(layer) = importer.layer else {
+        let Some(layer) = origin.layer else {
             continue;
         };
         let Some(file) = project.parse(path)? else {
@@ -78,9 +78,9 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
                 )
             } else if imported_layer == layer
                 && layer.sliced()
-                && imported.unit != importer.unit
+                && imported.unit != origin.unit
                 && matches!(imported.unit, Unit::Slice(..))
-                && !offered(&importer, &imported, &target)
+                && !offered(&origin, &imported, &target)
             {
                 Found::at(
                     "cross-slice",
@@ -104,9 +104,9 @@ fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
 }
 
 /// Whether `target`, of the slice `imported`, is the `@x` file an entity keeps for the entity
-/// `importer`: `src/entities/<a>/@x/<b>.ts` for the entity `b`.
-fn offered(importer: &Place<'_>, imported: &Place<'_>, target: &str) -> bool {
-    let Unit::Slice(Layer::Entities, slice) = importer.unit else {
+/// `origin`: `src/entities/<a>/@x/<b>.ts` for the entity `b`.
+fn offered(origin: &Place<'_>, imported: &Place<'_>, target: &str) -> bool {
+    let Unit::Slice(Layer::Entities, slice) = origin.unit else {
         return false;
     };
     imported.segment == Some(CROSS_IMPORT) && FileName::new(name_of(target)).stem == name_of(slice)
