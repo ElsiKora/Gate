@@ -75,6 +75,10 @@ pub struct Snapshot {
     source: Source,
     commit: Option<String>,
     entries: Arc<BTreeMap<String, BlobId>>,
+    /// In the working tree, the paths whose file matches its index entry (unchanged since git
+    /// wrote or staged it), with the index's blob id: their size is the size of that blob, the
+    /// bytes git stores, as after a checkout through a filter that stores a pointer.
+    clean: Arc<BTreeMap<String, BlobId>>,
     /// The reader and the contents of the index or a commit, by blob id.
     shared: Arc<Shared>,
     /// The contents of working-tree files, by path.
@@ -113,8 +117,13 @@ impl Snapshot {
     /// # Errors
     /// As [`Snapshot::open`].
     pub(crate) fn open_shared(git: &Git, source: Source, shared: &Arc<Shared>) -> Result<Self> {
+        let mut clean = Arc::default();
         let (entries, commit) = match &source {
-            Source::WorkTree => (Arc::new(work_tree_entries(git)?), git.head()?),
+            Source::WorkTree => {
+                let (entries, unchanged) = work_tree_entries(git)?;
+                clean = Arc::new(unchanged);
+                (Arc::new(entries), git.head()?)
+            }
             Source::Index => (Arc::new(index_entries(git)?), git.head()?),
             Source::Commit(revision) => {
                 let listed = lock(&shared.listings).get(revision).cloned();
@@ -140,6 +149,7 @@ impl Snapshot {
             source,
             commit,
             entries,
+            clean,
             shared: Arc::clone(shared),
             contents: Mutex::new(HashMap::new()),
             asked: Mutex::new(Some(BTreeSet::new())),
@@ -249,8 +259,10 @@ impl Snapshot {
     }
 
     /// The size in bytes of a tracked path, without reading its contents when they are not read
-    /// yet; `None` when the path is not tracked. A symbolic link has the size of its target's
-    /// path, as [`Snapshot::read`] reads it.
+    /// yet; `None` when the path is not tracked. It is the size of the blob git stores: in the
+    /// working tree, of the index's blob for a file that matches its index entry (so a file a
+    /// filter such as Git LFS stores as a pointer has the pointer's size), and of the file itself
+    /// for a file that differs from it. A symbolic link has the size of its target's path.
     ///
     /// # Errors
     /// Fails when the size cannot be read.
@@ -260,19 +272,27 @@ impl Snapshot {
         };
 
         if matches!(self.source, Source::WorkTree) {
+            if let Some(stored) = self.clean.get(path) {
+                return self.blob_size(stored, path).map(Some);
+            }
             if let Some(cached) = lock(&self.contents).get(path) {
                 return Ok(Some(length(cached)));
             }
             return work_tree_size(&self.git, path).map(Some);
         }
 
+        self.blob_size(blob, path).map(Some)
+    }
+
+    /// The size of `blob`, the object of `path`, from the contents already read or from git.
+    fn blob_size(&self, blob: &BlobId, path: &str) -> Result<u64> {
         if let Some(cached) = lock(&self.shared.contents).get(blob) {
-            return Ok(Some(length(cached)));
+            return Ok(length(cached));
         }
         let mut sizes = lock(&self.shared.sizes);
         let (known, reader) = &mut *sizes;
         if let Some(size) = known.get(blob) {
-            return Ok(Some(*size));
+            return Ok(*size);
         }
         if reader.is_none() {
             *reader = Some(self.git.object_sizes()?);
@@ -287,7 +307,7 @@ impl Snapshot {
                 ))
             })?;
         known.insert(blob.clone(), size);
-        Ok(Some(size))
+        Ok(size)
     }
 
     /// Every path [`Snapshot::read`] was asked for since the snapshot was opened, tracked or not, and
@@ -381,7 +401,9 @@ fn index_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
     Ok(entries)
 }
 
-fn work_tree_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
+/// The working tree's entries, and the paths among them whose file matches its index entry, with
+/// the index's blob id.
+fn work_tree_entries(git: &Git) -> Result<(BTreeMap<String, BlobId>, BTreeMap<String, BlobId>)> {
     let mut entries = BTreeMap::new();
     let mut symlinks = BTreeSet::new();
     let mut to_hash = BTreeSet::new();
@@ -408,6 +430,11 @@ fn work_tree_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
     for path in git.paths(&["diff-files", "-z", "--name-only", "--no-renames"])? {
         to_hash.insert(path);
     }
+    let clean: BTreeMap<String, BlobId> = entries
+        .iter()
+        .filter(|(path, _)| !to_hash.contains(*path))
+        .map(|(path, blob)| (path.clone(), blob.clone()))
+        .collect();
     // A file git converts (line endings, a filter) can change bytes while git sees no change:
     // its id is always the hash of the bytes a plugin reads.
     to_hash.extend(converted(git, &entries)?);
@@ -461,7 +488,7 @@ fn work_tree_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
         }
     }
 
-    Ok(entries)
+    Ok((entries, clean))
 }
 
 /// The tracked paths whose working-tree bytes git may convert on the way to or from the index:

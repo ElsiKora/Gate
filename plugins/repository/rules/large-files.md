@@ -7,8 +7,13 @@ No large file is tracked unless the project declares it with its job.
 Every clone downloads every version of every tracked file. A large file belongs in Git LFS or in
 storage the build fetches from; one the repository needs, such as a logo the site serves, is declared
 with what it is for, so the next reader knows why it stays. The rule asks the size of each tracked file
-of the repository and reads no content, so it is answered from the object database and its result stays
-cached while the sizes do.
+of the repository and reads no content, and its result stays cached while the sizes do.
+
+The size is that of the blob git stores. In a commit or the index it is the blob's size. In the
+working tree, a file that matches its index entry (unchanged since git wrote or staged it) has the
+size of the index's blob, and only a file that differs from its index entry has its own size. So a
+file Git LFS moved has its pointer's size in every mode, as the pre-commit hook sees it, though the
+checkout holds the whole file.
 
 | Aspect | Reported when | At |
 | --- | --- | --- |

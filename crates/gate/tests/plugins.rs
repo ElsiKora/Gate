@@ -4807,6 +4807,11 @@ fn lock_entry(source: &str, url: &str) -> String {
 /// `gate check` with the built docker and repository plugins, as JSON: the exit code and each
 /// finding as `rule#aspect path:line`, sorted.
 fn hygiene_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
+    hygiene_check_with(repo, &[])
+}
+
+/// [`hygiene_check`] with more `arguments` (`--staged`, `--rev <commit>`).
+fn hygiene_check_with(repo: &Repo, arguments: &[&str]) -> (Option<i32>, Vec<String>) {
     let docker = format!(
         "docker={}",
         component("gate-plugin-docker", "docker").0.display()
@@ -4817,7 +4822,7 @@ fn hygiene_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
             .0
             .display()
     );
-    let output = repo.gate(&[
+    let mut all = vec![
         "check",
         "--plugin",
         &docker,
@@ -4825,7 +4830,9 @@ fn hygiene_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
         &repository,
         "--format",
         "json",
-    ]);
+    ];
+    all.extend_from_slice(arguments);
+    let output = repo.gate(&all);
     let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
         .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
     let mut findings: Vec<String> = report["findings"]
@@ -4914,4 +4921,66 @@ fn the_docker_and_repository_rules_report_exactly_the_planted_files_and_pass_wit
     let (code, findings) = hygiene_check(&repo);
     assert_eq!(findings, Vec::<String>::new());
     assert_eq!(code, Some(0));
+}
+
+#[test]
+fn a_file_a_filter_stores_as_a_pointer_has_the_pointers_size_in_every_mode() {
+    let repo = Repo::empty();
+    let docker = "acme/rules:docker@0.3.0";
+    let repository = "acme/rules:repository@0.3.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n\n[rules]\n\"repository/large-files\" = \"error\"\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &(lock(
+            docker,
+            "https://example.invalid/docker.wasm",
+            &"b".repeat(64),
+        ) + &lock_entry(repository, "https://example.invalid/repository.wasm")),
+    );
+    // A filter as Git LFS installs one: the index holds a short pointer, the checkout the file.
+    repo.write(".gitattributes", "*.bin filter=pointer\n");
+    repo.git(&[
+        "config",
+        "filter.pointer.clean",
+        "cat >/dev/null; printf 'pointer to a large file\\n'",
+    ]);
+    repo.git(&[
+        "config",
+        "filter.pointer.smudge",
+        "cat >/dev/null; head -c 2097152 /dev/zero",
+    ]);
+    repo.git(&["config", "filter.pointer.required", "true"]);
+    let large = vec![0u8; 2 * 1024 * 1024];
+    std::fs::write(repo.path().join("media.bin"), &large).expect("write");
+    // The twin without a filter: git stores all of it.
+    std::fs::write(repo.path().join("media.dat"), &large).expect("write");
+    repo.write("notes.md", "notes\n");
+    repo.commit("a large file behind a filter and one without");
+    std::fs::remove_file(repo.path().join("media.bin")).expect("remove");
+    repo.git(&["checkout", "--", "media.bin"]);
+    assert_eq!(
+        std::fs::metadata(repo.path().join("media.bin"))
+            .expect("checked out")
+            .len(),
+        2 * 1024 * 1024,
+        "the checkout holds the smudged file"
+    );
+
+    let only_the_twin = ["repository/large-files#large media.dat:0"];
+    let (code, findings) = hygiene_check(&repo);
+    assert_eq!(findings, only_the_twin, "working tree");
+    assert_eq!(code, Some(1));
+    let (code, findings) = hygiene_check_with(&repo, &["--rev", "HEAD"]);
+    assert_eq!(findings, only_the_twin, "commit");
+    assert_eq!(code, Some(1));
+    repo.write("notes.md", "notes, staged\n");
+    repo.git(&["add", "notes.md"]);
+    let (code, findings) = hygiene_check_with(&repo, &["--staged"]);
+    assert_eq!(findings, only_the_twin, "index");
+    assert_eq!(code, Some(1));
 }
