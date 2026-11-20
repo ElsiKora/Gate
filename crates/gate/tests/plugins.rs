@@ -3366,6 +3366,127 @@ fn a_rebase_and_force_push_judges_only_the_branch_s_rewritten_commits() {
     assert_eq!(targets, BTreeSet::from([rebased]));
 }
 
+/// `diverged()` with the pushed commit, which others already have, accepted by an exception keyed
+/// by its id, as the rule's page says, committed on the branch: the repository, the `--plugin`
+/// argument, the pushed commit and the commit that adds the exception.
+fn accepted_pushed_commit() -> (Repo, String, String, String) {
+    let (repo, plugin, pushed, _) = diverged();
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message\"\ntarget = \"{pushed}\"\nreason = \"pushed before the hooks were on\"\n"
+        ),
+    );
+    let accepted = repo.commit("chore(repo): accept the pushed commit");
+    (repo, plugin, pushed, accepted)
+}
+
+/// The `gate/exceptions` findings of `gate check` with `arguments`, and its exit code.
+fn unmatched_exceptions(repo: &Repo, plugin: &str, arguments: &[&str]) -> (Vec<String>, i32) {
+    let mut all = vec!["check", "--plugin", plugin, "--format", "json"];
+    all.extend_from_slice(arguments);
+    let output = repo.gate(&all);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("a JSON report: {}", text(&output.stderr)));
+    let unmatched = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|finding| finding["rule"] == "gate/exceptions")
+        .map(|finding| finding["message"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    (unmatched, output.status.code().unwrap_or(-1))
+}
+
+#[test]
+fn an_exception_for_a_pushed_commit_is_not_due_in_a_run_that_does_not_judge_it() {
+    let (repo, plugin, _, accepted) = accepted_pushed_commit();
+
+    // pre-commit: no commit is judged.
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    assert_eq!(
+        unmatched_exceptions(&repo, &plugin, &["--staged"]),
+        (Vec::new(), 0),
+        "pre-commit"
+    );
+
+    // commit-msg: the new message is judged, not the pushed commit.
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let message = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&message, "feat(core): add c\n").expect("message");
+    let at = message.display().to_string();
+    assert_eq!(
+        unmatched_exceptions(&repo, &plugin, &["--commit-message", &at]),
+        (Vec::new(), 0),
+        "commit-msg"
+    );
+
+    // pre-push of the exception's commit alone: the pushed commit is already on the remote.
+    let parent = revision(&repo, &format!("{accepted}^"));
+    let range = format!("{parent}..{accepted}");
+    let push = [
+        "--push",
+        range.as_str(),
+        "--target-ref",
+        "refs/heads/feat/the-thing",
+    ];
+    assert_eq!(
+        unmatched_exceptions(&repo, &plugin, &push),
+        (Vec::new(), 0),
+        "a push that does not hold the commit"
+    );
+}
+
+#[test]
+fn an_exception_for_a_commit_the_push_judges_and_accepts_is_reported() {
+    let (repo, plugin, _, _) = diverged();
+    repo.write("c.txt", "c\n");
+    let good = repo.commit("feat(core): add c");
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message\"\ntarget = \"{good}\"\nreason = \"never needed\"\n"
+        ),
+    );
+    let accepted = repo.commit("chore(repo): accept c");
+    let range = format!("{}..{accepted}", revision(&repo, "main"));
+    let push = [
+        "--push",
+        range.as_str(),
+        "--target-ref",
+        "refs/heads/feat/the-thing",
+    ];
+    let (unmatched, code) = unmatched_exceptions(&repo, &plugin, &push);
+    assert_eq!(code, 1, "{unmatched:?}");
+    assert_eq!(
+        unmatched,
+        [format!(
+            "the exception for git/commit-message at {good} matches no finding"
+        )]
+    );
+}
+
+#[test]
+fn an_exception_for_a_commit_the_history_no_longer_holds_is_reported() {
+    let (repo, plugin, pushed, _) = accepted_pushed_commit();
+    // The branch is rebased onto main: the exception names a commit the history no longer holds,
+    // which no run judges again.
+    repo.git(&["rebase", "-q", "main"]);
+    let rewritten = revision(&repo, "HEAD~1");
+    assert_ne!(rewritten, pushed, "the rebase rewrote the commit");
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    let (unmatched, code) = unmatched_exceptions(&repo, &plugin, &["--staged"]);
+    assert_eq!(code, 1, "{unmatched:?}");
+    assert_eq!(
+        unmatched,
+        [format!(
+            "the exception for git/commit-message at {pushed} matches no finding"
+        )]
+    );
+}
+
 impl GitOptions {
     fn new() -> Self {
         let git = git_component();
