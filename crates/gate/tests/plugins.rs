@@ -2592,14 +2592,16 @@ fn agents_rules_and_the_agents_block_fail_without_agent_docs_and_pass_with_them(
     assert_eq!(said.matches("#input]").count(), 1, "{said}");
     assert!(said.contains("agents/rule-registry#input"), "{said}");
 
-    // One valid rule file and the block written from it: nothing is reported.
+    // One valid rule file and the block written from it: nothing is reported. `gate sync` reads
+    // the committed tree, so the rule file is committed before the block is written.
     repo.write(
         "docs/agents/rules/api.md",
         "---\narea: API\napplies: always\nowner: D-ONE-001\n---\n# Rules\n\n## RULE-API-001 Rule 1\n\nEnforcement: gate · Status: stable\n\n",
     );
+    repo.commit("a rule file");
     let (code, said) = doc_run(&repo, "agents", wasm, &["sync"]);
     assert_eq!(code, Some(0), "{said}");
-    repo.commit("a rule file and its block");
+    repo.commit("its block");
     let (code, said) = doc_run(&repo, "agents", wasm, &["check"]);
     assert_eq!(code, Some(0), "{said}");
     let (code, said) = doc_run(&repo, "agents", wasm, &["sync", "--check"]);
@@ -3920,7 +3922,7 @@ fn a_ledger_option_its_rule_refuses_is_a_configuration_error() {
         "gate-plugin-ledger",
         "ledger",
         "ledger",
-        r#""ledger/reuses" = { level = "error", options = { generic-reasons = "(" } }"#,
+        r#""ledger/reuses" = { level = "error", options = { catalog = "docs/reference/mechanisms.md", generic-reasons = "(" } }"#,
     );
     assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
     let message = text(&output.stderr);

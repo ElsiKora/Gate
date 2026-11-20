@@ -186,5 +186,9 @@ end-to-end tests in `crates/gate/tests/plugins.rs`; the rule pages, the guide an
 Round 263 (ticket 000000000263, on `2cb3001`) stopped at clippy: `too_many_lines` in
 `instruction-references` (105/100); fixed by moving the command pattern and the files read into
 functions of their own. Rebased onto T-059 at `21d2d53`; the `agents()` test helper now uses the
-memoized `component()` that main's T-060 brought. Next: the lane round on the pushed tip, then
-review.
+memoized `component()` that main's T-060 brought. Round 309 was a false green: it shared a
+target with T-059 and tested T-059's ledger and `gate` builds. Round 318 (own target, on
+`25033d5`) compiled every crate from this worktree and ran every new test; two end-to-end tests
+failed: the agents test ran `gate sync` before committing the rule file (sync reads the committed
+tree), and an existing test enabled `ledger/reuses` without the now required `catalog`. Both fixed.
+Next: the lane round on the pushed tip, then review.
