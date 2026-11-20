@@ -33,6 +33,34 @@ These are the follow-ups recorded in [T-074](T-074-gate-checks-itself.md).
    - A body made only of a trailer block has nothing to end with a full stop, so it passes.
    - `body-max-line-length` still reads the whole body.
 
+## Review fixes
+
+The independent review of `b50ce6b` found two defects, which are fixed here:
+
+1. **Prose inside the trailer block.** Under git's quarter rule, a trailer block with a
+   `Signed-off-by` line may also hold lines that are neither a trailer nor a continuation, and
+   `body_lines` dropped them. `Generated with an assistant` above `Signed-off-by: A Person` in the
+   last paragraph escaped `prohibited-body-lines`. These lines are now body lines, and so is an
+   indented line after one of them. An indented line after a trailer continues that trailer; it
+   is read, unfolded, by `prohibited-trailers`.
+2. **An issue reference in the block.** A trailer block that holds an issue reference, such as
+   `Refs: #12`, starts the parser's footer at that line, so the body ended inside the block and
+   `body-full-stop` judged it whole. A body that ends with the first lines of the block, as a
+   paragraph of its own, is now judged above them.
+
+Also: the cut uses the body's real line offsets, CRLF included. The rule page notes that `^`
+lets a line that starts with an emoji or a space through, and that the option applies to pushed
+commits. The root CHANGELOG has a 0.3.0 Features entry.
+
+Known git-parity behaviour, kept on purpose:
+
+- A line that starts with `#` is a comment and is not read, also in a pushed commit's message,
+  where git stored it (`git commit --cleanup=verbatim`). The message is read as `commitlint`
+  reads it, with `#` as the comment character.
+- A last paragraph of one `Token: value` line, such as `Note: see the guide`, is a trailer block,
+  as git finds it. It is not a body line for `prohibited-body-lines`, and `body-full-stop` judges
+  the body above it.
+
 ## Done when
 
 - Tests, each with a pass and a fail:
@@ -50,6 +78,10 @@ These are the follow-ups recorded in [T-074](T-074-gate-checks-itself.md).
   prints nothing.
 
 ## Resume point
+
+2026-11-20T18:36:16+00:00: the review fixes and the aspect count fix (`b50ce6b`) are on `7f62554b`.
+Round 363 on `042c9f0` was red on the count alone; ticket 371 was stopped in the queue for the
+review. Next: one lane round on the fixed tip.
 
 2026-11-20T17:20:00+00:00: `c7f9539` has the option, the `body-full-stop` change, the tests, the rule
 page and the CHANGELOG. Its lane round, ticket 361, was stopped in the queue before it started, at

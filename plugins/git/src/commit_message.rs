@@ -682,6 +682,9 @@ fn log_end(lines: &[&str]) -> usize {
 struct Kept<'m> {
     lines: Vec<&'m str>,
     block: Option<usize>,
+    /// The indexes in `lines` of the block's lines that are neither a trailer nor a continuation
+    /// of one: prose that git's quarter rule lets a block with a line git writes itself hold.
+    prose: Vec<usize>,
 }
 
 /// `message` as [`Kept`]. The trailer block is the last paragraph, never the first (the title),
@@ -708,17 +711,18 @@ fn kept(message: &str) -> Kept<'_> {
         return Kept {
             lines: kept,
             block: None,
+            prose: Vec::new(),
         };
     };
 
     let mut trailer_lines = 0_usize;
-    let mut other_lines = 0_usize;
+    let mut prose = Vec::new();
     let mut recognized = false;
     let mut after_trailer = false;
-    for line in &kept[start..] {
+    for (at, line) in kept.iter().enumerate().skip(start) {
         if line.starts_with(is_git_space) {
             if !after_trailer {
-                other_lines += 1;
+                prose.push(at);
             }
         } else if GIT_GENERATED.iter().any(|prefix| line.starts_with(prefix)) {
             recognized = true;
@@ -728,31 +732,38 @@ fn kept(message: &str) -> Kept<'_> {
             trailer_lines += 1;
             after_trailer = true;
         } else {
-            other_lines += 1;
+            prose.push(at);
             after_trailer = false;
         }
     }
     let is_block =
-        trailer_lines > 0 && (other_lines == 0 || (recognized && trailer_lines * 3 >= other_lines));
+        trailer_lines > 0 && (prose.is_empty() || (recognized && trailer_lines * 3 >= prose.len()));
+    if !is_block {
+        prose.clear();
+    }
     Kept {
         lines: kept,
         block: is_block.then_some(start),
+        prose,
     }
 }
 
-/// The lines `prohibited-body-lines` reads in `message`: each line after the header that is
-/// neither blank nor in the trailer block, as [`Kept`] finds them.
+/// The lines `prohibited-body-lines` reads in `message`: each line after the header that is not
+/// blank, as [`Kept`] finds them, without the trailers of the trailer block and their
+/// continuation lines; the prose a block holds under git's quarter rule is read.
 fn body_lines(message: &str) -> Vec<&str> {
     let kept = kept(message);
     let blank = |line: &&str| trim_git(line).is_empty();
     let end = kept.block.unwrap_or(kept.lines.len());
-    kept.lines[..end]
+    let mut found: Vec<&str> = kept.lines[..end]
         .iter()
         .copied()
         .skip_while(blank)
         .skip(1)
         .filter(|line| !blank(line))
-        .collect()
+        .collect();
+    found.extend(kept.prose.iter().map(|&at| kept.lines[at]));
+    found
 }
 
 /// The trailers of `message` as `git interpret-trailers` finds them, each unfolded and written
@@ -1304,28 +1315,41 @@ fn subject_checks(
     }
 }
 
-/// `body` without the trailer block of the message `raw` when the body ends with that block as a
-/// paragraph of its own, and without the white space before it; `body` itself otherwise.
+/// `body` above the trailer block of the message `raw`, without the white space before it, when
+/// the body ends with the block, or with its first lines, as a paragraph of its own: the parser
+/// ends the body at a line with an issue reference, such as `Refs: #12`, which may be in the block.
+/// `body` itself otherwise.
 fn above_trailers<'b>(body: &'b str, raw: &str) -> &'b str {
     let kept = kept(raw);
     let Some(start) = kept.block else {
         return body;
     };
     let block = &kept.lines[start..];
-    let body_lines = lines(body);
-    let Some(split) = body_lines.len().checked_sub(block.len()) else {
-        return body;
-    };
-    let before = &body_lines[..split];
-    if body_lines[split..] != *block || before.last().is_some_and(|line| !trim_git(line).is_empty())
-    {
-        return body;
+    // Each line of `body`, without its carriage return, with the offset it starts at.
+    let mut body_lines: Vec<(usize, &str)> = Vec::new();
+    let mut offset = 0;
+    for line in body.split('\n') {
+        body_lines.push((offset, line.strip_suffix('\r').unwrap_or(line)));
+        offset += line.len() + 1;
     }
-    // The lines before the block are the start of `body`, each followed by one line feed.
-    let length: usize = before.iter().map(|line| line.len() + 1).sum();
-    body.get(..length.min(body.len()))
-        .unwrap_or(body)
-        .trim_end_matches(is_git_space)
+    for taken in (1..=block.len()).rev() {
+        let Some(split) = body_lines.len().checked_sub(taken) else {
+            continue;
+        };
+        let ends_with_block = body_lines[split..]
+            .iter()
+            .map(|(_, line)| *line)
+            .eq(block[..taken].iter().copied());
+        let own_paragraph = split
+            .checked_sub(1)
+            .is_none_or(|before| trim_git(body_lines[before].1).is_empty());
+        if ends_with_block && own_paragraph {
+            // The offset of a line's start follows a line feed, so it is a character boundary.
+            let (cut, _) = body_lines[split];
+            return body[..cut].trim_end_matches(is_git_space);
+        }
+    }
+    body
 }
 
 fn body_checks(found: &mut Failures, parsed: &Parsed, options: &Options) {

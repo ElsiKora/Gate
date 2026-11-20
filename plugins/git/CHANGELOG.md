@@ -27,15 +27,17 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   message being written and the pushed commits' messages may not carry, empty by default: each is
   searched in every line after the header that is neither blank nor in the trailer block, and each
   line one matches is a finding of the new aspect `prohibited-body-lines`, an ignored message
-  included. A note such as `Generated with ...`, which is no trailer, can now be refused. A pattern
+  included. Prose that git's quarter rule lets a trailer block hold, above a `Signed-off-by`, is
+  read as body lines too. A note such as `Generated with ...`, which is no trailer, can now be refused. A pattern
   that does not compile, or an empty one, is a configuration error.
 
 ### Bug Fixes
 
 - `git/commit-message`'s `body-full-stop` judges the body above its trailer block, the block
   `git interpret-trailers` and `prohibited-trailers` find. A body that ends with a full stop and
-  then a `Co-authored-by` block no longer fails it, and a body that is only a trailer block passes;
-  a body without a full stop above the block still fails.
+  then a `Co-authored-by` block no longer fails it, also when the block holds an issue reference
+  such as `Refs: #12` that starts the footer, and a body that is only a trailer block passes; a
+  body without a full stop above the block still fails.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.2.0...plugin-git-v0.2.1) (2026-11-20)
 

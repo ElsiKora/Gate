@@ -93,6 +93,10 @@ Each shared plugin keeps its own changelog next to its code.
   `repository/large-files`, and the presets `repository/recommended` and `repository/adoption`.
 - **sdk:** `gate_sdk::yaml`, behind the feature `yaml`: a YAML reader that keeps each node's line,
   for rules that report at a line of a YAML file.
+- **plugin-git:** `git/commit-message` takes `prohibited-body-lines`, regular expressions of the
+  body lines a message may not carry, so a note such as `Generated with ...`, which is no trailer,
+  can be refused in the `commit-msg` hook and in the pushed commits. `body-full-stop` judges the
+  body above its trailer block, so a person's `Co-authored-by` no longer fails it.
 
 ### Bug Fixes
 
