@@ -94,6 +94,13 @@ Each shared plugin keeps its own changelog next to its code.
 - **sdk:** `gate_sdk::yaml`, behind the feature `yaml`: a YAML reader that keeps each node's line,
   for rules that report at a line of a YAML file.
 
+### Bug Fixes
+
+- **runtime:** `wasmtime` and `wasmtime-wasi` 50.0.3, for RUSTSEC-2026-0587, a WASI filesystem
+  sandbox escape on Windows through a drive-prefixed path component, which 50.0.2 had. The
+  released binaries, macOS arm64 (`aarch64-apple-darwin`) and Linux musl
+  (`x86_64-unknown-linux-musl`), were not affected: the advisory is Windows-only.
+
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 
 The plugin interface stays `gate:plugin@0.2.0`, so every plugin built for 0.2.0 loads in a 0.2.1
