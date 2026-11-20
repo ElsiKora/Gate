@@ -464,6 +464,53 @@ fn rest_and_property_parameters_are_named_and_destructured_or_redeclared_ones_ar
 }
 
 #[test]
+fn an_arrow_field_s_own_parameters_are_named() {
+    let path = "src/modules/shelf/guard.ts";
+    let text = "import { BadRequestException } from \"@nestjs/common\";\n\
+                export class ShelfGuard {\n\
+                 guard = (limit: number): void => {\n\
+                  check();\n\
+                  throw new BadRequestException({ limit });\n\
+                 };\n\
+                 run = (owner: string, items: Array<Item>): void => {\n\
+                  check();\n\
+                  items.forEach((item: Item) => { throw new BadRequestException({ item, owner }); });\n\
+                 };\n\
+                 accessor verify = (code: string, items: Array<Item>): void => {\n\
+                  check();\n\
+                  items.forEach((item: Item) => { throw new BadRequestException({ code, item }); });\n\
+                 };\n\
+                }\n";
+    let named = |scope: &str, construction: &str| {
+        format!("{path}: ShelfGuard.{scope}: new BadRequestException({{ {construction} }})")
+    };
+
+    // The field's arrow is the member's own function, for a property and for an accessor: its
+    // parameters are named, and a callback within it adds its own after them. Were the arrow
+    // taken for a callback, the reads of `owner` and `code` would keep the line form.
+    assert_eq!(
+        located_targets("{}", &[], &[(path, text)]),
+        [
+            at(
+                "raw-nest-exception",
+                5,
+                Some(&named("guard parameters limit", "limit"))
+            ),
+            at(
+                "raw-nest-exception",
+                9,
+                Some(&named("run parameters owner, item", "item, owner"))
+            ),
+            at(
+                "raw-nest-exception",
+                13,
+                Some(&named("verify parameters code, item", "code, item"))
+            ),
+        ]
+    );
+}
+
+#[test]
 fn a_function_scope_named_like_a_class_of_the_file_is_not_named() {
     let path = "src/runtime/shelf.ts";
     let text = "import { BadRequestException } from \"@nestjs/common\";\n\
@@ -640,8 +687,10 @@ fn reporter_adapters_are_an_option() {
         )]
     );
     assert_eq!(check(RULE, options, &[(path, text)]), []);
-    // The port is `port`; `class` is no option.
-    assert!(error(RULE, &options.replace("\"port\"", "\"class\""), &[]).contains("class"));
+    // The port is `port`; `class` is no option, and the error names the field to use.
+    let refused = error(RULE, &options.replace("\"port\"", "\"class\""), &[]);
+    assert!(refused.contains("`class`"), "{refused}");
+    assert!(refused.contains("`port`"), "{refused}");
 }
 
 #[test]
@@ -667,6 +716,47 @@ fn a_reporter_adapter_may_implement_an_interface_port() {
             Some(7),
             &forwards(path, 7, "report", "this.sink.report")
         )]
+    );
+}
+
+#[test]
+fn a_port_of_the_same_name_from_another_module_is_no_boundary() {
+    let options = r#"{ "reporter-adapters": [{ "module": "@common/report", "port": "ReporterPort", "method": "report", "path-prefix": "src/infrastructure/" }] }"#;
+    let forwarder = " report(error: Error) { return this.sink.report(error); }\n}\n";
+    let implements_text = format!(
+        "import {{ ReporterPort }} from \"@common/other\";\nexport class OtherAdapter implements ReporterPort {{\n{forwarder}"
+    );
+    let extends_text = format!(
+        "import {{ ReporterPort }} from \"@common/other\";\nexport class OtherAdapter extends ReporterPort {{\n{forwarder}"
+    );
+    let implements_path = "src/infrastructure/report/implemented.ts";
+    let extends_path = "src/infrastructure/report/extended.ts";
+
+    // The name is the port's, but the module is not the port's, so neither forwarder is a
+    // boundary.
+    assert_eq!(
+        sorted(check(
+            RULE,
+            options,
+            &[
+                (implements_path, implements_text.as_str()),
+                (extends_path, extends_text.as_str())
+            ]
+        )),
+        sorted(vec![
+            row(
+                "one-call-forwarding",
+                extends_path,
+                Some(3),
+                &forwards(extends_path, 3, "report", "this.sink.report")
+            ),
+            row(
+                "one-call-forwarding",
+                implements_path,
+                Some(3),
+                &forwards(implements_path, 3, "report", "this.sink.report")
+            ),
+        ])
     );
 }
 

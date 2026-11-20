@@ -66,7 +66,7 @@ The finding's target names the construction for exceptions:
   a named function declared at the top level of the file, when no class of the file has that name.
 - `catch` is present when the construction lies in a `catch` clause of that scope.
 - `parameters` lists, in declaration order, the plain parameters (no default, no destructuring,
-  never reassigned) that the construction's arguments read, of the scope's own function and of the
+  never reassigned, not redeclared) that the construction's arguments read, of the scope's own function and of the
   innermost callback holding the construction, such as the `baseUrl` of
   `findListed(baseUrl: string)` or the `errors` of a `ValidationPipe` `exceptionFactory`:
   `src/x.ts: findListed parameters baseUrl: new BadRequestException({ baseUrl })`.
@@ -84,8 +84,8 @@ spellings do not change the target; parentheses and the spelling of an object ke
 shorthand or computed) do.
 
 A construction outside such a scope, or whose arguments read another binding local to the scope
-(a local variable, a parameter with a default or reassigned, `arguments`), has the target
-`<path>:<line>: <construction>`.
+(a local variable; a defaulted, reassigned, destructured or redeclared parameter; `arguments`), has
+the target `<path>:<line>: <construction>`.
 
 ## Options
 

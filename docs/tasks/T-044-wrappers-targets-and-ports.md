@@ -71,3 +71,12 @@ knowledge out, `nestjs/string-enums` moved, `nestjs/raw-config-access` aspects);
 follow them in the same `### Breaking Changes` list, and nothing of main's is changed. The batch
 changed nothing under the wrappers rule, its tests or the test host. Round 342 counted for the
 earlier base only. Next: one lane round on T-044's own target.
+2026-11-20T17:03:05+00:00: the independent review on `cee6491` found nothing blocking; its fix
+round, with no other change: `a_port_of_the_same_name_from_another_module_is_no_boundary` (the
+port's name imported from another module, by `implements` and by `extends`, is no boundary, so
+dropping the module check fails it); `an_arrow_field_s_own_parameters_are_named` (an arrow that is a
+property's or an accessor's value is the member's own function, each with a callback inside, so
+dropping either scope path fails it); the `class` option test asserts that the error names `class`
+and `port`; the rule page and the CHANGELOG entry say "not redeclared" and list defaulted,
+reassigned, destructured and redeclared parameters as keeping the line form. Next: rebase onto
+`main` once T-073 is merged, then the round that counts.
