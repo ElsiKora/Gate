@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | code written; lane round next |
+| Status | green in lane round 364 on `6dfddf0d`; for review |
 | Release | v0.3.0 (configuration; no plugin interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
-| Depends on | `origin/main` at `cee6491` (batches 1 and 2) |
+| Depends on | `origin/main` at `7f62554b` (rebased from `cee6491` after T-073) |
 | Touches | `crates/gate-host/src/config` (`[workspace] extends`, its origin label, the parser hint), `crates/gate-host/src/workspace.rs` (where it is allowed), `crates/gate-host/src/plugins.rs` (the check that an `extends` entry turns something on), `crates/gate-runtime/tests/probe` (a test preset of both scopes), `crates/gate/tests/plugins.rs`, `crates/gate-host/tests/host/config.rs`, `docs/guide/configuration.md`, `docs/guide/plugins.md`, `plugins/git/rules/commit-message.md`, the root `CHANGELOG.md` |
 
 ## Goal
@@ -188,7 +188,37 @@ rule decisions in T-072 (4). The test plan is accepted, `probe/both` included.
   this task's round checkout and lists each new test by name; each new test fails with its change
   reverted.
 
+## Proof
+
+Lane ticket 364 on `6dfddf0d`, 2026-11-20T18:30:53+00:00 to 2026-11-20T18:54:37+00:00
+(`round-inner.sh`, its own target directory, hooks off in the round worktree, logs kept under the
+ticket):
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| test | `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0, 1348 passed, 0 failed |
+| deny | `cargo deny --offline --locked check` (advisories, bans, licenses, sources ok) | 0 |
+| release build | `cargo build --release --offline --locked -j 4` | 0 |
+
+The test log shows `Compiling` for `gate-host`, `gate`, `gate-runtime` and `gate-runtime-probe` from
+the round's own checkout of `6dfddf0d`, and lists by name, each `ok`, the five new tests and the
+changed `config::top_level_extends_points_to_project_and_profiles`.
+
+Each mutation, applied to the round's tree, made its exact test fail (exit 101):
+
+| Mutation | Test |
+| --- | --- |
+| `[workspace] extends` not layered into the root's settings | `gate-host` `config::workspace_extends_at_a_root_that_is_not_a_project_reaches_the_repository_only` |
+| the same | `gate` `a_monorepo_root_extends_git_recommended_and_its_own_rules_win` |
+| no refusal of `[workspace] extends` at a root project | `gate-host` `config::workspace_extends_in_a_root_that_is_a_project_points_to_project_extends` |
+| the parser hint without `[workspace] extends` | `gate-host` `config::top_level_extends_points_to_project_and_profiles` |
+| the check that an entry turns on a rule never fails | `gate` `an_extends_entry_that_turns_on_no_rule_where_it_applies_is_a_configuration_error` |
+| an entry counts only when every rule is of the scope (`all` for `any`) | `gate` `a_preset_of_both_scopes_runs_each_rule_where_its_scope_runs` |
+| `probe/aspects` runs in the repository call too | `gate` `a_preset_of_both_scopes_runs_each_rule_where_its_scope_runs` |
+
 ## Resume point
 
-2026-11-20T16:42:09+00:00: the code, the `probe/both` preset (with the repository-scope probe rule
-`probe/whole`), the tests, the docs and the changelog are committed; the lane round is next.
+2026-11-20T18:55:27+00:00: green in lane round 364 on `6dfddf0d` (rebased onto `main` at `7f62554b`);
+waiting for the review.
