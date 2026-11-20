@@ -161,9 +161,8 @@ worktrees and are not counted.
 
 ## Resume point
 
-2026-11-20T16:43:30+00:00: rebased onto main at `cee6491` over T-048's tip `b1240cb`. Main already
-has `gate:plugin@0.3.0` (seed, plugin-options, tree.size), so `rule-decisions` joins that interface
-and the commit that bumped the version was dropped as already upstream. The fixtures of the plugins
-main added (cdk, docker, docs, node, repository, typescript's string-enums test) build their
-`CheckRequest` with `rule_decisions`. Round 317's Proof is for the earlier base; next: a round on
-this base, then review.
+2026-11-20T17:58:09+00:00: rebased onto T-048 at `27df7d4`, on `main` at `7f62554`. Main already
+has `gate:plugin@0.3.0` (seed, plugin-options, tree.size), and `rule-decisions` joins that
+interface; the fixtures of the plugins main added build their `CheckRequest` with
+`rule_decisions`. Round 317's Proof is for the earlier base. T-061 and T-052 are stacked on this
+branch, and one lane round on T-052's tip counts for all four; next: that round.
