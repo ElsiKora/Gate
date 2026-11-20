@@ -152,3 +152,55 @@ fn a_path_behind_a_symlinked_directory_is_not_read() {
     );
     assert_eq!(text(&snapshot, "src/a.ts").as_deref(), Some("a\n"));
 }
+
+#[test]
+fn a_touched_or_modified_filtered_file_has_the_size_of_the_blob_git_would_store() {
+    let repo = Repo::new();
+    // A clean filter that stores a pointer naming the size, as Git LFS stores a pointer.
+    repo.git(&[
+        "config",
+        "filter.pointer.clean",
+        "printf 'pointer %s\\n' \"$(wc -c | tr -d ' ')\"",
+    ]);
+    repo.git(&["config", "filter.pointer.smudge", "cat"]);
+    repo.git(&["config", "filter.pointer.required", "true"]);
+    repo.write(".gitattributes", "*.bin filter=pointer\n")
+        .write("media.bin", &"x".repeat(3000));
+    repo.commit("a filtered file");
+    let size = |repo: &Repo| {
+        open(repo, Source::WorkTree)
+            .size("media.bin")
+            .expect("size")
+    };
+    let stored = u64::try_from("pointer 3000\n".len()).expect("small");
+    assert_eq!(size(&repo), Some(stored), "unchanged since the commit");
+
+    // Touched: the same bytes with another modification time, as cp -r or a cache restore leaves.
+    let file = std::fs::File::options()
+        .write(true)
+        .open(repo.file("media.bin"))
+        .expect("open");
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(120))
+        .expect("set the modification time");
+    drop(file);
+    assert_eq!(
+        repo.git(&["diff-files", "--name-only"]),
+        "media.bin",
+        "git sees the touched file as changed"
+    );
+    assert_eq!(size(&repo), Some(stored), "touched");
+
+    // Modified: a pointer the object database does not hold yet, hashed without writing to it.
+    repo.write("media.bin", &"y".repeat(5000));
+    let objects = repo.git(&["count-objects", "-v"]);
+    assert_eq!(
+        size(&repo),
+        Some(u64::try_from("pointer 5000\n".len()).expect("small")),
+        "modified"
+    );
+    assert_eq!(
+        repo.git(&["count-objects", "-v"]),
+        objects,
+        "the repository's object database is unchanged"
+    );
+}

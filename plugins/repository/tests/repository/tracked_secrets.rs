@@ -16,7 +16,31 @@ fn check(files: &[(&str, &str)]) -> (Vec<String>, String) {
         .map(|(path, text)| (*path, text.as_bytes()))
         .collect();
     let findings = Fixture::new(&bytes).check(RULE, "{}").expect("runs");
-    (rows(&findings), texts(&findings))
+    (masked(rows(&findings)), texts(&findings))
+}
+
+/// `rows` with each content key's hash checked and taken out: `private-key:<12 hex>` becomes
+/// `private-key`.
+fn masked(rows: Vec<String>) -> Vec<String> {
+    rows.into_iter()
+        .map(|row| {
+            if let Some((head, hash)) = row.rsplit_once(':')
+                && !hash.contains(' ')
+                && head.contains(' ')
+            {
+                assert!(
+                    hash.len() == 12
+                        && hash
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                    "a key's hash is 12 lowercase hex digits: {row}"
+                );
+                head.to_owned()
+            } else {
+                row
+            }
+        })
+        .collect()
 }
 
 /// Each finding's target and key, sorted: what an exception and a baseline match.
@@ -154,7 +178,7 @@ fn each_published_token_shape_is_reported_and_shorter_strings_pass() {
             "token config/tokens.txt:2 github-token",
             "token config/tokens.txt:3 npm-token",
             "token config/tokens.txt:4 slack-token",
-            "token config/tokens.txt:5 github-token#2"
+            "token config/tokens.txt:5 github-token"
         ]
     );
     for token in [&aws, &github, &npm, &slack, &fine_grained] {
@@ -233,36 +257,85 @@ fn a_key_inside_a_line_is_reported_as_in_a_json_string_or_a_string_literal() {
 }
 
 #[test]
-fn a_findings_target_and_key_name_the_path_and_the_kind_and_survive_edits_above_it() {
-    let first = armored("RSA PRIVATE KEY", &base64_lines(20, 1), "\n");
-    let second = armored("OPENSSH PRIVATE KEY", &base64_lines(20, 2), "\n");
+fn a_findings_identity_is_its_kind_and_a_hash_of_the_secret_so_a_key_added_above_takes_no_other() {
+    let fixture = armored("RSA PRIVATE KEY", &base64_lines(20, 1), "\n");
     let token = format!("npm_{}", "e5".repeat(18));
-    let text = format!("{first}\n{token}\n{second}\n");
-    let edited = format!("added\nlines\nabove\n{text}");
+    let text = format!("{fixture}\n{token}\n");
+    let run = |text: &str| {
+        Fixture::new(&[("test/keys.txt", text.as_bytes())])
+            .check(RULE, "{}")
+            .expect("runs")
+    };
 
-    let before = Fixture::new(&[("test/keys.txt", text.as_bytes())])
-        .check(RULE, "{}")
-        .expect("runs");
-    let after = Fixture::new(&[("test/keys.txt", edited.as_bytes())])
-        .check(RULE, "{}")
-        .expect("runs");
-    assert_eq!(
-        identities(&before),
-        [
-            "test/keys.txt:npm-token npm-token",
-            "test/keys.txt:private-key private-key",
-            "test/keys.txt:private-key#2 private-key#2"
-        ]
+    let before = identities(&run(&text));
+    assert_eq!(before.len(), 2, "{before:?}");
+    assert!(
+        before[1].starts_with("test/keys.txt:private-key:"),
+        "{before:?}"
     );
-    assert_eq!(identities(&after), identities(&before));
-    assert_eq!(
-        rows(&after),
-        [
-            "private-key test/keys.txt:27 private-key#2",
-            "private-key test/keys.txt:4 private-key",
-            "token test/keys.txt:26 npm-token"
-        ]
+    assert!(
+        before[0].starts_with("test/keys.txt:npm-token:"),
+        "{before:?}"
     );
+
+    // Lines above keep every identity.
+    assert_eq!(identities(&run(&format!("added\nlines\n{text}"))), before);
+
+    // A second key added above the first has an identity of its own; the first keeps its.
+    let added = armored("RSA PRIVATE KEY", &base64_lines(20, 5), "\n");
+    let after = identities(&run(&format!("{added}\n{text}")));
+    assert_eq!(after.len(), 3, "{after:?}");
+    for identity in &before {
+        assert!(after.contains(identity), "{identity} kept: {after:?}");
+    }
+    let new: Vec<&String> = after
+        .iter()
+        .filter(|identity| !before.contains(identity))
+        .collect();
+    assert_eq!(new.len(), 1, "{after:?}");
+    assert!(
+        new[0].starts_with("test/keys.txt:private-key:"),
+        "{after:?}"
+    );
+
+    // The same secret twice in one file is one finding.
+    let twice = identities(&run(&format!("{fixture}\n{fixture}\n")));
+    assert_eq!(twice.len(), 1, "{twice:?}");
+}
+
+#[test]
+fn header_and_footer_constants_and_prose_hold_no_key_and_a_one_line_key_still_does() {
+    let label = "PRIVATE KEY";
+    let code = format!(
+        "const HEADER: &str = \"-----BEGIN {label}-----\";\nconst FOOTER: &str = \"-----END {label}-----\";\n\n\
+         fn body(pem: &str) -> Option<&str> {{\n    let start = pem.find(HEADER)? + HEADER.len();\n    \
+         let end = pem[start..].find(FOOTER)? + start;\n    Some(pem[start..end].trim())\n}}\n"
+    );
+    let prose = format!(
+        "A PEM file opens with -----BEGIN RSA {label}----- on a line of its own, then holds the\n\
+         base64 of the key in lines of sixty four characters, and closes with\n\
+         -----END RSA {label}----- after the last of them.\n"
+    );
+    let one_line = format!(
+        "{{\"private_key\": \"{}\\n\"}}\n",
+        armored(label, &base64_lines(20, 7), "\\n")
+    );
+    let (found, _) = check(&[
+        ("src/pem.rs", code.as_str()),
+        ("docs/pem.md", prose.as_str()),
+        ("config/key.json", one_line.as_str()),
+    ]);
+    assert_eq!(found, ["private-key config/key.json:1 private-key"]);
+}
+
+#[test]
+fn many_headers_before_one_footer_are_scanned_once_and_the_last_block_is_reported() {
+    let label = "PRIVATE KEY";
+    let mut text = format!("-----BEGIN {label}-----\n").repeat(20_000);
+    text.push_str(&armored(label, &base64_lines(20, 3), "\n"));
+    text.push('\n');
+    let (found, _) = check(&[("big.txt", text.as_str())]);
+    assert_eq!(found, ["private-key big.txt:20001 private-key"]);
 }
 
 #[test]

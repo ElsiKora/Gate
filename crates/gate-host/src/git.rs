@@ -6,8 +6,12 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use crate::error::{Error, Result};
+
+/// The number of the next temporary object directory of this process.
+static SCRATCH: AtomicU64 = AtomicU64::new(0);
 
 /// The all-zero object id git uses for "no object" (a new branch in a pre-push hook).
 pub const ZERO_OID: &str = "0000000000000000000000000000000000000000";
@@ -216,6 +220,47 @@ impl Git {
     /// Fails when git fails or lists a path that is not UTF-8.
     pub fn paths(&self, arguments: &[&str]) -> Result<Vec<String>> {
         split_nul(&self.output(arguments)?)
+    }
+
+    /// The size of the blob `git add` would store for the working file `path`: its bytes through the
+    /// clean filter and the line-ending conversion its attributes ask for. A blob the object database
+    /// does not hold yet is written to a temporary object directory, removed again, never to the
+    /// repository's.
+    ///
+    /// # Errors
+    /// Fails when git cannot hash the file, or the temporary directory cannot be made.
+    pub fn stored_size(&self, path: &str) -> Result<u64> {
+        let objects = PathBuf::from(
+            self.try_text(&["rev-parse", "--git-path", "objects"])?
+                .ok_or_else(|| Error::environment("git rev-parse --git-path objects failed"))?,
+        );
+        let objects = if objects.is_absolute() {
+            objects
+        } else {
+            self.root.join(objects)
+        };
+        let scratch = Scratch::new()?;
+        let run = |arguments: &[&str]| -> Result<String> {
+            let output = self
+                .command()
+                .env("GIT_OBJECT_DIRECTORY", &scratch.0)
+                .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &objects)
+                .args(arguments)
+                .output()?;
+            if output.status.success() {
+                Ok(decode(output.stdout)?.trim().to_owned())
+            } else {
+                Err(Error::environment(format!(
+                    "git {} failed: {}",
+                    arguments.join(" "),
+                    String::from_utf8_lossy(&output.stderr).trim()
+                )))
+            }
+        };
+        let oid = run(&["hash-object", "-w", "--", path])?;
+        let size = run(&["cat-file", "-s", &oid])?;
+        size.parse::<u64>()
+            .map_err(|_| Error::environment(format!("git cat-file -s printed {size:?} for {path}")))
     }
 
     /// Starts a `git cat-file --batch` reader.
@@ -556,6 +601,32 @@ fn header(stdout: &mut BufReader<ChildStdout>) -> Result<Option<String>> {
         ));
     }
     Ok((!header.ends_with(" missing\n")).then_some(header))
+}
+
+/// A temporary object directory, removed when dropped.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Result<Self> {
+        let path = std::env::temp_dir().join(format!(
+            "gate-objects-{}-{}",
+            std::process::id(),
+            SCRATCH.fetch_add(1, AtomicOrdering::Relaxed)
+        ));
+        std::fs::create_dir_all(&path).map_err(|error| {
+            Error::environment(format!(
+                "cannot make the temporary object directory {}: {error}",
+                path.display()
+            ))
+        })?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// A persistent `git cat-file --batch-check` reader: the size of an object by id.

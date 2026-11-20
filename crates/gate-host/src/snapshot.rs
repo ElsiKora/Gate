@@ -79,6 +79,9 @@ pub struct Snapshot {
     /// wrote or staged it), with the index's blob id: their size is the size of that blob, the
     /// bytes git stores, as after a checkout through a filter that stores a pointer.
     clean: Arc<BTreeMap<String, BlobId>>,
+    /// In the working tree, the regular files git converts (a filter, line endings): one that is not
+    /// in `clean` has the size of the blob git would store for it, not its own.
+    filtered: Arc<BTreeSet<String>>,
     /// The reader and the contents of the index or a commit, by blob id.
     shared: Arc<Shared>,
     /// The contents of working-tree files, by path.
@@ -118,10 +121,12 @@ impl Snapshot {
     /// As [`Snapshot::open`].
     pub(crate) fn open_shared(git: &Git, source: Source, shared: &Arc<Shared>) -> Result<Self> {
         let mut clean = Arc::default();
+        let mut filtered = Arc::default();
         let (entries, commit) = match &source {
             Source::WorkTree => {
-                let (entries, unchanged) = work_tree_entries(git)?;
+                let (entries, unchanged, converted) = work_tree_entries(git)?;
                 clean = Arc::new(unchanged);
+                filtered = Arc::new(converted);
                 (Arc::new(entries), git.head()?)
             }
             Source::Index => (Arc::new(index_entries(git)?), git.head()?),
@@ -150,6 +155,7 @@ impl Snapshot {
             commit,
             entries,
             clean,
+            filtered,
             shared: Arc::clone(shared),
             contents: Mutex::new(HashMap::new()),
             asked: Mutex::new(Some(BTreeSet::new())),
@@ -274,6 +280,10 @@ impl Snapshot {
         if matches!(self.source, Source::WorkTree) {
             if let Some(stored) = self.clean.get(path) {
                 return self.blob_size(stored, path).map(Some);
+            }
+            if self.filtered.contains(path) {
+                // Listed by `git diff-files` (changed, or only touched): the blob git would store.
+                return self.git.stored_size(path).map(Some);
             }
             if let Some(cached) = lock(&self.contents).get(path) {
                 return Ok(Some(length(cached)));
@@ -401,9 +411,16 @@ fn index_entries(git: &Git) -> Result<BTreeMap<String, BlobId>> {
     Ok(entries)
 }
 
-/// The working tree's entries, and the paths among them whose file matches its index entry, with
-/// the index's blob id.
-fn work_tree_entries(git: &Git) -> Result<(BTreeMap<String, BlobId>, BTreeMap<String, BlobId>)> {
+/// The working tree's entries; the paths among them whose file matches its index entry, with the
+/// index's blob id; and the regular files among them git converts.
+type WorkTreeListing = (
+    BTreeMap<String, BlobId>,
+    BTreeMap<String, BlobId>,
+    BTreeSet<String>,
+);
+
+/// The working tree's entries, its clean paths and its converted regular files.
+fn work_tree_entries(git: &Git) -> Result<WorkTreeListing> {
     let mut entries = BTreeMap::new();
     let mut symlinks = BTreeSet::new();
     let mut to_hash = BTreeSet::new();
@@ -437,7 +454,8 @@ fn work_tree_entries(git: &Git) -> Result<(BTreeMap<String, BlobId>, BTreeMap<St
         .collect();
     // A file git converts (line endings, a filter) can change bytes while git sees no change:
     // its id is always the hash of the bytes a plugin reads.
-    to_hash.extend(converted(git, &entries)?);
+    let converted = converted(git, &entries)?;
+    to_hash.extend(converted.iter().cloned());
 
     let mut regular = Vec::new();
 
@@ -488,7 +506,11 @@ fn work_tree_entries(git: &Git) -> Result<(BTreeMap<String, BlobId>, BTreeMap<St
         }
     }
 
-    Ok((entries, clean))
+    let filtered = converted
+        .into_iter()
+        .filter(|path| entries.contains_key(path) && !symlinks.contains(path))
+        .collect();
+    Ok((entries, clean, filtered))
 }
 
 /// The tracked paths whose working-tree bytes git may convert on the way to or from the index:
