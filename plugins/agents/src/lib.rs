@@ -31,6 +31,33 @@ pub use self::rule_references::RuleReferences;
 pub use self::rule_registry::RuleRegistry;
 pub use self::skills::Skills;
 
+/// `agents/recommended`: every rule at error, for a repository that follows the standard.
+const RECOMMENDED: &str = r#"{
+    "instruction-references": { "level": "error" },
+    "no-claude-md": { "level": "error" },
+    "rule-enforcement": { "level": "error" },
+    "rule-file-size": { "level": "error" },
+    "rule-ids": { "level": "error" },
+    "rule-owner": { "level": "error" },
+    "rule-references": { "level": "error" },
+    "rule-registry": { "level": "error" },
+    "skills": { "level": "error" }
+}"#;
+
+/// `agents/adoption`: the rules of `agents/recommended` at warning, for a repository on its way to
+/// the standard.
+const ADOPTION: &str = r#"{
+    "instruction-references": { "level": "warning" },
+    "no-claude-md": { "level": "warning" },
+    "rule-enforcement": { "level": "warning" },
+    "rule-file-size": { "level": "warning" },
+    "rule-ids": { "level": "warning" },
+    "rule-owner": { "level": "warning" },
+    "rule-references": { "level": "warning" },
+    "rule-registry": { "level": "warning" },
+    "skills": { "level": "warning" }
+}"#;
+
 gate_sdk::plugin! {
     name: "agents",
     version: env!("CARGO_PKG_VERSION"),
@@ -47,5 +74,8 @@ gate_sdk::plugin! {
         Skills,
     ],
     generators: [Adapters, AgentsBlock],
-    presets: [],
+    presets: [
+        gate_sdk::Preset { name: "recommended", rules: RECOMMENDED },
+        gate_sdk::Preset { name: "adoption", rules: ADOPTION },
+    ],
 }

@@ -3620,6 +3620,31 @@ fn a_projects_rule_level_wins_over_the_aspect_levels_of_git_recommended() {
 }
 
 #[test]
+fn a_project_that_extends_an_adoption_preset_is_told_at_warning_and_passes() {
+    let (path, _) = component("gate-plugin-ci", "ci");
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [\"ci/adoption\"]\n\n[plugins.ci]\nsource = \"acme/rules:ci@0.1.0\"\n"
+        ),
+    );
+    repo.write(
+        ".github/workflows/ci.yml",
+        "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+    );
+    repo.commit("configure");
+    let plugin = format!("ci={}", path.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    let said = text(&output.stdout);
+    assert_eq!(output.status.code(), Some(0), "{said}");
+    assert!(
+        said.contains("warning[ci/actions-pinned") && !said.contains("error["),
+        "{said}"
+    );
+}
+
+#[test]
 fn a_warm_result_cache_reruns_the_rule_for_another_message_or_hook_state() {
     let git = GitOptions::new();
     let repo = &git.repo;

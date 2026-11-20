@@ -25,13 +25,23 @@ pub use self::main_history::{MainHistory, Options as MainHistoryOptions};
 pub use self::no_ci_skip::{NoCiSkip, Options as NoCiSkipOptions};
 pub use self::settings::Settings;
 
-/// The `git/recommended` preset: the policies of the `ElsiKora` linters, `@elsikora/git-branch-lint`'s
-/// default branch template and commitlint's levels, whose two level-1 checks are warnings.
+/// `git/recommended`: the policies of the `ElsiKora` linters at error, with
+/// `@elsikora/git-branch-lint`'s default branch template and commitlint's levels, whose two level-1
+/// checks are warnings. It leaves out `main-history` and `no-ci-skip`, which need the plugin
+/// options `activation` and `release-subject` that only the repository can give.
 const RECOMMENDED: &str = r#"{
-    "branch-name": { "options": { "template": ":type/:ticket-:name" } },
+    "branch-name": { "level": "error", "options": { "template": ":type/:ticket-:name" } },
     "commit-message": {
+        "level": "error",
         "levels": { "header-min-length": "warning", "scope-max-length": "warning" }
     }
+}"#;
+
+/// `git/adoption`: the rules of `git/recommended` at warning, with the same branch template, for a
+/// repository on its way to the standard.
+const ADOPTION: &str = r#"{
+    "branch-name": { "level": "warning", "options": { "template": ":type/:ticket-:name" } },
+    "commit-message": { "level": "warning" }
 }"#;
 
 gate_sdk::plugin! {
@@ -40,8 +50,8 @@ gate_sdk::plugin! {
     options: Settings,
     rules: [MainHistory, NoCiSkip, BranchName, CommitMessage],
     generators: [],
-    presets: [gate_sdk::Preset {
-        name: "recommended",
-        rules: RECOMMENDED,
-    }],
+    presets: [
+        gate_sdk::Preset { name: "recommended", rules: RECOMMENDED },
+        gate_sdk::Preset { name: "adoption", rules: ADOPTION },
+    ],
 }

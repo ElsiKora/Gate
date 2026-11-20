@@ -3,6 +3,7 @@
 mod fixture;
 mod frontmatter;
 mod local_links;
+mod presets;
 mod required_sections;
 
 #[test]

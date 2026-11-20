@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design; the lists below wait for the lead before any code |
+| Status | the lead approved the design (8ed5d16) with the rulings below; code on the branch, in the lane |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -79,13 +79,14 @@ T-061 makes these three options required, which also gives them reason 1.
 - Out: `required-sections`. Its `sections` (which page needs which headings) defaults to `[]`, and
   then the rule checks nothing (reason 3).
 
-### `nestjs` (37 rules): 24 in, 13 out
+### `nestjs` (37 rules): 25 in, 12 out
 
-- In: `adapter-boundary`, `automator-metadata`, `barrel-exports`, `constant-files`, `custom-routes`,
-  `declaration-files`, `dto-decorators`, `entity-descriptions`, `entity-table-name`, `enum-values`,
-  `error-logging`, `eslint-directives`, `import-aliases`, `kind-layout`, `migrations`,
-  `module-names`, `module-registry`, `native-functions`, `native-repository`, `prefix-nesting`,
-  `repeated-segment`, `string-enums`, `typeorm-relation`, `wrappers`.
+- In: `adapter-boundary`, `api-readiness`, `automator-metadata`, `barrel-exports`,
+  `constant-files`, `custom-routes`, `declaration-files`, `dto-decorators`, `entity-descriptions`,
+  `entity-table-name`, `enum-values`, `error-logging`, `eslint-directives`, `import-aliases`,
+  `kind-layout`, `migrations`, `module-names`, `module-registry`, `native-functions`,
+  `native-repository`, `prefix-nesting`, `repeated-segment`, `string-enums`, `typeorm-relation`,
+  `wrappers`.
 - Out, an option without a default (reason 1); the options are an error without it:
   - `advisory-lock-boundary` (`executor`);
   - `import-direction` (`contracts`);
@@ -100,18 +101,12 @@ T-061 makes these three options required, which also gives them reason 1.
   - `field-inventory`: every free-text field must have an entry of `fields`, default `[]`;
   - `package-pins`: checks the packages of `artifacts`, default `[]`; with none it only reports a
     missing `package-lock.json`.
-- Out, a subsystem a service may not have (my proposal for the lead's ruling): each reports a
-  service that does not have the subsystem at all.
-  - `advisory-lock-manifest`: reports a missing `registry.manifest.json`.
-  - `asset-storage`: reports a missing S3 adapter (`#s3-adapter-required`).
-  - `api-readiness`: reports each missing readiness file and a missing startup file.
+- Out, a subsystem a service may not have (reason 3, the lead's ruling):
+  - `advisory-lock-manifest`: only a service that uses advisory locks has the manifest;
+  - `asset-storage`: only a service that stores assets has the storage adapter.
 
-  If the lead rules these are part of the standard every service follows, they move in.
-
-### `typescript` (2 rules): both in
-
-`parse`, `barrel-imports`. `owners` and `exempt` default to `[]`, and the rule still checks every
-folder that has a barrel.
+`api-readiness` is in: every service is readiness-checkable, which is part of the NestJS standard
+(the lead's ruling).
 
 ## Moves on other branches
 
@@ -133,14 +128,17 @@ and tests, so the rebase stays mechanical. It merges last of the 0.3.0 branches 
   added to the presets or to the list.
 - One CLI test in `crates/gate/tests/plugins.rs`: a repository with `extends = ["ci/adoption"]` and
   an action pinned by tag reports `ci/actions-pinned` at `warning`, and exits 0.
+- `git`'s test also holds the exact settings of both presets: the branch template in each, and
+  `recommended`'s two aspect levels.
 
 ## Docs
 
 - `docs/guide/plugins.md`: each plugin's section lists its two presets and the rules they leave out
   with the reason. The Presets section no longer says that no shared plugin ships one.
-- Root `CHANGELOG.md`: one Features entry. `main` has `## Unreleased`, not `# 0.3.0 (unreleased)`,
-  so the entry goes under `## Unreleased`, `### Features`, and the lead places the heading at the
-  cut.
+- Root `CHANGELOG.md`: one Features entry under a `# 0.3.0 (unreleased)` section of its own, the
+  shape of the other 0.3.0 branches. `## Unreleased` on `main` becomes `## 0.2.1` at that release,
+  so an entry there would land in the wrong one (the lead's ruling); the lead merges the 0.3.0
+  headings at the cut. The plugins' own changelogs are left to the cut too.
 
 ## Done when
 
@@ -152,5 +150,4 @@ and tests, so the rebase stays mechanical. It merges last of the 0.3.0 branches 
 
 ## Resume point
 
-2026-11-20T05:23:02+00:00: the lists are written and sent to the lead. No code until the lead
-answers.
+2026-11-20T05:29:29+00:00: presets, tests, guide and changelog are on the branch; lane round queued.

@@ -35,17 +35,17 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 
 | Plugin | Scope | Languages | Reads history | Generators | Presets |
 | --- | --- | --- | --- | --- | --- |
-| `typescript` | project | TypeScript, JavaScript | no | none | none |
-| `git` | repository | none | yes | none | `git/recommended` |
-| `markdown` | project | Markdown | no | none | none |
+| `typescript` | project | TypeScript, JavaScript | no | none | `typescript/recommended`, `typescript/adoption` |
+| `git` | repository | none | yes | none | `git/recommended`, `git/adoption` |
+| `markdown` | project | Markdown | no | none | `markdown/recommended`, `markdown/adoption` |
 | `docs` | project | none | no | `docs/layout` | `docs/recommended`, `docs/adoption` |
-| `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` | none |
-| `ledger` | project | none | no | `ledger/decision-counts`, `ledger/review-progress` | none |
-| `nestjs` | project | TypeScript | no | none | none |
+| `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` | `agents/recommended`, `agents/adoption` |
+| `ledger` | project | none | no | `ledger/decision-counts`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
+| `nestjs` | project | TypeScript | no | none | `nestjs/recommended`, `nestjs/adoption` |
 | `node` | repository, project | none | no | none | `node/recommended`, `node/adoption` |
 | `cdk` | project | TypeScript | no | none | `cdk/recommended`, `cdk/adoption` |
 | `frontend` | project | TypeScript | no | none | `frontend/recommended`, `frontend/adoption` |
-| `ci` | repository | none | no | none | `ci/recommended` |
+| `ci` | repository | none | no | none | `ci/recommended`, `ci/adoption` |
 | `docker` | project | none | no | none | `docker/recommended`, `docker/adoption` |
 | `repository` | repository | none | no | none | `repository/recommended`, `repository/adoption` |
 
@@ -69,6 +69,9 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 | [`typescript/parse`](../../plugins/typescript/rules/parse.md) | every tracked TypeScript or JavaScript source parses into a syntax tree |
 | [`typescript/barrel-imports`](../../plugins/typescript/rules/barrel-imports.md) | a folder with a barrel is imported from outside only through its barrel, and only for names it exports |
 | [`typescript/string-enums`](../../plugins/typescript/rules/string-enums.md) | string-literal variant contracts use enums, in every `.ts` file, with `test-roots` for the tests |
+
+Presets: `typescript/recommended` turns on every rule at `error`, and `typescript/adoption` the same
+at `warning`.
 
 ### `git`
 
@@ -97,6 +100,12 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 | [`git/main-history`](../../plugins/git/rules/main-history.md) | every first-parent commit of main since activation follows the git policy |
 | [`git/no-ci-skip`](../../plugins/git/rules/no-ci-skip.md) | no commit since activation carries a CI-skip directive except the release commit |
 
+Presets: `git/recommended` turns on `git/branch-name` with the template `:type/:ticket-:name` and
+`git/commit-message` at `error`, and `git/adoption` the same at `warning`; `recommended` keeps
+`header-min-length` and `scope-max-length` at `warning`, as commitlint does. Both leave out
+`git/main-history` and `git/no-ci-skip`, which need `activation` and `release-subject` that only the
+repository can give.
+
 ### `markdown`
 
 The documentation of a project: front matter, local links that resolve, and the sections a page must
@@ -116,6 +125,11 @@ markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
 | [`markdown/frontmatter`](../../plugins/markdown/rules/frontmatter.md) | pages open with front matter that holds each required key |
 | [`markdown/local-links`](../../plugins/markdown/rules/local-links.md) | every local link destination names a tracked file or directory |
 | [`markdown/required-sections`](../../plugins/markdown/rules/required-sections.md) | pages have the level-two sections their path requires |
+
+Presets: `markdown/recommended` turns on `markdown/frontmatter` and `markdown/local-links` at
+`error`, and `markdown/adoption` the same at `warning`. Both leave out `markdown/required-sections`:
+which page needs which sections only the project knows, and without `sections` the rule checks
+nothing.
 
 ### `docs`
 
@@ -181,6 +195,9 @@ whose input is missing fails: a rule that reads the rule files reports an empty 
 `no-claude-md`, `rule-enforcement`, `rule-file-size`, `rule-ids`, `rule-owner`, `rule-references`,
 `rule-registry`, `skills` ([pages](../../plugins/agents/rules)).
 
+Presets: `agents/recommended` turns on all nine rules at `error`, and `agents/adoption` the same at
+`warning`.
+
 ### `ledger`
 
 A decision ledger: Markdown records with ids, statuses and closers, the decision index, and the
@@ -219,6 +236,11 @@ ledger = { source = "ElsiKora/Gate:ledger@0.2.0", options = { decisions = "ledge
 | `ledger/exception-decisions` | the decision an exception names is an accepted decision of the index; whether every exception needs one is `[decision-policy] require-decision` |
 | `ledger/rule-decisions` | the decision a rule entry of the project's `gate.toml` names is an accepted decision of the index; the core hands the rule the decisions, so the plugin never reads `gate.toml` |
 
+Presets: `ledger/recommended` turns on `decisions`, `manifest`, `records`, `blockers`,
+`exception-owners` and `exception-decisions` at `error`, and `ledger/adoption` the same at
+`warning`. Both leave out `closing-notes`, `reuses` and `record-status`, which stay off until the
+project sets `field`, `catalog` and the plugin option `parity`.
+
 ### `nestjs`
 
 NestJS services built on [NestJS-Crud-Automator](https://github.com/ElsiKora/NestJS-Crud-Automator):
@@ -252,6 +274,24 @@ forbidden-packages = ["@nestjs/swagger"]
 Every rule reads the shared `layout` block of `[plugins.nestjs] options`
 ([its page](../../plugins/nestjs/rules/layout.md)); each rule's page is under
 [plugins/nestjs/rules](../../plugins/nestjs/rules).
+
+Presets: `nestjs/recommended` turns on every rule but the twelve below at `error`, and
+`nestjs/adoption` the same at `warning`. Each of these takes something only the project can give;
+turn it on in `[rules]` with its options:
+
+| Rule | Why no preset turns it on |
+| --- | --- |
+| `nestjs/advisory-lock-boundary` | `executor` has no default |
+| `nestjs/import-direction`, `nestjs/runtime-factory` | `contracts` has no default |
+| `nestjs/notification-egress` | `owner-classes`, `egress.modules` and `owners` have no default |
+| `nestjs/owner-boundaries` | the owner roots, owners and routes have no default |
+| `nestjs/owner-roots` | `required-roots` has no default |
+| `nestjs/raw-config-access` | `raw-imports` has no default |
+| `nestjs/controller-owners` | the `controllers` registry is the project's own |
+| `nestjs/field-inventory` | the `fields` inventory is the project's own |
+| `nestjs/package-pins` | the `artifacts` it pins are the project's own |
+| `nestjs/advisory-lock-manifest` | only a service that uses advisory locks has the manifest |
+| `nestjs/asset-storage` | only a service that stores assets has the storage adapter |
 
 ### `node`
 
@@ -445,6 +485,8 @@ ci = { source = "ElsiKora/Gate:ci@0.3.0" }
 | [`ci/node-setup`](../../plugins/ci/rules/node-setup.md) | `actions/setup-node` reads the version from a file, sets a cache and runs once per job |
 | [`ci/names`](../../plugins/ci/rules/names.md) | every workflow, job and step is named; a file is its workflow's name in kebab case |
 
+Presets: `ci/recommended` turns on both rules at `error`, and `ci/adoption` the same at `warning`.
+
 ### `docker`
 
 Image files and compose files: pinned images, stages, a user that is not root, no secret written in,
@@ -506,21 +548,20 @@ repository = { source = "ElsiKora/Gate:repository@0.3.0" }
 A plugin may ship presets: named sets of rules with levels and options, turned on with
 `extends = ["<plugin>/<preset>"]` in `[project]`, in `[workspace]` at a root that is not a project,
 or in a profile, which `[rules]` then overrides; each place takes the preset's rules of the scope it
-runs ([configuration.md](configuration.md#project)). The table above lists them:
+runs ([configuration.md](configuration.md#project)). Every shared plugin ships two, as the table
+above lists: `<plugin>/recommended` turns on its rules at `error`, for a repository that follows
+the standard, and `<plugin>/adoption` turns on the same rules at `warning`, for one on its way
+there. `git/recommended` keeps two aspects at `warning`, described under [`git`](#git), and
+`repository/recommended` keeps `repository/large-files#large` at `warning`. A preset leaves out a
+rule that needs something only the project can give, such as an option without a default or the
+project's own inventory; each plugin's section above names those rules, and `[rules]` turns them on
+with their options. `gate list` shows the result.
 
-- `docs`, `docker`, `frontend`, `node` and `repository` ship `<plugin>/recommended`, every rule at
-  `error`, and `<plugin>/adoption`, every rule at `warning`. `repository/recommended` keeps
-  `repository/large-files#large` at `warning`.
-- `cdk` ships `cdk/recommended`, every rule at `error`, and `cdk/adoption`, which warns only on the
-  renames and keeps the other rules at `error`.
-- `git` ships `git/recommended`, described under [`git`](#git), and `ci` ships `ci/recommended`,
-  every rule at `error`.
-
-The other plugins (`agents`, `ledger`, `markdown`, `nestjs`, `typescript`) ship none: turn their
-rules on one by one in `[rules]`. `gate list` shows the result. A preset never turns on a rule that
-needs an option only the project can give, such as the ledger's `field`, `catalog` or `parity`:
-enabled from a preset, a rule reports the files to create, never a configuration error for an option
-the project did not know about.
+```toml
+[project]
+name = "server"
+extends = ["typescript/adoption", "nestjs/adoption"]
+```
 
 ## 🔌 Plugins of Your Own
 

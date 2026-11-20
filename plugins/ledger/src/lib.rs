@@ -31,6 +31,29 @@ pub use self::rules::reuses::Reuses;
 pub use self::rules::rule_decisions::RuleDecisions;
 pub use self::settings::{Parity, Settings};
 
+/// `ledger/recommended`: every rule a preset may turn on, at error, for a repository that follows
+/// the standard. It leaves out `closing-notes`, `reuses` and `record-status`, which stay off until
+/// the project sets `field`, `catalog` and the plugin option `parity`.
+const RECOMMENDED: &str = r#"{
+    "blockers": { "level": "error" },
+    "decisions": { "level": "error" },
+    "exception-decisions": { "level": "error" },
+    "exception-owners": { "level": "error" },
+    "manifest": { "level": "error" },
+    "records": { "level": "error" }
+}"#;
+
+/// `ledger/adoption`: the rules of `ledger/recommended` at warning, for a repository on its way to
+/// the standard.
+const ADOPTION: &str = r#"{
+    "blockers": { "level": "warning" },
+    "decisions": { "level": "warning" },
+    "exception-decisions": { "level": "warning" },
+    "exception-owners": { "level": "warning" },
+    "manifest": { "level": "warning" },
+    "records": { "level": "warning" }
+}"#;
+
 gate_sdk::plugin! {
     name: "ledger",
     version: env!("CARGO_PKG_VERSION"),
@@ -48,5 +71,8 @@ gate_sdk::plugin! {
         RuleDecisions,
     ],
     generators: [DecisionCounts, ReviewProgress],
-    presets: [],
+    presets: [
+        gate_sdk::Preset { name: "recommended", rules: RECOMMENDED },
+        gate_sdk::Preset { name: "adoption", rules: ADOPTION },
+    ],
 }
