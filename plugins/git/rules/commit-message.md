@@ -52,8 +52,28 @@ The message is read as `commitlint --edit` reads it:
   change. A custom `header-pattern` alone decides the header, so the `!` is the pattern's to allow;
   without one, a breaking header is read with the conventional breaking pattern first, as the
   reference reads it. The lines after it are the body, until a line with an issue reference
-  (`Closes #12`, `see
-  #12`) or a `BREAKING CHANGE:` note, which starts the footer.
+  (`Closes #12`, `see #12`) or a `BREAKING CHANGE:` note, which starts the footer. See "Issue
+  references in the body" below.
+
+### Issue references in the body
+
+As in the conventional-commits parser, a line counts as an issue reference when it holds a `#`
+followed by an id and then whitespace, `,`, `;`, `)`, `]` or the end of the line. The id is word
+characters or `-`, and the `#` may come after a word (`repo#12`), as in `see repo#12`,
+`(repo#12)` and `git/commit-message#body-full-stop` at the end of a line. A line with a URL is
+not a reference.
+
+Such a line starts the footer wherever it is. If a body line comes before it, with no blank line
+between, `footer-leading-blank` fails, and the lines after it are footer lines. To mention one in
+the body, write it so that it is not a reference:
+
+- in backquotes: `` `repo#12` ``, `` `git/commit-message#body-full-stop` ``;
+- followed by another character, such as `.` or `:`: `repo#12.`;
+- in words: "issue 12 of repo", "the `body-full-stop` aspect".
+
+A reference that belongs in the footer goes there, after a blank line: `Refs: #12`. The exact rule
+is `has_issue`, with `has_references` and `has_url`, in
+[`src/commit_message.rs`](../src/commit_message.rs).
 
 Each check is an aspect named after the commitlint rule it ports, and is reported on its own:
 
