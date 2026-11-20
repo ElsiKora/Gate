@@ -1,9 +1,9 @@
 # `git/commit-message`
 
-The message of the commit being made has the conventional form, `<type>(<scope>): <subject>`, as
-[commitlint](https://commitlint.js.org) checks it with `@commitlint/config-conventional` and the
-rule levels of [`@elsikora/git-branch-lint`](https://github.com/ElsiKora/git-branch-lint)'s
-`commitlint.config.js`.
+The messages of the commit being made and of the commits a push sends have the conventional form,
+`<type>(<scope>): <subject>`, as [commitlint](https://commitlint.js.org) checks it with
+`@commitlint/config-conventional` and the rule levels of
+[`@elsikora/git-branch-lint`](https://github.com/ElsiKora/git-branch-lint)'s `commitlint.config.js`.
 
 ## What it checks and why
 
@@ -16,8 +16,27 @@ exists, when rewording it costs nothing:
 commit-msg = ["check --commit-message"]
 ```
 
-The hook passes the message file to `gate check --commit-message <file>`. A run without
-`--commit-message` checks nothing, and neither does a blank message or one with only comment lines.
+The hook passes the message file to `gate check --commit-message <file>`. A blank message, or one
+with only comment lines, is not checked.
+
+A commit made without that hook (`git commit -n`, a cherry-pick, a rebase, an edit in a web
+interface) is checked when it is pushed: a `gate check --push` run, which the `pre-push` hook and
+the CI job start, also checks the message of each commit the push adds to the branch, oldest first,
+with every check and option below. Those are the commits reachable from the pushed head and neither
+from the remote ref's old tip nor from main, the first reference of `[plugins.git] options main`
+that names a commit:
+
+- A push to an existing branch checks its new commits only. After a merge of main into the branch,
+  or a rebase onto main and a force push, the commits main already holds (a web edit, a bot commit)
+  are not checked: the developer cannot reword them.
+- A new branch checks every commit it adds to main (`main..head`), the commits `git/no-ci-skip`
+  reads for it.
+- A push whose target is not a branch (`refs/heads/…`), such as a tag, checks nothing.
+
+A finding of a pushed commit is on that commit, starts with its short id, and names the commit as
+its target. Its help says to reword the commit with `git rebase -i <id>^` and push the branch again,
+or, when others already have it, to add an exception for its id. A `--rev` run, and a run with
+neither `--commit-message` nor `--push`, check nothing.
 
 The message is read as `commitlint --edit` reads it:
 
@@ -166,10 +185,9 @@ With it, `feat(api,web): add x` passes and `feat(api_web): add x` fails `type-em
 
 `prohibited-trailers` refuses trailers, the `Token: value` lines at the end of a message, such as a
 co-author a repository does not accept; commitlint can require a trailer (`trailer-exists`) but
-not refuse one. Like every check of this rule it reads the message of the commit being made, the
-one the `commit-msg` hook passes: a commit made without the hook (`git commit -n`, a cherry-pick,
-a rebase, an edit in a web interface) is not checked, and neither is a commit already in history.
-The trailers are found as `git interpret-trailers` finds them:
+not refuse one. Like every check of this rule it reads the message of the commit being made and
+the messages of the commits a push sends; a commit already on the remote ref is not checked. The
+trailers are found as `git interpret-trailers` finds them:
 
 - They are the message's last paragraph, never its first (the title), with comment lines, a
   trailing old-style `Conflicts:` block (`Conflicts:` and the tab-indented paths after it) and the
@@ -211,11 +229,25 @@ error git/commit-message#type-enum
 
 The finding has no location, since the commit does not exist yet; its target is the header.
 
+Pushing a commit `a1b2c3d4e5f6…` made with `git commit -n` and the same message:
+
+```text
+error git/commit-message#type-enum commit a1b2c3d4e5f60718293a4b5c6d7e8f9012345678
+  a1b2c3d4e5f6: type feature is not a commit type; the commit types: feat, fix, docs, style,
+  refactor, perf, test, build, ci, chore, revert, wip
+  help: write the header as <type>(<scope>): <subject>, in lower case, with a type of feat, fix,
+  docs, style, refactor, perf, test, build, ci, chore, revert, wip
+```
+
+Its target, and its key, is the commit id.
+
 ## How it differs from the reference
 
 The rule gives the verdicts of `@commitlint/cli` 20.5.3 with that configuration, except:
 
 - The comment character is always `#`; the reference reads git's `core.commentChar`.
+- A push checks `<base>..<head>`, as `commitlint --from <base> --to <head>` does; for a new branch,
+  with no base, it checks the head commit alone, where the reference needs a `--from`.
 - `prohibited-trailers` has no counterpart in the reference. It finds the trailer block as git does
   without configuration: the tokens of `trailer.<token>.key` do not count as lines git writes, and
   the separator is always `:`.
@@ -223,5 +255,6 @@ The rule gives the verdicts of `@commitlint/cli` 20.5.3 with that configuration,
 ## How to fix it
 
 Reword the message and commit again; a commit that already exists is reworded with
-`git commit --amend` (the last one) or `git rebase -i` (an older one). A message with a type the
-project uses beyond the reference's twelve gets it in `types`.
+`git commit --amend` (the last one) or `git rebase -i` (an older one) before it is pushed. A commit
+already shared, which cannot be reworded, gets an exception by its commit id. A message with a type
+the project uses beyond the reference's twelve gets it in `types`.

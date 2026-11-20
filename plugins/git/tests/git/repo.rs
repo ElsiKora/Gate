@@ -36,7 +36,9 @@ impl Repo {
         changes: &[(&str, Option<&str>)],
     ) -> String {
         let order = self.commits.len();
-        let id = format!("a{order:039x}");
+        // The order shows within the first 12 characters, so short ids differ too, and ids sort
+        // in the order the commits were made.
+        let id = format!("c{order:011x}{order:028x}");
         let mut files = parents
             .first()
             .and_then(|parent| self.commits.get(*parent))
@@ -97,6 +99,16 @@ impl Repo {
             base: None,
             head: head.to_owned(),
             target_ref: target_ref.map(str::to_owned),
+        });
+    }
+
+    /// The range of a push of `head` to `target_ref`, from `base`, the remote ref's commit; `None`
+    /// for a new branch.
+    pub fn set_push(&mut self, base: Option<&str>, head: &str, target_ref: &str) {
+        self.range = Some(CommitRange {
+            base: base.map(str::to_owned),
+            head: head.to_owned(),
+            target_ref: Some(target_ref.to_owned()),
         });
     }
 

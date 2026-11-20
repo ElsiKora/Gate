@@ -1,20 +1,25 @@
 //! `git/commit-message`: the message of the commit being made (`gate check --commit-message
-//! <file>`, which the generated `commit-msg` hook passes) has the conventional form, as
-//! `commitlint` checks it with `@commitlint/config-conventional` and the rule levels of
-//! `@elsikora/git-branch-lint`: `<type>(<scope>): <subject>`, then a blank line and a body, then a
-//! blank line and a footer.
+//! <file>`, which the generated `commit-msg` hook passes), and the message of each commit a push
+//! sends (`gate check --push`: `<base>..<head>`, or the head commit alone for a new branch), have
+//! the conventional form, as `commitlint` checks it with `@commitlint/config-conventional` and the
+//! rule levels of `@elsikora/git-branch-lint`: `<type>(<scope>): <subject>`, then a blank line and
+//! a body, then a blank line and a footer.
 //!
 //! Each check is an aspect named after the `commitlint` rule it ports. The message is read as
 //! `commitlint --edit` reads it: comment lines (`#`) and what follows the scissors line are not
 //! part of it, merge, revert, fixup, squash and release messages are not checked, and the parts
 //! are split as `conventional-commits-parser` splits them.
 
+use std::collections::HashSet;
+
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Error, Location, Result, Rule, Run, Scope};
+use gate_sdk::{Error, Git, Result, Rule, Run, Scope};
 use regex::Regex;
 
+use crate::history::{Commit, ahead, main_reference};
 use crate::javascript::{ANY, translate};
+use crate::settings::Settings;
 
 /// The rule.
 #[derive(Debug, Default)]
@@ -58,9 +63,9 @@ pub struct Options {
     /// reapplies, `amend!`, `fixup!` and `squash!` commits, and a release whose header is a
     /// version.
     pub default_ignores: bool,
-    /// Regular expressions of the trailers the message being written may not carry, each searched
-    /// in every trailer of its trailer block, written `Token: value`. An ignored message is
-    /// checked too.
+    /// Regular expressions of the trailers the message being written and the pushed commits'
+    /// messages may not carry, each searched in every trailer of its trailer block, written
+    /// `Token: value`. An ignored message is checked too.
     pub prohibited_trailers: Vec<String>,
 }
 
@@ -119,50 +124,114 @@ impl Rule for CommitMessage {
 
     const NAME: &'static str = "commit-message";
     const TITLE: &'static str =
-        "The message of the commit being made has the conventional form: type(scope): subject";
+        "Each commit message, made or pushed, has the conventional form: type(scope): subject";
     const ASPECTS: &'static [&'static str] = ASPECTS;
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let patterns = Patterns::new(run.options())?;
-        let Some(message) = run.git()?.message() else {
-            return Ok(());
-        };
-        if let Some((header, found)) = verdicts(&message, run.options(), &patterns) {
-            for (aspect, text, help) in found {
-                let finding = run.report().finding(aspect, None::<Location>, text);
-                if let Some(header) = &header {
-                    finding.target(header.clone()).key(header.as_str());
-                }
-                finding.help(help);
-            }
+        let git = run.git()?;
+        if let Some(message) = git.message() {
+            report(run, &patterns, &message, None);
         }
-        // A trailer stays in history whatever the header says, so an ignored message is checked
-        // too.
-        for trailer in trailers(&message) {
-            let Some(pattern) = patterns
-                .prohibited
-                .iter()
-                .find(|(_, prohibited)| prohibited.is_match(&trailer))
-                .map(|(text, _)| text)
-            else {
-                continue;
-            };
-            run.report()
-                .finding(
-                    "prohibited-trailers",
-                    None::<Location>,
-                    format!(
-                        "the trailer {trailer:?} is prohibited: it matches prohibited-trailers \
-                         {pattern:?}"
-                    ),
-                )
-                .target(trailer.clone())
-                .key(trailer.as_str())
-                .help("remove the trailer from the message");
+        for commit in pushed(run, &git)? {
+            report(run, &patterns, &commit.message, Some(&commit));
         }
         Ok(())
+    }
+}
+
+/// The commits a push to a branch adds, oldest first: those reachable from the pushed head and
+/// neither from the remote ref's old tip (`base`, absent for a new branch) nor from main, so a
+/// merge of main or a rebase onto it judges the branch's own commits only. A new branch's set is
+/// `main..head`, the set `git/no-ci-skip` judges. None for a run that is not a push to a
+/// `refs/heads/` reference: `--rev`, or a pushed tag.
+///
+/// # Errors
+/// When `[plugins.git] options` cannot be read or none of its main references names a commit.
+fn pushed(run: &Run<'_, Options>, git: &Git<'_>) -> Result<Vec<Commit>> {
+    let Some(range) = git.range().filter(|range| {
+        range
+            .target_ref
+            .as_deref()
+            .is_some_and(|target| target.starts_with("refs/heads/"))
+    }) else {
+        return Ok(Vec::new());
+    };
+    let settings = Settings::read(run)?;
+    let main = main_reference(git, &settings)?;
+    let mut commits = ahead(git, &main, &range.head);
+    if let Some(base) = &range.base {
+        let sent: HashSet<String> = git
+            .log(&format!("{base}..{}", range.head))
+            .into_iter()
+            .map(|commit| commit.id)
+            .collect();
+        commits.retain(|commit| sent.contains(&commit.id));
+    }
+    Ok(commits)
+}
+
+/// Reports what `message` fails: the message being written when `commit` is `None`, else the
+/// message of the pushed commit `commit`, whose findings are on that commit, name it as their
+/// target, are keyed by it and start with its short id.
+fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit: Option<&Commit>) {
+    let location = commit.map(Commit::location);
+    let text = |text: String| match commit {
+        Some(commit) => format!("{}: {text}", commit.short()),
+        None => text,
+    };
+    // A pushed commit is reworded in history, or excepted when others already have it.
+    let advice = |help: &str| match commit {
+        Some(commit) => format!(
+            "{help}; reword the commit with git rebase -i {}^ and push the branch again, or, when \
+             others already have it, add an exception for its id",
+            commit.short()
+        ),
+        None => help.to_owned(),
+    };
+    if let Some((header, found)) = verdicts(message, run.options(), patterns) {
+        for (aspect, failure, help) in found {
+            let finding = run
+                .report()
+                .finding(aspect, location.clone(), text(failure));
+            match (commit, &header) {
+                (Some(commit), _) => {
+                    finding.target(commit.id.as_str()).key(commit.id.as_str());
+                }
+                (None, Some(header)) => {
+                    finding.target(header.clone()).key(header.as_str());
+                }
+                (None, None) => {}
+            }
+            finding.help(advice(&help));
+        }
+    }
+    // A trailer stays in history whatever the header says, so an ignored message is checked too.
+    for trailer in trailers(message) {
+        let Some(pattern) = patterns
+            .prohibited
+            .iter()
+            .find(|(_, prohibited)| prohibited.is_match(&trailer))
+            .map(|(text, _)| text)
+        else {
+            continue;
+        };
+        let finding = run.report().finding(
+            "prohibited-trailers",
+            location.clone(),
+            text(format!(
+                "the trailer {trailer:?} is prohibited: it matches prohibited-trailers {pattern:?}"
+            )),
+        );
+        match commit {
+            Some(commit) => finding
+                .target(commit.id.as_str())
+                .key(format!("{} {trailer}", commit.id)),
+            None => finding.target(trailer.clone()).key(trailer.as_str()),
+        };
+        finding.help(advice("remove the trailer from the message"));
     }
 }
 

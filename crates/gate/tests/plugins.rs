@@ -2507,6 +2507,113 @@ fn git_component() -> &'static (PathBuf, Vec<u8>) {
     component("gate-plugin-git", "git")
 }
 
+/// The commit `name` names in `repo`.
+fn revision(repo: &Repo, name: &str) -> String {
+    let output = isolated(
+        Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["rev-parse", name]),
+    )
+    .output()
+    .expect("git");
+    text(&output.stdout).trim().to_owned()
+}
+
+/// A repository with `git/commit-message` on, where branch `feat/the-thing` has pushed one commit
+/// and main has since moved on with a commit of another form, a web edit: the repository, the
+/// `--plugin` argument, the pushed commit and main's new commit. The branch is checked out.
+fn diverged() -> (Repo, String, String, String) {
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n"
+        ),
+    );
+    repo.commit("chore(repo): configure the gate");
+    repo.git(&["checkout", "-q", "-b", "feat/the-thing"]);
+    repo.write("a.txt", "a\n");
+    let pushed = repo.commit("feature(core): add the thing");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("README.md", "# r\n");
+    let web = repo.commit("Update README.md");
+    repo.git(&["checkout", "-q", "feat/the-thing"]);
+    (
+        repo,
+        format!("git={}", git_component().0.display()),
+        pushed,
+        web,
+    )
+}
+
+/// The commits the `git/commit-message` findings of a push of `base..head` to `target` name.
+fn pushed_targets(
+    repo: &Repo,
+    plugin: &str,
+    base: &str,
+    head: &str,
+    target: &str,
+) -> BTreeSet<String> {
+    let range = format!("{base}..{head}");
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        plugin,
+        "--push",
+        &range,
+        "--target-ref",
+        target,
+        "--format",
+        "json",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("a JSON report: {}", text(&output.stderr)));
+    report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|finding| finding["rule"] == "git/commit-message")
+        .filter_map(|finding| finding["target"].as_str())
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn a_push_after_a_merge_of_main_judges_only_the_branch_s_new_commits() {
+    let (repo, plugin, pushed, web) = diverged();
+    repo.git(&[
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "Merge branch 'main' into feat/the-thing",
+        "main",
+    ]);
+    repo.write("b.txt", "b\n");
+    let next = repo.commit("feature(core): the next thing");
+    let targets = pushed_targets(&repo, &plugin, &pushed, &next, "refs/heads/feat/the-thing");
+    assert!(!targets.contains(&web), "main's web edit is not judged");
+    assert_eq!(targets, BTreeSet::from([next]));
+}
+
+#[test]
+fn a_rebase_and_force_push_judges_only_the_branch_s_rewritten_commits() {
+    let (repo, plugin, pushed, web) = diverged();
+    repo.git(&["rebase", "-q", "main"]);
+    let rebased = revision(&repo, "HEAD");
+    assert_ne!(rebased, pushed, "the rebase rewrote the commit");
+    let targets = pushed_targets(
+        &repo,
+        &plugin,
+        &pushed,
+        &rebased,
+        "refs/heads/feat/the-thing",
+    );
+    assert!(!targets.contains(&web), "main's web edit is not judged");
+    assert_eq!(targets, BTreeSet::from([rebased]));
+}
+
 impl GitOptions {
     fn new() -> Self {
         let git = git_component();
