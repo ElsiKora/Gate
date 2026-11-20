@@ -12,11 +12,28 @@ The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<ver
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
 
+### Breaking Changes
+
+- **ledger:** an enabled rule fails when a file it reads is not tracked, instead of reporting
+  nothing: each such file is a finding of the new aspect `input` of every rule that reads it, at
+  the file's path and keyed by it, naming the option that points there. The manifest itself is
+  `ledger/manifest#input`. A project without its ledger now fails; add the files, point the options
+  at them, or set `levels = { input = "off" }` with a decision.
+- **ledger:** options without which an enabled rule did nothing are required, and leaving one out
+  stops the run with exit 2: `field` of `ledger/closing-notes` and `catalog` of `ledger/reuses`
+  have no default, and `ledger/record-status` needs the shared `parity`.
+
 ### Features
 
 - **ledger:** rebuilt for the plugin interface `gate:plugin@0.3.0`, whose `generate` call also
-  passes the `[plugins.ledger]` options. Its rules, its generators, their options and the files
-  they write are unchanged; pin `ledger@0.3.0` with the 0.3.0 core.
+  passes the `[plugins.ledger]` options and whose `check` call carries the rule decisions of the
+  scope's own `gate.toml`. Its generators and the files they write are unchanged; its rules change
+  as the entries of this section and of Breaking Changes say. Pin `ledger@0.3.0` with the 0.3.0
+  core.
+- **ledger:** `ledger/rule-decisions` reports a decision a rule entry names, in `[rules]` or in a
+  profile's `rules`, that the decision index (`decisions`) does not list as accepted, as
+  `ledger/exception-decisions` does for exceptions. It reads the decisions the core hands it, never
+  `gate.toml`.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.1.0...plugin-ledger-v0.2.0) (2026-11-19)
 
