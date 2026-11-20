@@ -50,9 +50,10 @@ Each shared plugin keeps its own changelog next to its code.
   selection runs that `--rule` allows. What every other declared plugin declares comes from the
   cache, where each plugin's declaration is stored when it loads, so the whole configuration is
   still checked in every run. `gate sync` compiles every declared plugin and stores every
-  declaration, so after it no check compiles a plugin it does not run. On one consumer tree,
-  after `gate sync` with the compiled modules removed, `gate check --rule 'nestjs/*'` compiled 2
-  modules instead of 8 and took 2.74 s instead of 7.00 s.
+  declaration, so after it no check compiles a plugin it does not run. On an export of a consumer
+  repository's NestJS service, after `gate sync` with the compiled modules removed,
+  `gate check --rule 'nestjs/*'` compiled 2 modules instead of 8 and took 2.74 s instead of
+  7.00 s.
 
 ### Documentation
 

@@ -13,8 +13,8 @@
 
 Today every command that loads plugins fetches, compiles and describes every plugin the
 configuration declares (`plugins::load` and `instantiate` in `crates/gate-host/src/plugins.rs`),
-whatever `--rule` and the change selection leave to run. On the consumer tree, in lane ticket 205
-(Gate 005), `bin/gate check --rule 'nestjs/*' --timings` with the released 0.2.0 core and
+whatever `--rule` and the change selection leave to run. On an export of a consumer repository's
+NestJS service, in lane ticket 205 (Gate 005), `bin/gate check --rule 'nestjs/*' --timings` with the released 0.2.0 core and
 plugins, network denied, load average about 51, measured these figures:
 
 | Run | Wall | Gate total | Load (wasm compile) | nestjs calls |
@@ -190,8 +190,8 @@ removes each piece in turn and runs the test, and the Resume point records the e
 
 - The before/after measure, lane ticket 267 (Gate 005), 2026-11-20T00:41:02 to 00:41:47 UTC,
   load average 54 to 71 on 18 CPUs: the released 0.2.0 core against the release build of lane
-  ticket 256 (`65e5a55`, sha256 `3eb84b41…`), on one export of a consumer tree, network denied,
-  one copy per binary and one run per row. The check rows ran
+  ticket 256 (`65e5a55`, sha256 `3eb84b41…`), on an export of a consumer repository's NestJS
+  service, network denied, one copy per binary and one run per row. The check rows ran
   `gate check --rule 'nestjs/*' --timings`; the hook rows ran the `commit-msg` hook, which prints
   no timings, so only wall time is given. Exit 1 on a check row is the tree's findings, the same
   for both. "Modules emptied" means `modules/` was removed from the cache after `gate sync`.
