@@ -434,11 +434,27 @@ findings. With the plants removed, it exits 0.
 
 ## Resume point
 
+2026-11-20T02:25:13+00:00: on `task/T-066-containers-hygiene` from `main` at `e9e1434`, pushed:
+`8b36abb` (`tree.size`, interface 0.3.0), `c7259db` (environment coverage in
+`gate_typescript::env`, called by `nestjs/raw-config-access`), `a134547` (`gate_sdk::yaml`, shared
+by the ci and docker plugins) and `fc19fb6` (the docker and repository plugins, their pages, the
+guide and the end-to-end test). Nothing is compiled yet: a lane check of `fc19fb6` (fmt, clippy, the
+changed crates' tests) is queued. Next: fix what it finds, then the full lane round on the tip.
+
+Where the code differs from the design above:
+
+- A read set records `(path, blob id, size)` for a path the rule asked the size of (cache format 4),
+  so a change of contents at the same size keeps the stored result, as section 4 asks.
+- The keys of `process-env` and `dynamic` findings are the expression's text, never a line.
+- Environment coverage has a fifth aspect, `example-syntax`: a line of the example file that is no
+  assignment, comment or blank line. T-068 takes the same five.
+- The YAML reader moved from the ci plugin into the SDK (feature `yaml`) instead of a second copy.
+
+Earlier:
+
 2026-11-19: the lead approved the design at `c557d16` and decided the five open items and the shared
 environment module (section "Decisions"). The `cdk` writer (T-064) and the frontend writer (T-068) were
 told their parts. Next: the code, on a branch from `main` once T-056 is green.
-
-Earlier:
 
 2026-11-19: design written from `main` at `ec66737`, after a read-only survey of three repositories
 (the divergence table is kept outside this repository).
