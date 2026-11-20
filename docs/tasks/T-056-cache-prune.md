@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress (design approved by the lead, 2026-11-19) |
+| Status | in review (the review's fix round green; design approved by the lead, 2026-11-19) |
 | Release | v0.2.1 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | a session that did not write it |
@@ -89,6 +89,45 @@ commit; `rustfmt --check` natively before each commit.
 
 ## Proof
 
+### The review's fix round
+
+Lane ticket 265 on `27ca81d` (2026-11-20T00:25:09Z to 00:41:02Z, the lane's exit 0), the same steps:
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| format | `cargo fmt --all --check` | 0 |
+| lint | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| tests | `cargo test --offline --locked --workspace -j 4 --no-fail-fast`: 1042 passed, 0 failed | 0 |
+| licences | `cargo deny --offline --locked check` | 0 |
+| release build | `cargo build --release --offline --locked -j 4` | 0 |
+
+Then each change taken out, one at a time, with its tests (`--lib` for a unit test); every one of the
+14 is caught by a failing test, 16 runs in all, each exit 101:
+
+| Change taken out | Tests that fail |
+| --- | --- |
+| results of an unpinned plugin go | host `prune_removes_derived_entries_...` |
+| blob contents no answer names go | host `prune_removes_derived_entries_...` |
+| an unnamed content is kept a day | host `prune_removes_derived_entries_...` |
+| an unreadable answer file stops prune | host `an_answer_file_prune_cannot_read_stops_it_before_anything_is_removed` |
+| `--older-than` | host `prune_removes_derived_entries_...`; gate `a_used_result_survives_...` |
+| least recently used first, by path on a tie | host `max_size_removes_the_least_recently_used_...` |
+| the pinned-alone-exceed message | host `prune_removes_derived_entries_...`; gate `cache_prune_lists_then_removes_only_what_no_lock_pins` |
+| an older results format has its own reason | host `prune_removes_derived_entries_...` |
+| emptied `<2 hex>/` directories go | host `prune_removes_derived_entries_...` |
+| a result hit sets the last use | gate `a_used_result_survives_...` |
+| loading an answer file sets its last use | lib `cache::answers::tests::the_answer_files_a_run_loads_...` |
+| reading a stored content sets its last use | lib `cache::answers::tests::the_answer_files_a_run_loads_...` |
+| reading a `sync-state` sets its last use | lib `plugins::tests::a_sync_state_a_run_reads_counts_as_used` |
+| a stored `read-at` answer without content is asked again | gate `a_stored_file_whose_content_...` |
+
+The round before it (ticket 259 on `9a01fb5`) stopped at clippy: `cloned_ref_to_slice_refs` on two
+one-element slices in new tests; `27ca81d` writes them with `std::slice::from_ref`. After ticket 265,
+`main` moved to `a3dd8d5` (T-058, T-060, T-060b), and the branch is rebased onto it: one conflict, the
+`OnceLock` import of `crates/gate/tests/plugins.rs`, which `main` no longer uses there.
+
+### The first full round
+
 Lane ticket 252 on `3d8c4a4` (2026-11-19T22:32:01Z to 22:50:18Z, the lane's exit 0), the script's
 steps in order:
 
@@ -127,6 +166,9 @@ the code and its test show: where git lacks a pruned content too, the call still
 advice to run `git fetch` (the lead was told when the code showed it).
 
 ## Resume point
+
+2026-11-20T01:32:59+00:00: the review's fix round passed on `27ca81d` (ticket 265, each of the 14 changes caught);
+rebased onto `main` `a3dd8d5`. Next: the same round on the rebased tip, then the lead's merge.
 
 2026-11-19T22:51:41+00:00: the full round passed on `3d8c4a4` with each change caught; rebased onto
 `main` `ec66737`. Next: the same round on the rebased tip, then the review.
