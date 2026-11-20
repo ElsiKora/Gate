@@ -1,0 +1,90 @@
+# T-044: `nestjs/wrappers` names own-parameter reads and adapters of interface ports
+
+| Field | Value |
+| --- | --- |
+| Status | in progress |
+| Release | v0.3.0 (plugin nestjs 0.3.0 with the core, on `gate:plugin@0.3.0`; merges after the v0.2.1 tag) |
+| Writer | "Gate 002", from 2026-11-20 (first "Gate 003: host foundations") |
+| Reviewer | a session that did not write it |
+| Depends on | `main` at `7f62554b` (the second 0.3.0 batch, T-074 and T-073) |
+| Touches | `plugins/nestjs/src/rules/semantics/wrappers/`, `plugins/nestjs/tests/wrappers.rs`, `plugins/nestjs/rules/wrappers.md`, `plugins/nestjs/CHANGELOG.md` |
+
+## Goal
+
+Two general changes to `nestjs/wrappers` that a consumer asked for.
+
+1. A raw Nest exception construction whose arguments read a plain parameter of the scope's own
+   function gets the scope form of the target, which an exception can name, instead of the line
+   form, which moves with every edit above it.
+2. A reporter adapter may implement an interface port as well as extend a class port: its
+   forwarding method is a framework boundary either way.
+
+## Scope
+
+1. `raw-nest-exception` target: the plain parameters (no default, no destructuring, not
+   reassigned, not redeclared) of the scope's own function join the `parameters <name>` list, in
+   declaration order with those of an inner callback, for example
+   `src/x.ts: findListed parameters baseUrl: new BadRequestException({ ... })`. A read of a local
+   variable, of a reassigned parameter or of `arguments` keeps the line form.
+2. `reporter-adapters`: an entry matches a class below `path-prefix` that extends the named export
+   or implements it. The field `class` becomes `port`, since an interface is no class; no alias.
+   The CHANGELOG says so.
+3. The rule page's target section and option table say both.
+
+Not in scope: any other aspect of the rule; nestjs speed work (T-037 runs in parallel).
+
+## Done when
+
+- Tests: an own-parameter read gets the scope form and a reassigned parameter keeps the line form;
+  an adapter implementing the port has its forwarder pass, and a class implementing another
+  interface still fails. Each fails with its change taken out.
+- `cargo fmt`, `clippy -D warnings`, `cargo test`, `cargo deny` pass in one lane round.
+- The leak scan prints nothing.
+
+## Resume point
+
+2026-11-19T19:27:00+00:00: the release moved to v0.3.0: every plugin of the repository releases at 0.3.0
+with the core on `gate:plugin@0.3.0` (T-057), so this breaking change merges after the v0.2.1 tag.
+The plugin CHANGELOG entry is under `# 0.3.0 (unreleased)` / `### Breaking Changes`. Lane round
+232 on 9971f1a counts for the code; this follow-up is documents only.
+2026-11-20T10:14:04+00:00: Gate 002 takes over as writer. The branch is rebased onto `main` at
+`5da3272` (v0.2.1); the one conflict was the plugin CHANGELOG, whose `# 0.3.0 (unreleased)` / `###
+Breaking Changes` section now sits above the released 0.2.1 section. Lane round 208 on `0576b2b`
+(the `feat` commit) failed one test,
+`own_parameters_are_named_and_reassigned_or_defaulted_ones_and_locals_are_not`, on the branch's own
+assertion (that the scope form drops the finding); `3262226` ("the scope form stays put when lines
+are added above") changed it to what the scope form is for, an unchanged target when a line is added
+above. Rounds 208 and 232 built into another task's target directory, so neither counts. Next: one
+lane round on T-044's own target.
+2026-11-20T10:22:46+00:00: rebased again, onto `main` at `a8e511d`, the first 0.3.0 batch, as the
+lead asked; it applied without a conflict, and the batch changed nothing under `plugins/nestjs` (its
+SDK change is the generators' plugin options and seeds). Round 341 on `b06cb87` was stopped in
+clippy for the new base. Next: one lane round on T-044's own target.
+2026-11-20T10:48:35+00:00: round 342 at `27d8e4d`, on T-044's own target directory: fmt, clippy,
+test (1206 passed, 0 failed, over 101 test binaries; `tests/wrappers.rs` 26 passed), deny, build and
+every wasm build exit 0. The log compiles `gate` and `gate-plugin-nestjs` from this checkout and
+lists the new tests by name, the one round 208 failed among them. Next: the independent review.
+2026-11-20T10:53:38+00:00: rebased onto `main` at `cee6491`, the second 0.3.0 batch (T-055, T-064,
+T-066), as the lead asked. The one conflict was the plugin CHANGELOG: main's `# 0.3.0 (unreleased)`
+section now opens with the plugin interface line and lists T-064's breaking changes (the CDK
+knowledge out, `nestjs/string-enums` moved, `nestjs/raw-config-access` aspects); T-044's two entries
+follow them in the same `### Breaking Changes` list, and nothing of main's is changed. The batch
+changed nothing under the wrappers rule, its tests or the test host. Round 342 counted for the
+earlier base only. Next: one lane round on T-044's own target.
+2026-11-20T17:03:05+00:00: the independent review on `cee6491` found nothing blocking; its fix
+round, with no other change: `a_port_of_the_same_name_from_another_module_is_no_boundary` (the
+port's name imported from another module, by `implements` and by `extends`, is no boundary, so
+dropping the module check fails it); `an_arrow_field_s_own_parameters_are_named` (an arrow that is a
+property's or an accessor's value is the member's own function, each with a callback inside, so
+dropping either scope path fails it); the `class` option test asserts that the error names `class`
+and `port`; the rule page and the CHANGELOG entry say "not redeclared" and list defaulted,
+reassigned, destructured and redeclared parameters as keeping the line form. Next: rebase onto
+`main` once T-073 is merged, then the round that counts.
+2026-11-20T17:57:38+00:00: rebased onto `main` at `7f62554b`, with Gate checking itself (T-074) and
+wasmtime 50.0.3 (T-073), as the lead asked; no conflict. Round 346 on `cee6491` stopped at `cargo
+deny` on RUSTSEC-2026-0587 only, which T-073 fixed. Next: the round that counts, on T-044's own
+target.
+2026-11-20T19:06:36+00:00: round 365 at `e61fa2f`, on T-044's own target directory: fmt, clippy,
+test (1349 passed, 0 failed, over 111 test binaries; `tests/wrappers.rs` 28 passed), deny
+(advisories ok), build and every wasm build exit 0. The log compiles `gate` and `gate-plugin-nestjs`
+from this checkout and lists the review fix round's tests by name. Next: the lead's merge.

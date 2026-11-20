@@ -6,7 +6,7 @@ use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::ast::{
     Argument, ArrayExpressionElement, BindingPattern, CallExpression, ChainElement, Class,
     ClassElement, Decorator, Expression, FormalParameters, ImportDeclarationSpecifier,
-    ObjectPropertyKind, PropertyKey, PropertyKind, Statement,
+    ObjectPropertyKind, PropertyKey, PropertyKind, Statement, TSTypeName,
 };
 use gate_typescript::value::{string_like, unwrap};
 
@@ -390,8 +390,8 @@ pub fn forwarding_call(
 }
 
 /// Whether `class` adapts a reporter port: one of the reporter adapters names `name` as its method,
-/// `path` lies below its path prefix, and the class extends the port class the file imports from
-/// its module.
+/// `path` lies below its path prefix, and the class extends or implements the port the file
+/// imports from its module, a class or an interface.
 fn reporter_adapter(
     config: &Config,
     file: &SourceFile<'_>,
@@ -402,11 +402,26 @@ fn reporter_adapter(
     let Some(class) = class else {
         return false;
     };
-    let Some(Expression::Identifier(parent)) =
-        class.heritage.as_ref().map(|heritage| &heritage.expression)
-    else {
+    // The names the class extends or implements, as the file binds them.
+    let parents: Vec<&str> =
+        class
+            .heritage
+            .as_ref()
+            .and_then(|heritage| match &heritage.expression {
+                Expression::Identifier(parent) => Some(parent.name.as_str()),
+                _ => None,
+            })
+            .into_iter()
+            .chain(class.implements.iter().filter_map(
+                |implemented| match &implemented.expression {
+                    TSTypeName::IdentifierReference(port) => Some(port.name.as_str()),
+                    _ => None,
+                },
+            ))
+            .collect();
+    if parents.is_empty() {
         return false;
-    };
+    }
 
     config.options.reporter_adapters.iter().any(|adapter| {
         path.starts_with(adapter.path_prefix.as_str())
@@ -426,8 +441,8 @@ fn reporter_adapter(
                 .flatten()
                 .any(|specifier| match specifier {
                     ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
-                        super::provenance::export_name(&specifier.imported) == adapter.class
-                            && specifier.local.name == parent.name
+                        super::provenance::export_name(&specifier.imported) == adapter.port
+                            && parents.contains(&specifier.local.name.as_str())
                     }
                     _ => false,
                 })
