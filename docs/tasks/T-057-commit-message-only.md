@@ -113,4 +113,13 @@ Each test fails before its change. They use synthetic plugins and trees.
 - This branch sits on T-047 at `f7269b4`. T-047's review round rebased T-047 onto main and
   changed `plugins.rs`, `plugins/declarations.rs` and `cache/mod.rs`; when T-047 merges, this
   branch rebases onto main and runs one more round.
-- Next: that rebase and round, then the consumer's cold `commit-msg` row, before and after.
+- 2026-11-20T07:57:37+00:00: T-047 merged as `340cf8b`; this branch is rebased onto it (the two `CHANGELOG.md`
+  conflicts kept both sides). Ticket 312 ran the six new tests on the rebased tests commit
+  `3f1f61b` (each exit 101, as expected) and stopped at clippy: `needless_borrow`, since main's
+  memoized `probe_with` returns `&'static [u8]`; fixed in `2320e15`. Ticket 324 on `2320e15`:
+  fmt, clippy, the six tests by name, test (1070 passed, 0 failed, 7 ignored), deny and the
+  release build exit 0; `done in 577s with exit code 0`. Its logs show `gate`, `gate-host`,
+  `gate-runtime`, `gate-sdk` and `gate-plugin-git` compiled from this worktree and the six tests
+  listed by name.
+- The branch merges after the 0.2.1 tag. Next: the consumer's cold `commit-msg` row, before and
+  after.
