@@ -433,6 +433,41 @@ findings. With the plants removed, it exits 0.
    `nestjs/raw-config-access` and by the frontend plugin's environment rule (T-068), under the same
    aspect names and options.
 
+## Decisions from the review (the lead, 2026-11-20)
+
+The independent review of `bcd36c6` found two blocking points, one must-fix and six minor ones; the
+lead ruled on each, and accepted rulings 10 to 13, which the fix round proposed.
+
+1. **`tree.size` is the size of the blob git stores.** In a commit or the index it is the blob's size.
+   In the working tree, a file whose stat matches its index entry has the index blob's size, and only a
+   file that differs from its entry has its own size. So a file a clean filter stores as a pointer (Git
+   LFS) has the pointer's size in every mode, and the hook and `gate check` agree.
+2. **A private-key header is found anywhere in a line**, so a one-line JSON key with `\n` escapes and
+   a key in a string literal are found. `-----BEGIN PGP PRIVATE KEY BLOCK-----` and fine-grained
+   `github_pat_` tokens are new shapes. The fixtures stay built at run time.
+3. **Image files are, case-sensitively, `Dockerfile`, `Containerfile`, `Dockerfile.<name>` and
+   `<name>.Dockerfile`** with a dotless `<name>`, as the plugin option `image-files`.
+   `rules/dockerfile.md`, `dockerfile.ts` and `Dockerfile.test.ts` are not image files.
+4. **`*` as the first line of an ignore file is an allow-list like `**`**, and a later `!` line that
+   takes a `must-ignore` pattern back in is a finding.
+5. **`COPY --from=<image>` and `RUN --mount=...,from=<image>` are pinned like `FROM`**; a stage name
+   stays allowed.
+6. **A `tracked-secrets` finding is identified by path and kind**, with an ordinal for the n-th of one
+   kind in a file (`<path>:private-key#2`), never by line, so an exception survives edits above it.
+7. **Secret names match by `_`-separated word**, not by substring: `AUTH` does not hit `AUTHOR` or
+   `NEXTAUTH_URL`.
+8. **A heredoc opens only at `<<` or `<<-`**, then an optional quote and a delimiter word, in an
+   instruction that takes heredocs; `$((1<<2))` never opens one.
+9. **Docs**: the WIT says what the read set records, the guide says `repository/recommended` sets
+   `large-files#large` at `warning`, and it shows a monorepo turning `repository/recommended` on.
+10. **`secret-metadata-words` replaces compose's `reference-suffixes`.** A name whose last word is one of
+    them (`FILE`, `PATH`, `DIR`, `URL`, `ENDPOINT`, `NAME`, `TYPE`, `TTL`, `EXPIRY`, `LENGTH`) is about a
+    secret, not the secret: `TOKEN_TTL` and `POSTGRES_PASSWORD_FILE` pass, in both docker rules alike.
+11. **The docker `secret` targets name the variable, never the line**: `<path>:<NAME>` in a Dockerfile,
+    `<path>:<service>.<KEY>` in a compose file, for the reason of ruling 6.
+12. **`image-files` is a `[plugins.docker]` option**, where `*` stands for a name without a dot.
+13. **A `!` line takes a pattern back in only when it names the same pattern** (`!.env` for `.env`).
+
 ## Done when
 
 - The code, on a branch from `main` once T-056 is green, then one lane round on the pushed tip: fmt,
