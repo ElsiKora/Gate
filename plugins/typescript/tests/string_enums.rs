@@ -58,6 +58,7 @@ fn run(options: &str, languages: &str, files: &[(&str, &str)]) -> gate_sdk::Resu
         plugin_options: "{}".to_owned(),
         languages: languages.to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     };
     gate_sdk::check(&typescript::PLUGIN, &fixture, &request)
 }
