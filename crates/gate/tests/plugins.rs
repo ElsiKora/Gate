@@ -6760,28 +6760,29 @@ fn a_monorepo_root_extends_git_recommended_and_its_own_rules_win() {
     let message = outside.path().join("COMMIT_EDITMSG");
     std::fs::write(&message, "ci(a): x\n").expect("message");
     let message = message.display().to_string();
-    let check = |rules: &str| {
-        git_workspace(&git, "\"git/recommended\"", rules);
-        let output = git.repo.gate(&[
-            "check",
-            "--plugin",
-            &git.plugin,
-            "--hook",
-            "--commit-message",
-            &message,
-        ]);
+    // A hook run that judges the branch, and one that judges only the message being written.
+    let run = |arguments: &[&str]| {
+        let mut all = vec!["check", "--plugin", git.plugin.as_str(), "--hook"];
+        all.extend_from_slice(arguments);
+        let output = git.repo.gate(&all);
         (
             output.status.code(),
             format!("{}{}", text(&output.stdout), text(&output.stderr)),
         )
     };
+    let branch = || run(&["--rule", "git/branch-name"]);
+    let written = || run(&["--commit-message", &message]);
     let at = |level: &str, aspect: &str| format!("{level}[git/commit-message#{aspect}]");
 
     // The preset turns on both repository-scope rules at the root, with its aspect levels.
-    let (code, said) = check("");
+    git_workspace(&git, "\"git/recommended\"", "");
+    let (code, said) = branch();
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("error[git/branch-name"), "{said}");
+    let (code, said) = written();
     assert_eq!(code, Some(1), "{said}");
     assert!(
-        said.contains("error[git/branch-name")
+        !said.contains("[git/branch-name")
             && said.contains(&at("warning", "header-min-length"))
             && said.contains(&at("error", "subject-min-length")),
         "{said}"
@@ -6798,18 +6799,28 @@ fn a_monorepo_root_extends_git_recommended_and_its_own_rules_win() {
     );
 
     // The root's [rules] wins: a level of the whole rule applies to every aspect, the preset's too.
-    let (code, said) = check("\"git/branch-name\" = \"off\"\n\"git/commit-message\" = \"note\"");
+    git_workspace(
+        &git,
+        "\"git/recommended\"",
+        "\"git/branch-name\" = \"warning\"\n\"git/commit-message\" = \"note\"",
+    );
+    let (code, said) = branch();
+    assert_eq!(code, Some(0), "{said}");
+    assert!(said.contains("warning[git/branch-name"), "{said}");
+    let (code, said) = written();
     assert_eq!(code, Some(0), "{said}");
     assert!(
-        !said.contains("[git/branch-name")
-            && said.contains(&at("note", "header-min-length"))
+        said.contains(&at("note", "header-min-length"))
             && said.contains(&at("note", "subject-min-length")),
         "{said}"
     );
     // A level the root gives an aspect wins over both.
-    let (code, said) = check(
-        "\"git/branch-name\" = \"off\"\n\"git/commit-message\" = { level = \"note\", levels = { header-min-length = \"error\" } }",
+    git_workspace(
+        &git,
+        "\"git/recommended\"",
+        "\"git/commit-message\" = { level = \"note\", levels = { header-min-length = \"error\" } }",
     );
+    let (code, said) = written();
     assert_eq!(code, Some(1), "{said}");
     assert!(
         said.contains(&at("error", "header-min-length"))
