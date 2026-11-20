@@ -260,6 +260,7 @@ fn layout_reports_a_file_of_a_group_s_own() {
     // A folder with child slices is a group even when it holds a file of its own; the file is
     // reported, not the slices as segments of a slice.
     let files = [
+        ("pages/README.md", ""),
         ("src/features/auth/index.ts", "export {};\n"),
         ("src/features/auth/sign-in/index.ts", "export {};\n"),
     ];
@@ -273,6 +274,7 @@ fn layout_reports_a_file_of_a_group_s_own() {
 fn the_generated_client_is_reported_outside_its_folder() {
     // The names and the tree the standard tree passes inside src/shared/api/generated/.
     let files = [
+        ("pages/README.md", ""),
         ("src/shared/api/index.ts", "export {};\n"),
         ("src/shared/api/models/UserDto.ts", "export {};\n"),
         ("src/shared/api/petstore.schemas.ts", "export {};\n"),
