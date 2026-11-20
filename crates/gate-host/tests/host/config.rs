@@ -279,7 +279,7 @@ fn a_core_rule_norm_attaches_to_the_cores_findings() {
     .add();
     let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("valid");
     workspace
-        .validate(&declarations, &Accepting)
+        .validate(&declarations, &|_, _| Ok(None), &Accepting)
         .expect("core rules need no plugin declaration");
 
     let core = |rule: &str, aspect: &str| {
@@ -1298,7 +1298,7 @@ fn validate(files: &[(&str, &str)]) -> Result<(), String> {
     repo.add();
     let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("valid files");
     workspace
-        .validate(&declarations, &Accepting)
+        .validate(&declarations, &|_, _| Ok(None), &Accepting)
         .map_err(|error| {
             assert_eq!(error.kind(), ErrorKind::Config);
             error.message().to_owned()

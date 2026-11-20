@@ -641,7 +641,16 @@ impl Loaded {
             },
             &JsonSchemaValidator,
         )?;
-        workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
+        // The options the scope's presets give a rule, which the run uses when `[rules]` gives none.
+        let preset_options = |settings: &Settings, rule: &RuleId| -> Result<Option<Value>> {
+            let Some((name, declared)) = self.declarations.get_key_value(rule.plugin()) else {
+                return Ok(None);
+            };
+            Ok(presets(&declared.info, name, settings)?
+                .remove(rule.rule())
+                .and_then(|preset| preset.options))
+        };
+        workspace.validate_except(&declaration, &preset_options, &JsonSchemaValidator, skipped)?;
         self.check_presets(workspace)?;
         self.check_needs(workspace, filter)?;
         self.check_decisions(workspace)?;

@@ -396,18 +396,21 @@ impl Workspace {
     /// Checks the configuration against what the plugins declare.
     ///
     /// `declaration` returns what the plugin with the given name and source declares about a rule,
-    /// or `None` when it has no such rule. Unknown rules, aspects that a rule does not have, rules
-    /// configured where their scope does not run, and options that break their schema are
-    /// configuration errors naming the file, line and section.
+    /// or `None` when it has no such rule. `presets` returns the options the presets a scope
+    /// extends give a rule, or `None` when they give none. Unknown rules, aspects that a rule does
+    /// not have, rules configured where their scope does not run, and options that break their
+    /// schema are configuration errors naming the file, line and section. The options checked are
+    /// the ones the run uses: the entry's own, else the presets', else `{}`.
     ///
     /// # Errors
-    /// Fails on the first such error.
+    /// Fails on the first such error, or the first error of `presets`.
     pub fn validate(
         &self,
         declaration: &dyn Fn(&PluginName, &PluginSource, &str) -> Option<RuleDeclaration>,
+        presets: &dyn Fn(&Settings, &RuleId) -> Result<Option<serde_json::Value>>,
         validator: &dyn SchemaValidator,
     ) -> Result<()> {
-        self.validate_except(declaration, validator, &BTreeSet::new())
+        self.validate_except(declaration, presets, validator, &BTreeSet::new())
     }
 
     /// [`Workspace::validate`] without the rules and exceptions of the plugins in `skipped`, whose
@@ -418,6 +421,7 @@ impl Workspace {
     pub fn validate_except(
         &self,
         declaration: &dyn Fn(&PluginName, &PluginSource, &str) -> Option<RuleDeclaration>,
+        presets: &dyn Fn(&Settings, &RuleId) -> Result<Option<serde_json::Value>>,
         validator: &dyn SchemaValidator,
         skipped: &BTreeSet<PluginName>,
     ) -> Result<()> {
@@ -441,7 +445,8 @@ impl Workspace {
                     ),
                 ));
             }
-            check_rule(repository, rule, entry, &found, validator)?;
+            let preset = presets(repository, rule)?;
+            check_rule(repository, rule, entry, &found, preset.as_ref(), validator)?;
         }
 
         for (name, settings) in &self.settings {
@@ -461,7 +466,8 @@ impl Workspace {
                     }
                     continue;
                 }
-                check_rule(settings, rule, entry, &found, validator)?;
+                let preset = presets(settings, rule)?;
+                check_rule(settings, rule, entry, &found, preset.as_ref(), validator)?;
             }
         }
 
@@ -723,11 +729,15 @@ fn lookup(
     })
 }
 
+/// Checks one `[rules]` entry against what its plugin declares: its aspects, and the options the
+/// run uses, which are the entry's own, else `preset` (what the scope's presets give the rule),
+/// else `{}`.
 fn check_rule(
     settings: &Settings,
     rule: &RuleId,
     entry: &RuleSettings,
     found: &RuleDeclaration,
+    preset: Option<&serde_json::Value>,
     validator: &dyn SchemaValidator,
 ) -> Result<()> {
     for (aspect, origin) in entry
@@ -762,12 +772,10 @@ fn check_rule(
     }
 
     let empty = serde_json::Value::Object(serde_json::Map::new());
-    let (options, origin) = entry
-        .options
-        .as_ref()
-        .map_or((&empty, entry.origins().next()), |options| {
-            (&options.value.value, Some(&options.origin))
-        });
+    let (options, origin) = entry.options.as_ref().map_or(
+        (preset.unwrap_or(&empty), entry.origins().next()),
+        |options| (&options.value.value, Some(&options.origin)),
+    );
     let violations = validator.validate(&found.options_schema, options);
 
     if violations.is_empty() {

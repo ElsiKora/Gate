@@ -1650,6 +1650,65 @@ fn a_rule_a_preset_enables_with_its_required_option_can_be_turned_off() {
     assert_eq!(messages, Vec::<String>::new());
 }
 
+#[test]
+fn a_level_in_rules_keeps_the_options_a_preset_gives_the_rule() {
+    // probe/needs requires the option pattern; the preset probe/needs gives it.
+    let profile = |rules: &str| {
+        let repo = probe_repo(rules);
+        let toml = std::fs::read_to_string(repo.path().join("gate.toml"))
+            .expect("gate.toml")
+            .replace(
+                "projects = [\"apps/one\"]\n",
+                "projects = [\"apps/one\"]\nextends = [\"probe/needs\"]\n",
+            );
+        repo.write("gate.toml", &toml);
+        repo.commit("the profile extends probe/needs");
+        repo
+    };
+    let project = |rules: &str| {
+        let repo = probe_repo("");
+        repo.write(
+            "apps/one/gate.toml",
+            &format!(
+                "[project]\nname = \"one\"\nextends = [\"probe/needs\"]\n\n[rules]\n{rules}\n"
+            ),
+        );
+        repo.commit("the project extends probe/needs");
+        repo
+    };
+
+    // A level alone keeps the preset's options, in a profile and in a project's own file.
+    for repo in [
+        profile(r#""probe/needs" = "warning""#),
+        project(r#""probe/needs" = "warning""#),
+    ] {
+        let (code, messages) = probe_check(&repo, &[]);
+        assert_eq!(code, Some(0), "{messages:?}");
+        assert_eq!(messages, ["needs from the preset"]);
+    }
+
+    // Options of the entry's own replace the preset's.
+    let (code, messages) = probe_check(
+        &project(r#""probe/needs" = { level = "warning", options = { pattern = "of its own" } }"#),
+        &[],
+    );
+    assert_eq!(code, Some(0), "{messages:?}");
+    assert_eq!(messages, ["needs of its own"]);
+
+    // Without a preset that gives them, a level alone still lacks the required option.
+    let repo = probe_repo(r#""probe/needs" = "warning""#);
+    repo.commit("no preset");
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.contains("[[profiles]] rules: \"probe/needs\" options:")
+            && message.contains("pattern"),
+        "{message}"
+    );
+}
+
 /// `gate check` with the built probe in each report format: its exit code and output, by format.
 fn probe_check_formats(repo: &Repo) -> Vec<(&'static str, Option<i32>, String)> {
     let plugin = format!("probe={}", probe().0.display());

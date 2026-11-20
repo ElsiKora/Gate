@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | test fixed; lane round next |
-| Release | v0.3.0 (test only; no product change) |
+| Status | test fixed and the bug it found fixed; the round runs after the Gate 001 stack merges |
+| Release | v0.3.0 (a host fix and its tests) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | the lead |
 | Depends on | `main` at `308eca9b` (T-071 and T-057 merged) |
-| Touches | `crates/gate/tests/plugins.rs` (`a_monorepo_root_extends_git_recommended_and_its_own_rules_win`) |
+| Touches | `crates/gate/tests/plugins.rs`, `crates/gate-host/src/{workspace,plugins}.rs`, `crates/gate-host/tests/host/config.rs`, `CHANGELOG.md` |
 
 ## Goal
 
@@ -30,15 +30,35 @@ project turns on both repository-scope rules with the preset's aspect levels and
   the whole rule, and an aspect level of the root's over both; the run reports no
   `git/branch-name`, as T-057 has it.
 
-No product code changes.
+## The bug the test found
+
+Round 384 on `79916e4a` failed the test's second case with exit 2: `gate.toml:13 [rules]:
+"git/branch-name" options: {} is not valid under any of the schemas listed in the 'oneOf'
+keyword`. A `[rules]` entry that sets only a level for a rule a preset turns on was checked as if
+its options were `{}`, although the run uses the options the preset gives the rule
+(`enabled_rules` falls back to them). Only `off` escaped the check, which is why the test on `main`,
+which turned `git/branch-name` off, never met it. The same held in a project's file and a profile.
+
+By the lead's ruling the fix is part of this task: `check_rule` validates the options the run uses,
+the entry's own, else what the scope's presets give the rule, else `{}`. `Workspace::validate` and
+`validate_except` take the presets' answer as a closure, which the plugin runtime builds from the
+presets each scope extends.
+
+The test `a_level_in_rules_keeps_the_options_a_preset_gives_the_rule` holds the project and profile
+cases with the probe's preset `probe/needs`, which gives its rule the required `pattern`: a level
+alone runs with the preset's pattern, the entry's own options replace it, and without the preset a
+level alone is still a configuration error that names the missing option.
 
 ## Done when
 
 - One lane round on the pushed tip, its own target directory and its logs kept per ticket: fmt,
   clippy, test, deny and the release build exit 0; the log shows `gate` compiled from this task's
-  round checkout and lists the test by name; the test fails with `[workspace] extends` not layered
-  into the root's settings.
+  round checkout and lists both tests by name; the workspace test fails with `[workspace] extends`
+  not layered into the root's settings, and both fail with the presets' options left out of the
+  check.
 
 ## Resume point
 
-2026-11-20T21:12:10+00:00: the test is fixed and pushed; the lane round is next.
+2026-11-20T22:45:33+00:00: round 384 found the bug above; the fix and its test are written on
+`308eca9b` and pushed. The Gate 001 stack merges first, as it also changes `workspace.rs`; then the
+branch rebases onto `main`, takes the stack's `workspace.rs` as it is, and runs one round.
