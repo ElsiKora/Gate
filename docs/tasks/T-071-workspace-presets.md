@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | green in lane round 364 on `6dfddf0d`; for review |
+| Status | the review's fix round written; lane round next |
 | Release | v0.3.0 (configuration; no plugin interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
-| Depends on | `origin/main` at `7f62554b` (rebased from `cee6491` after T-073) |
+| Depends on | `origin/main` at `16d94316` (rebased from `cee6491` after T-073, then after T-066b) |
 | Touches | `crates/gate-host/src/config` (`[workspace] extends`, its origin label, the parser hint), `crates/gate-host/src/workspace.rs` (where it is allowed), `crates/gate-host/src/plugins.rs` (the check that an `extends` entry turns something on), `crates/gate-runtime/tests/probe` (a test preset of both scopes), `crates/gate/tests/plugins.rs`, `crates/gate-host/tests/host/config.rs`, `docs/guide/configuration.md`, `docs/guide/plugins.md`, `plugins/git/rules/commit-message.md`, the root `CHANGELOG.md` |
 
 ## Goal
@@ -218,7 +218,22 @@ Each mutation, applied to the round's tree, made its exact test fail (exit 101):
 | an entry counts only when every rule is of the scope (`all` for `any`) | `gate` `a_preset_of_both_scopes_runs_each_rule_where_its_scope_runs` |
 | `probe/aspects` runs in the repository call too | `gate` `a_preset_of_both_scopes_runs_each_rule_where_its_scope_runs` |
 
+## The independent review of `7ba53f8a`, one fix round
+
+Nothing blocking; four findings, each fixed:
+
+1. An entry that reaches only project scope was told to go in the root's `[workspace] extends`
+   even where the root is a project, which refuses that key. The advice now follows the root: the
+   root `gate.toml`'s `[project] extends` when the root is a project, its `[workspace] extends`
+   when not. Tested with a member project's entry and a `[[profiles]] projects = ["."]` entry at a
+   root that lists `"."`.
+2. A monorepo root that writes `[project] extends` is told that the root's presets go in
+   `[workspace] extends`, besides that `[project]` belongs in a project.
+3. The guide's mixed-scope example names `node/recommended` (six repository-scope rules, three
+   project-scope), which is on `main`; `agents/recommended` is not before T-069.
+4. The plugins guide links `[workspace]` to its own section of the configuration guide.
+
 ## Resume point
 
-2026-11-20T18:55:27+00:00: green in lane round 364 on `6dfddf0d` (rebased onto `main` at `7f62554b`);
-waiting for the review.
+2026-11-20T19:02:15+00:00: the review's fix round is committed on `main` at `16d94316`; its lane
+round is next.

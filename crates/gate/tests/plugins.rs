@@ -5946,3 +5946,44 @@ fn an_extends_entry_that_turns_on_no_rule_where_it_applies_is_a_configuration_er
         "{said}"
     );
 }
+
+#[test]
+fn at_a_root_that_is_a_project_an_entry_of_repository_rules_points_to_the_roots_project_extends() {
+    // A member project's entry, then a profile's for the root project itself: neither reaches
+    // the repository's rules, which a root that is a project extends in its [project].
+    for (member, profile) in [
+        ("extends = [\"git/recommended\"]\n", ""),
+        (
+            "",
+            "\n[[profiles]]\nprojects = [\".\"]\nextends = [\"git/recommended\"]\n",
+        ),
+    ] {
+        let git = GitOptions::new();
+        git.repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\".\", \"apps/*\"]\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n{profile}"
+            ),
+        );
+        git.repo.write(
+            "apps/one/gate.toml",
+            &format!("[project]\nname = \"one\"\n{member}"),
+        );
+        git.repo.commit("extend git/recommended for projects only");
+        let output = git.repo.gate(&["check", "--plugin", &git.plugin]);
+        let said = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{said}");
+        assert!(
+            said.contains(
+                "extends: \"git/recommended\" turns on no project-scope rule; extend it in the root gate.toml's [project] extends"
+            ),
+            "{said}"
+        );
+        let place = if member.is_empty() {
+            "gate.toml:13 [[profiles]] extends"
+        } else {
+            "apps/one/gate.toml:3 [project] extends"
+        };
+        assert!(said.contains(place), "{said}");
+    }
+}

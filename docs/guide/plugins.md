@@ -394,7 +394,7 @@ extends = ["repository/recommended"]
 1 MiB is a warning, one over 5 MiB (`huge`) an error. Both rules are repository-scope: they run once
 over the whole repository and are configured in the root file only; a profile or a project file
 cannot turn them on. A monorepo root, which is not a project, extends the preset in `[workspace]`
-([configuration.md](configuration.md#project)):
+([configuration.md](configuration.md#workspace)):
 
 ```toml
 # the root gate.toml of a monorepo

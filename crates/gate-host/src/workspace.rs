@@ -859,15 +859,25 @@ fn at(origin: Option<&SettingOrigin>, message: String) -> Error {
     }
 }
 
-/// A root that is not a project holds no project section.
+/// A root that is not a project holds no project section; its presets go in `[workspace] extends`.
 fn check_workspace_root(root: &Config) -> Result<()> {
+    let extends = root
+        .file()
+        .project
+        .as_ref()
+        .is_some_and(|project| !project.extends.is_empty());
     for (present, section) in [
         (root.file().project.is_some(), "[project]"),
         (!root.file().languages.is_empty(), "[languages]"),
     ] {
         if present {
+            let presets = if extends {
+                "; the root's presets go in [workspace] extends"
+            } else {
+                ""
+            };
             return Err(Error::config(format!(
-                "gate.toml: {section} belongs in a project's gate.toml or a [[profiles]] entry; the root is a project only without [workspace], or when [workspace] projects lists \".\""
+                "gate.toml: {section} belongs in a project's gate.toml or a [[profiles]] entry; the root is a project only without [workspace], or when [workspace] projects lists \".\"{presets}"
             )));
         }
     }

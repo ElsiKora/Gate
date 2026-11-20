@@ -659,6 +659,21 @@ fn workspace_extends_at_a_root_that_is_not_a_project_reaches_the_repository_only
 }
 
 #[test]
+fn project_extends_in_a_workspace_root_points_to_workspace_extends() {
+    let message = error(&[(
+        "gate.toml",
+        &format!("{WORKSPACE_ROOT}\n[project]\nextends = [\"git/recommended\"]\n{GIT_PLUGIN}"),
+    )]);
+    assert_all(
+        &message,
+        &[
+            "[project] belongs in a project's gate.toml",
+            "the root's presets go in [workspace] extends",
+        ],
+    );
+}
+
+#[test]
 fn profiles_in_a_project_file() {
     let message = error(&[
         ("gate.toml", ROOT),

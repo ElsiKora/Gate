@@ -102,9 +102,9 @@ Where an `extends` entry goes depends on the kind of root:
 | not a project (a monorepo root) | `[workspace] extends` | `[project] extends` of a member project, or a `[[profiles]]` entry |
 
 A preset may hold rules of both scopes; each place takes the rules of the scope it runs and skips
-the others without a message, so a monorepo root can extend `agents/recommended` for its
-repository-scope rule while a profile extends it for the projects. An entry that turns on no rule of
-any scope it reaches is a configuration error that names where it goes instead:
+the others without a message, so a monorepo root can extend `node/recommended` for its six
+repository-scope rules while a profile extends it for the projects' three. An entry that turns on no
+rule of any scope it reaches is a configuration error that names where it goes instead:
 `typescript/recommended` in `[workspace] extends` turns on no repository-scope rule, and a member
 project's `extends = ["git/recommended"]` turns on no project-scope rule. A preset that names a rule
 of the scope at `off` still counts. `[workspace] extends` in a root that is a project is a

@@ -692,7 +692,7 @@ impl Loaded {
             }
         }
         if let Some(seen) = reach.iter().find(|seen| !seen.turns_on) {
-            return Err(Error::config(seen.message()));
+            return Err(Error::config(seen.message(workspace.root_is_project())));
         }
         Ok(())
     }
@@ -1602,16 +1602,22 @@ struct Reach<'a> {
 }
 
 impl Reach<'_> {
-    /// Why the entry turns on nothing, and where it goes instead.
-    fn message(&self) -> String {
+    /// Why the entry turns on nothing, and where it goes instead: the root's `[project] extends`
+    /// when the root is a project, else its `[workspace] extends`.
+    fn message(&self, root_is_project: bool) -> String {
         let entry = format!("{}: \"{}\"", self.item.origin, self.item.value);
+        let root = if root_is_project {
+            "the root gate.toml's [project] extends"
+        } else {
+            "the root's [workspace] extends"
+        };
         match (self.repository, self.project) {
             (true, false) => format!(
                 "{entry} turns on no repository-scope rule, and the root runs only those; extend it in a [[profiles]] entry for the projects"
             ),
-            (false, true) => format!(
-                "{entry} turns on no project-scope rule; extend it in the root's [workspace] extends"
-            ),
+            (false, true) => {
+                format!("{entry} turns on no project-scope rule; extend it in {root}")
+            }
             _ => format!("{entry} turns on no rule; remove it"),
         }
     }
