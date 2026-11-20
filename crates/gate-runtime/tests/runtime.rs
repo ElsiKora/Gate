@@ -2,9 +2,10 @@
 //! built for `wasm32-wasip2` once per test binary.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+
+#[path = "support/component.rs"]
+mod built;
 
 use gate_runtime::{
     Blob, Call, CallOutcome, Config, ErrorKind, GitQuery, Grant, History, HostError, Plugin,
@@ -14,56 +15,12 @@ use gate_sdk::{CheckRequest, Commit, CommitRange, Location, RuleRun, SyncState};
 
 /// The probe component, built once.
 fn probe() -> &'static [u8] {
-    static WASM: OnceLock<Vec<u8>> = OnceLock::new();
-    WASM.get_or_init(|| {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("probe");
-        let status = Command::new(env!("CARGO"))
-            .current_dir(&workspace)
-            .args([
-                "build",
-                "--locked",
-                "--release",
-                "-p",
-                "gate-runtime-probe",
-                "--target",
-                "wasm32-wasip2",
-            ])
-            .env("CARGO_TARGET_DIR", &target)
-            .status()
-            .expect("cargo runs");
-        assert!(
-            status.success(),
-            "the probe plugin builds for wasm32-wasip2"
-        );
-        std::fs::read(target.join("wasm32-wasip2/release/gate_runtime_probe.wasm"))
-            .expect("the probe component exists")
-    })
+    &built::component("gate-runtime-probe", "gate_runtime_probe", "").1
 }
 
-/// The probe built with cargo `feature`, in a target directory of its own.
-fn probe_with(feature: &str) -> Vec<u8> {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("probe-{feature}"));
-    let status = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args([
-            "build",
-            "--locked",
-            "--release",
-            "-p",
-            "gate-runtime-probe",
-            "--target",
-            "wasm32-wasip2",
-            "--features",
-            feature,
-        ])
-        .env("CARGO_TARGET_DIR", &target)
-        .status()
-        .expect("cargo runs");
-    assert!(status.success(), "the probe builds with {feature}");
-    std::fs::read(target.join("wasm32-wasip2/release/gate_runtime_probe.wasm"))
-        .expect("the probe component exists")
+/// The probe built with cargo `feature`, in a target directory of its own, once.
+fn probe_with(feature: &str) -> &'static [u8] {
+    &built::component("gate-runtime-probe", "gate_runtime_probe", feature).1
 }
 
 /// A snapshot from a list of (path, contents).
@@ -549,7 +506,7 @@ fn a_describe_that_never_ends_fails_to_load_out_of_fuel_on_every_run() {
     let spinning = probe_with("describe-spins");
     for _ in 0..2 {
         let error = runtime
-            .load("other", &spinning)
+            .load("other", spinning)
             .expect_err("describe never ends");
         assert_eq!(error.kind(), ErrorKind::OutOfFuel, "{error}");
     }

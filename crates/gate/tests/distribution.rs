@@ -4,6 +4,9 @@
 #[path = "../../gate-host/tests/host/http.rs"]
 mod http;
 
+#[path = "../../gate-runtime/tests/support/component.rs"]
+mod built;
+
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -1075,24 +1078,7 @@ fn cache_prune_lists_then_removes_only_what_no_lock_pins() {
 
 /// The git plugin built from this tree for wasm32-wasip2, as its release would carry it.
 fn git_component() -> Vec<u8> {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("gate-plugin-git");
-    let status = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args([
-            "build",
-            "--locked",
-            "--release",
-            "-p",
-            "gate-plugin-git",
-            "--target",
-            "wasm32-wasip2",
-        ])
-        .env("CARGO_TARGET_DIR", &target)
-        .status()
-        .expect("cargo runs");
-    assert!(status.success(), "gate-plugin-git builds for wasm32-wasip2");
-    std::fs::read(target.join("wasm32-wasip2/release/git.wasm")).expect("the component exists")
+    built::component("gate-plugin-git", "git", "").1.clone()
 }
 
 #[test]

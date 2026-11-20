@@ -4,35 +4,18 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+#[path = "support/component.rs"]
+mod built;
 
 use gate_runtime::{Blob, Call, Config, ErrorKind, Grant, HostError, Plugin, Runtime, Tree};
 use gate_sdk::{CheckRequest, RuleRun};
 
-/// The component of `package`, built for `wasm32-wasip2` in release.
+/// The component of `package`, built for `wasm32-wasip2` in release, once.
 fn component(package: &str, library: &str) -> Vec<u8> {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("measure");
-    let status = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args([
-            "build",
-            "--locked",
-            "--release",
-            "-p",
-            package,
-            "--target",
-            "wasm32-wasip2",
-        ])
-        .env("CARGO_TARGET_DIR", &target)
-        .status()
-        .expect("cargo runs");
-    assert!(status.success(), "{package} builds for wasm32-wasip2");
-    std::fs::read(target.join(format!("wasm32-wasip2/release/{library}.wasm")))
-        .expect("the component exists")
+    built::component(package, library, "").1.clone()
 }
 
 /// A tree of `files` TypeScript sources of `lines` lines each, half of them TSX, every tenth with
