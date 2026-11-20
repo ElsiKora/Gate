@@ -141,3 +141,7 @@ through the built git component and `gate check --push <base>..<head> --target-r
 refs/heads/feat/the-thing`: a two-parent merge of main into a pushed branch and a rebase plus force
 push each name only the branch's own new commit, never main's web edit `Update README.md`. Under
 the old `base..head` set both would name the web edit. Next: one lane round on T-055's own target.
+2026-11-20T09:59:23+00:00: round 5 at `e9dcc3e`, on T-055's own target directory: fmt, clippy, test (1078 passed,
+0 failed, over 94 test binaries), deny, build and every wasm build exit 0. The log compiles `gate`
+and `gate-plugin-git` from this checkout and lists the new tests by name. Next: the lead's review;
+rebase onto `main` once the first 0.3.0 batch is pushed.
