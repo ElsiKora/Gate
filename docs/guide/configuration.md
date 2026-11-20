@@ -525,8 +525,12 @@ The workflow meets the standard of the `ci` plugin's `ci/recommended` preset: to
 `permissions: {}` and each job its own, a timeout on every job (15 minutes for `changes`, 5 for the
 aggregate job), named steps, the aggregate job named by its id, which is the check name branch
 protection requires. What it cannot decide for you the preset reports: an unnamed step of `setup`,
-`steps` or `after`, a pin without its release, a job that writes `contents`, `deployments`,
-`id-token` or `packages` without an `environment`.
+`steps` or `after` (`ci/names#step`); a pin without its release (`ci/actions-pinned#version-comment`);
+a job that writes `contents`, `deployments`, `id-token` or `packages` without an `environment`
+(`ci/environment`); a `workflow` file whose name is not the kebab case of `name`, such as
+`.github/workflows/ci.yml` with the default name `Gate` (`ci/names#file`); a job id not in kebab case,
+such as `lint_rust` (`ci/names#job-id`); a moving `runs-on` label, such as `ubuntu-latest`
+(`ci/runner-pinned`).
 
 The generated first job, `changes`, runs `gate sync --check` and lists the projects the change touches;
 a job that lists `projects` is skipped when none of them changed. Generated `check` commands get

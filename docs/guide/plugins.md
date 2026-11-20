@@ -339,11 +339,14 @@ page are under [plugins/cdk/rules](../../plugins/cdk/rules/README.md).
 
 ### `ci`
 
-GitHub Actions workflows, generated or written by hand, held to one standard. Every repository takes
-it the same way, through the preset `ci/recommended`, which turns every rule on at `error`; a workflow
-that must differ says so with an exception and its reason in `gate.exceptions.toml`. The workflow
-`gate sync` writes from `[ci.github]` meets the standard, so the preset reports only workflows written
-by hand.
+GitHub Actions workflows, generated or written by hand, held to one standard: every rule on at
+`error`, the same in every repository; a workflow that must differ says so with an exception and its
+reason in `gate.exceptions.toml`. The workflow `gate sync` writes from `[ci.github]` meets the
+standard wherever it decides; what `[ci.github]` decides for it, a step's name, a pin's release, the
+workflow's file name, a job id, the runner, the preset still reports
+([configuration.md](configuration.md#cigithub) lists each).
+
+A repository whose root is a project takes the standard through the preset `ci/recommended`:
 
 ```toml
 [project]
@@ -352,6 +355,22 @@ extends = ["ci/recommended"]
 
 [plugins]
 ci = { source = "ElsiKora/Gate:ci@0.3.0" }
+```
+
+Every `ci` rule is repository-scope, configured in the root file only. A monorepo root has no
+`[project]` and so extends no preset ([configuration.md](configuration.md#project)); it turns every
+rule on at `error`, which is what the preset sets, with the family in its `[rules]`:
+
+```toml
+# the root gate.toml of a monorepo
+[workspace]
+projects = ["apps/*"]
+
+[plugins]
+ci = { source = "ElsiKora/Gate:ci@0.3.0" }
+
+[rules]
+"ci/*" = "error"
 ```
 
 | Rule | Checks |

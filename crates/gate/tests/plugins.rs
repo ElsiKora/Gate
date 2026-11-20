@@ -5822,3 +5822,73 @@ fn the_generated_workflow_meets_the_ci_standard() {
         "{reported}"
     );
 }
+
+#[test]
+fn a_monorepo_root_takes_the_ci_standard_through_its_rules() {
+    let ci = format!("ci={}", ci_component().0.display());
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            r#"[gate]
+version = "{VERSION}"
+
+[workspace]
+projects = ["apps/*"]
+
+[plugins.ci]
+source = "acme/rules:ci@0.1.0"
+
+[rules]
+"ci/*" = "error"
+
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+checkout = "actions/checkout@{PIN} # v4.2.2"
+aggregate = "gate-passed"
+
+[ci.github.jobs.lint]
+name = "Lint"
+timeout-minutes = 20
+run = ["check --push"]
+"#
+        ),
+    );
+    repo.write("apps/server/gate.toml", "[project]\nname = \"server\"\n");
+    repo.write("apps/server/index.ts", "export const one = 1;\n");
+    repo.commit("configure");
+    let output = repo.gate(&["sync", "--plugin", &ci]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("sync");
+
+    let output = repo.gate(&["check", "--plugin", &ci]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+
+    // The wildcard turned the rules on: a workflow written by hand is reported.
+    repo.write(
+        ".github/workflows/other.yml",
+        "name: Other\non: push\njobs:\n  a:\n    name: A\n    runs-on: ubuntu-24.04\n    steps:\n      - name: Make\n        run: make\n",
+    );
+    repo.commit("a workflow by hand");
+    let output = repo.gate(&["check", "--plugin", &ci]);
+    let reported = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{reported}{}",
+        text(&output.stderr)
+    );
+    for rule in ["ci/permissions", "ci/concurrency", "ci/timeout"] {
+        assert!(reported.contains(&format!("[{rule}")), "{rule}: {reported}");
+    }
+    assert!(
+        !reported.contains(".github/workflows/gate.yml"),
+        "{reported}"
+    );
+}
