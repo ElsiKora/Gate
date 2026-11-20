@@ -16,6 +16,14 @@ Each shared plugin keeps its own changelog next to its code.
   workflow file and ref: a newer pull-request run cancels the older one still in progress, and a
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run
   `gate sync`.
+- **gate:** `gate cache prune --older-than <days>` and `--max-size <size>` (`512M`, `2G`) trim the
+  results and git answers by their last use, the least recently used first over the size; a
+  pinned download is never removed, and when the pinned downloads alone exceed the size, prune
+  says so. Without a bound, prune also removes the results of a plugin no lock pins and the stored
+  file contents no stored answer names (after a day, as a run stores a content before its answer);
+  each listed entry says why it goes. An answer file prune cannot read stops it before anything is
+  removed. The result cache moves to `results/<plugin sha256>/` (format 3), and prune removes the
+  format-2 entries.
 
 ### Bug Fixes
 
@@ -27,6 +35,9 @@ Each shared plugin keeps its own changelog next to its code.
   `--speed-time` and `--max-time` from one 15-minute deadline; wget's `--timeout`, one try), where
   curl had no read bound and wget retried 20 times. Run `gate init` and commit `bin/gate` to take
   the new launcher; `gate doctor` says when it differs.
+- **host:** a stored `read-at` answer whose file content neither the cache nor git holds is asked
+  of git again, as if it were not stored; where git cannot read it either, the error says to run
+  `git fetch` and no longer suggests `gate cache prune`, which did not help.
 
 ### Performance
 

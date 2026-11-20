@@ -16,7 +16,8 @@
 //! only the tree, so the same checks prove it.
 //!
 //! An entry that cannot be read or does not parse is a miss, never an error: the call runs and
-//! stores its result again.
+//! stores its result again. Entries sit under their plugin's sha256 (`results/<plugin>/`), so
+//! `gate cache prune` removes them with the plugin; an entry read counts as used now.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -30,7 +31,7 @@ use super::{Cache, Sha256Sum};
 use crate::error::{Error, Result};
 
 /// Raised when an entry written before would be read differently.
-const FORMAT: u32 = 2;
+const FORMAT: u32 = 3;
 
 /// A stored call: its findings, its read set, and the digests that check the read set again.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -179,17 +180,20 @@ pub(crate) fn generate_key(
 }
 
 /// The stored result under `key`; `None` when there is none or it cannot be read back.
-pub(crate) fn load(cache: &Cache, key: &Sha256Sum) -> Option<Stored> {
-    let bytes = std::fs::read(cache.result(key)).ok()?;
+pub(crate) fn load(cache: &Cache, plugin: &str, key: &Sha256Sum) -> Option<Stored> {
+    let file = cache.result(plugin, key);
+    let bytes = std::fs::read(&file).ok()?;
     let value: Value = serde_json::from_slice(&bytes).ok()?;
-    decode(&value)
+    let stored = decode(&value)?;
+    super::touch(&file);
+    Some(stored)
 }
 
 /// Stores `stored` under `key`.
 ///
 /// # Errors
 /// Fails when the cache cannot be written.
-pub(crate) fn store(cache: &Cache, key: &Sha256Sum, stored: &Stored) -> Result<()> {
+pub(crate) fn store(cache: &Cache, plugin: &str, key: &Sha256Sum, stored: &Stored) -> Result<()> {
     let mut temporary = cache.temporary()?;
     let bytes = encode(stored).to_string();
     temporary
@@ -201,7 +205,7 @@ pub(crate) fn store(cache: &Cache, key: &Sha256Sum, stored: &Stored) -> Result<(
                 temporary.path().display()
             ))
         })?;
-    cache.insert_result(temporary, key)?;
+    cache.insert_result(temporary, plugin, key)?;
     Ok(())
 }
 
