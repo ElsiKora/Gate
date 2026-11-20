@@ -267,7 +267,7 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
 
 ## Resume point
 
-2026-11-20T02:00:41+00:00:
+2026-11-20T03:56:28+00:00:
 - Design: the lead's redesign above (validation never narrowed; stored declarations keyed by
   entry format, interface and core version). The first design (`a6870b6`) was reviewed fix first
   and replaced.
@@ -297,6 +297,16 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
   - Review: ticket 281 queued on `f7d190e`, withdrawn before it started when T-056 merged.
   - Review, on `b2d4f5f`: ticket 284 stopped at clippy: `OnceLock` no longer imported in the
     tests after the rebase (main memoizes `component_with`), T-056's prune test over 100 lines with
-    the declarations case, and a tuple comparing `String` with `&str`; fixed in the next commit.
-- Next: the review round, which removes each reviewed piece in turn and runs its test, then the
-  gates on the pushed tip.
+    the declarations case, and a tuple comparing `String` with `&str`; fixed in `a3ba248`.
+  - Review, on `a3ba248`: ticket 294 (`one-gate` exit 0, 918 s). Each reviewed piece removed in
+    turn, its test exit 101: presets, the fallback filter, the name filter, the replace (an
+    integration test and a unit test), the schema miss, the stored read, the interface in the
+    key, declarations in prune, the touch on read. The plugin filter in `check_needs` removed
+    alone left `a_rule_need_follows_the_rule_filter` at exit 0: the rule filter below it (both are
+    main's) is enough on its own, so the piece is the pair. On `a3ba248`: fmt, clippy, the unit
+    tests and the seven new integration tests exit 0; `cargo test` 1066 passed, 0 failed, 7
+    ignored; deny and the release build exit 0.
+  - Review, on `a3ba248`: ticket 302 (`one-gate` exit 0). Both filters in `check_needs` removed
+    together: `a_rule_need_follows_the_rule_filter` exit 101, the run with `--rule 'hello/*'`
+    failing as configuration on the need of `git/no-ci-skip`, which it does not run.
+- Next: the lead's review and merge.
