@@ -6,7 +6,7 @@
 | Release | v0.3.0 (both plugins release with it) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | T-059 (both touch `plugins/ledger`): the code is built on T-059's tip `3d242d5` now, as T-052 was on T-048, and is rebased when T-059 merges |
+| Depends on | T-059 (both touch `plugins/ledger`): the code is built on T-059's tip `21d2d53` (T-059 rebased onto main at `e9e1434`), as T-052 was on T-048, and is rebased when T-059 merges |
 | Touches | `plugins/ledger` (every rule that reads a file, three option types, the rule pages), `plugins/agents` (the rules that read the rule files or the entry, the `agents-block` generator, their pages), tests, `docs/guide/plugins.md`, `CHANGELOG.md` |
 
 ## Goal
@@ -183,4 +183,8 @@ SDK tests per rule, plus one end-to-end run per plugin through the built compone
 required `field`, `catalog` and `parity`; the agents rules and the `agents-block` generator; native
 tests (`plugins/ledger/tests/rules/presence.rs` for an absent, partial and complete ledger) and
 end-to-end tests in `crates/gate/tests/plugins.rs`; the rule pages, the guide and the CHANGELOG.
-Next: the lane round on the pushed tip, then review.
+Round 263 (ticket 000000000263, on `2cb3001`) stopped at clippy: `too_many_lines` in
+`instruction-references` (105/100); fixed by moving the command pattern and the files read into
+functions of their own. Rebased onto T-059 at `21d2d53`; the `agents()` test helper now uses the
+memoized `component()` that main's T-060 brought. Next: the lane round on the pushed tip, then
+review.

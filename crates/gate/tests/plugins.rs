@@ -46,8 +46,7 @@ fn ledger() -> &'static (PathBuf, Vec<u8>) {
 
 /// The agents plugin's component.
 fn agents() -> &'static (PathBuf, Vec<u8>) {
-    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    WASM.get_or_init(|| component("gate-plugin-agents", "agents"))
+    component("gate-plugin-agents", "agents")
 }
 
 /// The runtime's probe component.
