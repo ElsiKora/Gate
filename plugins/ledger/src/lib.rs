@@ -1,7 +1,8 @@
 //! The `ledger` plugin: rules over a Markdown ledger of decisions, ADRs, plan, implementation,
-//! verification, follow-up and production blocker records, and over the owners and decisions the
-//! project's exceptions name, and the generators that write the counts of a decision index and the
-//! review progress of a roadmap into their managed blocks.
+//! verification, follow-up and production blocker records, over the owners and decisions the
+//! project's exceptions name and the decisions its rule entries name, and the generators that
+//! write the counts of a decision index and the review progress of a roadmap into their managed
+//! blocks.
 //!
 //! The shared paths, the parity plan and the status vocabularies are `[plugins.ledger] options`
 //! ([`Settings`]); each rule's own options are in its module. Every path is relative to the project
@@ -26,6 +27,7 @@ pub use self::rules::exceptions::{ExceptionDecisions, ExceptionOwners};
 pub use self::rules::manifest::Manifest;
 pub use self::rules::records::{RecordStatus, Records};
 pub use self::rules::reuses::Reuses;
+pub use self::rules::rule_decisions::RuleDecisions;
 pub use self::settings::{Parity, Settings};
 
 gate_sdk::plugin! {
@@ -42,6 +44,7 @@ gate_sdk::plugin! {
         RecordStatus,
         Records,
         Reuses,
+        RuleDecisions,
     ],
     generators: [DecisionCounts, ReviewProgress],
     presets: [],

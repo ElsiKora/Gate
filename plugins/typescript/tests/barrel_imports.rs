@@ -65,6 +65,7 @@ fn check_in(
         plugin_options: "{}".to_owned(),
         languages: languages.to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     };
     gate_sdk::check(&typescript::PLUGIN, &fixture, &request)
 }

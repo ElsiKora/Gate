@@ -10,6 +10,7 @@ mod manifest;
 mod record_status;
 mod records;
 mod reuses;
+mod rule_decisions;
 
 use std::collections::BTreeMap;
 
@@ -124,6 +125,7 @@ pub(crate) fn run(
         plugin_options: plugin_options.to_owned(),
         languages: "{}".to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     };
     gate_sdk::check(&ledger::PLUGIN, files, &request).map(|findings| {
         findings
@@ -159,6 +161,7 @@ pub(crate) fn keys(rule: &str, options: &str, plugin_options: &str, files: &File
         plugin_options: plugin_options.to_owned(),
         languages: "{}".to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     };
     gate_sdk::check(&ledger::PLUGIN, files, &request)
         .expect("the rule runs")

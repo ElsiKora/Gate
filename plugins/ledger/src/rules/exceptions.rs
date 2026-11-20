@@ -6,7 +6,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run, Tree};
 
 use crate::catalog::{At, Catalog, Findings};
-use crate::index::DecisionIndex;
+use crate::index::{DecisionIndex, Refusal, refusal};
 use crate::records::Ledger;
 use crate::settings::{Settings, check_path};
 use crate::text::LineIndex;
@@ -183,8 +183,8 @@ impl Rule for ExceptionDecisions {
                 continue;
             };
 
-            match index.as_ref().and_then(|index| index.get(decision)) {
-                None => findings.emit_keyed(
+            match refusal(index.as_ref(), decision) {
+                Some(Refusal::Unlisted) => findings.emit_keyed(
                     "",
                     at,
                     format!("{rule}/{decision}#unlisted"),
@@ -192,16 +192,15 @@ impl Rule for ExceptionDecisions {
                         "the exception for {rule} names the decision {decision}, which {index_path} does not list; name an accepted decision of the index"
                     ),
                 ),
-                Some(found) if found.status != "accepted" => findings.emit_keyed(
+                Some(Refusal::NotAccepted(status)) => findings.emit_keyed(
                     "",
                     at,
                     format!("{rule}/{decision}#not-accepted"),
                     format!(
-                        "the exception for {rule} names the decision {decision}, which is `{}`; an exception needs an accepted decision",
-                        found.status
+                        "the exception for {rule} names the decision {decision}, which is `{status}`; an exception needs an accepted decision"
                     ),
                 ),
-                Some(_) => {}
+                None => {}
             }
         }
 

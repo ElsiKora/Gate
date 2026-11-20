@@ -108,6 +108,7 @@ pub fn run_on(
             plugin_options: or_empty(request.plugin_options),
             languages: or_empty(request.languages),
             norms: request.norms.clone(),
+            rule_decisions: Vec::new(),
         },
     )
 }

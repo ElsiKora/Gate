@@ -113,6 +113,11 @@ The repository turns it on:
 - Large data goes in an `options-file` on the repository's side; the rule sees the same type.
 - An option that is valid by the schema but unusable (a regular expression that does not compile) is
   an `Err(Error::config(..))` with a message that names the option and what to do.
+- A rule never reads `gate.toml`. What it may need of the configuration beyond its options, the core
+  hands to every call: `run.norms()`, every norm the configuration maps, and
+  `run.rule_decisions()`, every decision the rule entries of the project's own `gate.toml` name
+  (`key` as written, `decision`, and `at`, the entry's line relative to the project root; the root
+  file's in the root project's call).
 
 ## 3. Scope
 

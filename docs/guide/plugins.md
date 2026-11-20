@@ -210,6 +210,7 @@ ledger = { source = "ElsiKora/Gate:ledger@0.2.0", options = { decisions = "ledge
 | `ledger/reuses` | every open implementation record names the shared mechanisms it reuses |
 | `ledger/exception-owners` | the owner an exception names is an open implementation record |
 | `ledger/exception-decisions` | the decision an exception names is an accepted decision of the index; whether every exception needs one is `[decision-policy] require-decision` |
+| `ledger/rule-decisions` | the decision a rule entry of the project's `gate.toml` names is an accepted decision of the index; the core hands the rule the decisions, so the plugin never reads `gate.toml` |
 
 ### `nestjs`
 

@@ -311,7 +311,10 @@ configuration, for rule entries when it loads the plugins, since presets come fr
 the policy, or with `require-decision = false`, nothing is checked and `decision` is accepted anyway.
 
 Whether a decision exists is a plugin's check: the `ledger` plugin's `ledger/exception-decisions` rule
-reports an exception's decision that its decision index does not list as accepted.
+reports an exception's decision that its decision index does not list as accepted, and
+`ledger/rule-decisions` a rule entry's. The core gives each plugin call the decisions the rule
+entries of its project's own `gate.toml` name (the root file's in the root project's call), so the
+plugin never reads `gate.toml` itself.
 
 ## Baselines
 

@@ -99,6 +99,11 @@ Each shared plugin keeps its own changelog next to its code.
   aspect, else of the rule; a rule no preset names needs no decision at any level. `off` is below
   every level. The check runs when the plugins load and fails with exit 2. `[exception-policy]` is
   now an unknown table: rename it.
+- **sdk:** the plugin interface's `check-request` gains `rule-decisions`: each decision a rule entry
+  of the scope's own `gate.toml` names, with the entry's key as written and its line (a project's
+  file in its project's call, the root file in the root project's call). It is part of the
+  `gate:plugin@0.3.0` interface, against which every plugin is rebuilt; a rule reads it with
+  `run.rule_decisions()`.
 
 ### Features
 
@@ -158,6 +163,9 @@ Each shared plugin keeps its own changelog next to its code.
   Node setup and names. See `plugins/ci/CHANGELOG.md`.
 - **config:** a rule entry's table form takes `decision`, the id of the decision record that accepted
   its levels, and a family wildcard takes `decision` beside its level.
+- **plugin-ledger:** `ledger/rule-decisions` reports a decision a rule entry names that the decision
+  index does not list as accepted, as `ledger/exception-decisions` does for exceptions. It reads the
+  decisions the core hands it, never `gate.toml`.
 
 ### Bug Fixes
 

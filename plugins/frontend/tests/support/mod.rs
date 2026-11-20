@@ -76,6 +76,7 @@ pub fn run_raw(
             plugin_options: plugin_options.to_owned(),
             languages: "{}".to_owned(),
             norms: Vec::new(),
+            rule_decisions: Vec::new(),
         },
     )
 }

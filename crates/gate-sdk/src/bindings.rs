@@ -170,6 +170,15 @@ pub fn check<S: CallState>(
         plugin_options: request.plugin_options,
         languages: request.languages,
         norms: request.norms,
+        rule_decisions: request
+            .rule_decisions
+            .into_iter()
+            .map(|decision| plugin::RuleDecision {
+                key: decision.key,
+                decision: decision.decision,
+                at: file_location(decision.at),
+            })
+            .collect(),
     };
     plugin::check(spec, &ComponentHost, &request)
         .map(|findings| findings.into_iter().map(finding).collect())
@@ -246,6 +255,25 @@ fn finding(finding: crate::Finding) -> wit::Finding {
         target: finding.target,
         help: finding.help,
         key: finding.key,
+    }
+}
+
+fn file_location(location: wit::FileLocation) -> FileLocation {
+    FileLocation {
+        path: location.path,
+        span: location.span.map(
+            |wit::Span {
+                 line,
+                 column,
+                 end_line,
+                 end_column,
+             }| Span {
+                line,
+                column,
+                end_line,
+                end_column,
+            },
+        ),
     }
 }
 

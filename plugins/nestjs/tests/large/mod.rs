@@ -109,6 +109,7 @@ pub fn check(host: &Counted, names: &[&str]) -> gate_sdk::Result<Vec<Finding>> {
         plugin_options: "{}".to_owned(),
         languages: "{}".to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     };
     gate_sdk::check(&nestjs::PLUGIN, host, &request)
 }

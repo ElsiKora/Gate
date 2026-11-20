@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::git::Git;
 use crate::host::Host;
-use crate::report::{Finding, Report};
+use crate::report::{FileLocation, Finding, Report};
 use crate::rule::{
     Call, CallState, Enter, Entered, Generate, GeneratedFile, Generator, GeneratorInfo, Rule,
     RuleInfo, Run,
@@ -169,6 +169,18 @@ pub struct RuleRun {
     pub exceptions: Vec<String>,
 }
 
+/// A decision a rule entry of the scope's own `gate.toml` names, for rules that check decisions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuleDecision {
+    /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family.
+    pub key: String,
+    /// The decision's id, trimmed.
+    pub decision: String,
+    /// Where the entry's value is written. The core fills it with the repository path; the rule
+    /// receives it relative to its scope's root, as it addresses every path.
+    pub at: FileLocation,
+}
+
 /// One `check` call: every enabled rule of the plugin for one project.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CheckRequest {
@@ -180,6 +192,9 @@ pub struct CheckRequest {
     /// JSON: the `[languages.<id>]` settings; empty means `{}`.
     pub languages: String,
     pub norms: Vec<String>,
+    /// The decisions the rule entries of the scope's own `gate.toml` name: a project's file in its
+    /// project's call, the root file in the root project's call.
+    pub rule_decisions: Vec<RuleDecision>,
 }
 
 /// What `generate` answers.
@@ -242,6 +257,7 @@ pub fn check<S: CallState>(
         plugin_options: &plugin_options,
         languages: &languages,
         norms: &request.norms,
+        rule_decisions: &request.rule_decisions,
     };
     let owner = S::own(&call);
     let state = Entered::<S>(S::state(&owner));

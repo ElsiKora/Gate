@@ -106,6 +106,27 @@ fn unquote(cell: &str) -> String {
         .to_owned()
 }
 
+/// Why the decision a relaxation names does not justify it.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Refusal<'i> {
+    /// The index does not list it, or there is no index.
+    Unlisted,
+    /// The index lists it with this status, which is not `accepted`.
+    NotAccepted(&'i str),
+}
+
+/// Why the decision `id` does not justify a relaxation, by `index` (`None` when the index is not
+/// tracked); `None` when the index lists it as accepted. `ledger/exception-decisions` and
+/// `ledger/rule-decisions` judge alike through it.
+#[must_use]
+pub fn refusal<'i>(index: Option<&'i DecisionIndex>, id: &str) -> Option<Refusal<'i>> {
+    match index.and_then(|index| index.get(id)) {
+        None => Some(Refusal::Unlisted),
+        Some(row) if row.status != "accepted" => Some(Refusal::NotAccepted(&row.status)),
+        Some(_) => None,
+    }
+}
+
 /// The decisions of the index by identifier, read by [`Table`]; a later row of an identifier
 /// replaces an earlier one, as `ledger/decisions` reads it (and reports the repeat).
 #[derive(Debug)]

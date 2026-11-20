@@ -118,6 +118,7 @@ fn call(project: &str, times: usize) -> Vec<String> {
         plugin_options: "{}".to_owned(),
         languages: "{}".to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     };
     gate_sdk::check(&PLUGIN, &Empty, &request)
         .expect("the call runs")

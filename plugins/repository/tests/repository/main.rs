@@ -38,6 +38,7 @@ impl Fixture {
             plugin_options: String::new(),
             languages: String::new(),
             norms: Vec::new(),
+            rule_decisions: Vec::new(),
         };
         gate_sdk::check(&repository::PLUGIN, self, &request)
     }

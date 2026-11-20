@@ -141,6 +141,7 @@ pub(crate) fn run(
         plugin_options: plugin_options.to_owned(),
         languages: "{}".to_owned(),
         norms: Vec::new(),
+        rule_decisions: Vec::new(),
     };
     gate_sdk::check(&cdk::PLUGIN, files, &request)
 }
