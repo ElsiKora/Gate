@@ -185,10 +185,12 @@ removes each piece in turn and runs the test, and the Resume point records the e
   pinned download left out by `--rule` compiles nothing (piece: the read of stored declarations).
 - Unit tests in `plugins/declarations.rs`: the entry name is `key_for(format, interface,
   version)` and changes with each of the three; a stored entry is replaced when written again.
-- With T-056 merged first, `declarations/` is in its derived class. In
-  `prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download`, the
-  declarations of an unpinned plugin go without a bound, and a pinned plugin's entry last used 40
-  days ago goes under `--older-than 30` (piece: the declarations loop in `Cache::plan`). The unit
+- With T-056 merged first, `declarations/` is in its derived class.
+  `prune_treats_declarations_as_derived_and_bounds_a_pinned_plugin_s_by_their_last_use`: without
+  a bound the declarations of an unpinned plugin go, and a stray entry; under `--older-than 30` a
+  pinned plugin's entry last used 40 days ago goes and one used now stays (piece: the
+  declarations loop in `Cache::plan`). It is a test of its own: T-056's prune test with the case
+  added went over clippy's 100 lines (ticket 284). The unit
   test `a_read_marks_the_entry_used` reads an entry last used 40 days ago and finds it used now
   (piece: `cache::touch` in `declarations::read`).
 
@@ -293,5 +295,8 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
     binary sha256 `3eb84b41b421a3980363a9a4dd05b0a2321bea6a9b99c55479fe20db32922425`).
   - Measure: ticket 267 (before/after, in Done when).
   - Review: ticket 281 queued on `f7d190e`, withdrawn before it started when T-056 merged.
+  - Review, on `b2d4f5f`: ticket 284 stopped at clippy: `OnceLock` no longer imported in the
+    tests after the rebase (main memoizes `component_with`), T-056's prune test over 100 lines with
+    the declarations case, and a tuple comparing `String` with `&str`; fixed in the next commit.
 - Next: the review round, which removes each reviewed piece in turn and runs its test, then the
   gates on the pushed tip.

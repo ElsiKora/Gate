@@ -4434,8 +4434,7 @@ fn after_gate_sync_a_check_compiles_only_the_plugins_it_runs() {
 
 /// The probe's `writer` build: plugin `writer`, with the `write` generator and no rule.
 fn writer() -> &'static (PathBuf, Vec<u8>) {
-    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    WASM.get_or_init(|| component_with("gate-runtime-probe", "gate_runtime_probe", "writer"))
+    component_with("gate-runtime-probe", "gate_runtime_probe", "writer")
 }
 
 /// A repository whose `probe/git` asks `sync-state` at `HEAD~1`, a commit in a configuration
@@ -4547,9 +4546,9 @@ fn a_sync_state_fallback_checks_rule_needs_with_the_run_s_rule_filter() {
         &repo,
         &["--rule", "probe/*", "--plugin", &writer, "--plugin", &git],
     );
+    assert_eq!(code, Some(1), "{messages:?}");
     assert_eq!(
-        (code, messages.as_slice()),
-        (Some(1), &FALLBACK_ANSWERS[..]),
+        messages, FALLBACK_ANSWERS,
         "--rule leaves git/no-ci-skip out, at the start of the run and when the answer at HEAD~1 \
          checks the run's configuration again"
     );
