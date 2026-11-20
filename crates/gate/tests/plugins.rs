@@ -3183,8 +3183,7 @@ fn a_nestjs_option_its_rule_refuses_is_a_configuration_error() {
 
 /// The frontend plugin's component, built once.
 fn frontend() -> &'static (PathBuf, Vec<u8>) {
-    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    WASM.get_or_init(|| component("gate-plugin-frontend", "frontend"))
+    component("gate-plugin-frontend", "frontend")
 }
 
 /// `gate check` with the built frontend component and its `recommended` preset over `files`, the
