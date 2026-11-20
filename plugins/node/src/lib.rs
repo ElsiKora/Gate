@@ -32,12 +32,13 @@ use self::node_version::NodeVersion;
 use self::package::Package;
 use self::package_manager::PackageManager;
 use self::scripts::Scripts;
+use self::settings::Settings;
 use self::tsconfig::Tsconfig;
 
 gate_sdk::plugin! {
     name: "node",
     version: env!("CARGO_PKG_VERSION"),
-    options: crate::settings::Settings,
+    options: Settings,
     rules: [
         PackageManager,
         NodeVersion,

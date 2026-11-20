@@ -80,11 +80,12 @@ impl Settings {
     /// no job or a path that is not a plain relative directory; the error names the key.
     pub fn read<O>(run: &Run<'_, O>) -> Result<Self> {
         let settings: Self = run.plugin_options().map_err(|error| {
-            error.with_message(format!(
+            let message = format!(
                 "[plugins.node] options: {}; write options = {{ kind = \"<kind>\" }} with one of \
                  service, frontend, infrastructure, library, monorepo-root",
                 error.message()
-            ))
+            );
+            error.with_message(message)
         })?;
         for (index, separate) in settings.separate.iter().enumerate() {
             if !plain_directory(&separate.path) {
