@@ -4886,7 +4886,8 @@ fn the_docker_and_repository_rules_report_exactly_the_planted_files_and_pass_wit
     // The plants: a private key block in a fixture, and an image of 2 MiB.
     let body: String = (0..20)
         .map(|line| format!("{}\n", "QUJD".repeat(16 + line % 2)))
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
     let kind = "PRIVATE";
     repo.write(
         "apps/api/test/fixture.pem",

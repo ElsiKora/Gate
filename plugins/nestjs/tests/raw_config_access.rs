@@ -178,7 +178,10 @@ const READER: &str = "import { ConfigService } from \"@scope/config\";\n\
     export const factory = (config: ConfigService) => config.get(\"API_MODE\");\n";
 
 fn example(keys: &[&str]) -> String {
-    keys.iter().map(|key| format!("{key}={VALUE}\n")).collect()
+    keys.iter()
+        .map(|key| format!("{key}={VALUE}\n"))
+        .collect::<Vec<_>>()
+        .concat()
 }
 
 const ALL: [&str; 6] = [
