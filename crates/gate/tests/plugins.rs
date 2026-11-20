@@ -1650,6 +1650,107 @@ fn a_rule_a_preset_enables_with_its_required_option_can_be_turned_off() {
     assert_eq!(messages, Vec::<String>::new());
 }
 
+/// A probe repository whose project `apps/one` extends `extends` and sets `rules` in its own file.
+fn project_extends(extends: &str, rules: &str) -> Repo {
+    let repo = probe_repo("");
+    repo.write(
+        "apps/one/gate.toml",
+        &format!("[project]\nname = \"one\"\nextends = [{extends}]\n\n[rules]\n{rules}\n"),
+    );
+    repo.commit("the project extends a preset");
+    repo
+}
+
+/// `gate check` with the built probe as text: its exit code and what it printed.
+fn gate_probe(repo: &Repo) -> (Option<i32>, String) {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    (
+        output.status.code(),
+        format!("{}{}", text(&output.stdout), text(&output.stderr)),
+    )
+}
+
+#[test]
+fn options_a_preset_gives_that_break_the_schema_are_the_plugins_error() {
+    // probe/needs-broken gives probe/needs a number where its pattern is a string.
+    let (code, said) = gate_probe(&project_extends(
+        "\"probe/needs-broken\"",
+        r#""probe/needs" = "warning""#,
+    ));
+    assert_eq!(code, Some(2), "{said}");
+    assert!(
+        said.contains("environment error")
+            && said.contains(
+                "[project] extends: \"probe/needs\" options the preset probe/needs-broken gives:"
+            )
+            && said.contains("the plugin is broken, report it to its authors")
+            && !said.contains("[rules]: \"probe/needs\""),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_level_in_rules_keeps_the_options_a_preset_gives_the_rule() {
+    // probe/needs requires the option pattern; the preset probe/needs gives it.
+    let profile = |rules: &str| {
+        let repo = probe_repo(rules);
+        let toml = std::fs::read_to_string(repo.path().join("gate.toml"))
+            .expect("gate.toml")
+            .replace(
+                "projects = [\"apps/one\"]\n",
+                "projects = [\"apps/one\"]\nextends = [\"probe/needs\"]\n",
+            );
+        repo.write("gate.toml", &toml);
+        repo.commit("the profile extends probe/needs");
+        repo
+    };
+    let project = |rules: &str| project_extends("\"probe/needs\"", rules);
+
+    // A level alone keeps the preset's options, in a profile and in a project's own file.
+    for repo in [
+        profile(r#""probe/needs" = "warning""#),
+        project(r#""probe/needs" = "warning""#),
+    ] {
+        let (code, messages) = probe_check(&repo, &[]);
+        assert_eq!(code, Some(0), "{messages:?}");
+        assert_eq!(messages, ["needs from the preset"]);
+    }
+
+    // Options of the entry's own replace the preset's.
+    let (code, messages) = probe_check(
+        &project(r#""probe/needs" = { level = "warning", options = { pattern = "of its own" } }"#),
+        &[],
+    );
+    assert_eq!(code, Some(0), "{messages:?}");
+    assert_eq!(messages, ["needs of its own"]);
+
+    // The entry's own options are checked even when the preset's would do.
+    let (code, said) = gate_probe(&project(
+        r#""probe/needs" = { level = "warning", options = {} }"#,
+    ));
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("[rules]: \"probe/needs\" options:"), "{said}");
+
+    // A later preset that sets the rule replaces the earlier one's settings, options included.
+    let (code, said) = gate_probe(&project_extends(
+        "\"probe/needs\", \"probe/needs-level\"",
+        r#""probe/needs" = "warning""#,
+    ));
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("[rules]: \"probe/needs\" options:"), "{said}");
+
+    // Without a preset that gives them, a level alone still lacks the required option.
+    let repo = probe_repo(r#""probe/needs" = "warning""#);
+    repo.commit("no preset");
+    let (code, said) = gate_probe(&repo);
+    assert_eq!(code, Some(2), "{said}");
+    assert!(
+        said.contains("[[profiles]] rules: \"probe/needs\" options:") && said.contains("pattern"),
+        "{said}"
+    );
+}
+
 /// `gate check` with the built probe in each report format: its exit code and output, by format.
 fn probe_check_formats(repo: &Repo) -> Vec<(&'static str, Option<i32>, String)> {
     let plugin = format!("probe={}", probe().0.display());
@@ -6760,28 +6861,29 @@ fn a_monorepo_root_extends_git_recommended_and_its_own_rules_win() {
     let message = outside.path().join("COMMIT_EDITMSG");
     std::fs::write(&message, "ci(a): x\n").expect("message");
     let message = message.display().to_string();
-    let check = |rules: &str| {
-        git_workspace(&git, "\"git/recommended\"", rules);
-        let output = git.repo.gate(&[
-            "check",
-            "--plugin",
-            &git.plugin,
-            "--hook",
-            "--commit-message",
-            &message,
-        ]);
+    // A hook run that judges the branch, and one that judges only the message being written.
+    let run = |arguments: &[&str]| {
+        let mut all = vec!["check", "--plugin", git.plugin.as_str(), "--hook"];
+        all.extend_from_slice(arguments);
+        let output = git.repo.gate(&all);
         (
             output.status.code(),
             format!("{}{}", text(&output.stdout), text(&output.stderr)),
         )
     };
+    let branch = || run(&["--rule", "git/branch-name"]);
+    let written = || run(&["--commit-message", &message]);
     let at = |level: &str, aspect: &str| format!("{level}[git/commit-message#{aspect}]");
 
     // The preset turns on both repository-scope rules at the root, with its aspect levels.
-    let (code, said) = check("");
+    git_workspace(&git, "\"git/recommended\"", "");
+    let (code, said) = branch();
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("error[git/branch-name"), "{said}");
+    let (code, said) = written();
     assert_eq!(code, Some(1), "{said}");
     assert!(
-        said.contains("error[git/branch-name")
+        !said.contains("[git/branch-name")
             && said.contains(&at("warning", "header-min-length"))
             && said.contains(&at("error", "subject-min-length")),
         "{said}"
@@ -6798,18 +6900,28 @@ fn a_monorepo_root_extends_git_recommended_and_its_own_rules_win() {
     );
 
     // The root's [rules] wins: a level of the whole rule applies to every aspect, the preset's too.
-    let (code, said) = check("\"git/branch-name\" = \"off\"\n\"git/commit-message\" = \"note\"");
+    git_workspace(
+        &git,
+        "\"git/recommended\"",
+        "\"git/branch-name\" = \"warning\"\n\"git/commit-message\" = \"note\"",
+    );
+    let (code, said) = branch();
+    assert_eq!(code, Some(0), "{said}");
+    assert!(said.contains("warning[git/branch-name"), "{said}");
+    let (code, said) = written();
     assert_eq!(code, Some(0), "{said}");
     assert!(
-        !said.contains("[git/branch-name")
-            && said.contains(&at("note", "header-min-length"))
+        said.contains(&at("note", "header-min-length"))
             && said.contains(&at("note", "subject-min-length")),
         "{said}"
     );
     // A level the root gives an aspect wins over both.
-    let (code, said) = check(
-        "\"git/branch-name\" = \"off\"\n\"git/commit-message\" = { level = \"note\", levels = { header-min-length = \"error\" } }",
+    git_workspace(
+        &git,
+        "\"git/recommended\"",
+        "\"git/commit-message\" = { level = \"note\", levels = { header-min-length = \"error\" } }",
     );
+    let (code, said) = written();
     assert_eq!(code, Some(1), "{said}");
     assert!(
         said.contains(&at("error", "header-min-length"))

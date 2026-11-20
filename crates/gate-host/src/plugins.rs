@@ -36,7 +36,7 @@ use crate::lock::{Lock, Wanted};
 use crate::projects::Project;
 use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
-use crate::workspace::{RuleDeclaration, RuleScope, Workspace};
+use crate::workspace::{PresetOptions, RuleDeclaration, RuleScope, Workspace};
 
 mod declarations;
 
@@ -641,7 +641,22 @@ impl Loaded {
             },
             &JsonSchemaValidator,
         )?;
-        workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
+        // The options the scope's presets give a rule, which the run uses when `[rules]` gives none.
+        let preset_options =
+            |settings: &Settings, rule: &RuleId| -> Result<Option<PresetOptions>> {
+                let Some((name, declared)) = self.declarations.get_key_value(rule.plugin()) else {
+                    return Ok(None);
+                };
+                Ok(presets(&declared.info, name, settings)?
+                    .remove(rule.rule())
+                    .and_then(|preset| {
+                        preset.options.map(|options| PresetOptions {
+                            options,
+                            preset: preset.extended,
+                        })
+                    }))
+            };
+        workspace.validate_except(&declaration, &preset_options, &JsonSchemaValidator, skipped)?;
         self.check_presets(workspace)?;
         self.check_needs(workspace, filter)?;
         self.check_decisions(workspace)?;
@@ -1724,13 +1739,15 @@ fn preset_turns_on(info: &PluginInfo, preset: &str, scope: Scope) -> bool {
 }
 
 /// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct PresetRule {
     /// The preset that set the rule, `<plugin>/<preset>`.
     preset: String,
     level: Option<Setting>,
     levels: BTreeMap<String, Setting>,
     options: Option<Value>,
+    /// The `extends` entry of the preset that set the rule.
+    extended: Sourced<PluginItem>,
 }
 
 /// How strict a level is: `off` below `note` below `warning` below `error`.
@@ -1911,6 +1928,7 @@ fn presets(
                     level,
                     levels,
                     options: value.get("options").cloned(),
+                    extended: item.clone(),
                 },
             );
         }

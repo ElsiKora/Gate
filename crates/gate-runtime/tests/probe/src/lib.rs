@@ -765,6 +765,10 @@ gate_sdk::plugin! {
             rules: r#"{"needs": {"level": "error"}}"#,
         },
         gate_sdk::Preset {
+            name: "needs-broken",
+            rules: r#"{"needs": {"level": "error", "options": {"pattern": 7}}}"#,
+        },
+        gate_sdk::Preset {
             name: "quiet",
             rules: r#"{"aspects": {"levels": {"quiet": "warning"}}}"#,
         },
