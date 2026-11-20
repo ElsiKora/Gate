@@ -164,4 +164,11 @@ Each test fails before its change. They use synthetic plugins and trees.
 - 2026-11-20T17:59:17+00:00: rebased onto `main` at `7f62554b` (T-073, T-074) without conflict; the
   scope-less header of the CHANGELOG commit is now `docs(changelog): ...`, as the repository's own
   `commit-msg` hook requires. Not yet run in the lane on this tip.
-- Next: the round on this tip, then the consumer's cold `commit-msg` row, before and after.
+- 2026-11-20T20:10:55+00:00: ticket 368 on `f6720d4b`, target `T-057/target`: fmt, clippy, the twelve tests by
+  name, `cargo test --workspace --no-fail-fast` (1351 passed, 0 failed, 7 ignored), `cargo deny`
+  (advisories, bans, licenses, sources ok) and the release build exit 0; `done in 1140s with exit
+  code 0`. Its logs show `gate`, `gate-host`, `gate-runtime`, `gate-sdk`, `gate-plugin-git` and
+  `gate-runtime-probe` compiled from this worktree, none from another, and the twelve tests listed
+  by name.
+- Next: the lead checks the fix round, then the consumer's cold `commit-msg` row, before and
+  after.
