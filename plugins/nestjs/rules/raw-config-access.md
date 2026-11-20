@@ -1,6 +1,7 @@
 # `nestjs/raw-config-access`
 
-Only approved configuration boundaries reach a raw configuration service.
+Only approved configuration boundaries reach a raw configuration service or `process.env`, and the
+example environment file lists exactly the keys the code reads.
 
 ## What it checks and why
 
@@ -18,11 +19,37 @@ aliased specifiers resolve with the `[languages.typescript]` settings.
 
 A file is inside the boundary, and never reported, when its path equals one of `approved-files`, starts
 with one of `approved-prefixes`, or contains one of `approved-segments`. Declaration files are included;
-`[languages.typescript] skip-folders` are skipped. Reported at the file.
+`[languages.typescript] skip-folders` are skipped. Reported at the file, under `boundary`.
+
+The same files outside the boundary may not read `process.env`, the global (a local name `process` is
+not it): a member (`process.env.KEY`), an element (`process.env["KEY"]`), a destructuring
+(`const { KEY } = process.env`), an `in` test, or `process.env` itself. Reported at each read, under
+`process-env`.
+
+**Coverage.** A key is read when a getter of a raw configuration service (`getters`, called on a name
+or class property typed as one of the services, or on a service itself) or a read of `process.env`
+names it, in any file below the source root, inside the boundary or not. The key is named when it is
+a string literal, a template without substitutions, a `const` bound to one, or the variable of a
+`for ... of` loop over a literal array of strings, in the same file. The reads are compared with
+`example-file`, whose lines are `KEY=value`, `export KEY=value`, comments and blank lines:
+
+| Aspect | Reported when | At |
+| --- | --- | --- |
+| `undeclared` | a key the code reads has no line in `example-file` | the first read of each file that reads it |
+| `unread` | a line names a key nothing reads, and `external-keys` does not list it | the line |
+| `dynamic` | a read names its key some other way | the read |
+| `example-missing` | `example-file` is not tracked and the code reads a key | `example-file`, once |
+| `example-syntax` | a line of `example-file` is no assignment, comment or blank line | the line |
+
+No finding holds a value of `example-file`: the rule reads its keys only. The comparison is
+`gate_typescript::env`, the module every rule about environment coverage calls.
 
 A file that cannot be parsed is skipped; `typescript/parse` reports it.
 
-Scope: project. Language: `typescript`. Reads history: no. Aspects: none. Findings carry no target.
+Scope: project. Language: `typescript`. Reads history: no. Aspects: `boundary`, `process-env`,
+`undeclared`, `unread`, `dynamic`, `example-missing`, `example-syntax`. Targets: `<path>:<line>` for
+`process-env` and `dynamic`, `<path>:<key>` for `undeclared` and `unread`, the example's path for
+`example-missing`, `<example>:<line>` for `example-syntax`; a `boundary` finding has none.
 
 ## Options
 
@@ -32,11 +59,14 @@ Scope: project. Language: `typescript`. Reads history: no. Aspects: none. Findin
 | `approved-files` | list of paths | `[]` | Files of the configuration boundary. |
 | `approved-prefixes` | list of strings | `[]` | Path prefixes of the configuration boundary. |
 | `approved-segments` | list of strings | `[]` | Path fragments of the configuration boundary, matched anywhere. |
+| `example-file` | path | `".env.example"` | The example environment file. |
+| `getters` | list of strings | `["get", "getOrThrow"]` | The methods of a raw configuration service whose first argument is a key. |
+| `external-keys` | list of `{ key, reader }` | `[]` | Keys something other than the project's TypeScript reads (Node.js itself, a local script, the Dockerfile), each with what reads it; they count as read. |
 
 ```toml
 [rules."nestjs/raw-config-access"]
 level = "error"
-options = { raw-imports = [{ module = "@nestjs/config", names = ["ConfigService"] }], approved-prefixes = ["src/config/"] }
+options = { raw-imports = [{ module = "@nestjs/config", names = ["ConfigService"] }], approved-prefixes = ["src/config/"], external-keys = [{ key = "NODE_OPTIONS", reader = "Node.js" }] }
 ```
 
 Every path option is relative to the project root and written in its normalized form: no `./`, `.`
@@ -46,11 +76,15 @@ it is written with. Another form stops the run with an error that shows the norm
 ## Example finding
 
 ```text
-error nestjs/raw-config-access src/modules/user/user.service.ts
+error nestjs/raw-config-access#boundary src/modules/user/user.service.ts
   src/modules/user/user.service.ts imports a raw config service outside an approved config boundary
+error nestjs/raw-config-access#undeclared src/config/app.config.ts:12
+  API_PORT is read here but .env.example has no line for it
 ```
 
 ## How to fix it
 
 Read the value through the typed runtime configuration, or, when the file is part of the configuration
-boundary, move it there.
+boundary, move it there. Add a `KEY=` line with a placeholder value for each key the code reads, and
+remove the lines nothing reads; a key that only the runtime or a script reads goes in `external-keys`
+with what reads it. Name a key with a literal where the code computes it.

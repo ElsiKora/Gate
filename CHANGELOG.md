@@ -16,6 +16,19 @@ stay at 0.2.0. To upgrade, set `[gate] version = "0.2.1"`, pin `ElsiKora/Gate:gi
 `ElsiKora/Gate:nestjs@0.2.1` where you use them, run `gate lock`, then `gate sync` and `gate init` as
 the entries below say.
 
+### Breaking Changes
+
+- **plugin-nestjs:** `nestjs/raw-config-access` reports under aspects. Its finding of 0.2 is now
+  `boundary`; a file outside the boundary that reads `process.env` is `process-env`; and the keys the
+  raw configuration getters and `process.env` read are compared with the project's `.env.example`
+  (`undeclared`, `unread`, `dynamic`, `example-missing`, `example-syntax`; options `example-file`,
+  `getters`, `external-keys`). A baseline entry's fingerprint holds the aspect, so after the upgrade
+  check that `gate check` reports the same files under `boundary`, then run `gate baseline write`
+  once.
+- **plugin interface:** `gate:plugin@0.3.0` adds `tree.size`, the size of a tracked file without its
+  contents. A rule that asks only sizes is answered from the result cache (format 4) until a size
+  changes. Plugins built for 0.2.0 do not load; take their 0.3.0 releases.
+
 ### Features
 
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per

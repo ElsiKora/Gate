@@ -1,11 +1,15 @@
 //! `nestjs/raw-config-access`: feature code reads typed runtime configuration, never a raw
-//! configuration service.
+//! configuration service, and the example environment file lists exactly the keys the code reads.
 //!
 //! A `.ts` file below the source root outside the approved configuration boundary must not reach a
-//! raw configuration export: a named export of a module `raw-imports` lists. The rule follows names
-//! across the source files as the TypeScript checker does, without loading any package: imports and
-//! re-exports, `export *` edges, namespaces, `const` aliases, destructuring, `require`, `import(...)`
-//! types and `await import`.
+//! raw configuration export (`boundary`): a named export of a module `raw-imports` lists. The rule
+//! follows names across the source files as the TypeScript checker does, without loading any
+//! package: imports and re-exports, `export *` edges, namespaces, `const` aliases, destructuring,
+//! `require`, `import(...)` types and `await import`. Nor may it read `process.env`
+//! (`process-env`). The keys the getters of a raw service and `process.env` read are compared with
+//! `example-file` by [`gate_typescript::env`].
+
+mod reads;
 
 use crate::shared::paths::{self, Form};
 use std::cell::RefCell;
@@ -16,6 +20,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Rule, Run};
 use gate_typescript::binding::ImportBindings;
+use gate_typescript::env::{self, EnvRead, ExternalKey};
 use gate_typescript::owners::export_name;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
@@ -68,6 +73,24 @@ pub struct Options {
     /// Path fragments of the configuration boundary, matched anywhere in a path.
     #[serde(default)]
     pub approved_segments: Vec<String>,
+    /// The example environment file, relative to the project root.
+    #[serde(default = "example_file")]
+    pub example_file: String,
+    /// The methods of a raw configuration service whose first argument is a key.
+    #[serde(default = "getters")]
+    pub getters: Vec<String>,
+    /// Keys something other than the project's TypeScript reads (the runtime, a script, an image),
+    /// each with what reads it; they count as read.
+    #[serde(default)]
+    pub external_keys: Vec<ExternalKey>,
+}
+
+fn example_file() -> String {
+    env::EXAMPLE_FILE.to_owned()
+}
+
+fn getters() -> Vec<String> {
+    vec!["get".to_owned(), "getOrThrow".to_owned()]
 }
 
 impl Options {
@@ -94,6 +117,11 @@ impl Options {
             ));
         }
         paths::check_all("approved-files", &self.approved_files, Form::File)?;
+        paths::check_all(
+            "example-file",
+            std::slice::from_ref(&self.example_file),
+            Form::File,
+        )?;
         paths::check_all("approved-prefixes", &self.approved_prefixes, Form::Prefix)
     }
 }
@@ -105,6 +133,15 @@ impl Rule<crate::Nest> for RawConfigAccess {
     const TITLE: &'static str =
         "Only approved configuration boundaries reach a raw configuration service";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
+    const ASPECTS: &'static [&'static str] = &[
+        "boundary",
+        "process-env",
+        "undeclared",
+        "unread",
+        "dynamic",
+        "example-missing",
+        "example-syntax",
+    ];
 
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
@@ -131,23 +168,46 @@ impl Rule<crate::Nest> for RawConfigAccess {
             let options = run.options();
             let graph = Graph::new(typescript, &sources, &options.raw_imports);
             let mut reported = Vec::new();
+            let mut process_env = Vec::new();
+            let mut reads: Vec<EnvRead> = Vec::new();
 
             for (index, (path, _)) in sources.iter().enumerate() {
-                if !options.approves(path) && graph.reads_raw(index)? {
+                let outside = !options.approves(path);
+                if outside && graph.reads_raw(index)? {
                     reported.push(*path);
                 }
+                let found = graph.env_reads(index, &options.getters)?;
+                if outside {
+                    process_env.extend(found.process_env.into_iter().map(|read| (*path, read)));
+                }
+                reads.extend(found.reads);
             }
+            let example_path = options.example_file.clone();
+            let external = options.external_keys.clone();
 
             for path in reported {
                 run.report()
                     .finding(
-                        "",
+                        "boundary",
                         Location::file(path),
                         format!("{path} imports a raw config service outside an approved config boundary"),
                     )
                     .help("read the typed runtime configuration, or move the file into the configuration boundary")
                     .key("raw-import");
             }
+            for (path, read) in process_env {
+                run.report()
+                    .finding(
+                        "process-env",
+                        Location::span(path, read.span),
+                        format!("{path} reads `{}` outside an approved config boundary", read.text),
+                    )
+                    .target(format!("{path}:{}", read.span.line))
+                    .help("read the typed runtime configuration, or move the read into the configuration boundary")
+                    .key(read.text);
+            }
+            let example = run.tree().text(&example_path);
+            env::check_example(run.report(), &example_path, example.as_deref(), &reads, &external);
 
             Ok(())
         })
