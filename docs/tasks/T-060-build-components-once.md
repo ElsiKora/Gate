@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | proven; ready for review |
 | Release | v0.2.1 (tests only) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a session that did not write it |
@@ -41,9 +41,38 @@ and `languages/*/tests` build no component (no `cargo build` in them).
 
 ## Proof
 
-Not run yet.
+Lane ticket 260 on `f6fafe4` (`round-inner.sh`: fmt, clippy, deny, then two full test runs, each
+followed by `sort component-builds.log | uniq -c`), 2026-11-19T23:46:24+00:00 to
+2026-11-20T00:06:20+00:00, `one-gate` exit 0:
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| deny | `cargo deny --offline --locked check` (advisories, bans, licenses, sources ok) | 0 |
+| test run 1 | `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0, 1036 passed, 0 failed |
+| test run 2 | the same, again | 0, 1036 passed, 0 failed |
+
+The build log of each run had 11 lines and 11 distinct lines, so each (binary, package, features)
+was built once:
+
+| Binary | Package | Features |
+| --- | --- | --- |
+| `distribution` | `gate-plugin-git` | |
+| `plugins` | `gate-plugin-agents` | |
+| `plugins` | `gate-plugin-git` | |
+| `plugins` | `gate-plugin-hello` | |
+| `plugins` | `gate-plugin-ledger` | |
+| `plugins` | `gate-plugin-nestjs` | |
+| `plugins` | `gate-plugin-typescript` | |
+| `plugins` | `gate-runtime-probe` | |
+| `plugins` | `gate-runtime-probe` | `describe-traps` |
+| `runtime` | `gate-runtime-probe` | |
+| `runtime` | `gate-runtime-probe` | `describe-spins` |
+
+`measure` builds nothing in this run: its one component-building test is `#[ignore]`d and runs only
+when asked.
 
 ## Resume point
 
-2026-11-19T23:03:29+00:00: created from the lead's brief after T-058 round 253; code and this file
-committed, not compiled yet. Next: one lane round with two test runs and the build counts.
+2026-11-20T00:06:42+00:00: round 260 green as above; ready for review. Next: the reviewer's round.
