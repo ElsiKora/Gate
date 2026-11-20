@@ -2,7 +2,7 @@
 
 mod support;
 
-use support::{check, error, row};
+use support::{check, error, row, run};
 
 const RULE: &str = "barrel-exports";
 const PRIVATE: &str =
@@ -48,6 +48,60 @@ fn with(changes: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static
 #[test]
 fn complete_barrels_and_listed_entrypoints_pass() {
     assert_eq!(check(RULE, PRIVATE, &clean()), []);
+}
+
+/// The clean tree with its one runtime started from the source root's `main.ts`, as NestJS has it.
+fn nest_app() -> Vec<(&'static str, &'static str)> {
+    with(&[
+        ("src/runtime/api/main.ts", ""),
+        (
+            "src/main.ts",
+            "async function bootstrap(): Promise<void> {}\nvoid bootstrap();\n",
+        ),
+    ])
+}
+
+#[test]
+fn the_source_roots_main_ts_is_approved_when_the_option_is_unset() {
+    assert_eq!(check(RULE, "{}", &nest_app()), []);
+    // The default follows layout.source-root.
+    let moved = [("app/main.ts", "void 0;\n")];
+    let findings = run(
+        RULE,
+        "{}",
+        r#"{ "layout": { "source-root": "app" } }"#,
+        &moved,
+    )
+    .expect("the rule runs");
+    assert_eq!(support::rows(&findings), []);
+}
+
+#[test]
+fn a_list_replaces_the_default_and_the_help_names_the_rule_option() {
+    let unapproved = [row(
+        "runtime-entrypoint",
+        "src/main.ts",
+        None,
+        "src/main.ts is not an approved private runtime entrypoint",
+    )];
+    assert_eq!(
+        check(RULE, r#"{ "private-entrypoints": [] }"#, &nest_app()),
+        unapproved
+    );
+    let listed = r#"{ "private-entrypoints": ["src/runtime/api/main.ts"] }"#;
+    assert_eq!(check(RULE, listed, &nest_app()), unapproved);
+
+    let findings = run(RULE, "{}", "{}", &clean()).expect("the rule runs");
+    let help = findings
+        .iter()
+        .find(|finding| finding.aspect == "runtime-entrypoint")
+        .and_then(|finding| finding.help.as_deref())
+        .expect("a help");
+    assert!(
+        help.contains("the rule's option private-entrypoints")
+            && help.contains("\"nestjs/barrel-exports\" = { options = { private-entrypoints"),
+        "{help}"
+    );
 }
 
 #[test]

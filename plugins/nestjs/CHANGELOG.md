@@ -54,6 +54,14 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1 core.
 
+### Bug Fixes
+
+- `nestjs/barrel-exports` no longer reports the entry point NestJS starts from: unset,
+  `private-entrypoints` approves `<layout.source-root>/main.ts` (`src/main.ts` by default), where it
+  approved none and every service's `src/main.ts` was a `#runtime-entrypoint` error. A list
+  replaces the default, and `[]` approves none. The help names `private-entrypoints` as an option of
+  the rule's `[rules]` entry.
+
 ### Performance
 
 - A walk below a folder reads the paths below it, from the source's sorted range, instead of

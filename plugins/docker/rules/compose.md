@@ -20,7 +20,7 @@ with the parser's message.
 | `container-name` | a service sets `container_name` | the key |
 | `pinned` | a service without `build` names an image without `@sha256:<64 hex>` or from a registry `registries` does not list; `${NAME:?...}` passes, `${NAME:-default}` holds its default to the same pin, any other interpolation is reported | the image |
 | `secret` | outside an end-to-end file, an `environment` entry with a secret's name (`secret-names` and `secret-metadata-words`) has a literal value | the entry |
-| `port` | a `ports` entry is not published on `127.0.0.1` or `::1` | the entry |
+| `port` | a `ports` entry is not published on `127.0.0.1` or `::1`; the help gives the entry on `127.0.0.1` with the same host and container ports (`"5432:5432"` becomes `"127.0.0.1:5432:5432"`, a container port alone `"127.0.0.1::5432"`), or `host_ip` for the long form | the entry |
 | `healthcheck` | a service another names in `depends_on` with `condition: service_healthy` declares no `healthcheck`, or disables it | the service |
 
 **Literal credentials.** An end-to-end file is one whose name ends in `.e2e.yml`. It starts throwaway
@@ -69,7 +69,7 @@ error docker/compose#secret docker-compose.development.yml:5
   the service app-development-database has a literal value for POSTGRES_PASSWORD
 error docker/compose#port docker-compose.development.yml:7
   the service app-development-database publishes a port beyond the loopback address
-  help: publish on 127.0.0.1 or [::1]: `"127.0.0.1::5432"`
+  help: publish on 127.0.0.1 (or [::1]) with the same ports: `"127.0.0.1:5432:5432"`
 ```
 
 ## How to fix it
@@ -81,7 +81,7 @@ services:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in your shell or in .env}
     ports:
-      - "127.0.0.1::5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD", "pg_isready"]
 ```

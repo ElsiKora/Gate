@@ -220,7 +220,7 @@ impl File<'_> {
                         format!("the service {name} publishes a port beyond the loopback address"),
                     )
                     .target(format!("{path}:{name}"))
-                    .help("publish on 127.0.0.1 or [::1]: `\"127.0.0.1::5432\"`")
+                    .help(loopback_help(port))
                     .key(format!(
                         "{name}#{}",
                         port.scalar()
@@ -372,6 +372,49 @@ fn loopback(port: &Node) -> bool {
     }
     let parts: Vec<&str> = text.split(':').collect();
     parts.len() == 3 && local(parts[0])
+}
+
+/// What to write instead of `port` to publish it on the loopback address with the same host and
+/// container ports: the short form behind `127.0.0.1`, or `host_ip` for the long form.
+fn loopback_help(port: &Node) -> String {
+    if port.mapping().is_some() {
+        return "set `host_ip: 127.0.0.1` (or `\"::1\"`) on the port, keeping its published and target ports".to_owned();
+    }
+    let text = port.scalar().unwrap_or("");
+    // The part after an address, if the entry names one: `[<ipv6>]:` or the first of three parts.
+    let ports = match text.strip_prefix('[') {
+        Some(rest) => rest.split_once("]:").map_or(text, |(_, ports)| ports),
+        None => match outside_braces(text).as_slice() {
+            [address, _, _] => &text[address.len() + 1..],
+            _ => text,
+        },
+    };
+    // `<host>:<container>` keeps both; a container port alone keeps its random host port.
+    let published = if outside_braces(ports).len() > 1 {
+        format!("127.0.0.1:{ports}")
+    } else {
+        format!("127.0.0.1::{ports}")
+    };
+    format!("publish on 127.0.0.1 (or [::1]) with the same ports: `\"{published}\"`")
+}
+
+/// `text` split at each `:` outside a `${...}` interpolation.
+fn outside_braces(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0_usize, 0);
+    for (at, character) in text.char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => depth = depth.saturating_sub(1),
+            ':' if depth == 0 => {
+                parts.push(&text[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&text[start..]);
+    parts
 }
 
 #[cfg(test)]

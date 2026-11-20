@@ -157,6 +157,71 @@ fn port_is_published_on_the_loopback_address_only() {
     );
 }
 
+/// The help of the `port` finding of each entry of `ports`, in order; `None` for an entry that
+/// passes.
+fn port_helps(ports: &[&str]) -> Vec<Option<String>> {
+    ports
+        .iter()
+        .map(|port| {
+            let text = format!(
+                "services:\n  app-e2e-postgres:\n    build: .\n    ports:\n      - {port}\n"
+            );
+            let findings = Fixture::new(&[("docker-compose.e2e.yml", &text)])
+                .check_with(RULE, "{}", "")
+                .expect("the rule runs");
+            findings
+                .iter()
+                .find(|finding| finding.aspect == "port")
+                .map(|finding| finding.help.clone().unwrap_or_default())
+        })
+        .collect()
+}
+
+#[test]
+fn the_port_help_keeps_the_host_and_container_ports() {
+    let suggest = |published: &str| {
+        Some(format!(
+            "publish on 127.0.0.1 (or [::1]) with the same ports: `\"{published}\"`"
+        ))
+    };
+    assert_eq!(
+        port_helps(&[
+            "\"5432:5432\"",
+            "\"5432\"",
+            "\"8000-8010:8000-8010\"",
+            "\"9000-9010\"",
+            "\"0.0.0.0:5432:5432\"",
+            "\"0.0.0.0::5432\"",
+            "\"[::]:6379:6379\"",
+            "\"53:53/udp\"",
+            "\"${DB_PORT:-5432}:5432\"",
+        ]),
+        [
+            suggest("127.0.0.1:5432:5432"),
+            suggest("127.0.0.1::5432"),
+            suggest("127.0.0.1:8000-8010:8000-8010"),
+            suggest("127.0.0.1::9000-9010"),
+            suggest("127.0.0.1:5432:5432"),
+            suggest("127.0.0.1::5432"),
+            suggest("127.0.0.1:6379:6379"),
+            suggest("127.0.0.1:53:53/udp"),
+            suggest("127.0.0.1:${DB_PORT:-5432}:5432"),
+        ]
+    );
+    // The suggestions themselves pass, and the long form is told to set host_ip.
+    assert_eq!(
+        port_helps(&["\"127.0.0.1:5432:5432\"", "\"127.0.0.1::9000-9010\""]),
+        [None, None]
+    );
+    let long = port_helps(&["target: 5432\n        published: \"5432\""]);
+    assert!(
+        long[0]
+            .as_deref()
+            .is_some_and(|help| help.starts_with("set `host_ip: 127.0.0.1`")),
+        "{long:?}"
+    );
+}
+
 #[test]
 fn a_long_form_port_is_on_the_loopback_address_only_with_a_loopback_host_ip() {
     let text = "services:\n  app-e2e-postgres:\n    build: .\n    ports:\n      - target: 5432\n        published: \"5432\"\n        host_ip: 127.0.0.1\n      - target: 5433\n        published: \"5433\"\n      - target: 5434\n        host_ip: 0.0.0.0\n      - target: 5435\n        host_ip: \"::1\"\n";
