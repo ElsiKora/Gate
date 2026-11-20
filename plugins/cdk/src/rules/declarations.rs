@@ -1,6 +1,6 @@
-//! `cdk/declarations`: a file below `lib/` declares one top-level entity whose kind matches the
-//! file's role; a class-role file's class is named from its file; nothing is declared below the
-//! top level.
+//! `cdk/declarations`: a code file of the project (`bin/`, `lib/`, `test/`, `scripts/`) declares one
+//! top-level entity and nothing below the top level; below `lib/` the entity's kind matches the
+//! file's role and a class-role file's class is named from its file.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::SourceFile;
@@ -33,18 +33,22 @@ impl Rule<Cdk> for Declarations {
         PluginOptions::read(run)?;
         run.with_call(|run, shared| {
             let typescript = shared.typescript()?;
-            for path in code_files(typescript, "lib/") {
-                if file_name(path) == "index.ts" {
-                    continue;
-                }
-                let Some((stem, role)) = name_and_role(file_name(path)) else {
-                    continue;
-                };
-                let Some(file) = parsed(typescript, path)? else {
-                    continue;
-                };
-                for found in judge(&file, path, stem, role) {
-                    report(run, found);
+            for folder in CODE_FOLDERS {
+                for path in code_files(typescript, folder) {
+                    if file_name(path) == "index.ts" {
+                        continue;
+                    }
+                    let named = name_and_role(file_name(path));
+                    if folder == "lib/" && named.is_none() {
+                        continue;
+                    }
+                    let Some(file) = parsed(typescript, path)? else {
+                        continue;
+                    };
+                    let role = named.filter(|_| folder == "lib/");
+                    for found in judge(&file, path, role) {
+                        report(run, found);
+                    }
                 }
             }
             Ok(())
@@ -86,9 +90,25 @@ struct Entity {
     start: u32,
 }
 
-fn judge<'p>(file: &SourceFile<'_>, path: &'p str, stem: &str, role: &str) -> Vec<Found<'p>> {
+/// The folders whose code the rule reads: the whole app, its tests and its scripts.
+const CODE_FOLDERS: [&str; 4] = ["bin/", "lib/", "test/", "scripts/"];
+
+/// The findings of `file`: its count and nested declarations, and, for a file of `lib/` named
+/// `<stem>.<role>.ts`, the kind and the name of each entity.
+fn judge<'p>(file: &SourceFile<'_>, path: &'p str, named: Option<(&str, &str)>) -> Vec<Found<'p>> {
     let mut found = Vec::new();
     let entities = entities(file);
+
+    for (name, start) in nested(file) {
+        found.push(Found {
+            aspect: "nested",
+            path,
+            line: Some(file.line(start)),
+            key: name.clone(),
+            message: format!("{path} declares {name} below the top level"),
+            help: "move the declaration to the top level of a file of its own",
+        });
+    }
 
     if entities.len() > 1 {
         let names: Vec<&str> = entities.iter().map(|entity| entity.name.as_str()).collect();
@@ -106,6 +126,9 @@ fn judge<'p>(file: &SourceFile<'_>, path: &'p str, stem: &str, role: &str) -> Ve
         });
     }
 
+    let Some((stem, role)) = named else {
+        return found;
+    };
     let class_role = CLASS_ROLES.contains(&role);
     let expected = if class_role {
         Some(Kind::Class)
@@ -159,17 +182,6 @@ fn judge<'p>(file: &SourceFile<'_>, path: &'p str, stem: &str, role: &str) -> Ve
                 });
             }
         }
-    }
-
-    for (name, start) in nested(file) {
-        found.push(Found {
-            aspect: "nested",
-            path,
-            line: Some(file.line(start)),
-            key: name.clone(),
-            message: format!("{path} declares {name} below the top level"),
-            help: "move the declaration to the top level of a file of its own",
-        });
     }
 
     found

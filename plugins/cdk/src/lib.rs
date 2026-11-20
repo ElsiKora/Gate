@@ -2,7 +2,7 @@
 //! of its own, its root the directory of `cdk.json`, and the rules check, without running the app,
 //! its layout, file names, declarations, barrels, `cdk.json` and `package.json`, its accounts,
 //! regions and configuration, stack names, construct ids, physical names, properties, tags,
-//! removal policies, cdk-nag registration and unit tests.
+//! removal policies, container health checks, cdk-nag registration and unit tests.
 //!
 //! Built for `wasm32-wasip2` it is the component `cdk.wasm`; natively it is a library the tests
 //! call through [`PLUGIN`].

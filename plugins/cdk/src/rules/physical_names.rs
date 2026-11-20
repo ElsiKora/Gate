@@ -1,13 +1,19 @@
 //! `cdk/physical-names`: a name AWS gives a resource (`bucketName`, `exportName`, …) is never
-//! written in place; it is the result of a `lib/naming/` function.
+//! written in place; it is the result of a `lib/naming/` function. A string built in place is a
+//! literal, a template, a concatenation with one or a call of anything else, read in place or
+//! through a `const` of the same file; the props are read in place or through a `const` object
+//! literal of the same file, with its spreads.
 
 use gate_sdk::{NoOptions, Rule, Run};
 use gate_typescript::oxc_ast::AstKind;
-use gate_typescript::oxc_ast::ast::{Expression, ObjectPropertyKind};
+use gate_typescript::oxc_ast::ast::{
+    Expression, ObjectExpression, ObjectProperty, ObjectPropertyKind,
+};
+use gate_typescript::oxc_syntax::operator::BinaryOperator;
 use gate_typescript::syntax::key_name;
-use gate_typescript::value::unwrap;
 use gate_typescript::{SourceFile, TypeScript};
 
+use crate::follow::{constant, is_construct, object};
 use crate::options::PluginOptions;
 use crate::rules::{Found, argument, is_naming_call, report};
 use crate::sources::{Cdk, app_files, parsed};
@@ -54,42 +60,77 @@ fn judge<'p>(
         let AstKind::NewExpression(construction) = node.kind() else {
             continue;
         };
-        let Some(Expression::ObjectExpression(properties)) =
-            argument(&construction.arguments, 2).map(unwrap)
+        let Some(properties) =
+            argument(&construction.arguments, 2).and_then(|props| object(file, props))
         else {
             continue;
         };
-        for property in &properties.properties {
-            let ObjectPropertyKind::ObjectProperty(property) = property else {
-                continue;
-            };
+        if !is_construct(typescript, path, file, &construction.callee)? {
+            continue;
+        }
+        for property in own_properties(file, properties, 0) {
             let Some(name) = key_name(&property.key, property.computed) else {
                 continue;
             };
-            if !PHYSICAL_NAMES.contains(&name.as_str()) {
+            if !PHYSICAL_NAMES.contains(&name.as_str())
+                || !written(typescript, path, file, &property.value, 0)?
+            {
                 continue;
             }
-            let written = match unwrap(&property.value) {
-                Expression::StringLiteral(_) | Expression::TemplateLiteral(_) => true,
-                Expression::CallExpression(_) => {
-                    !is_naming_call(typescript, path, file, &property.value)?
-                }
-                _ => false,
-            };
-            if written {
-                found.push(Found {
-                    aspect: "literal",
-                    path,
-                    line: Some(file.line(property.span.start)),
-                    key: name.clone(),
-                    message: format!(
-                        "{path} sets {name} in place, not through a lib/naming/ function"
-                    ),
-                    help: "build the name with the naming function that gives every name its project and environment",
-                });
-            }
+            found.push(Found {
+                aspect: "literal",
+                path,
+                line: Some(file.line(property.span.start)),
+                key: name.clone(),
+                message: format!("{path} sets {name} in place, not through a lib/naming/ function"),
+                help: "build the name with the naming function that gives every name its project and environment",
+            });
         }
     }
 
     Ok(found)
+}
+
+/// The properties of `object` and of the same-file object literals it spreads.
+fn own_properties<'e, 'a>(
+    file: &SourceFile<'a>,
+    object: &'e ObjectExpression<'a>,
+    depth: usize,
+) -> Vec<&'e ObjectProperty<'a>> {
+    let mut properties: Vec<&'e ObjectProperty<'a>> = Vec::new();
+    for item in &object.properties {
+        match item {
+            ObjectPropertyKind::ObjectProperty(property) => properties.push(property),
+            ObjectPropertyKind::SpreadProperty(spread) if depth < 4 => {
+                if let Some(inner) = object(file, &spread.argument) {
+                    properties.extend(own_properties(file, inner, depth + 1));
+                }
+            }
+            ObjectPropertyKind::SpreadProperty(_) => {}
+        }
+    }
+    properties
+}
+
+/// Whether `value` is a string built in place: a literal, a template, a concatenation with one,
+/// a call of anything but a `lib/naming/` function, or a same-file `const` bound to one of those.
+fn written<'a>(
+    typescript: &TypeScript<'_>,
+    path: &str,
+    file: &SourceFile<'a>,
+    value: &Expression<'a>,
+    depth: usize,
+) -> gate_sdk::Result<bool> {
+    if depth > 4 {
+        return Ok(false);
+    }
+    Ok(match constant(file, value) {
+        Expression::StringLiteral(_) | Expression::TemplateLiteral(_) => true,
+        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
+            written(typescript, path, file, &binary.left, depth + 1)?
+                || written(typescript, path, file, &binary.right, depth + 1)?
+        }
+        call @ Expression::CallExpression(_) => !is_naming_call(typescript, path, file, call)?,
+        _ => false,
+    })
 }
