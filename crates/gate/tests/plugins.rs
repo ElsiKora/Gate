@@ -2500,9 +2500,14 @@ const NO_CI_SKIP: &str = "\"git/no-ci-skip\" = { level = \"error\" }";
 const BRANCH_NAME: &str =
     "\"git/branch-name\" = { level = \"error\", options = { pattern = \"^main$\" } }";
 
+/// The git plugin built from this tree.
+fn git_component() -> &'static (PathBuf, Vec<u8>) {
+    component("gate-plugin-git", "git")
+}
+
 impl GitOptions {
     fn new() -> Self {
-        let git = component("gate-plugin-git", "git");
+        let git = git_component();
         let repo = Repo::empty();
         repo.write("README.md", "# r\n");
         let root = repo.commit("init");
@@ -4433,8 +4438,10 @@ fn writer() -> &'static (PathBuf, Vec<u8>) {
     WASM.get_or_init(|| component_with("gate-runtime-probe", "gate_runtime_probe", "writer"))
 }
 
-#[test]
-fn a_sync_state_fallback_loads_the_generator_plugin_a_rule_filter_left_out() {
+/// A repository whose `probe/git` asks `sync-state` at `HEAD~1`, a commit in a configuration
+/// format this core does not read, and at `HEAD`, which declares `writer` and generates with it,
+/// in sync. `plugins` goes into the root `[plugins]` of `HEAD` and `root` after its sections.
+fn sync_state_fallback_repo(plugins: &str, root: &str) -> Repo {
     let repo = probe_repo(
         r#""probe/git" = { level = "error", options = { sync_state = ["HEAD~1", "HEAD"] } }"#,
     );
@@ -4442,8 +4449,9 @@ fn a_sync_state_fallback_loads_the_generator_plugin_a_rule_filter_left_out() {
         .expect("gate.toml")
         .replace(
             "[plugins]\n",
-            "[plugins]\nwriter = { source = \"acme/rules:writer@0.1.0\" }\n",
+            &format!("[plugins]\nwriter = {{ source = \"acme/rules:writer@0.1.0\" }}\n{plugins}"),
         );
+    let adopted = format!("{adopted}{root}");
 
     repo.write(
         "gate.toml",
@@ -4464,18 +4472,225 @@ fn a_sync_state_fallback_loads_the_generator_plugin_a_rule_filter_left_out() {
     );
     repo.write("apps/one/gen/a.md", "a\n");
     repo.commit("moved to Gate and in sync");
+    repo
+}
 
+/// The two answers `probe/git` reports in a [`sync_state_fallback_repo`].
+const FALLBACK_ANSWERS: [&str; 2] = [
+    "sync-state HEAD: produced gen/a.md; drift none",
+    "sync-state HEAD~1: produced gen/a.md; drift none",
+];
+
+#[test]
+fn a_sync_state_fallback_loads_the_generator_plugin_a_rule_filter_left_out() {
+    let repo = sync_state_fallback_repo("", "");
     let plugin = format!("writer={}", writer().0.display());
     let (code, messages) = probe_check(&repo, &["--rule", "probe/*", "--plugin", &plugin]);
     assert_eq!(code, Some(1), "{messages:?}");
     assert_eq!(
-        messages,
-        [
-            "sync-state HEAD: produced gen/a.md; drift none",
-            "sync-state HEAD~1: produced gen/a.md; drift none",
-        ],
+        messages, FALLBACK_ANSWERS,
         "--rule leaves writer out of the run, and the fallback at HEAD~1 still loads it for its \
          generator: without it, nothing would be produced"
+    );
+}
+
+/// The root `[plugins]` line of the git plugin with `main` and a release subject but no
+/// `activation`, which `git/no-ci-skip` reads.
+const GIT_WITHOUT_ACTIVATION: &str = "git = { source = \"acme/rules:git@0.1.0\", options = { main = [\"refs/heads/main\"], release-subject = '^chore\\(release\\): (\\d+\\.\\d+\\.\\d+)$' } }\n";
+/// The root `[rules]` that enables `git/no-ci-skip`.
+const ROOT_NO_CI_SKIP: &str = "\n[rules]\n\"git/no-ci-skip\" = { level = \"error\" }\n";
+const NO_ACTIVATION: &str =
+    "[plugins.git] options has no activation, which \"git/no-ci-skip\" reads";
+
+#[test]
+fn a_rule_need_follows_the_rule_filter() {
+    let repo = Repo::pinned(r#"{ marker = "NOT-IN-THE-TREE" }"#);
+    let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "{}{ROOT_NO_CI_SKIP}",
+            toml.replace(
+                "[plugins]\n",
+                &format!("[plugins]\n{GIT_WITHOUT_ACTIVATION}")
+            )
+        ),
+    );
+    repo.commit("git/no-ci-skip without the activation it reads");
+    let git = format!("git={}", git_component().0.display());
+
+    assert_config_error(&repo, &["check", "--plugin", &git], NO_ACTIVATION);
+    let output = repo.gate(&["check", "--rule", "hello/*", "--plugin", &git]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "git/no-ci-skip does not run, so what it reads is not required: {}",
+        text(&output.stderr)
+    );
+}
+
+#[test]
+fn a_sync_state_fallback_checks_rule_needs_with_the_run_s_rule_filter() {
+    let repo = sync_state_fallback_repo(GIT_WITHOUT_ACTIVATION, ROOT_NO_CI_SKIP);
+    let writer = format!("writer={}", writer().0.display());
+    let git = format!("git={}", git_component().0.display());
+    let probe = format!("probe={}", probe().0.display());
+
+    assert_config_error(
+        &repo,
+        &[
+            "check", "--plugin", &probe, "--plugin", &writer, "--plugin", &git,
+        ],
+        NO_ACTIVATION,
+    );
+    let (code, messages) = probe_check(
+        &repo,
+        &["--rule", "probe/*", "--plugin", &writer, "--plugin", &git],
+    );
+    assert_eq!(
+        (code, messages.as_slice()),
+        (Some(1), &FALLBACK_ANSWERS[..]),
+        "--rule leaves git/no-ci-skip out, at the start of the run and when the answer at HEAD~1 \
+         checks the run's configuration again"
+    );
+}
+
+#[test]
+fn an_unknown_preset_fails_a_run_that_does_not_run_its_plugin() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    repo.write(
+        "apps/spare/gate.toml",
+        "[project]\nname = \"spare\"\nextends = [\"typescript/recomended\"]\n\n[plugins]\ntypescript = { source = \"acme/rules:typescript@0.1.0\" }\n",
+    );
+    repo.write("apps/spare/tsconfig.json", "{}\n");
+    repo.write("apps/spare/src/index.ts", "export const spare = 1;\n");
+    repo.commit("spare extends a preset typescript does not declare");
+    let plugin = typescript_plugin();
+
+    for arguments in [
+        &["check", "--plugin", plugin.as_str()][..],
+        &["check", "--rule", "hello/*", "--plugin", plugin.as_str()][..],
+    ] {
+        assert_config_error(
+            &repo,
+            arguments,
+            "plugin typescript has no preset recomended",
+        );
+    }
+}
+
+/// The stored declaration of the plugin built as `wasm` in `repo`'s cache: the one entry of its
+/// directory, which `gate sync` wrote.
+fn stored_declaration(repo: &Repo, wasm: &[u8]) -> PathBuf {
+    let directory = repo.cache.path().join("declarations").join(sha256(wasm));
+    let entries: Vec<PathBuf> = std::fs::read_dir(&directory)
+        .expect("the plugin's declarations")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    entries.into_iter().next().expect("one entry")
+}
+
+/// `gate check <arguments>` on an emptied module cache: the modules it compiled.
+fn compiled_by(repo: &Repo, arguments: &[&str]) -> BTreeSet<String> {
+    let modules = repo.cache.path().join("modules");
+    if modules.exists() {
+        std::fs::remove_dir_all(&modules).expect("the module cache");
+    }
+    let output = repo.gate(arguments);
+    assert_ne!(
+        output.status.code(),
+        Some(2),
+        "{arguments:?}: {}",
+        text(&output.stderr)
+    );
+    compiled_modules(repo.cache.path())
+}
+
+#[test]
+fn a_stored_declaration_that_is_corrupt_or_names_another_plugin_is_replaced_by_the_run_that_loads_it()
+ {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_spare(&repo, "");
+    let plugin = typescript_plugin();
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let entry = stored_declaration(&repo, &typescript().1);
+    let good = std::fs::read_to_string(&entry).expect("the entry");
+    let mut renamed: serde_json::Value = serde_json::from_str(&good).expect("JSON");
+    renamed["name"] = serde_json::Value::from("other");
+    let arguments = ["check", "--rule", "hello/*", "--plugin", plugin.as_str()];
+
+    for (bad, what) in [
+        ("{\"name\":".to_owned(), "an entry that does not parse"),
+        (renamed.to_string(), "an entry that names another plugin"),
+    ] {
+        std::fs::write(&entry, bad).expect("a bad entry");
+        assert_eq!(
+            compiled_by(&repo, &arguments).len(),
+            2,
+            "{what}: typescript loads for its declaration"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&entry).expect("the entry"),
+            good,
+            "{what}: the run that loaded typescript wrote its entry again"
+        );
+        assert_eq!(
+            compiled_by(&repo, &arguments).len(),
+            1,
+            "{what}: the next run answers from the entry and compiles hello only"
+        );
+    }
+}
+
+#[test]
+fn a_stored_declaration_whose_rule_schema_is_not_json_loads_the_plugin() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_spare(&repo, "");
+    let plugin = typescript_plugin();
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let entry = stored_declaration(&repo, &typescript().1);
+    let mut stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&entry).expect("the entry")).expect("JSON");
+    stored["rules"][0]["options_schema"] = serde_json::Value::from("not JSON");
+    std::fs::write(&entry, stored.to_string()).expect("the entry");
+
+    assert_eq!(
+        compiled_by(
+            &repo,
+            &["check", "--rule", "hello/*", "--plugin", plugin.as_str()]
+        )
+        .len(),
+        2,
+        "an entry the run cannot use is not an error: typescript loads for its declaration"
+    );
+}
+
+#[test]
+fn after_gate_sync_a_pinned_plugin_the_run_does_not_run_answers_from_its_stored_declaration() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    with_spare(&repo, "");
+    let plugin = typescript_plugin();
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+
+    let compiled = compiled_by(
+        &repo,
+        &[
+            "check",
+            "--rule",
+            "typescript/*",
+            "--plugin",
+            plugin.as_str(),
+        ],
+    );
+    assert_eq!(
+        compiled.len(),
+        1,
+        "hello, the pinned download, is left out by --rule and answers from its entry: only \
+         typescript compiles: {compiled:?}"
     );
 }
 
