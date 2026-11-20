@@ -434,6 +434,12 @@ findings. With the plants removed, it exits 0.
 
 ## Resume point
 
+2026-11-20T08:28:37+00:00: lane round 326 on `570922c`, on T-066's own target directories, exit 0:
+fmt, clippy, test (`--workspace --no-fail-fast`: 1092 passed, 0 failed), deny and the release build.
+Its logs show every changed crate compiled from `T-066/round-wt` (gate-runtime, gate-host, gate-sdk,
+gate-typescript, the ci, nestjs, docker and repository plugins, the probe and gate) and every new
+test listed and passing. Next: the rebase onto `main` (now 0.2.1, `e7d5a27`) and a round on it.
+
 2026-11-20T02:25:13+00:00: on `task/T-066-containers-hygiene` from `main` at `e9e1434`, pushed:
 `8b36abb` (`tree.size`, interface 0.3.0), `c7259db` (environment coverage in
 `gate_typescript::env`, called by `nestjs/raw-config-access`), `a134547` (`gate_sdk::yaml`, shared
