@@ -39,6 +39,12 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   profile's `rules`, that the decision index (`decisions`) does not list as accepted, as
   `ledger/exception-decisions` does for exceptions. It reads the decisions the core hands it, never
   `gate.toml`.
+- **ledger:** three repository-scope rules hold the root files of a workspace whose root is not a
+  project to the same judgement as a project's own: `ledger/root-rule-decisions` for the decisions
+  of the root `gate.toml`'s entries, `ledger/root-exception-decisions` and
+  `ledger/root-exception-owners` for the decisions and owners of the root `gate.exceptions.toml`.
+  Their options are read relative to the repository root. Under a root project they report nothing,
+  since the project rules check the root files there.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.1.0...plugin-ledger-v0.2.0) (2026-11-19)
 

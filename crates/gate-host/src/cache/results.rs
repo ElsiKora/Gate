@@ -2,12 +2,13 @@
 //! every recorded input answers as it did (architecture §9).
 //!
 //! The key is the core version, the plugin's sha256, the call's request (rules, options, norms,
-//! rule decisions, project, plugin and language settings) and its grant. The entry holds the findings and the read
-//! set, plus what the read set alone cannot say again: for each listed prefix, a digest of the
-//! tracked paths below it; for a call that asked for the change selection, a digest of it. A
-//! stored result is reused when each listed prefix lists the same paths, each read path has the
-//! same blob id (or is still untracked), each sized path the same size, the change selection is the same, and each git question
-//! that goes through a ref, or asks `sync-state`, answers what it was recorded with. A question
+//! rule decisions, config file, project, plugin and language settings) and its grant. The entry
+//! holds the findings and the read set, plus what the read set alone cannot say again: for each
+//! listed prefix, a digest of the tracked paths below it; for a call that asked for the change
+//! selection, a digest of it. A stored result is reused when each listed prefix lists the same
+//! paths, each read path has the same blob id (or is still untracked), each sized path the same
+//! size, the change selection is the same, and each git question that goes through a ref, or asks
+//! `sync-state`, answers what it was recorded with. A question
 //! about commit ids never changes and is not asked again, except an `is-ancestor` no and a
 //! `read-at` none, which a fetch of the commit can change.
 //!

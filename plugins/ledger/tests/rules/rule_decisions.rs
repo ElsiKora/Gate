@@ -1,4 +1,5 @@
-//! `ledger/rule-decisions`: the decisions come from the call, never from `gate.toml`.
+//! `ledger/rule-decisions` and `ledger/root-rule-decisions`: the decisions come from the call,
+//! never from `gate.toml`.
 
 use gate_sdk::{CheckRequest, FileLocation, Finding, Location, RuleDecision, RuleRun, Span};
 
@@ -30,10 +31,20 @@ fn reported(
     plugin_options: &str,
     files: &Files,
 ) -> Vec<(String, Option<u32>, String, Option<String>)> {
+    reported_by("rule-decisions", decisions, plugin_options, files)
+}
+
+/// Path, line, message and key of each finding of `rule`, in a call carrying `decisions`.
+fn reported_by(
+    rule: &str,
+    decisions: Vec<RuleDecision>,
+    plugin_options: &str,
+    files: &Files,
+) -> Vec<(String, Option<u32>, String, Option<String>)> {
     let request = CheckRequest {
         project: String::new(),
         rules: vec![RuleRun {
-            name: "rule-decisions".to_owned(),
+            name: rule.to_owned(),
             options: String::new(),
             options_file: None,
             exceptions: Vec::new(),
@@ -42,6 +53,7 @@ fn reported(
         languages: "{}".to_owned(),
         norms: Vec::new(),
         rule_decisions: decisions,
+        config_file: "gate.toml".to_owned(),
     };
     gate_sdk::check(&ledger::PLUGIN, files, &request)
         .expect("the rule runs")
@@ -145,5 +157,27 @@ fn the_example_of_the_rule_page() {
             Some(2),
             "the rule entry \"demo/rule\" names the decision D-API-002, which is `proposed`; a rule entry needs an accepted decision"
         )]
+    );
+}
+
+#[test]
+fn the_root_rule_judges_the_decisions_of_its_call_as_the_project_rule_does() {
+    // The host gives the repository call the root file's decisions when the root is not a
+    // project, and none under a root project; the root rule judges what its call carries.
+    let files = tree();
+    let decisions = vec![
+        decision("demo/rule", "D-TWO-001", 4),
+        decision("demo/*", "D-NOPE-001", 7),
+        decision("demo/other", "D-ONE-001", 9),
+    ];
+    let expected = reported(decisions.clone(), "", &files);
+    assert_eq!(expected.len(), 2, "{expected:?}");
+    assert_eq!(
+        reported_by("root-rule-decisions", decisions, "", &files),
+        expected
+    );
+    assert_eq!(
+        reported_by("root-rule-decisions", Vec::new(), "", &ledger()),
+        []
     );
 }

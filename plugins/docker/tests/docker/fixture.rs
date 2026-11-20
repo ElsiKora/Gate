@@ -37,6 +37,7 @@ impl Fixture {
             languages: String::new(),
             norms: Vec::new(),
             rule_decisions: Vec::new(),
+            config_file: String::new(),
         };
         gate_sdk::check(&docker::PLUGIN, self, &request)
     }

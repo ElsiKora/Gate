@@ -139,6 +139,7 @@ fn run_in(
             languages: languages.to_owned(),
             norms: Vec::new(),
             rule_decisions: Vec::new(),
+            config_file: String::new(),
         },
     )
 }

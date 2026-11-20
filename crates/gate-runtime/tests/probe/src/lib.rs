@@ -644,17 +644,60 @@ impl Rule for Decisions {
     const TITLE: &'static str = "Reports the rule decisions of the call";
 
     fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
-        for written in run.rule_decisions().to_vec() {
-            let line = written.at.span.map_or(0, |span| span.line);
-            let message = format!(
-                "decision {} {} at {}:{line}",
-                written.key, written.decision, written.at.path
-            );
-            run.report()
-                .finding("", Location::File(written.at), message);
-        }
+        report_decisions(run);
         Ok(())
     }
+}
+
+/// Reports, in the repository call, each rule decision the call carries as [`Decisions`] does,
+/// and the call's own `gate.toml` as `config-file <path>` (`config-file -` for none).
+#[derive(Debug, Default)]
+pub struct RootDecisions;
+
+impl Rule for RootDecisions {
+    type Options = gate_sdk::NoOptions;
+    const NAME: &'static str = "root-decisions";
+    const TITLE: &'static str =
+        "Reports the rule decisions and the config file of the repository call";
+    const SCOPE: gate_sdk::Scope = gate_sdk::Scope::Repository;
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        report_decisions(run);
+        report_config_file(run);
+        Ok(())
+    }
+}
+
+/// Reports a project call's own `gate.toml` as `config-file <path>` (`config-file -` for none).
+#[derive(Debug, Default)]
+pub struct ConfigFile;
+
+impl Rule for ConfigFile {
+    type Options = gate_sdk::NoOptions;
+    const NAME: &'static str = "config-file";
+    const TITLE: &'static str = "Reports the config file of a project call";
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        report_config_file(run);
+        Ok(())
+    }
+}
+
+fn report_decisions<O>(run: &mut Run<'_, O>) {
+    for written in run.rule_decisions().to_vec() {
+        let line = written.at.span.map_or(0, |span| span.line);
+        let message = format!(
+            "decision {} {} at {}:{line}",
+            written.key, written.decision, written.at.path
+        );
+        run.report()
+            .finding("", Location::File(written.at), message);
+    }
+}
+
+fn report_config_file<O>(run: &mut Run<'_, O>) {
+    let message = format!("config-file {}", run.config_file().unwrap_or("-"));
+    run.report().finding("", None, message);
 }
 
 /// Options whose schema cannot be built: `describe` traps building it, or never ends.
@@ -753,7 +796,7 @@ gate_sdk::plugin! {
     name: "probe",
     version: env!("CARGO_PKG_VERSION"),
     options: ProbeOptions,
-    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Decisions, Aspects, Whole, MessageUndeclared, MessageNoFlags, HistoryUndeclared],
+    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Decisions, RootDecisions, ConfigFile, Aspects, Whole, MessageUndeclared, MessageNoFlags, HistoryUndeclared],
     generators: [Write, Toml],
     presets: [
         gate_sdk::Preset {

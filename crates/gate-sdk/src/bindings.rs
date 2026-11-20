@@ -170,6 +170,7 @@ pub fn check<S: CallState>(
         plugin_options: request.plugin_options,
         languages: request.languages,
         norms: request.norms,
+        config_file: request.config_file,
         rule_decisions: request
             .rule_decisions
             .into_iter()

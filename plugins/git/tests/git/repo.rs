@@ -180,6 +180,7 @@ impl Repo {
             languages: String::new(),
             norms: Vec::new(),
             rule_decisions: Vec::new(),
+            config_file: String::new(),
         };
         gate_sdk::check_output(&git::PLUGIN, self, &request)
     }

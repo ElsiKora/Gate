@@ -25,8 +25,8 @@ use crate::cache::answers::{Answer, Answers, Question};
 use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
-    LevelSetting, PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings,
-    Sourced,
+    Config, LevelSetting, PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting,
+    Settings, Sourced,
 };
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
@@ -973,7 +973,7 @@ impl Loaded {
             let root = project
                 .and_then(|name| workspace.projects().get(name))
                 .map(|project| project.root.clone());
-            let decisions = project.map_or_else(Vec::new, |name| rule_decisions(workspace, name));
+            let own = own_config(workspace, project);
             for name in settings.plugins.keys() {
                 let Some(plugin) = self.plugins.get(name) else {
                     continue;
@@ -991,7 +991,7 @@ impl Loaded {
                     .filter_map(|rule| rule.run.options_file.as_deref())
                     .collect();
                 let grant = grant(root.as_deref(), settings, name, &options_files);
-                let request = check_request(root.as_deref(), settings, name, &rules, &decisions);
+                let request = check_request(root.as_deref(), settings, name, &rules, own);
                 planned.push((project, settings, name, rules, plugin, request, grant));
             }
         }
@@ -1965,12 +1965,13 @@ fn check_request(
     settings: &Settings,
     name: &PluginName,
     rules: &[Enabled],
-    decisions: &[gate_sdk::RuleDecision],
+    own: Option<&Config>,
 ) -> gate_sdk::CheckRequest {
     gate_sdk::CheckRequest {
         project: root.unwrap_or_default().to_owned(),
         norms: norms(settings),
-        rule_decisions: decisions.to_vec(),
+        rule_decisions: own.map_or_else(Vec::new, rule_decisions),
+        config_file: own.map_or_else(String::new, |config| config.path().to_owned()),
         rules: rules.iter().map(|rule| rule.run.clone()).collect(),
         plugin_options: settings
             .plugin_options(name)
@@ -1991,15 +1992,23 @@ fn norms(settings: &Settings) -> Vec<String> {
     norms.into_iter().collect()
 }
 
-/// The decisions the rule entries of project `project`'s own `gate.toml` name, as
-/// `check-request.rule-decisions` promises: its own file's, which for the root project is the root
-/// file. Their paths are repository paths; the runtime gives them to the plugin relative to its
-/// scope's root. A project's call never carries the root file's decisions, which a path relative
-/// to the project's root could not name.
-fn rule_decisions(workspace: &Workspace, project: &str) -> Vec<gate_sdk::RuleDecision> {
-    let Some(config) = workspace.project_config(project) else {
-        return Vec::new();
-    };
+/// The scope's own `gate.toml`, as `check-request.config-file` promises: a project's own file
+/// (the root file for the root project), and the root file for the repository call when the root
+/// is not a project. `None` for a project without a file of its own, and for the repository call
+/// under a root project, whose root file is that project's. A project's call never carries the
+/// root file, which a path relative to the project's root could not name.
+fn own_config<'w>(workspace: &'w Workspace, project: Option<&str>) -> Option<&'w Config> {
+    match project {
+        Some(name) => workspace.project_config(name),
+        None if workspace.root_is_project() => None,
+        None => Some(workspace.root_config()),
+    }
+}
+
+/// The decisions the rule entries of the scope's own `gate.toml` (`config`, from [`own_config`])
+/// name, as `check-request.rule-decisions` promises. Their paths are repository paths; the runtime
+/// gives them to the plugin relative to its scope's root.
+fn rule_decisions(config: &Config) -> Vec<gate_sdk::RuleDecision> {
     config
         .rule_decisions()
         .into_iter()

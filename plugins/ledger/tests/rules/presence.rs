@@ -23,7 +23,7 @@ const SYNTHETIC: &str = r#"{
 }"#;
 
 /// Every rule of the plugin, with the options it requires.
-const RULES: [(&str, &str); 10] = [
+const RULES: [(&str, &str); 13] = [
     ("blockers", ""),
     ("closing-notes", r#"{"field":"`TEMPORARY_DELTA` records"}"#),
     ("decisions", ""),
@@ -33,6 +33,9 @@ const RULES: [(&str, &str); 10] = [
     ("record-status", ""),
     ("records", ""),
     ("reuses", r#"{"catalog":"docs/reference/mechanisms.md"}"#),
+    ("root-exception-decisions", ""),
+    ("root-exception-owners", ""),
+    ("root-rule-decisions", ""),
     ("rule-decisions", ""),
 ];
 
@@ -133,6 +136,9 @@ fn an_absent_ledger_fails_every_rule_that_reads_a_file_naming_it() {
                     input("reuses", INDEX, "[plugins.ledger] options decisions"),
                 ]
             ),
+            ("root-exception-decisions", vec![]),
+            ("root-exception-owners", vec![]),
+            ("root-rule-decisions", vec![]),
             ("rule-decisions", vec![]),
         ]
     );

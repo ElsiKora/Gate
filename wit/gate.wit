@@ -113,9 +113,17 @@ interface types {
     /// Every norm the configuration maps, for rules about rule documents.
     norms: list<string>,
     /// Every decision the rule entries of the scope's own `gate.toml` name, for rules about them:
-    /// a project's file in its project's call, the root file in the root project's call; whether
-    /// or not a later layer overrides the entry, and whether or not a policy requires it.
+    /// a project's file in its project's call; the root file in the root project's call, or in the
+    /// repository call when the root is not a project; whether or not a later layer overrides the
+    /// entry, and whether or not a policy requires it.
     rule-decisions: list<rule-decision>,
+    /// The scope's own `gate.toml`, relative to the scope's root, whose entries `rule-decisions`
+    /// lists: `gate.toml` in a project's call, and in the repository call when the root is not a
+    /// project; empty in the repository call under a root project, whose root file is that
+    /// project's, and for a project without a `gate.toml` of its own. A rule that reads a file
+    /// beside the scope's configuration reads it beside this one; a rule that ignores it is
+    /// unaffected.
+    config-file: string,
   }
 
   /// A file a generator writes, at a path relative to the project root; the host maps it. A seed

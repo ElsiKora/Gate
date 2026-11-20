@@ -40,7 +40,7 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `markdown` | project | Markdown | no | none | `markdown/recommended`, `markdown/adoption` |
 | `docs` | project | none | no | `docs/layout` | `docs/recommended`, `docs/adoption` |
 | `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` | `agents/recommended`, `agents/adoption` |
-| `ledger` | project | none | no | `ledger/decision-counts`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
+| `ledger` | project; the three `root-` rules repository | none | no | `ledger/decision-counts`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
 | `nestjs` | project | TypeScript | no | none | `nestjs/recommended`, `nestjs/adoption` |
 | `node` | repository, project | none | no | none | `node/recommended`, `node/adoption` |
 | `cdk` | project | TypeScript | no | none | `cdk/recommended`, `cdk/adoption` |
@@ -216,6 +216,12 @@ manifest is the one list of what a complete ledger holds. `ledger/closing-notes`
 `ledger/reuses` its `catalog`, and `ledger/record-status` the shared `parity`: without them the run
 stops with exit 2.
 
+A project's rules judge its own `gate.toml` and `gate.exceptions.toml`. In a workspace whose root is
+not a project, the root files hold the repository's own entries and exceptions; the three `root-`
+rules, repository scope, judge them the same way, reading the options of the root's
+`[plugins.ledger]` relative to the repository root. Under a root project the root files are that
+project's, and the `root-` rules report nothing.
+
 ```toml
 # docs/gate.toml, the project that holds the ledger
 [project]
@@ -242,6 +248,9 @@ ledger = { source = "ElsiKora/Gate:ledger@0.2.0", options = { decisions = "ledge
 | `ledger/exception-owners` | the owner an exception names is an open implementation record |
 | `ledger/exception-decisions` | the decision an exception names is an accepted decision of the index; whether every exception needs one is `[decision-policy] require-decision` |
 | `ledger/rule-decisions` | the decision a rule entry of the project's `gate.toml` names is an accepted decision of the index; the core hands the rule the decisions, so the plugin never reads `gate.toml` |
+| `ledger/root-exception-owners` | the owner a root exception names is an open implementation record, at a root that is not a project |
+| `ledger/root-exception-decisions` | the decision a root exception names is an accepted decision of the index, at a root that is not a project |
+| `ledger/root-rule-decisions` | the decision a rule entry of the root `gate.toml` names is an accepted decision of the index, at a root that is not a project |
 
 Presets: `ledger/recommended` turns on `decisions`, `manifest`, `records`, `blockers`,
 `exception-owners`, `exception-decisions` and `rule-decisions` at `error`, and `ledger/adoption` the

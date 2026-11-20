@@ -77,6 +77,7 @@ pub fn run_raw(
             languages: "{}".to_owned(),
             norms: Vec::new(),
             rule_decisions: Vec::new(),
+            config_file: String::new(),
         },
     )
 }

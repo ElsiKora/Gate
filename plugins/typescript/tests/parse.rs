@@ -65,6 +65,7 @@ fn request_with(options: &str, languages: &str) -> CheckRequest {
         languages: languages.to_owned(),
         norms: Vec::new(),
         rule_decisions: Vec::new(),
+        config_file: String::new(),
     }
 }
 

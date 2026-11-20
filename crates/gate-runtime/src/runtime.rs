@@ -955,6 +955,11 @@ fn request_to_wit(request: &CheckRequest, grant: &Grant) -> wit::CheckRequest {
         plugin_options: request.plugin_options.clone(),
         languages: request.languages.clone(),
         norms: request.norms.clone(),
+        config_file: if request.config_file.is_empty() {
+            String::new()
+        } else {
+            grant.to_plugin(&request.config_file)
+        },
         rule_decisions: request
             .rule_decisions
             .iter()

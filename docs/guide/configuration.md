@@ -361,8 +361,38 @@ the policy, or with `require-decision = false`, nothing is checked and `decision
 Whether a decision exists is a plugin's check: the `ledger` plugin's `ledger/exception-decisions` rule
 reports an exception's decision that its decision index does not list as accepted, and
 `ledger/rule-decisions` a rule entry's. The core gives each plugin call the decisions the rule
-entries of its project's own `gate.toml` name (the root file's in the root project's call), so the
-plugin never reads `gate.toml` itself.
+entries of its scope's own `gate.toml` name, and that file's path, so the plugin never reads
+`gate.toml` itself:
+
+| Call | Its own `gate.toml` |
+| --- | --- |
+| a project's | the project's `gate.toml`; for the root project, the root file |
+| the repository's, when the root is not a project | the root `gate.toml` |
+| the repository's, under a root project | none: the root file is the root project's |
+
+A monorepo whose root is not a project writes its own decisions and exceptions in the root files:
+decisions on the root `[rules]` and `[[profiles]]` entries in the root `gate.toml`, and the
+exceptions of repository-scope rules in the root `gate.exceptions.toml`. The repository-scope rules
+`ledger/root-rule-decisions`, `ledger/root-exception-decisions` and `ledger/root-exception-owners`
+judge them as the project rules judge a project's, with the decision index and records the root's
+`[plugins.ledger] options` name, relative to the repository root:
+
+```toml
+# gate.toml at a root that is not a project
+[workspace]
+projects = ["apps/*"]
+
+[plugins.ledger]
+source = "ElsiKora/Gate:ledger@0.3.0"
+options = { decisions = "apps/docs/decisions/index.md" }
+
+[rules]
+"ledger/root-rule-decisions" = "error"
+"ledger/root-exception-decisions" = "error"
+```
+
+In a single-project repository the root files are the project's: the project rules judge them, and
+the `root-` rules report nothing, so no entry is reported twice.
 
 ## Baselines
 
