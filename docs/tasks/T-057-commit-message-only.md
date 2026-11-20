@@ -148,13 +148,20 @@ Each test fails before its change. They use synthetic plugins and trees.
   and the release build exit 0; `done in 531s with exit code 0`. Its logs show `gate`,
   `gate-host`, `gate-runtime`, `gate-sdk`, `gate-plugin-git` and the probe compiled from this
   worktree, and the nine tests listed by name.
-- 2026-11-20T16:27:51+00:00: rebased onto `main` at `cee6491` (batches 1 and 2). The WIT there is already
-  `gate:plugin@0.3.0`, so `reads-message` joins that version; `INTERFACE` and the load-error test
-  name it unchanged. Conflicts: `crates/gate/tests/plugins.rs` (both sides add tests; kept both),
-  `wit/gate.wit` (the header names both flags), `plugins/git/src/commit_message.rs` (`main`'s
-  rule now checks pushed commits: it declares `READS_HISTORY` and `READS_MESSAGE`, reads the
-  message through `Run::message` and the commits through `Run::git`). The `CHANGELOG.md` entries
-  move from the released 0.2.1 section into 0.3.0's Breaking Changes, without a second
-  interface-bump line. Not yet run in the lane.
-- Next: the round on the rebased tip, then the consumer's cold `commit-msg` row, before and
-  after.
+- 2026-11-20T16:27:51+00:00: rebased onto `main` at `cee6491` (batches 1 and 2). The WIT there is
+  already `gate:plugin@0.3.0`, so `reads-message` joins that version; `INTERFACE` and the load-error
+  test name it unchanged. Conflicts: `crates/gate/tests/plugins.rs` (both sides add tests; kept
+  both), `wit/gate.wit` (the header names both flags), `plugins/git/src/commit_message.rs` (`main`'s
+  rule now checks pushed commits: it declares `READS_HISTORY` and `READS_MESSAGE`, reads the message
+  through `Run::message` and the commits through `Run::git`). The `CHANGELOG.md` entries move from
+  the released 0.2.1 section into 0.3.0's Breaking Changes, without a second interface-bump line.
+  Not yet run in the lane.
+- Ticket 347 on `1b8f4bc`: fmt, clippy, the eleven tests by name and the release build exit 0;
+  `cargo test --workspace` 1350 passed, 1 failed:
+  `the_rules_read_history_or_the_message_over_the_repository` still expected `git/commit-message` to
+  declare only the message; fixed in the next commit. `cargo deny` failed only on RUSTSEC-2026-0587
+  (`main`'s lock before T-073). Ticket 355 was stopped in the queue so T-073 could land first.
+- 2026-11-20T17:59:17+00:00: rebased onto `main` at `7f62554b` (T-073, T-074) without conflict; the
+  scope-less header of the CHANGELOG commit is now `docs(changelog): ...`, as the repository's own
+  `commit-msg` hook requires. Not yet run in the lane on this tip.
+- Next: the round on this tip, then the consumer's cold `commit-msg` row, before and after.
