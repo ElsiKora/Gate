@@ -248,8 +248,14 @@ add reviewers or a tag policy to it later.
 
 ## Resume point
 
-2026-11-20T06:04:31+00:00: design approved; code written on `task/T-067-ci-standard`, rebased on
-`main` at `340cf8b`: nine new rules and `version-comment` in the ci plugin, `ci/recommended`, the
-generator and `[ci.github]` changes, Gate's own workflows, the rule pages, the guides and the
-changelogs. Not yet run in the lane; next: the round (fmt, clippy, the new tests by name, the
-workspace test, deny, the release build, actionlint) with its own target, then the log check.
+2026-11-20T09:27:42+00:00: code on `task/T-067-ci-standard`, rebased on `main` at `340cf8b`.
+- Ticket 328 on `dad51f9`: fmt exit 0; clippy exit 101 on `semicolon_if_nothing_returned` in
+  `crates/gate-host/src/sync/yaml.rs` (every other crate it reached, `gate-plugin-ci` among them,
+  checked clean from this worktree); fixed in `ee27683`.
+- Ticket 333 on `ee27683`, target `T-067/target`: fmt, clippy, the ci plugin tests (31), the host
+  yaml test, the two new `gate` tests by name, `cargo test --workspace --no-fail-fast` (1093
+  passed, 0 failed, 7 ignored), deny, the release build, actionlint on Gate's own workflows and
+  actionlint on a workflow the release build's `gate sync` wrote (version comments after each
+  pin) exit 0; `done in 797s with exit code 0`. Its logs show `gate`, `gate-host` and
+  `gate-plugin-ci` compiled from this worktree, and all 27 new tests listed by name.
+- Next: review by a session that did not write it, then the lead merges.
