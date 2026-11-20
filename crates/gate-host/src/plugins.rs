@@ -1668,11 +1668,15 @@ fn enabled_rules(
         let options = settings
             .options(&id)
             .or_else(|| preset.and_then(|preset| preset.options.as_ref()));
+        // The root's file also accepts repository-scope findings (as `Findings::finish` applies
+        // it), so a repository-scope call gets its exceptions too when the top is a project.
         let exceptions = workspace
             .exceptions()
             .iter()
             .filter(|exception| {
-                exception.project.as_deref() == project && exception.rule.rule == id
+                (exception.project.as_deref() == project
+                    || (project.is_none() && exception.is_root()))
+                    && exception.rule.rule == id
             })
             .map(|exception| exception.target.clone())
             .collect();
