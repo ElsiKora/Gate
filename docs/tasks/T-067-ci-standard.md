@@ -266,6 +266,23 @@ The triggers of all three hand-written files are unchanged. The environment `rel
 the first run that names it, with no protection rules, so a release starts as before; the owner can
 add reviewers or a tag policy to it later.
 
+## Known limits
+
+Found by the review of `73d652a`; each errs the way named, and none is fixed in this task.
+
+- Flow style: the release comment is read right after the reference on its line, so a step written
+  `- { name: Check out, uses: <action>@<sha> } # v4.2.2` has its comment after the `}` and gets a
+  `version-comment` finding.
+- Action names are compared as written: `Actions/Checkout@<sha>` is not `actions/checkout` to
+  `ci/checkout-credentials` or `ci/node-setup`, though GitHub resolves it.
+- Booleans are compared as the lower-case scalar: `persist-credentials: False` is reported as kept
+  credentials, and `cancel-in-progress: True` is not reported.
+- `ci/concurrency` reads the top-level `concurrency` only: a workflow whose jobs each set their own
+  group is reported `missing`.
+- `ci/runner-pinned` does not read a matrix: `runs-on: ${{ matrix.os }}` passes whatever the matrix
+  lists, `ubuntu-latest` included.
+- `ci/timeout` counts a key as set: `timeout-minutes:` with no value (null) passes.
+
 ## Resume point
 
 2026-11-20T09:27:42+00:00: code on `task/T-067-ci-standard`, rebased on `main` at `340cf8b`.
@@ -297,5 +314,13 @@ add reviewers or a tag policy to it later.
   repository) without conflict. `gate_s_own_workflows_pass_every_rule` now leaves out the
   workflow the pinned core generates (`gate.yml`, new on `main`); its findings and the fix at the
   0.3.0 pin are listed under "Gate's own workflows". Not yet run in the lane on this tip.
-- Next: the round on this tip, then review by a session that did not write it, then the lead
-  merges.
+- 2026-11-20T18:10:00+00:00: the review of `73d652a` (one fix round): `ci/concurrency` leaves out `missing` for
+  a workflow whose only trigger is `workflow_call`; `ci/node-setup` passes a `node-version` that is
+  an expression; `ci/secrets-in-steps` reads a value as a secret only when it is an expression; the
+  generated YAML writes a `uses` release comment only in a job or a step; the guide gives a
+  monorepo root the `[rules]` form (`"ci/*" = "error"`, tested by
+  `a_monorepo_root_takes_the_ci_standard_through_its_rules`) and lists every finding the preset
+  still reports on a generated workflow; `version-comment` is a breaking change of ci 0.3.0, the
+  version of `plugins/ci/Cargo.toml`; the remaining edges are under "Known limits". Not yet run in
+  the lane on this tip.
+- Next: one round on this tip, reported by log; then the lead merges.
