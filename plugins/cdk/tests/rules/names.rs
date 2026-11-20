@@ -77,14 +77,14 @@ fn declarations_count_wants_one_entity() {
 #[test]
 fn declarations_kind_wants_the_kind_of_the_role() {
     let files = app().with(
-        "lib/config/interface/configuration.interface.ts",
+        "lib/config/interface/deployment-configuration.interface.ts",
         "export type IConfiguration = { readonly environment: string };\n",
     );
     assert_eq!(
         check("declarations", &files),
         [seen(
             "kind",
-            "lib/config/interface/configuration.interface.ts",
+            "lib/config/interface/deployment-configuration.interface.ts",
             Some(1),
             "IConfiguration"
         )]

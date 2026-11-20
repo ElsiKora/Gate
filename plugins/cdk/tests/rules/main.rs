@@ -263,10 +263,10 @@ Validations.of(app).addPlugins(new AwsSolutionsChecks(app, { verbose: true }));
     ),
     (
         "lib/config/interface/index.ts",
-        "export * from \"./configuration.interface\";\n",
+        "export * from \"./deployment-configuration.interface\";\n",
     ),
     (
-        "lib/config/interface/configuration.interface.ts",
+        "lib/config/interface/deployment-configuration.interface.ts",
         "export interface IConfiguration {\n  readonly destroyData: boolean;\n  readonly environment: string;\n}\n",
     ),
     (

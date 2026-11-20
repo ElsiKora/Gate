@@ -3,8 +3,13 @@
 
 use crate::{app, error};
 
+/// The error without the rule the SDK names first.
 fn refused(options: &str) -> String {
-    error("layout", options, &app())
+    let message = error("layout", options, &app());
+    message
+        .strip_prefix("rule layout: ")
+        .unwrap_or_else(|| panic!("the error names the rule: {message}"))
+        .to_owned()
 }
 
 #[test]
