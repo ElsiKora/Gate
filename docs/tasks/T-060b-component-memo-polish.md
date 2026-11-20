@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | written; lane round queued |
+| Status | proven; ready for the lead |
 | Release | v0.2.1 (tests only) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | the lead |
@@ -28,8 +28,20 @@ The three low findings of T-060's review, in one commit:
 
 ## Proof
 
-Not run yet.
+Lane ticket 271 on `01cf77d`, 2026-11-20T00:50:01+00:00 to 2026-11-20T00:56:44+00:00, `one-gate`
+exit 0:
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| test | `cargo test --offline --locked -p gate-runtime -p gate -j 4 --no-fail-fast` | 0, 174 passed, 0 failed |
+
+`sort component-builds.log | uniq -c | cat -e`: 11 lines, each count 1, and each line ends right
+after its package or its features (`gate-plugin-git$`, `gate-runtime-probe describe-traps$`), so no
+line carries a trailing space. The run's target directories with features are
+`gate-runtime-probe+describe-spins` and `gate-runtime-probe+describe-traps`.
 
 ## Resume point
 
-2026-11-20T00:10:59+00:00: written from the lead's review of T-060; queued after T-065's round.
+2026-11-20T00:56:59+00:00: round 271 green as above; ready for the lead.
