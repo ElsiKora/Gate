@@ -19,6 +19,18 @@ fn files(output: &GenerateOutput) -> Vec<(&str, String)> {
         .collect()
 }
 
+/// The seed of `<root>/context-map.md`.
+const CONTEXT_MAP: &str = "# Context map\n\nThe reading map for coding agents in this project: which pages to read before which kind of change.\n";
+
+/// Each written file's path and whether it is a seed.
+fn seeds(output: &GenerateOutput) -> Vec<(&str, bool)> {
+    output
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), file.seed))
+        .collect()
+}
+
 fn tree(entry: Option<&str>) -> Fixture {
     let ops = always("OPS", 1);
     let mut files = vec![
@@ -171,7 +183,7 @@ fn the_agents_block_needs_one_pair_of_markers_and_a_tracked_entry() {
     let no_rules_message = "docs/agents/rules docs/agents/rules has no rule file, and agents/agents-block reads the rule files there (its option root); create a rule file docs/agents/rules/<area>.md, point root at the agent docs, or remove the generator from [generate]";
     let no_rules = Fixture::new(&[("AGENTS.md", "# Agents\n")]);
     let output = no_rules.generate("agents-block", "", "{}").expect("runs");
-    assert_eq!(output.files, []);
+    assert_eq!(seeds(&output), [("docs/agents/context-map.md", true)]);
     assert_eq!(lines(&output.findings), [no_rules_message]);
 
     // With no entry either, the entry is seeded and the missing rule files stay the finding.
@@ -183,7 +195,7 @@ fn the_agents_block_needs_one_pair_of_markers_and_a_tracked_entry() {
             .iter()
             .map(|file| (file.path.as_str(), file.seed))
             .collect::<Vec<_>>(),
-        [("AGENTS.md", true)]
+        [("docs/agents/context-map.md", true), ("AGENTS.md", true)]
     );
     assert_eq!(lines(&output.findings), [no_rules_message]);
 
@@ -194,10 +206,13 @@ fn the_agents_block_needs_one_pair_of_markers_and_a_tracked_entry() {
     let output = emptied.generate("agents-block", "", "{}").expect("runs");
     assert_eq!(
         files(&output),
-        [(
-            "AGENTS.md",
-            "<!-- gate:begin agents -->\n\n<!-- gate:end agents -->\n".to_owned()
-        )]
+        [
+            ("docs/agents/context-map.md", CONTEXT_MAP.to_owned()),
+            (
+                "AGENTS.md",
+                "<!-- gate:begin agents -->\n\n<!-- gate:end agents -->\n".to_owned()
+            )
+        ]
     );
     assert_eq!(lines(&output.findings), [no_rules_message]);
 }
@@ -276,9 +291,12 @@ fn an_untracked_entry_is_seeded_with_its_block_and_the_next_run_writes_the_same_
         ),
     ] {
         let output = fixture.generate("agents-block", "", options).expect("runs");
-        assert_eq!(output.files.len(), 1, "{name}");
-        let seeded = &output.files[0];
-        assert_eq!((seeded.path.as_str(), seeded.seed), (entry, true), "{name}");
+        let seeded = output
+            .files
+            .iter()
+            .find(|file| file.path == entry)
+            .expect("the entry is seeded");
+        assert!(seeded.seed, "{name}");
         let text = String::from_utf8(seeded.contents.clone()).expect("UTF-8");
         assert!(text.starts_with(header), "{name}: {text}");
         assert!(
@@ -301,10 +319,49 @@ fn an_untracked_entry_is_seeded_with_its_block_and_the_next_run_writes_the_same_
             again
                 .files
                 .iter()
+                .filter(|file| file.path == entry)
                 .map(|file| (file.path.as_str(), file.seed, file.contents.as_slice()))
                 .collect::<Vec<_>>(),
             [(entry, false, text.as_bytes())],
             "{name}"
         );
     }
+}
+
+/// With nothing tracked under the root, the root's reading map is seeded, at the configured root,
+/// so the agents' area of the book exists after `gate sync`; with a tracked file there, it is not.
+#[test]
+fn an_empty_root_gets_its_context_map_as_a_seed() {
+    let empty = Fixture::new(&[(
+        "AGENTS.md",
+        "<!-- gate:begin agents -->\n<!-- gate:end agents -->\n",
+    )]);
+    let output = empty.generate("agents-block", "", "{}").expect("runs");
+    assert_eq!(
+        files(&output)[0],
+        ("docs/agents/context-map.md", CONTEXT_MAP.to_owned())
+    );
+    assert_eq!(seeds(&output)[0], ("docs/agents/context-map.md", true));
+
+    let moved = empty
+        .generate("agents-block", "", r#"{"root": "guide/agents/"}"#)
+        .expect("runs");
+    assert_eq!(seeds(&moved)[0], ("guide/agents/context-map.md", true));
+
+    let populated = tree(Some(
+        "<!-- gate:begin agents -->\n<!-- gate:end agents -->\n",
+    ))
+    .generate("agents-block", "", "{}")
+    .expect("runs");
+    assert_eq!(seeds(&populated), [("AGENTS.md", false)]);
+    let skills_only = Fixture::new(&[
+        (
+            "AGENTS.md",
+            "<!-- gate:begin agents -->\n<!-- gate:end agents -->\n",
+        ),
+        ("docs/agents/skills/tool/SKILL.md", "---\nname: tool\n---\n"),
+    ])
+    .generate("agents-block", "", "{}")
+    .expect("runs");
+    assert_eq!(seeds(&skills_only), [("AGENTS.md", false)]);
 }

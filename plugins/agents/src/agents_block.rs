@@ -59,6 +59,11 @@ impl Generator for AgentsBlock {
         let agents = Agents::load(&tree, &options.root)?;
         // A block with no rule file lists nothing: a finding of `gate sync`, never a silent pass.
         let has_rules = agents.has_rules(run.report(), "agents/agents-block", "");
+        // With nothing tracked under the root, the root's reading map is seeded, so the agents'
+        // area of the book exists after `gate sync`; the rule files stay the person's to write.
+        if tree.under(&agents.root).is_empty() {
+            run.seed(format!("{}/{CONTEXT_MAP}", agents.root), CONTEXT_MAP_SEED);
+        }
         // An entry that is not tracked is seeded; `gate sync` writes it only where nothing exists,
         // so a file a person wrote and has not added yet is left alone.
         if !tree.contains(&entry) {
@@ -89,6 +94,12 @@ impl Generator for AgentsBlock {
         Ok(())
     }
 }
+
+/// The reading map of the agent instructions, in the root.
+const CONTEXT_MAP: &str = "context-map.md";
+
+/// The seed of the reading map: a title and the line that says what goes there.
+const CONTEXT_MAP_SEED: &str = "# Context map\n\nThe reading map for coding agents in this project: which pages to read before which kind of change.\n";
 
 /// The seed of the entry: a title, one line on what the file is, and the block holding `inner`,
 /// byte for byte what the generator writes into the seeded file afterwards.

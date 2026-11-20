@@ -7274,7 +7274,8 @@ fn finding_heads(report: &str) -> Vec<String> {
 }
 
 /// One `gate sync` lays down a service's documentation standard with the docs, ledger and agents
-/// generators: the nine indexes, the manifest and the five shared ledger files, and `AGENTS.md`.
+/// generators: the nine indexes, the manifest and the five shared ledger files, `AGENTS.md` and the
+/// agents' reading map, so no delegated area is missing.
 /// Afterwards `gate check` reports only content findings, which ask the person to write something:
 /// each index's `#unfilled`, the rule files' `#input`, the `#input` of the ledger files only the
 /// project can write, and `ledger/records`' `#none` for the first implementation and production
@@ -7299,11 +7300,11 @@ fn one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content() {
         let mut seeds: Vec<&str> = SERVICE_INDEXES
             .iter()
             .chain(&LEDGER_SEEDS)
-            .chain(&["AGENTS.md"])
+            .chain(&["AGENTS.md", "docs/agents/context-map.md"])
             .copied()
             .collect();
         seeds.sort_unstable();
-        assert_eq!(written, seeds, "{preset}: 9 + 6 + 1 seeds: {said}");
+        assert_eq!(written, seeds, "{preset}: 9 + 6 + 2 seeds: {said}");
         assert_eq!(finding_heads(&said), no_rule_file, "{preset}: {said}");
         repo.commit("lay down the standard");
 
@@ -7328,6 +7329,8 @@ fn one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content() {
             .collect();
         expected.sort();
         assert_eq!(finding_heads(&said), expected, "{preset}: {said}");
+        // The agents' delegated area exists: its reading map is seeded.
+        assert!(!said.contains("#delegated-missing"), "{preset}: {said}");
         // The two record-shape findings are the `#none` of each entry file: they ask for a record.
         for (path, record) in [
             ("implementation-slices", "implementation record"),
