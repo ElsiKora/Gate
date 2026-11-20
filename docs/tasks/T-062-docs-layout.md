@@ -523,7 +523,11 @@ start), in the target directory T-046 left:
 | build | `cargo build --release --locked` | 0 |
 
 Ticket 266 on the same tip was withdrawn before it started, so the T-047 measures (ticket 267)
-ran first. The presets came after this round; their round is the next one.
+ran first.
+
+Lane round on `92b2b6f`, the presets (ticket 278, 2026-11-20, 01:56 to 02:00 UTC, load average about
+37 at the start), same target directory: fmt 0, clippy 0, test 0 (1064 passed, 0 failed, the two
+preset tests among them), deny 0, build 0.
 
 ## Resume point
 
@@ -549,3 +553,5 @@ lane round ticket 266 on the pushed tip; its exit codes go in a Proof section.
 2026-11-20: round ticket 268 on `6f4019d` green in all five steps (Proof above). The lead's preset
 rule added: `docs/recommended` and `docs/adoption`, with their tests. Next: one lane round on the
 preset commit, then the lead's review.
+
+2026-11-20: ticket 278 on `92b2b6f` green in all five steps. Next: the lead's review and merge.
