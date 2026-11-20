@@ -34,7 +34,10 @@ This repository becomes public. Everything committed must be fit for that:
 - One task = one task file under [docs/tasks](docs/tasks) = one branch = one worktree = one writer.
   The task file says what done is; keep its `Resume point` current.
 - Conventional Commits: `feat(host): ...`, `feat(plugin-git): ...`, `fix(sdk): ...`, `test(...)`,
-  `docs(...)`, `ci(...)`, `chore(...)`. The message says what changed, why, and what was measured.
+  `docs(...)`, `ci(...)`, `chore(...)`, `refactor(...)`, `perf(...)`, `style(...)`, `revert(...)`. The
+  message says what changed, why, and what was measured.
+- Gate checks this repository with its own released core and plugins ([gate.toml](gate.toml)). Run
+  `bin/gate sync` once in a clone to turn on the hooks; CI runs the same checks on every push.
 - Commit and push every 10 to 15 minutes and at every green checkpoint.
 - Code is reviewed before it merges by a session that did not write it. One fix round, then the lead
   decides.

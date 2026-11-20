@@ -1,0 +1,28 @@
+# Written by `gate lock`. Commit it; never edit it by hand.
+
+[core]
+version = "0.2.1"
+
+[core.targets.aarch64-apple-darwin]
+url = "https://github.com/ElsiKora/Gate/releases/download/v0.2.1/gate-aarch64-apple-darwin.tar.gz"
+sha256 = "ac27e01417ec0e7f5ccb8e79e7f84355bf764049169bdd259fea6861c67db7ee"
+
+[core.targets.x86_64-unknown-linux-musl]
+url = "https://github.com/ElsiKora/Gate/releases/download/v0.2.1/gate-x86_64-unknown-linux-musl.tar.gz"
+sha256 = "d4b9288cec62d82ed557b8062f517ff208bcba09709ac28a1478fd0c364a89fb"
+
+[plugins."ElsiKora/Gate:agents@0.2.0"]
+url = "https://github.com/ElsiKora/Gate/releases/download/plugin-agents-v0.2.0/agents.wasm"
+sha256 = "77d253620dbcf1cd9aedec78a3974b1d903a4d855c25cb19436f9466104d8bcd"
+
+[plugins."ElsiKora/Gate:ci@0.2.0"]
+url = "https://github.com/ElsiKora/Gate/releases/download/plugin-ci-v0.2.0/ci.wasm"
+sha256 = "d0f84f8dc64fc5caec834e4a556e40cd3ad890d9a519795d3fa59956664fa06a"
+
+[plugins."ElsiKora/Gate:git@0.2.1"]
+url = "https://github.com/ElsiKora/Gate/releases/download/plugin-git-v0.2.1/git.wasm"
+sha256 = "b66bdb2ed21a878a1cffcb5815b454ba16cf43d12fd7d6d8da8f5010c7644bee"
+
+[plugins."ElsiKora/Gate:markdown@0.2.0"]
+url = "https://github.com/ElsiKora/Gate/releases/download/plugin-markdown-v0.2.0/markdown.wasm"
+sha256 = "66c9173f3fdd3e96c56a26270b3985be02b8af61b840425f8b7bc1f9911036a2"
