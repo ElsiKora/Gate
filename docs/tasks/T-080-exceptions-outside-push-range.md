@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress: design approved, code written, first lane round next |
+| Status | in progress: design approved, code written, lane round on main next |
 | Release | 0.3.0 (core, SDK, plugin interface `gate:plugin@0.3.0`, git plugin) |
 | Writer | the T-068 writer |
 | Reviewer | an independent session, then the lead |
-| Depends on | `main` at `de888663` |
+| Depends on | `main` at `3ce3be63`, which holds the Gate 001 stack and T-071b |
 | Touches | `wit/gate.wit`, `crates/gate-sdk`, `crates/gate-runtime`, `crates/gate-host/src/findings.rs`, `crates/gate-host/src/baseline.rs`, `crates/gate-host/src/plugins.rs`, the result cache, `plugins/git`, their tests and pages, `docs/guide/configuration.md`, `CHANGELOG.md` |
 
 ## The bug
@@ -226,6 +226,21 @@ whole scope, so a stale path exception is reported there.
 
 ## Resume point
 
-The code, tests and docs are written on top of the stack tip `0ac71f94`. Next: the first lane round
-(fmt, clippy, the tests, deny, the release build, the leak scan). Then the independent review, and
-the rebase onto main once the stack merges.
+The code, tests and docs are on `main` at `3ce3be63`. Lane round 383, on the earlier
+stack tip `0ac71f94`, passed fmt, clippy, deny and the release build. Three tests failed:
+
+- `config::a_budget_is_a_table_of_one_or_two_thresholds_above_zero_in_order`: a stack fixture
+  without `timeout-minutes`, fixed on the stack by `8361ffa8`.
+- `an_exception_for_a_commit_the_history_no_longer_holds_is_reported` and
+  `a_changed_exception_list_is_not_answered_from_the_result_cache`. When the repository root is a
+  project, the root's `gate.exceptions.toml` names that project. So `rule-run.exceptions` of a
+  repository-scope call held none of them, and `git/commit-message` saw no excepted commit. The
+  request side now hands the root's file to repository-scope calls, as `Findings::finish` already
+  applies it.
+
+The rebase onto the stack tip `8361ffa8` took in T-057 (`Run::message`), and the stack then merged
+into `main` unchanged at `2ef2cc61`. Lane round 391, on `main` at `2ef2cc61`, passed fmt, clippy,
+deny, the release build and the leak scan, with every new test listed and passing. One test failed:
+`a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, a test of `main` itself that still
+expected `git/branch-name` in a commit-msg run. `main` fixed it in `50920ad9` (T-071b) after the
+rebase. Next: the lane round on `main` at `3ce3be63`, then the independent review.
