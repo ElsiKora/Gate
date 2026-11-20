@@ -64,6 +64,9 @@ T-061 makes `agents/agents-block` report a missing entry (`AGENTS.md`): "create 
 - An untracked `AGENTS.md` that exists is left alone by the core. The generator sees only tracked
   files, so it seeds, and the core then skips the seed because the path exists.
 
+- When nothing under `root` is tracked, it also seeds `<root>/context-map.md`, the agents' reading
+  map the docs standard places in `agents/` (Decided, 4): a title and one line, no marker.
+
 **The rule files** (`<root>/rules/*.md`) are not seeded (Decided, 1). A valid rule file needs an
 `area` and an `owner` that names a decision of the project's ledger (`agents/rule-owner`), and no
 generic seed has either. T-061's `#input` at `<root>/rules` stays the one finding. Its message says
@@ -77,7 +80,7 @@ With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]`, o
 | --- | --- | --- |
 | `docs` | the 9 indexes (T-062) | `docs/layout#unfilled` per index until its marker line is deleted; no `#index` finding, because the seeded table lists the `delegated` areas (Decided, 3) |
 | `ledger` | `manifest.json` and the five shared files | `#input` for the files only the project writes (the ADR coverage, the catalog of `ledger/reuses`); `ledger/records#record-shape` keyed `implementation record#none` and `production blocker record#none` |
-| `agents` | `AGENTS.md` with its block | `#input` at `docs/agents/rules` from each rule-file rule (T-061); `gate sync` and `gate sync --check` report the same missing rule files as `gate/sync#agents/agents-block` |
+| `agents` | `AGENTS.md` with its block, and `docs/agents/context-map.md` | `#input` at `docs/agents/rules` from each rule-file rule (T-061); `gate sync` and `gate sync --check` report the same missing rule files as `gate/sync#agents/agents-block` |
 
 ## 4. Tests
 
@@ -93,7 +96,7 @@ With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]`, o
   - with `AGENTS.md` tracked, its output is as today.
 - End to end, once: an empty service with the three generators, the docs, ledger and agents rules
   on, and `delegated = ["agents", "ledger"]`.
-  - `gate sync` writes 9 + 6 + 1 files.
+  - `gate sync` writes 9 + 6 + 2 files.
   - `gate check` gives exactly the content findings the test lists (`#unfilled` per index, the
     rule-file `#input`, the ledger `#input` for the options T-061 makes required), so a new
     structural finding fails the test.
@@ -135,6 +138,16 @@ message; the CLI report carries no key, so the native test pins the keys).
    options only, not plugin options, so the option is documented on the `docs/layout` page. This
    goes into T-062's review fix round. T-063 only sets it in its end-to-end test.
 
+4. **The delegated `agents/` area after sync** (lead, 2026-11-20): (a). The first end-to-end run
+   found `docs/layout#delegated-missing` at `docs/agents` after `gate sync`: rule files are not
+   seeded (1) and `AGENTS.md` sits at the project root, so nothing created the area. So
+   `agents/agents-block` also seeds `<root>/context-map.md` (a title and one line, no marker) while
+   nothing under `root` is tracked, the area exists after sync, and the rule-file `#input` stays the
+   one request. Rejected: (b), a separate `agents/layout` generator for that one file; and (c),
+   counting `#delegated-missing` as content until a rule file is written, because its message tells
+   the person to run `gate sync`, which cannot fix it. The end-to-end test asserts that no
+   structural finding remains after sync, `docs/layout#delegated-missing` included.
+
 The bar (lead, corrected): after `gate sync` on an empty project with the docs, ledger and agents
 plugins enabled and `delegated` set, `gate check` reports no structural finding: nothing from
 `docs/layout#index`, the missing-area finding, or any layout or placement aspect. It reports only
@@ -164,3 +177,7 @@ conflicts in `CHANGELOG.md`, `docs/guide/plugins.md` and `docs/plan.md` resolved
 written on it: `ledger/layout`, the `AGENTS.md` seed, native tests, the three-plugin CLI test, pages
 and changelogs. `gate sync --check` cannot exit 0 on an empty project: the missing rule files stay
 its one finding, which the test lists.
+2026-11-20: the second exploration run found `#delegated-missing` at `docs/agents`; the lead chose
+(a), the `context-map.md` seed (Decided, 4). Rebasing onto `main` (`cee6491`) waits: merging
+T-061's tip into it conflicts in `gate-host/src/plugins.rs` (T-059's `check_decisions` against
+main's `check_presets`), which is T-059's and T-061's to resolve.

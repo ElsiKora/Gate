@@ -193,7 +193,8 @@ Each shared plugin keeps its own changelog next to its code.
   structurally complete: the rules report only the files the project alone can write (`#input`) and
   its first implementation and production blocker records (`ledger/records`, keyed `#none`).
 - **plugin-agents:** `agents/agents-block` seeds `AGENTS.md` when it is not tracked: a title, one
-  line, and the managed block filled from the rule files. With the docs, ledger and agents
+  line, and the managed block filled from the rule files; with nothing tracked under its `root`, it
+  also seeds the reading map `<root>/context-map.md`. With the docs, ledger and agents
   generators, one `gate sync` lays down a project's whole documentation standard, and `gate check`
   then asks only for content: each index's `#unfilled`, the rule files' `#input`, the ledger files
   only the project can write, and its first records.

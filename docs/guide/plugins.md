@@ -161,7 +161,7 @@ deleted. A monorepo root's `docs/` is checked when the workspace lists `"."` as 
 
 With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]` and
 `delegated = ["agents", "ledger"]`, one `gate sync` lays down the whole standard: the indexes, the
-ledger's manifest and shared files, and `AGENTS.md`. `gate check` then reports only what a person
+ledger's manifest and shared files, `AGENTS.md` and the agents' reading map. `gate check` then reports only what a person
 must write: each index's `#unfilled`, the rule files' `#input`, the ledger files only the project
 can write (the ADR coverage, the catalog of `ledger/reuses`), and its first implementation and
 production blocker records.
@@ -179,7 +179,8 @@ project. `agents/adapters` writes one Claude Code adapter per rule file to `.cla
 copies the skills to `.claude/skills/`; it owns `.claude/rules/**` and `.claude/skills/**`.
 `agents/agents-block` writes the table of rule files between the `gate:begin agents` and
 `gate:end agents` markers of `AGENTS.md` (`entry`), and seeds the entry, markers and table included,
-when it is not tracked.
+when it is not tracked; with nothing tracked under `root`, it also seeds the reading map
+`<root>/context-map.md`.
 
 ```toml
 # apps/server/gate.toml
