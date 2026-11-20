@@ -192,7 +192,9 @@ Each shared plugin keeps its own changelog next to its code.
   the preset gives it: `extends = ["git/recommended"]` with `"git/branch-name" = "warning"` loads
   and runs with the preset's branch template. It used to be a configuration error (exit 2,
   `options: {} is not valid`), because the check read the entry's missing options as `{}` while the
-  run used the preset's. This held in a project's file, a profile and the root `[rules]`.
+  run used the preset's. This held in a project's file, a profile and the root `[rules]`. Options a
+  preset gives that break the rule's schema are reported as the plugin's error, naming the preset
+  and its `extends` entry.
 - **runtime:** `wasmtime` and `wasmtime-wasi` 50.0.3, for RUSTSEC-2026-0587, a WASI filesystem
   sandbox escape on Windows through a drive-prefixed path component, which 50.0.2 had. The
   released binaries, macOS arm64 (`aarch64-apple-darwin`) and Linux musl

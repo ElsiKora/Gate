@@ -1650,6 +1650,46 @@ fn a_rule_a_preset_enables_with_its_required_option_can_be_turned_off() {
     assert_eq!(messages, Vec::<String>::new());
 }
 
+/// A probe repository whose project `apps/one` extends `extends` and sets `rules` in its own file.
+fn project_extends(extends: &str, rules: &str) -> Repo {
+    let repo = probe_repo("");
+    repo.write(
+        "apps/one/gate.toml",
+        &format!("[project]\nname = \"one\"\nextends = [{extends}]\n\n[rules]\n{rules}\n"),
+    );
+    repo.commit("the project extends a preset");
+    repo
+}
+
+/// `gate check` with the built probe as text: its exit code and what it printed.
+fn gate_probe(repo: &Repo) -> (Option<i32>, String) {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    (
+        output.status.code(),
+        format!("{}{}", text(&output.stdout), text(&output.stderr)),
+    )
+}
+
+#[test]
+fn options_a_preset_gives_that_break_the_schema_are_the_plugins_error() {
+    // probe/needs-broken gives probe/needs a number where its pattern is a string.
+    let (code, said) = gate_probe(&project_extends(
+        "\"probe/needs-broken\"",
+        r#""probe/needs" = "warning""#,
+    ));
+    assert_eq!(code, Some(2), "{said}");
+    assert!(
+        said.contains("environment error")
+            && said.contains(
+                "[project] extends: \"probe/needs\" options the preset probe/needs-broken gives:"
+            )
+            && said.contains("the plugin is broken, report it to its authors")
+            && !said.contains("[rules]: \"probe/needs\""),
+        "{said}"
+    );
+}
+
 #[test]
 fn a_level_in_rules_keeps_the_options_a_preset_gives_the_rule() {
     // probe/needs requires the option pattern; the preset probe/needs gives it.
@@ -1665,17 +1705,7 @@ fn a_level_in_rules_keeps_the_options_a_preset_gives_the_rule() {
         repo.commit("the profile extends probe/needs");
         repo
     };
-    let project = |rules: &str| {
-        let repo = probe_repo("");
-        repo.write(
-            "apps/one/gate.toml",
-            &format!(
-                "[project]\nname = \"one\"\nextends = [\"probe/needs\"]\n\n[rules]\n{rules}\n"
-            ),
-        );
-        repo.commit("the project extends probe/needs");
-        repo
-    };
+    let project = |rules: &str| project_extends("\"probe/needs\"", rules);
 
     // A level alone keeps the preset's options, in a profile and in a project's own file.
     for repo in [
@@ -1695,17 +1725,29 @@ fn a_level_in_rules_keeps_the_options_a_preset_gives_the_rule() {
     assert_eq!(code, Some(0), "{messages:?}");
     assert_eq!(messages, ["needs of its own"]);
 
+    // The entry's own options are checked even when the preset's would do.
+    let (code, said) = gate_probe(&project(
+        r#""probe/needs" = { level = "warning", options = {} }"#,
+    ));
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("[rules]: \"probe/needs\" options:"), "{said}");
+
+    // A later preset that sets the rule replaces the earlier one's settings, options included.
+    let (code, said) = gate_probe(&project_extends(
+        "\"probe/needs\", \"probe/needs-level\"",
+        r#""probe/needs" = "warning""#,
+    ));
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("[rules]: \"probe/needs\" options:"), "{said}");
+
     // Without a preset that gives them, a level alone still lacks the required option.
     let repo = probe_repo(r#""probe/needs" = "warning""#);
     repo.commit("no preset");
-    let plugin = format!("probe={}", probe().0.display());
-    let output = repo.gate(&["check", "--plugin", &plugin]);
-    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
-    let message = text(&output.stderr);
+    let (code, said) = gate_probe(&repo);
+    assert_eq!(code, Some(2), "{said}");
     assert!(
-        message.contains("[[profiles]] rules: \"probe/needs\" options:")
-            && message.contains("pattern"),
-        "{message}"
+        said.contains("[[profiles]] rules: \"probe/needs\" options:") && said.contains("pattern"),
+        "{said}"
     );
 }
 

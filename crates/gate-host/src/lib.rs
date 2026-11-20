@@ -64,7 +64,7 @@ pub use plugins::{
 pub use projects::{Origin, Project, Projects};
 pub use report::{EXIT_CLEAN, EXIT_ERRORS, EXIT_FAILURE, Format, Report, SelectionFormat};
 pub use snapshot::{BlobId, Snapshot, Source};
-pub use workspace::{Inputs, RuleDeclaration, RuleScope, Workspace};
+pub use workspace::{Inputs, PresetOptions, RuleDeclaration, RuleScope, Workspace};
 
 /// Which paths count as changed in a run.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

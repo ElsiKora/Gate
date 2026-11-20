@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use crate::baseline::Baseline;
 use crate::config::{
-    self, CORE_PLUGIN, CORE_RULES, Config, FILE_NAME, Kind, Name, PluginName, PluginSource, RuleId,
-    RuleKey, RuleSettings, SchemaValidator, ScopedException, Setting, SettingOrigin, Settings,
-    Sourced, Tool, undeclared,
+    self, CORE_PLUGIN, CORE_RULES, Config, FILE_NAME, Kind, Name, PluginItem, PluginName,
+    PluginSource, RuleId, RuleKey, RuleSettings, SchemaValidator, ScopedException, Setting,
+    SettingOrigin, Settings, Sourced, Tool, undeclared,
 };
 use crate::error::{Error, Result};
 use crate::findings::RuleFilter;
@@ -35,6 +35,16 @@ pub struct RuleDeclaration {
     pub aspects: Vec<String>,
     /// The JSON Schema of the rule's options.
     pub options_schema: serde_json::Value,
+}
+
+/// The options the presets a scope extends give a rule, which the run uses when the rule's
+/// `[rules]` entry gives none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PresetOptions {
+    /// The options.
+    pub options: serde_json::Value,
+    /// The `extends` entry of the preset that gives them, the latest that sets the rule.
+    pub preset: Sourced<PluginItem>,
 }
 
 /// A repository opened for a run. A clone shares its snapshot and configuration.
@@ -407,7 +417,7 @@ impl Workspace {
     pub fn validate(
         &self,
         declaration: &dyn Fn(&PluginName, &PluginSource, &str) -> Option<RuleDeclaration>,
-        presets: &dyn Fn(&Settings, &RuleId) -> Result<Option<serde_json::Value>>,
+        presets: &dyn Fn(&Settings, &RuleId) -> Result<Option<PresetOptions>>,
         validator: &dyn SchemaValidator,
     ) -> Result<()> {
         self.validate_except(declaration, presets, validator, &BTreeSet::new())
@@ -421,7 +431,7 @@ impl Workspace {
     pub fn validate_except(
         &self,
         declaration: &dyn Fn(&PluginName, &PluginSource, &str) -> Option<RuleDeclaration>,
-        presets: &dyn Fn(&Settings, &RuleId) -> Result<Option<serde_json::Value>>,
+        presets: &dyn Fn(&Settings, &RuleId) -> Result<Option<PresetOptions>>,
         validator: &dyn SchemaValidator,
         skipped: &BTreeSet<PluginName>,
     ) -> Result<()> {
@@ -731,13 +741,14 @@ fn lookup(
 
 /// Checks one `[rules]` entry against what its plugin declares: its aspects, and the options the
 /// run uses, which are the entry's own, else `preset` (what the scope's presets give the rule),
-/// else `{}`.
+/// else `{}`. Options a preset gives that break the schema are the plugin's error, named by the
+/// preset and the `extends` entry, not the entry's.
 fn check_rule(
     settings: &Settings,
     rule: &RuleId,
     entry: &RuleSettings,
     found: &RuleDeclaration,
-    preset: Option<&serde_json::Value>,
+    preset: Option<&PresetOptions>,
     validator: &dyn SchemaValidator,
 ) -> Result<()> {
     for (aspect, origin) in entry
@@ -772,20 +783,27 @@ fn check_rule(
     }
 
     let empty = serde_json::Value::Object(serde_json::Map::new());
-    let (options, origin) = entry.options.as_ref().map_or(
-        (preset.unwrap_or(&empty), entry.origins().next()),
-        |options| (&options.value.value, Some(&options.origin)),
-    );
+    let (options, given) = match (&entry.options, preset) {
+        (Some(own), _) => (&own.value.value, None),
+        (None, Some(preset)) => (&preset.options, Some(&preset.preset)),
+        (None, None) => (&empty, None),
+    };
     let violations = validator.validate(&found.options_schema, options);
-
     if violations.is_empty() {
-        Ok(())
-    } else {
-        Err(at(
-            origin,
-            format!("\"{rule}\" options: {}", violations.join("; ")),
-        ))
+        return Ok(());
     }
+    let violations = violations.join("; ");
+    if let Some(preset) = given {
+        return Err(Error::environment(format!(
+            "{}: \"{rule}\" options the preset {} gives: {violations}; the plugin is broken, report it to its authors",
+            preset.origin, preset.value
+        )));
+    }
+    let origin = entry
+        .options
+        .as_ref()
+        .map_or_else(|| entry.origins().next(), |own| Some(&own.origin));
+    Err(at(origin, format!("\"{rule}\" options: {violations}")))
 }
 
 /// What to say of the first property the plugin's options schema requires and `options` lacks:

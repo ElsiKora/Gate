@@ -49,6 +49,23 @@ cases with the probe's preset `probe/needs`, which gives its rule the required `
 alone runs with the preset's pattern, the entry's own options replace it, and without the preset a
 level alone is still a configuration error that names the missing option.
 
+## The review, one fix round
+
+The independent review of `5e3fc9c7` found nothing blocking and asked for three additions:
+
+1. A test that the entry's own options are checked even when the preset's would pass: a project
+   entry `{ level = "warning", options = {} }` over `probe/needs` exits 2 at the entry.
+2. A test that a later preset replaces an earlier one's settings, options included:
+   `extends = ["probe/needs", "probe/needs-level"]` with a level alone exits 2.
+3. When the options checked came from a preset, the error says so: an environment error at the
+   `extends` entry, `"<rule>" options the preset <plugin>/<preset> gives: ...; the plugin is broken,
+   report it to its authors`, not the user's `[rules]` line. The probe gains the preset
+   `needs-broken`, which gives `pattern` a number, and the test
+   `options_a_preset_gives_that_break_the_schema_are_the_plugins_error` holds the message.
+
+`Workspace::validate` and `validate_except` receive a `PresetOptions` (the options and the
+`extends` entry of the latest preset that sets the rule) instead of a bare value.
+
 ## Done when
 
 - One lane round on the pushed tip, its own target directory and its logs kept per ticket: fmt,
@@ -59,6 +76,6 @@ level alone is still a configuration error that names the missing option.
 
 ## Resume point
 
-2026-11-20T22:45:33+00:00: round 384 found the bug above; the fix and its test are written on
-`308eca9b` and pushed. The Gate 001 stack merges first, as it also changes `workspace.rs`; then the
-branch rebases onto `main`, takes the stack's `workspace.rs` as it is, and runs one round.
+2026-11-20T22:52:06+00:00: the review's three additions are written on `308eca9b` and pushed. The
+Gate 001 stack merges first, as it also changes `workspace.rs`; then the branch rebases onto
+`main`, takes the stack's `workspace.rs` as it is, and runs one round.
