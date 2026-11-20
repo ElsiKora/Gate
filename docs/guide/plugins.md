@@ -359,7 +359,7 @@ name = "web"
 extends = ["frontend/recommended"]
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
 frontend = { source = "ElsiKora/Gate:frontend@0.3.0", options = { pack = "nextjs" } }
 ```
 
