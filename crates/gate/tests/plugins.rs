@@ -2832,7 +2832,7 @@ fn the_commit_msg_hook_checks_the_message_being_written() {
     assert!(!committed, "a CI-skip directive fails the hook: {said}");
     assert!(
         said.contains("the commit message carries the forbidden CI-skip directive [skip ci]")
-            && said.contains("gate check (tree, commit message): "),
+            && said.contains("gate check (commit message): "),
         "{said}"
     );
     // git keeps a `#` line given with -m, so the directive in it would be stored.
@@ -6308,5 +6308,107 @@ fn at_a_root_that_is_a_project_an_entry_of_repository_rules_points_to_the_roots_
             "apps/one/gate.toml:3 [project] extends"
         };
         assert!(said.contains(place), "{said}");
+    }
+}
+
+#[test]
+fn a_commit_message_check_runs_only_the_rules_that_read_the_message() {
+    let git = GitOptions::new();
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&file, "feat(core): add the thing\n").expect("message");
+    let at = file.display().to_string();
+    // In a hook, branch-name refuses main; the message is in form.
+    let output = git.check(
+        "",
+        "\"git/commit-message\" = \"error\"\n\"git/branch-name\" = { level = \"error\", options = { pattern = \"^feature/.+$\" } }",
+        &["--hook", "--commit-message", &at],
+    );
+    let stdout = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "branch-name does not read the message, so it does not run: {stdout}{}",
+        text(&output.stderr)
+    );
+    assert!(!stdout.contains("git/branch-name"), "{stdout}");
+    assert!(
+        stdout.contains("gate check (commit message): 1 rule, "),
+        "the summary names only the message, and git/commit-message ran: {stdout}"
+    );
+    assert!(
+        !text(&output.stderr).contains("no selected rule reads the commit message"),
+        "{}",
+        text(&output.stderr)
+    );
+}
+
+#[test]
+fn a_commit_message_check_whose_selected_rules_read_no_message_says_so() {
+    let git = GitOptions::new();
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&file, "feat(core): add the thing\n").expect("message");
+    let at = file.display().to_string();
+    let output = git.check(
+        "",
+        "\"git/commit-message\" = \"error\"\n\"git/branch-name\" = { level = \"error\", options = { pattern = \"^feature/.+$\" } }",
+        &["--commit-message", &at, "--rule", "git/branch-name"],
+    );
+    let stdout = text(&output.stdout);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stdout}{stderr}");
+    assert!(
+        stdout.contains("gate check (commit message): 0 rules, "),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains("gate: warning: no selected rule reads the commit message"),
+        "{stderr}"
+    );
+
+    // Listing the changed projects runs no rule, so it warns of none.
+    let output = git.check(
+        "",
+        "\"git/commit-message\" = \"error\"\n\"git/branch-name\" = { level = \"error\", options = { pattern = \"^feature/.+$\" } }",
+        &[
+            "--commit-message",
+            &at,
+            "--rule",
+            "git/branch-name",
+            "--list-changed-projects",
+        ],
+    );
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    assert!(
+        !stderr.contains("gate: warning: no selected rule"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_commit_message_check_with_a_tree_selector_is_a_usage_error() {
+    let git = GitOptions::new();
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let file = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&file, "feat(core): add the thing\n").expect("message");
+    let at = file.display().to_string();
+    for selector in [
+        &["--staged"][..],
+        &["--changed", "--base", "HEAD"][..],
+        &["--push", "HEAD..HEAD"][..],
+        &["--rev", "HEAD"][..],
+    ] {
+        let mut arguments = vec!["--commit-message", at.as_str()];
+        arguments.extend_from_slice(selector);
+        let output = git.check("", "\"git/commit-message\" = \"error\"", &arguments);
+        let message = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{selector:?}: {message}");
+        assert!(
+            message.contains("--commit-message checks only the message")
+                && message.contains("pre-commit"),
+            "{selector:?}: {message}"
+        );
     }
 }

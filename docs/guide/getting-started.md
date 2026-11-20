@@ -157,9 +157,10 @@ hook may also run one of your steps, for example `run format` to check the stage
 makes a hook that takes longer than 10 seconds warn. On a fresh clone, `bin/gate doctor` tells you
 when `gate sync` has not run yet.
 
-The `commit-msg` hook checks the message being written, before the commit exists: with the rules
-above, `git/commit-message` checks its form and `git/no-ci-skip` refuses a CI-skip directive in it.
-Its summary says so: `gate check (tree, commit message): ...`. The form is
+The `commit-msg` hook checks only the message being written, before the commit exists: with the
+rules above, `git/commit-message` checks its form and `git/no-ci-skip` refuses a CI-skip directive
+in it. The tree is checked by `pre-commit`, `pre-push` and CI, not again here. Its summary says so:
+`gate check (commit message): ...`. The form is
 `<type>(<scope>): <subject>`, a scope is required by default, and the
 [rule page](../../plugins/git/rules/commit-message.md) explains how to change that.
 

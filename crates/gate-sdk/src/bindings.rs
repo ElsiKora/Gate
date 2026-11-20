@@ -222,6 +222,7 @@ fn rule_info(info: RuleInfo) -> wit::RuleInfo {
             Scope::Repository => wit::Scope::Repository,
         },
         reads_history: info.reads_history,
+        reads_message: info.reads_message,
         languages: info.languages,
         options_schema: info.options_schema,
     }

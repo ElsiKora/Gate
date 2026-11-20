@@ -2,8 +2,9 @@
 ///
 /// A plugin is one `.wasm` component that exports `describe`, `check` and `generate`. It sees the
 /// tracked tree of its scope read-only through `tree`, git data through `git` (only for rules that
-/// declare `reads-history`), and nothing else: no files, network, clock or environment. Levels,
-/// norms and exceptions belong to the core's configuration, never to the plugin.
+/// declare `reads-history`, and the commit message only for rules that declare `reads-message`),
+/// and nothing else: no files, network, clock or environment. Levels, norms and exceptions belong
+/// to the core's configuration, never to the plugin.
 package gate:plugin@0.3.0;
 
 interface types {
@@ -49,6 +50,10 @@ interface types {
     scope: scope,
     /// The rule reads commits, not only the snapshot; only such rules may call `git`.
     reads-history: bool,
+    /// The rule reads the commit message being written (`git.message`); only such rules may ask
+    /// for it, and a `gate check --commit-message` run runs only them. Repository scope only: a
+    /// project-scope rule that declares it does not load.
+    reads-message: bool,
     /// The languages whose files the rule reads, e.g. `["typescript"]`; empty for none.
     languages: list<string>,
     /// The JSON Schema of the rule's options. Its key `x-gate-needs`, when present, lists as
@@ -185,7 +190,8 @@ interface git {
   /// match its pin, a failure of git, and a failure that may pass by the next run fail the call.
   sync-state: func(commit: string) -> sync-paths;
   /// The commit message under review, as the file `gate check --commit-message <file>` names holds
-  /// it (comment lines included); none for a run without one.
+  /// it (comment lines included); none for a run without one. Only for calls whose rules declare
+  /// `reads-message`.
   message: func() -> option<string>;
   /// Whether a git hook started the run: `gate check --hook`, which the generated hooks pass.
   hook: func() -> bool;

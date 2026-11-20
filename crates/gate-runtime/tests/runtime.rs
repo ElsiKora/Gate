@@ -123,6 +123,9 @@ impl History for OneCommit {
             ],
         })
     }
+    fn message(&self) -> Result<Option<String>, HostError> {
+        Ok(Some("feat(core): add the thing\n".to_owned()))
+    }
 }
 
 /// [`OneCommit`] whose `head` takes as long as the field says, as git on a cold cache may.
@@ -525,8 +528,13 @@ fn a_component_built_for_another_interface_fails_to_load_naming_the_interface() 
     let version = env!("CARGO_PKG_VERSION");
     assert!(
         error.to_string().contains(&format!(
-            "hello was built for another plugin interface; this gate {version} loads plugins built for gate:plugin@0.3.0 only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {version}, released with this core), or rebuild it with gate-sdk {version}"
+            "hello was built for another plugin interface; this gate {version} loads plugins built for gate:plugin@0.3.0 only: pin the plugin's release built for gate:plugin@0.3.0 (each plugin's CHANGELOG.md says which interface a release is built for), or rebuild it with gate-sdk {version}"
         )),
+        "{error}"
+    );
+    // Plugins are versioned apart from the core: the error names no core version as a plugin's.
+    assert!(
+        !error.to_string().contains("released with this core"),
         "{error}"
     );
     // The interface the error names is the one the core is built against.
@@ -940,5 +948,84 @@ fn a_file_added_under_an_extra_read_is_under_a_listed_prefix() {
             .iter()
             .any(|prefix| "docs/ledger/b.md".starts_with(prefix.as_str())),
         "the added file is under a recorded prefix, so the cached result is re-run"
+    );
+}
+
+#[test]
+fn a_rule_that_reads_the_message_without_declaring_it_gets_the_error_naming_reads_message() {
+    let runtime = runtime(Config::default());
+    let plugin = load(&runtime);
+    let outcome = runtime
+        .check(&call(
+            &plugin,
+            "message-undeclared",
+            "",
+            tree(),
+            Grant::repository(),
+        ))
+        .expect("the call runs");
+    let said = messages(&outcome);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("does not declare READS_MESSAGE") && !said[0].contains("add the thing"),
+        "the SDK refuses the message to a rule that does not declare it: {said:?}"
+    );
+}
+
+#[test]
+fn a_rule_that_declares_nothing_and_reads_the_message_gets_the_error_naming_reads_message() {
+    let runtime = runtime(Config::default());
+    let plugin = load(&runtime);
+    let outcome = runtime
+        .check(&call(
+            &plugin,
+            "message-no-flags",
+            "",
+            tree(),
+            Grant::repository(),
+        ))
+        .expect("the call runs");
+    let said = messages(&outcome);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("does not declare READS_MESSAGE") && !said[0].contains("READS_HISTORY"),
+        "the message call names the flag it needs: {said:?}"
+    );
+}
+
+#[test]
+fn a_rule_that_declares_only_the_message_gets_no_history() {
+    let runtime = runtime(Config::default());
+    let plugin = load(&runtime);
+    let outcome = runtime
+        .check(&call(
+            &plugin,
+            "history-undeclared",
+            "",
+            tree(),
+            Grant::repository(),
+        ))
+        .expect("the call runs");
+    let said = messages(&outcome);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("Err(") && said[0].contains("does not declare READS_HISTORY"),
+        "the SDK refuses history to a rule that declares only the message: {said:?}"
+    );
+}
+
+#[test]
+fn a_project_scope_rule_that_declares_the_message_does_not_load() {
+    let runtime = runtime(Config::default());
+    let component = probe_with("message-in-project");
+    let error = runtime
+        .load("other", component)
+        .expect_err("the message belongs to the repository");
+    assert_eq!(error.kind(), ErrorKind::Load, "{error}");
+    assert!(
+        error.to_string().contains("project-message")
+            && error.to_string().contains("reads-message")
+            && error.to_string().contains("repository-scope"),
+        "{error}"
     );
 }

@@ -431,8 +431,10 @@ budget = 10
 Each git hook runs the listed `gate` commands in order: `check ...`, `run <step or suite> [--staged |
 --push]` or `sync --check`, with no shell syntax. `--push` (in `pre-push` only) and `--commit-message`
 (in `commit-msg` and the other hooks that receive a message file) take no value: the hook passes the
-pushed ranges or the message file; a `check` with a message file checks the message being written
-(the rules that read it, such as `git/commit-message`), and its summary says `commit message`. Every
+pushed ranges or the message file; a `check` with a message file checks only the message being
+written: the enabled rules that declare they read it (`READS_MESSAGE`), such as `git/commit-message`.
+It checks no tree, takes no `--staged`, `--changed`, `--push` or `--rev`, and its summary says
+`commit message`. Every
 `check` a hook runs also gets `--hook`, so rules that apply only
 while a developer works (a prohibited branch name) know a hook started them; an entry, of a hook or a
 job, does not write `--hook` itself. A `run` entry passes the hook's arguments to its steps (`-- "$@"`)

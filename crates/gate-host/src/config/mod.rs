@@ -1144,8 +1144,8 @@ pub fn join(directory: &str, path: &str) -> String {
 /// `run <step or suite> [--staged | --push]`, gate arguments only (no shell syntax).
 ///
 /// # Errors
-/// Fails, saying what is expected, when the command is empty, names another command, or holds shell
-/// syntax.
+/// Fails, saying what is expected, when the command is empty, names another command, holds shell
+/// syntax, or combines `--commit-message` with a flag that picks a tree.
 pub fn check_gate_command(command: &str) -> std::result::Result<(), String> {
     let words: Vec<&str> = command.split_whitespace().collect();
     if let Some(word) = words.iter().find(|word| {
@@ -1170,6 +1170,22 @@ pub fn check_gate_command(command: &str) -> std::result::Result<(), String> {
                 "{command:?}: write {flag} without a value; the hook or the job supplies it"
             ));
         }
+    }
+    if words.contains(&"--commit-message")
+        && let Some(selector) = words.iter().find_map(|word| {
+            ["--staged", "--changed", "--base", "--push", "--rev"]
+                .into_iter()
+                .find(|flag| {
+                    word == flag
+                        || word
+                            .strip_prefix(flag)
+                            .is_some_and(|rest| rest.starts_with('='))
+                })
+        })
+    {
+        return Err(format!(
+            "{command:?}: remove {selector}; --commit-message checks only the message being written, and the tree is checked by the pre-commit hook (check --staged), the pre-push hook (check --push) and CI"
+        ));
     }
     if words
         .iter()

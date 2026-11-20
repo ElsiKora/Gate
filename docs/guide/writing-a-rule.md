@@ -89,9 +89,9 @@ impl Rule for NoBareTodo {
 ```
 
 A rule is a `#[derive(Debug, Default)]` type that implements `gate_sdk::Rule`: `NAME`, `TITLE` and
-`check` are required; `SCOPE`, `ASPECTS`, `LANGUAGES` and `READS_HISTORY` have defaults (project, none,
-none, `false`). `check` reads through `run.tree()` and `run.options()` and reports through
-`run.report()`.
+`check` are required; `SCOPE`, `ASPECTS`, `LANGUAGES`, `READS_HISTORY` and `READS_MESSAGE` have
+defaults (project, none, none, `false`, `false`). `check` reads through `run.tree()` and
+`run.options()` and reports through `run.report()`.
 
 The repository turns it on:
 
@@ -190,6 +190,18 @@ for commit in git.log(&format!("{base}..{}", range.head)) {
             .help("shorten the subject to 72 characters and move the detail to the body");
     }
 }
+```
+
+A rule about the commit message being written (the `commit-msg` hook's `gate check --commit-message
+<file>`) declares `READS_MESSAGE` and reads it through `run.message()?`. That call fails, with an
+error naming `READS_MESSAGE`, for a rule that does not declare it; `run.git()` likewise fails for a
+rule that does not declare `READS_HISTORY`, so a rule that reads only the message reads no history.
+Such a rule is repository-scope; a project-scope rule that declares it does not load. A
+`--commit-message` run runs only these rules:
+
+```rust
+const SCOPE: Scope = Scope::Repository;
+const READS_MESSAGE: bool = true;
 ```
 
 ## 7. Findings

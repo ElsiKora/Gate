@@ -300,6 +300,29 @@ fn target_ref_needs_push(target_ref: Option<&str>, push: Option<&str>) -> Result
     Ok(())
 }
 
+/// `--commit-message` checks only the message being written; a flag that picks the tree to check
+/// beside it is refused, since the tree is the other hooks' and CI's to check.
+fn message_checks_no_tree(arguments: &CheckArgs) -> Result<(), Error> {
+    if arguments.commit_message.is_none() {
+        return Ok(());
+    }
+    let selector = [
+        (arguments.staged, "--staged"),
+        (arguments.changed, "--changed"),
+        (arguments.base.is_some(), "--base"),
+        (arguments.push.is_some(), "--push"),
+        (arguments.rev.is_some(), "--rev"),
+    ]
+    .into_iter()
+    .find_map(|(given, flag)| given.then_some(flag));
+    match selector {
+        None => Ok(()),
+        Some(flag) => Err(Error::config(format!(
+            "--commit-message checks only the message being written, so it takes no {flag}: the tree is checked by the pre-commit hook (check --staged), the pre-push hook (check --push) and CI; run those checks apart"
+        ))),
+    }
+}
+
 fn parse_budget(value: &str) -> Result<Duration, String> {
     let seconds: f64 = value
         .parse()
@@ -370,6 +393,7 @@ fn print(text: &str) -> Result<u8, Error> {
 
 fn check(arguments: &CheckArgs) -> Result<u8, Error> {
     target_ref_needs_push(arguments.target_ref.as_deref(), arguments.push.as_deref())?;
+    message_checks_no_tree(arguments)?;
     let commit_message = match &arguments.commit_message {
         None => None,
         Some(path) => Some(std::fs::read_to_string(path).map_err(|error| {
@@ -445,6 +469,11 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
 
     if let Some(warning) = &checked.cache_warning {
         eprintln!("gate: warning: {warning}");
+    }
+    if arguments.commit_message.is_some() && checked.report.rules == 0 {
+        eprintln!(
+            "gate: warning: no selected rule reads the commit message, so nothing checked it; enable a rule that declares READS_MESSAGE, such as git/commit-message, or name one with --rule"
+        );
     }
     if arguments.run.timings {
         print_timings(&checked);

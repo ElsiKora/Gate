@@ -22,6 +22,9 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   `pre-push` hook and by the CI job, under the same aspects as in the `commit-msg` hook. Reword such
   a commit before the push (`git rebase -i`), or, when it is already shared, give it an exception by
   its commit id. Commits already on the remote ref or on main are not checked.
+- `git/commit-message` and `git/no-ci-skip` declare `READS_MESSAGE`, so a
+  `gate check --commit-message` run runs them; `git/branch-name` and `git/main-history` do not,
+  and run only in the other hooks and CI.
 
 ### Added
 

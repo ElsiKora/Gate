@@ -1352,6 +1352,27 @@ fn ci_steps_refuse_if_before_the_gate_commands_and_a_directory_on_an_action() {
 }
 
 #[test]
+fn a_commit_msg_entry_that_also_picks_a_tree_is_a_configuration_error() {
+    for (entry, flag) in [
+        ("check --commit-message --staged", "--staged"),
+        ("check --push --commit-message", "--push"),
+        ("check --commit-message --rev=HEAD", "--rev"),
+    ] {
+        let repo = with_root(&format!("\n[hooks]\ncommit-msg = [\"{entry}\"]\n"));
+        let output = repo.gate(&["sync"]);
+        assert_eq!(output.status.code(), Some(2), "{entry}");
+        let expected = format!(
+            "[hooks] commit-msg: \"{entry}\": remove {flag}; --commit-message checks only the message being written"
+        );
+        assert!(
+            stderr(&output).contains(&expected),
+            "{entry}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
 fn target_ref_needs_push_and_a_full_ref_name() {
     let repo = with_root("\n# --target-ref without --push\n");
     let output = repo.gate(&["check", "--target-ref", "refs/heads/main"]);

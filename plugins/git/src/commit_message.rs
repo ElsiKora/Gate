@@ -134,13 +134,14 @@ impl Rule for CommitMessage {
     const ASPECTS: &'static [&'static str] = ASPECTS;
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
+    const READS_MESSAGE: bool = true;
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let patterns = Patterns::new(run.options())?;
-        let git = run.git()?;
-        if let Some(message) = git.message() {
+        if let Some(message) = run.message()? {
             report(run, &patterns, &message, None);
         }
+        let git = run.git()?;
         for commit in pushed(run, &git)? {
             report(run, &patterns, &commit.message, Some(&commit));
         }

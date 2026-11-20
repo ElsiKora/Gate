@@ -27,6 +27,8 @@ pub struct RuleInfo {
     pub aspects: Vec<String>,
     pub scope: Scope,
     pub reads_history: bool,
+    /// The rule reads the commit message being written ([`Rule::READS_MESSAGE`]).
+    pub reads_message: bool,
     pub languages: Vec<String>,
     /// The JSON Schema of the options, generated from [`Rule::Options`].
     pub options_schema: String,
@@ -68,6 +70,11 @@ pub trait Rule<S: CallState = ()>: Default + 'static {
     const SCOPE: Scope = Scope::Project;
     /// The rule reads commits; only then does [`Run::git`] answer.
     const READS_HISTORY: bool = false;
+    /// The rule reads the commit message being written (`gate check --commit-message`); only then
+    /// does [`Run::message`] answer, and a `--commit-message` run runs only such rules. The message
+    /// belongs to the repository: a rule that declares it has [`Scope::Repository`], or its plugin
+    /// does not load.
+    const READS_MESSAGE: bool = false;
     /// The languages whose files the rule reads (`["typescript"]`), so the host can skip a run
     /// with no such file.
     const LANGUAGES: &'static [&'static str] = &[];
@@ -93,6 +100,7 @@ pub trait Rule<S: CallState = ()>: Default + 'static {
                 .collect(),
             scope: Self::SCOPE,
             reads_history: Self::READS_HISTORY,
+            reads_message: Self::READS_MESSAGE,
             languages: Self::LANGUAGES
                 .iter()
                 .map(|language| (*language).to_owned())
@@ -319,7 +327,10 @@ impl<S: CallState> Enter<S> for Entered<'_, S> {
 /// [`CallState`]; `()` for a plugin without one.
 pub struct Run<'h, O, S: CallState = ()> {
     pub(crate) call: Call<'h>,
+    /// The host's git, when the rule declares [`Rule::READS_HISTORY`] or [`Rule::READS_MESSAGE`].
     pub(crate) git: Option<Git<'h>>,
+    pub(crate) reads_history: bool,
+    pub(crate) reads_message: bool,
     pub(crate) report: Report,
     pub(crate) options: O,
     pub(crate) options_file: Option<String>,
@@ -372,11 +383,38 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
     /// The repository's history.
     ///
     /// # Errors
-    /// When the rule does not declare [`Rule::READS_HISTORY`] or the host offers no history.
+    /// When the rule does not declare [`Rule::READS_HISTORY`] (a rule that declares only
+    /// [`Rule::READS_MESSAGE`] reads the message through [`Run::message`] and no history), or the
+    /// host offers no history.
     pub fn git(&self) -> Result<Git<'h>> {
+        if !self.reads_history {
+            return Err(Error::new(
+                "this rule reads git history but does not declare READS_HISTORY = true",
+            ));
+        }
         self.git.ok_or_else(|| {
-            Error::new("this rule reads git history but does not declare READS_HISTORY = true")
+            Error::new(
+                "the host offers no git history to this rule: run it in a git repository with \
+                 its commits fetched",
+            )
         })
+    }
+
+    /// The commit message under review: what the file `gate check --commit-message <file>` names
+    /// holds, as git wrote it for the `commit-msg` hook, its comment lines (`#` by default) and any
+    /// scissors line included. `None` for a run without `--commit-message`; a rule about the
+    /// message then checks nothing. A rule that removes comments does so itself: git's
+    /// `core.commentChar` is not known to the plugin.
+    ///
+    /// # Errors
+    /// When the rule does not declare [`Rule::READS_MESSAGE`].
+    pub fn message(&self) -> Result<Option<String>> {
+        if !self.reads_message {
+            return Err(Error::new(
+                "this rule reads the commit message but does not declare READS_MESSAGE = true",
+            ));
+        }
+        Ok(self.git.as_ref().and_then(Git::message))
     }
 
     /// Where findings go.

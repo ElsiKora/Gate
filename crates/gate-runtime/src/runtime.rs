@@ -410,8 +410,7 @@ impl Runtime {
                 name,
                 ErrorKind::Load,
                 format!(
-                    "{name} was built for another plugin interface; this gate {} loads plugins built for {INTERFACE} only: pin the plugin's release built for it (the plugins of ElsiKora/Gate: version {}, released with this core), or rebuild it with gate-sdk {} ({error:#})",
-                    env!("CARGO_PKG_VERSION"),
+                    "{name} was built for another plugin interface; this gate {} loads plugins built for {INTERFACE} only: pin the plugin's release built for {INTERFACE} (each plugin's CHANGELOG.md says which interface a release is built for), or rebuild it with gate-sdk {} ({error:#})",
                     env!("CARGO_PKG_VERSION"),
                     env!("CARGO_PKG_VERSION")
                 ),
@@ -435,67 +434,21 @@ impl Runtime {
         let access = Access {
             tree: Arc::new(Empty),
             history: None,
+            reads_history: false,
+            reads_message: false,
             grant: Grant::repository(),
         };
         let (info, _, _, _, _) = self.invoke(&plugin, "describe", access, |bindings, store| {
             bindings.call_describe(store)
         })?;
         plugin.info = info_from(info);
-        for (kind, names) in [
-            (
-                "rule",
-                plugin
-                    .info
-                    .rules
-                    .iter()
-                    .map(|rule| rule.name.as_str())
-                    .collect::<Vec<_>>(),
-            ),
-            (
-                "generator",
-                plugin
-                    .info
-                    .generators
-                    .iter()
-                    .map(|generator| generator.name.as_str())
-                    .collect(),
-            ),
-        ] {
-            let mut seen = std::collections::BTreeSet::new();
-            if let Some(twice) = names.iter().find(|name| !seen.insert(**name)) {
-                return Err(Error::new(
-                    name,
-                    ErrorKind::Load,
-                    format!("declares the {kind} {twice:?} twice"),
-                ));
-            }
-        }
-        for generator in &plugin.info.generators {
-            for glob in &generator.owns {
-                let wrong = if !is_relative_glob(glob) {
-                    "is not relative to the project root (no leading /, no . or .. segment)"
-                } else if has_git_segment(glob) {
-                    "reaches into git's own directory"
-                } else if owns_everything(glob) {
-                    "matches every file of the project"
-                } else {
-                    continue;
-                };
-                return Err(Error::new(
-                    name,
-                    ErrorKind::Load,
-                    format!(
-                        "generator {} owns the glob {glob:?}, which {wrong}; report it to the plugin's authors",
-                        generator.name
-                    ),
-                ));
-            }
-        }
+        check_declaration(name, &plugin.info)?;
         Ok(plugin)
     }
 
-    /// Runs one `check` call. Rules that declare `reads-history` run in a call of their own that is
-    /// granted git; the others run in a call without it.
+    /// Runs one `check` call. Rules that declare `reads-history` or `reads-message` run in a call
+    /// of their own that is granted git, its history for the first and the commit message for the
+    /// second; the others run in a call without it.
     ///
     /// # Errors
     /// A rule the plugin does not declare, a history rule in a run without history, a trap, fuel
@@ -526,7 +479,7 @@ impl Runtime {
                         ),
                     )
                 })?;
-            if info.reads_history {
+            if info.reads_history || info.reads_message {
                 &mut history
             } else {
                 &mut snapshot
@@ -560,6 +513,8 @@ impl Runtime {
             let access = Access {
                 tree: Arc::clone(&call.tree),
                 history: git,
+                reads_history: ran.iter().any(|info| info.reads_history),
+                reads_message: ran.iter().any(|info| info.reads_message),
                 grant: call.grant.clone(),
             };
             let label = format!(
@@ -677,6 +632,8 @@ impl Runtime {
         let access = Access {
             tree,
             history: None,
+            reads_history: false,
+            reads_message: false,
             grant: grant.clone(),
         };
         let label = format!("generate {name}");
@@ -848,6 +805,72 @@ fn trap(plugin: &str, error: &wasmtime::Error) -> Error {
     Error::new(plugin, ErrorKind::Trap, format!("trapped: {error:#}"))
 }
 
+/// Refuses a declaration the core cannot run: a rule or generator declared twice, a project-scope
+/// rule that reads the commit message, a generator that owns a glob outside its project.
+fn check_declaration(name: &str, info: &PluginInfo) -> Result<()> {
+    for (kind, names) in [
+        (
+            "rule",
+            info.rules
+                .iter()
+                .map(|rule| rule.name.as_str())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "generator",
+            info.generators
+                .iter()
+                .map(|generator| generator.name.as_str())
+                .collect(),
+        ),
+    ] {
+        let mut seen = std::collections::BTreeSet::new();
+        if let Some(twice) = names.iter().find(|name| !seen.insert(**name)) {
+            return Err(Error::new(
+                name,
+                ErrorKind::Load,
+                format!("declares the {kind} {twice:?} twice"),
+            ));
+        }
+    }
+    if let Some(rule) = info
+        .rules
+        .iter()
+        .find(|rule| rule.reads_message && rule.scope == Scope::Project)
+    {
+        return Err(Error::new(
+            name,
+            ErrorKind::Load,
+            format!(
+                "rule {:?} declares reads-message but is a project-scope rule; the commit message belongs to the repository, so a rule that reads it is repository-scope; report it to the plugin's authors",
+                rule.name
+            ),
+        ));
+    }
+    for generator in &info.generators {
+        for glob in &generator.owns {
+            let wrong = if !is_relative_glob(glob) {
+                "is not relative to the project root (no leading /, no . or .. segment)"
+            } else if has_git_segment(glob) {
+                "reaches into git's own directory"
+            } else if owns_everything(glob) {
+                "matches every file of the project"
+            } else {
+                continue;
+            };
+            return Err(Error::new(
+                name,
+                ErrorKind::Load,
+                format!(
+                    "generator {} owns the glob {glob:?}, which {wrong}; report it to the plugin's authors",
+                    generator.name
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn empty_info() -> PluginInfo {
     PluginInfo {
         name: String::new(),
@@ -876,6 +899,7 @@ fn info_from(info: wit::PluginInfo) -> PluginInfo {
                     wit::Scope::Repository => Scope::Repository,
                 },
                 reads_history: rule.reads_history,
+                reads_message: rule.reads_message,
                 languages: rule.languages,
                 options_schema: rule.options_schema,
             })

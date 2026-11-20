@@ -78,6 +78,7 @@ struct StoredRule {
     /// Whether its scope is the repository; otherwise it is a project.
     repository: bool,
     reads_history: bool,
+    reads_message: bool,
     languages: Vec<String>,
     options_schema: String,
 }
@@ -113,6 +114,7 @@ impl From<&PluginInfo> for Stored {
                     aspects: rule.aspects.clone(),
                     repository: rule.scope == Scope::Repository,
                     reads_history: rule.reads_history,
+                    reads_message: rule.reads_message,
                     languages: rule.languages.clone(),
                     options_schema: rule.options_schema.clone(),
                 })
@@ -158,6 +160,7 @@ impl From<Stored> for PluginInfo {
                         Scope::Project
                     },
                     reads_history: rule.reads_history,
+                    reads_message: rule.reads_message,
                     languages: rule.languages,
                     options_schema: rule.options_schema,
                 })
@@ -200,6 +203,7 @@ mod tests {
                     aspects: vec!["a".to_owned(), "b".to_owned()],
                     scope: Scope::Project,
                     reads_history: false,
+                    reads_message: false,
                     languages: vec!["typescript".to_owned()],
                     options_schema: "true".to_owned(),
                 },
@@ -209,6 +213,7 @@ mod tests {
                     aspects: Vec::new(),
                     scope: Scope::Repository,
                     reads_history: true,
+                    reads_message: true,
                     languages: Vec::new(),
                     options_schema: "{\"x-gate-needs\":[]}".to_owned(),
                 },

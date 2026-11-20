@@ -1,4 +1,5 @@
-//! Git history, for rules that declare [`crate::Rule::READS_HISTORY`].
+//! Git history, for rules that declare [`crate::Rule::READS_HISTORY`]. The commit message being
+//! written is [`crate::Run::message`], for rules that declare [`crate::Rule::READS_MESSAGE`].
 
 use crate::host::GitHost;
 
@@ -174,13 +175,8 @@ impl<'h> Git<'h> {
         self.host.sync_state(commit)
     }
 
-    /// The commit message under review: what the file `gate check --commit-message <file>` names
-    /// holds, as git wrote it for the `commit-msg` hook, its comment lines (`#` by default) and any
-    /// scissors line included. `None` for a run without `--commit-message`; a rule about the
-    /// message then checks nothing. A rule that removes comments does so itself: git's
-    /// `core.commentChar` is not known to the plugin.
-    #[must_use]
-    pub fn message(&self) -> Option<String> {
+    /// The commit message under review, for [`crate::Run::message`].
+    pub(crate) fn message(&self) -> Option<String> {
         self.host.message()
     }
 
