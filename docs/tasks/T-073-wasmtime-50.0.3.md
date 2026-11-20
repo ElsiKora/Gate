@@ -6,7 +6,7 @@
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead (pins, lockfile and changelog only) |
-| Depends on | `main` at `cee6491` |
+| Depends on | `main` at `5d7f1b60` (Gate checks itself, T-074) |
 | Touches | `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md` |
 
 ## Goal
@@ -40,3 +40,6 @@ advisory is Windows-only.
 -p wasmtime -p wasmtime-wasi --precise 50.0.3`, run as a lane job, moved the 30 crates of that
 wasmtime release (17 at 50.0.3, 13 `cranelift-*` at 0.137.3) and nothing else; `Cargo.lock` holds no
 50.0.2 crate. The CHANGELOG has the Bug Fixes entry. Next: one lane round on T-073's own target.
+2026-11-20T17:11:38+00:00: rebased onto `main` at `5d7f1b60` without a conflict; T-074 changed none
+of the three files. Round 358 on the earlier base was stopped while it waited in the queue, before
+it built anything. Next: one lane round on T-073's own target.
