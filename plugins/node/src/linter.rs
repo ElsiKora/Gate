@@ -147,7 +147,7 @@ fn root(run: &mut Run<'_, Options>, tree: &Tree<'_>) {
             (CONFIG, None),
             &shared,
             format!("{CONFIG} does not import {shared}, the shared ESLint configuration"),
-            "build the configuration with the shared package's createConfig and add only what the repository needs",
+            "import the shared package and build the configuration on it, adding only what the repository needs",
         );
     }
     for (specifier, line) in &specifiers {

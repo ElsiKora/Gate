@@ -37,6 +37,14 @@ fn the_version_file_holds_one_exact_version() {
     )
     .lines(RULE);
     assert_eq!(missing, ["file .nvmrc .nvmrc"]);
+    assert_eq!(
+        run("24\n", "latest", &[]),
+        [
+            "file .nvmrc .nvmrc",
+            "engines package.json:3 engines.node",
+            "differs apps/a/package.json:3 engines.node"
+        ]
+    );
 }
 
 #[test]

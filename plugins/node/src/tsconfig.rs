@@ -90,7 +90,7 @@ impl Rule for Tsconfig {
         }
         if let Some(difference) = difference(kind, Row::Resolution)
             && configs.contains_key("tsconfig.json")
-            && !sets_resolution(&configs, "tsconfig.json")
+            && !sets_resolution(&configs, "tsconfig.json", own_base.as_deref())
         {
             crate::report(
                 run.report(),
@@ -274,12 +274,13 @@ fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &
 }
 
 /// Whether the configuration at `start`, or one it extends inside the project, sets
-/// `moduleResolution`.
-fn sets_resolution(configs: &BTreeMap<String, Node>, start: &str) -> bool {
+/// `moduleResolution`. The base the project owns does not count: it holds the common resolution,
+/// which the kind's difference replaces.
+fn sets_resolution(configs: &BTreeMap<String, Node>, start: &str, base: Option<&str>) -> bool {
     let mut seen = BTreeSet::new();
     let mut queue = vec![start.to_owned()];
     while let Some(path) = queue.pop() {
-        if !seen.insert(path.clone()) {
+        if !seen.insert(path.clone()) || base == Some(path.as_str()) {
             continue;
         }
         let Some(config) = configs.get(&path) else {

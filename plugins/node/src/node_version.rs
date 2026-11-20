@@ -56,9 +56,7 @@ impl Rule for NodeVersion {
             );
             return Ok(());
         };
-        if let Some(pinned) = pinned {
-            engines(run, &range, line, pinned);
-        }
+        engines(run, &range, line, pinned);
         for path in manifests
             .iter()
             .filter(|path| path.as_str() != "package.json")
@@ -156,21 +154,23 @@ fn forms(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, manifests: &[String]) ->
     Ok(())
 }
 
-/// `engines`: the root's range admits the pinned version and no earlier major.
-fn engines(run: &mut Run<'_, NoOptions>, range: &str, line: usize, pinned: Version) {
-    let problem = match Range::parse(range) {
-        None => Some(format!(
+/// `engines`: the root's range reads as a range and, with an exact `.nvmrc`, admits that version
+/// and no earlier major.
+fn engines(run: &mut Run<'_, NoOptions>, range: &str, line: usize, pinned: Option<Version>) {
+    let problem = match (Range::parse(range), pinned) {
+        (None, _) => Some(format!(
             "package.json engines.node \"{range}\" is not a range Gate reads"
         )),
-        Some(parsed) if !parsed.admits(pinned) => Some(format!(
+        (Some(_), None) => None,
+        (Some(parsed), Some(pinned)) if !parsed.admits(pinned) => Some(format!(
             "package.json engines.node \"{range}\" does not admit {}.{}.{}, the version in .nvmrc",
             pinned.major, pinned.minor, pinned.patch
         )),
-        Some(parsed) if parsed.admits_below(pinned.major) => Some(format!(
+        (Some(parsed), Some(pinned)) if parsed.admits_below(pinned.major) => Some(format!(
             "package.json engines.node \"{range}\" admits a Node major below {}, the major in .nvmrc",
             pinned.major
         )),
-        Some(_) => None,
+        (Some(_), Some(_)) => None,
     };
     if let Some(message) = problem {
         crate::report(

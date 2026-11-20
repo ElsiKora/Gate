@@ -134,6 +134,21 @@ fn module_resolution_is_the_kinds() {
         member("service", "apps/s", &[("tsconfig.json", EXTENDS_BASE)]),
         Vec::<String>::new()
     );
+    let inherits = "{ \"extends\": \"./tsconfig.base.json\" }";
+    let owner = |own: &str| {
+        member(
+            "frontend",
+            "",
+            &[("tsconfig.base.json", BASE), ("tsconfig.json", own)],
+        )
+    };
+    assert_eq!(
+        owner(inherits),
+        ["resolution tsconfig.json moduleResolution"]
+    );
+    let bundled =
+        resolved("ESNext", "Bundler").replace("../../tsconfig.base.json", "./tsconfig.base.json");
+    assert_eq!(owner(&bundled), Vec::<String>::new());
 }
 
 #[test]
