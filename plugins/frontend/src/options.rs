@@ -36,7 +36,7 @@ pub struct PluginOptions {
 #[serde(crate = "gate_sdk::serde", rename_all = "kebab-case")]
 #[schemars(crate = "gate_sdk::schemars")]
 pub enum Pack {
-    /// A React app built with Vite and routed by TanStack Router file routes.
+    /// A React app built with Vite and routed by `TanStack` Router file routes.
     ReactVite,
     /// A Next.js app on the App Router.
     Nextjs,

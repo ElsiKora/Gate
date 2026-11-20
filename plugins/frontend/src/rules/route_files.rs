@@ -1,5 +1,5 @@
 //! `frontend/route-files`: the route folder holds route files only, each with the export its router
-//! requires: TanStack Router's `Route` in a Vite app, Next.js's default export (or the handlers of a
+//! requires: `TanStack` Router's `Route` in a Vite app, Next.js's default export (or the handlers of a
 //! `route.ts`) in a Next.js app.
 
 use gate_sdk::{NoOptions, Rule, Run};
@@ -71,7 +71,7 @@ pub fn next_route_file(path: &str) -> bool {
         && (NEXT_DEFAULT_FILES.contains(&name.stem) || name.stem == NEXT_HANDLER_FILE)
 }
 
-fn check(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
+fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     match project.pack {
         Pack::ReactVite => vite(project),
         Pack::Nextjs => next(project),
@@ -81,7 +81,7 @@ fn check(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
 
 /// A Vite app: every file of `src/app/routes/` is a `.ts` or `.tsx` route file (a `.lazy` one
 /// too) that exports `Route`.
-fn vite(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
+fn vite(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let routes = "src/app/routes";
     let mut found = Vec::new();
 
@@ -119,7 +119,7 @@ fn vite(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
 
 /// A Next.js app: below the subfolders of `src/app/`, every code file is a special file of a route
 /// segment with its required export; `src/app/` itself also holds the app layer's own modules.
-fn next(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
+fn next(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
 
     for path in project.code().filter(|path| within(path, "src/app")) {

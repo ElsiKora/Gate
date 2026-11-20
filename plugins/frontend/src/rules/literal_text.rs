@@ -93,7 +93,7 @@ fn shown(text: &str) -> String {
 }
 
 fn check(
-    project: &Project<'_>,
+    project: &Project<'_, '_>,
     attributes: &[String],
     ignore: &Regex,
 ) -> gate_sdk::Result<Vec<Found>> {

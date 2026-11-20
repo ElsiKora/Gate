@@ -78,7 +78,7 @@ impl Rule<TypeScriptCall> for StatePlacement {
     }
 }
 
-fn check(project: &Project<'_>, stores: &[Store]) -> gate_sdk::Result<Vec<Found>> {
+fn check(project: &Project<'_, '_>, stores: &[Store]) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
 
     for path in project.code() {

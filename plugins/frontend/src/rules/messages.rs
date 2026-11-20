@@ -74,7 +74,7 @@ struct Locale {
     keys: BTreeSet<String>,
 }
 
-fn check(project: &Project<'_>, base_locale: &str) -> gate_sdk::Result<Vec<Found>> {
+fn check(project: &Project<'_, '_>, base_locale: &str) -> gate_sdk::Result<Vec<Found>> {
     let folder = project.pack.messages_folder();
     let base_path = format!("{folder}/{base_locale}.json");
     let mut found = Vec::new();
@@ -158,6 +158,16 @@ fn check(project: &Project<'_>, base_locale: &str) -> gate_sdk::Result<Vec<Found
         }
     }
 
+    unknown_keys(project, base, &mut found)?;
+    Ok(found)
+}
+
+/// Reports every literal key the code shows that `base` lacks.
+fn unknown_keys(
+    project: &Project<'_, '_>,
+    base: &Locale,
+    found: &mut Vec<Found>,
+) -> gate_sdk::Result<()> {
     for path in project.code() {
         let Some(file) = project.parse(path)? else {
             continue;
@@ -177,8 +187,7 @@ fn check(project: &Project<'_>, base_locale: &str) -> gate_sdk::Result<Vec<Found
             }
         }
     }
-
-    Ok(found)
+    Ok(())
 }
 
 /// Calls `leaf` with the dotted key of every leaf of `value`.

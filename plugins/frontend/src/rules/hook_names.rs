@@ -39,7 +39,7 @@ pub fn is_hook(name: &str) -> bool {
         .is_some_and(|rest| rest.starts_with(|character: char| character.is_ascii_uppercase()))
 }
 
-fn check(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
+fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
 
     for path in project.code() {
@@ -103,7 +103,7 @@ fn check(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
 }
 
 /// Whether a hook may live at `path`: a `model` or `lib` segment, or the app layer.
-fn placed(project: &Project<'_>, path: &str) -> bool {
+fn placed(project: &Project<'_, '_>, path: &str) -> bool {
     place(project.pack, path).is_some_and(|place| {
         place.unit == Unit::App || matches!(place.segment, Some("model" | "lib"))
     })

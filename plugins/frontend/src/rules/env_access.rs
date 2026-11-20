@@ -83,7 +83,7 @@ fn modules(pack: Pack) -> &'static [&'static str] {
     }
 }
 
-fn check(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
+fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let pack = project.pack;
     let mut found = Vec::new();
 
@@ -102,99 +102,103 @@ fn check(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
             ));
         }
 
-        for read in reads(&file) {
-            let text = read.syntax.text();
-            if !module {
-                let (message, help) = if pack.library() {
-                    (
-                        format!("{path} reads {text}; a library reads no environment"),
-                        "take the value from the caller, through props or a setup function"
-                            .to_owned(),
-                    )
-                } else {
-                    (
-                        format!(
-                            "{path} reads {text} outside {}",
-                            modules(pack).join(" and ")
-                        ),
-                        format!(
-                            "read the key in {ENV_MODULE} and import the typed value from there"
-                        ),
-                    )
-                };
-                found.push(
-                    Found::at("outside", path, message, help)
-                        .line(read.line)
-                        .named(text),
-                );
-                continue;
-            }
-
-            let expected = if pack == Pack::ReactVite {
-                Syntax::ImportMeta
-            } else {
-                Syntax::Process
-            };
-            if read.syntax != expected {
-                found.push(
-                    Found::at(
-                        "prefix",
-                        path,
-                        format!(
-                            "{path} reads {text}; the {} pack reads {}",
-                            pack.name(),
-                            expected.text()
-                        ),
-                        format!("read the key as {}.<KEY>", expected.text()),
-                    )
-                    .line(read.line)
-                    .named(text),
-                );
-                continue;
-            }
-
-            let Some(key) = read.key else {
-                found.push(
-                    Found::at(
-                        "dynamic",
-                        path,
-                        format!("{path} reads {text} other than by a literal member; the bundler replaces only {text}.<KEY>"),
-                        format!("read each key as {text}.<KEY>"),
-                    )
-                    .line(read.line)
-                    .named(text),
-                );
-                continue;
-            };
-
-            if path == ENV_MODULE && !public(pack, &key) {
-                let prefix = if pack == Pack::ReactVite {
-                    "VITE_"
-                } else {
-                    "NEXT_PUBLIC_"
-                };
-                let help = if pack == Pack::Nextjs {
-                    format!(
-                        "read a server key in {SERVER_ENV_MODULE}, or name a key the browser needs {prefix}<KEY>"
-                    )
-                } else {
-                    format!("name the key {prefix}<KEY>; Vite exposes no other key to the browser")
-                };
-                found.push(
-                    Found::at(
-                        "prefix",
-                        path,
-                        format!("{path} reads {key}, which has no {prefix} prefix"),
-                        help,
-                    )
-                    .line(read.line)
-                    .named(&key),
-                );
-            }
-        }
+        found.extend(
+            reads(&file)
+                .iter()
+                .filter_map(|read| finding(pack, path, module, read)),
+        );
     }
 
     Ok(found)
+}
+
+/// The finding about one read of `path`, which is an environment module when `module`; `None` when
+/// the read is as the pack wants it.
+fn finding(pack: Pack, path: &str, module: bool, read: &Read) -> Option<Found> {
+    let text = read.syntax.text();
+
+    if !module {
+        let (message, help) = if pack.library() {
+            (
+                format!("{path} reads {text}; a library reads no environment"),
+                "take the value from the caller, through props or a setup function".to_owned(),
+            )
+        } else {
+            (
+                format!(
+                    "{path} reads {text} outside {}",
+                    modules(pack).join(" and ")
+                ),
+                format!("read the key in {ENV_MODULE} and import the typed value from there"),
+            )
+        };
+        return Some(
+            Found::at("outside", path, message, help)
+                .line(read.line)
+                .named(text),
+        );
+    }
+
+    let expected = if pack == Pack::ReactVite {
+        Syntax::ImportMeta
+    } else {
+        Syntax::Process
+    };
+    if read.syntax != expected {
+        return Some(
+            Found::at(
+                "prefix",
+                path,
+                format!(
+                    "{path} reads {text}; the {} pack reads {}",
+                    pack.name(),
+                    expected.text()
+                ),
+                format!("read the key as {}.<KEY>", expected.text()),
+            )
+            .line(read.line)
+            .named(text),
+        );
+    }
+
+    let Some(key) = &read.key else {
+        return Some(
+            Found::at(
+                "dynamic",
+                path,
+                format!("{path} reads {text} other than by a literal member; the bundler replaces only {text}.<KEY>"),
+                format!("read each key as {text}.<KEY>"),
+            )
+            .line(read.line)
+            .named(text),
+        );
+    };
+
+    if path != ENV_MODULE || public(pack, key) {
+        return None;
+    }
+    let prefix = if pack == Pack::ReactVite {
+        "VITE_"
+    } else {
+        "NEXT_PUBLIC_"
+    };
+    let help = if pack == Pack::Nextjs {
+        format!(
+            "read a server key in {SERVER_ENV_MODULE}, or name a key the browser needs {prefix}<KEY>"
+        )
+    } else {
+        format!("name the key {prefix}<KEY>; Vite exposes no other key to the browser")
+    };
+    Some(
+        Found::at(
+            "prefix",
+            path,
+            format!("{path} reads {key}, which has no {prefix} prefix"),
+            help,
+        )
+        .line(read.line)
+        .named(key),
+    )
 }
 
 /// Whether `key` reaches the browser in `pack`.

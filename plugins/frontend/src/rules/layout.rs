@@ -45,7 +45,7 @@ impl Rule<TypeScriptCall> for Layout {
     }
 }
 
-fn check(project: &Project<'_>) -> Vec<Found> {
+fn check(project: &Project<'_, '_>) -> Vec<Found> {
     let pack = project.pack;
     let tracked: BTreeSet<&str> = project.paths.iter().copied().collect();
     let mut found = Vec::new();

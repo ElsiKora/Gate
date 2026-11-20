@@ -36,7 +36,7 @@ impl Rule<TypeScriptCall> for ImportPaths {
     }
 }
 
-fn check(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
+fn check(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let pack = project.pack;
     let mut found = Vec::new();
 

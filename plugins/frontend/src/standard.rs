@@ -74,7 +74,7 @@ pub const STYLE_EXTENSIONS: [&str; 4] = ["css", "scss", "sass", "less"];
 /// The extensions of JavaScript sources, which the standard does not allow under the source root.
 pub const JAVASCRIPT_EXTENSIONS: [&str; 4] = ["js", "jsx", "mjs", "cjs"];
 
-/// The route file of TanStack Router's generator in a Vite app: its one dotted part, `gen`, is the
+/// The route file of `TanStack` Router's generator in a Vite app: its one dotted part, `gen`, is the
 /// generator's.
 pub const VITE_ROUTE_TREE: &str = "src/app/route-tree.gen.ts";
 

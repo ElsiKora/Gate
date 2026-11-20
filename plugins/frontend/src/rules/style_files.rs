@@ -44,7 +44,7 @@ fn stylesheet(path: &str) -> Option<bool> {
 }
 
 /// The stylesheets by where they sit.
-fn files(project: &Project<'_>) -> Vec<Found> {
+fn files(project: &Project<'_, '_>) -> Vec<Found> {
     let global_folder = project.pack.global_styles_folder();
     let mut found = Vec::new();
 
@@ -78,7 +78,7 @@ fn files(project: &Project<'_>) -> Vec<Found> {
 }
 
 /// The global stylesheets the code imports: only from the app layer or the source root, and one.
-fn imported(project: &Project<'_>) -> gate_sdk::Result<Vec<Found>> {
+fn imported(project: &Project<'_, '_>) -> gate_sdk::Result<Vec<Found>> {
     let mut found = Vec::new();
     let mut first: Option<String> = None;
 

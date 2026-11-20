@@ -35,7 +35,7 @@ impl Rule<TypeScriptCall> for FileNames {
     }
 }
 
-fn check(project: &Project<'_>) -> Vec<Found> {
+fn check(project: &Project<'_, '_>) -> Vec<Found> {
     let pack = project.pack;
     let route_folder = pack.route_folder();
     let mut folders = BTreeSet::new();
@@ -131,7 +131,7 @@ fn file_stem(pack: Pack, stem: &str, routed: bool) -> bool {
         || (routed && pack == Pack::ReactVite && (stem == "__root" || vite_route_name(stem)))
 }
 
-/// A TanStack Router path segment: `$param`, `$` (splat), `_pathless`, `(group)`.
+/// A `TanStack` Router path segment: `$param`, `$` (splat), `_pathless`, `(group)`.
 fn vite_route_name(name: &str) -> bool {
     if name == "$" {
         return true;

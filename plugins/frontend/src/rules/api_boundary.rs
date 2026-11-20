@@ -77,7 +77,7 @@ impl Rule<TypeScriptCall> for ApiBoundary {
     }
 }
 
-fn check(project: &Project<'_>, options: &Options) -> gate_sdk::Result<Vec<Found>> {
+fn check(project: &Project<'_, '_>, options: &Options) -> gate_sdk::Result<Vec<Found>> {
     let api = project.pack.api_folder();
     let mut found = Vec::new();
 
@@ -182,7 +182,7 @@ fn check(project: &Project<'_>, options: &Options) -> gate_sdk::Result<Vec<Found
 
 /// Whether the file at `path` may import the API client: an `api` segment, the app layer, or a
 /// library's entry, which re-exports it.
-fn client_importer(project: &Project<'_>, path: &str) -> bool {
+fn client_importer(project: &Project<'_, '_>, path: &str) -> bool {
     place(project.pack, path).is_some_and(|place| {
         place.unit == Unit::App
             || place.segment == Some("api")

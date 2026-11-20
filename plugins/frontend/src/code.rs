@@ -17,16 +17,16 @@ use crate::options::Pack;
 use crate::standard::{FileName, SOURCE_ROOT, name_of, within};
 
 /// The project of one run: its pack, its tracked paths outside the skipped folders, and its
-/// TypeScript view.
-pub struct Project<'o> {
+/// TypeScript view. `'s` is the borrow of the call's shared sources, `'o` what they hold.
+pub struct Project<'s, 'o> {
     /// The pack of `[plugins.frontend] options`.
     pub pack: Pack,
     /// Every tracked path outside the skipped folders, in path order.
     pub paths: Vec<&'o str>,
-    typescript: &'o TypeScript<'o>,
+    typescript: &'s TypeScript<'o>,
 }
 
-impl std::fmt::Debug for Project<'_> {
+impl std::fmt::Debug for Project<'_, '_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Project")
@@ -36,7 +36,7 @@ impl std::fmt::Debug for Project<'_> {
     }
 }
 
-impl<'o> Project<'o> {
+impl<'s, 'o> Project<'s, 'o> {
     /// The project of `run`, from the sources its call shares.
     ///
     /// # Errors
@@ -44,7 +44,7 @@ impl<'o> Project<'o> {
     /// match.
     pub fn new<O>(
         run: &Run<'_, O, TypeScriptCall>,
-        shared: &'o Sources<'o>,
+        shared: &'s Sources<'o>,
     ) -> gate_sdk::Result<Self> {
         let pack = Pack::read(run)?;
         let settings = settings(run)?;
@@ -60,12 +60,6 @@ impl<'o> Project<'o> {
             paths,
             typescript,
         })
-    }
-
-    /// The TypeScript view.
-    #[must_use]
-    pub fn typescript(&self) -> &'o TypeScript<'o> {
-        self.typescript
     }
 
     /// The tracked paths below the source root.
