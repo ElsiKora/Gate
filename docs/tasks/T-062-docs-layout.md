@@ -502,6 +502,29 @@ is T-063. It is not part of T-062's code.
   (`--workspace --no-fail-fast`), deny and the release build exit 0, and the leak scan prints nothing.
 - Do not edit docs/plan.md unless the lead asks.
 
+## Presets (the lead, 2026-11-20)
+
+Every plugin new in 0.3.0 ships `<plugin>/recommended`, every rule at error, and `<plugin>/adoption`,
+every rule at warning, built like `git/recommended`: here `docs/recommended` and `docs/adoption`. A
+native test checks that each enables exactly the plugin's rules at its level, and a CLI test that
+each turns `docs/layout` on at that level with no `[rules]` line.
+
+## Proof
+
+Lane round on `6f4019d` (ticket 268, 2026-11-20, 00:41 to 00:49 UTC, load average about 69 at the
+start), in the target directory T-046 left:
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --locked --workspace --all-targets -- -D warnings` | 0 |
+| test | `cargo test --locked --workspace --no-fail-fast` | 0 (1062 passed, 0 failed) |
+| deny | `cargo deny --locked check` | 0 |
+| build | `cargo build --release --locked` | 0 |
+
+Ticket 266 on the same tip was withdrawn before it started, so the T-047 measures (ticket 267)
+ran first. The presets came after this round; their round is the next one.
+
 ## Resume point
 
 2026-11-19: design written from `main` at `ec66737`. The lead approved the mechanics at `adec0b1`: the
@@ -522,3 +545,7 @@ rule, the generator, their pages, the alikeness tests), `agents/no-claude-md` at
 the architecture, guide and changelog entries, and one end-to-end test per kind through the built
 component. The library's architecture index opens with "System shape", as every kind's does. Next:
 lane round ticket 266 on the pushed tip; its exit codes go in a Proof section.
+
+2026-11-20: round ticket 268 on `6f4019d` green in all five steps (Proof above). The lead's preset
+rule added: `docs/recommended` and `docs/adoption`, with their tests. Next: one lane round on the
+preset commit, then the lead's review.

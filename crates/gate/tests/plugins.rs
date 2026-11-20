@@ -4250,3 +4250,41 @@ fn the_docs_plugin_lays_down_and_checks_the_standard_of_each_kind() {
         );
     }
 }
+
+/// `docs/recommended` turns `docs/layout` on at error and `docs/adoption` at warning, with no
+/// `[rules]` line: on an empty project the same nine findings, failing the check only at error.
+#[test]
+fn the_docs_presets_enable_the_layout_rule_at_their_level() {
+    let (path, _) = component("gate-plugin-docs", "docs");
+    let plugin = format!("docs={}", path.display());
+    for (preset, level, code) in [("recommended", "error", 1), ("adoption", "warning", 0)] {
+        let repo = Repo::empty();
+        repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [\"docs/{preset}\"]\n\n[plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\noptions = {{ kind = \"service\" }}\n"
+            ),
+        );
+        repo.commit("configure");
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        let report = text(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(code),
+            "{preset}: {report}{}",
+            text(&output.stderr)
+        );
+        assert_eq!(
+            report
+                .matches(&format!("{level}[docs/layout#missing]"))
+                .count(),
+            9,
+            "{preset}: {report}"
+        );
+        assert_eq!(
+            report.matches("docs/layout#").count(),
+            9,
+            "{preset}: {report}"
+        );
+    }
+}

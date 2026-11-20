@@ -17,3 +17,5 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   each index's required sections, and seeded pages not yet filled.
 - `docs/layout` (generator): seeds the required index pages of the kind; `gate sync` writes a seed
   only where nothing exists.
+- The presets `docs/recommended` (every rule at error) and `docs/adoption` (every rule at
+  warning).

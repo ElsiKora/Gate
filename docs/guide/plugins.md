@@ -125,7 +125,8 @@ docs = { source = "ElsiKora/Gate:docs@0.3.0", options = { kind = "service" } }
 "docs/layout" = {}
 ```
 
-`gate sync` seeds every required index page that is missing and never overwrites a page that exists;
+`extends = ["docs/recommended"]` (every rule at error) or `["docs/adoption"]` (at warning) turns the
+rule on in place of the `[rules]` line. `gate sync` seeds every required index page that is missing and never overwrites a page that exists;
 `gate check` reports what the standard misses, and each seeded page until its marker line is
 deleted. A monorepo root's `docs/` is checked when the workspace lists `"."` as a project with
 `kind = "monorepo-root"`.
@@ -253,9 +254,10 @@ ci = { source = "ElsiKora/Gate:ci@0.2.0" }
 ## 🎛 Presets
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
-`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. None of
-the shared plugins ships a preset yet, so turn their rules on one by one in `[rules]`; `gate list` shows
-the result.
+`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. Each
+plugin new in 0.3.0 ships two: `<plugin>/recommended`, every rule at error, and `<plugin>/adoption`,
+every rule at warning (`docs/recommended`, `docs/adoption`); `git` ships `git/recommended`. Turn the
+rules of the other plugins on one by one in `[rules]`; `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 

@@ -18,11 +18,27 @@ pub use self::layout::Layout;
 pub use self::settings::{Extra, Settings};
 pub use self::standard::Kind;
 
+/// The `docs/recommended` preset: every rule of the plugin at error.
+const RECOMMENDED: &str = r#"{ "layout": { "level": "error" } }"#;
+
+/// The `docs/adoption` preset: every rule of the plugin at warning, for a project that is moving
+/// to its standard.
+const ADOPTION: &str = r#"{ "layout": { "level": "warning" } }"#;
+
 gate_sdk::plugin! {
     name: "docs",
     version: env!("CARGO_PKG_VERSION"),
     options: Settings,
     rules: [Layout],
     generators: [LayDown],
-    presets: [],
+    presets: [
+        gate_sdk::Preset {
+            name: "recommended",
+            rules: RECOMMENDED,
+        },
+        gate_sdk::Preset {
+            name: "adoption",
+            rules: ADOPTION,
+        },
+    ],
 }

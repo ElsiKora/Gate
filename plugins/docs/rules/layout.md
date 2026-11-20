@@ -118,6 +118,13 @@ the fix is the root's configuration.
 
 None of its own. It reads `kind` and `extra` from the `[plugins.docs]` options.
 
+## Presets
+
+`docs/recommended` turns the rule on at error, `docs/adoption` at warning, for a project that is
+moving to its standard; `extends = ["docs/adoption"]` in `[project]` or a profile, then `[rules]`
+overrides it as usual. The generator is not part of a preset: put `"docs/layout" = {}` in
+`[generate]`.
+
 ## Findings
 
 | Aspect | Reported when | At | Key |
