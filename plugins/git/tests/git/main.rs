@@ -33,7 +33,8 @@ fn the_rules_read_history_or_the_message_over_the_repository() {
     assert_eq!(reads("main-history"), (true, false));
     assert_eq!(reads("no-ci-skip"), (true, true));
     assert_eq!(reads("branch-name"), (true, false));
-    assert_eq!(reads("commit-message"), (false, true));
+    // commit-message also judges the commits a push adds.
+    assert_eq!(reads("commit-message"), (true, true));
     for rule in &info.rules {
         assert_eq!(rule.scope, gate_sdk::Scope::Repository);
         let schema: serde_json::Value =
