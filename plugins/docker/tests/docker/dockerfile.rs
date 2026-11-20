@@ -230,15 +230,137 @@ fn name_reports_image_files_not_named_dockerfile() {
         ("Dockerfile.api.dockerignore", IGNORE),
         ("worker.Dockerfile", &text),
         ("worker.Dockerfile.dockerignore", IGNORE),
-        ("tools/dockerfile", &text),
-        ("tools/dockerfile.dockerignore", IGNORE),
+        ("tools/Containerfile", &text),
+        ("tools/Containerfile.dockerignore", IGNORE),
     ]);
     assert_eq!(
         fixture.rows(RULE),
         [
             "name Dockerfile.api:0 Dockerfile.api",
-            "name tools/dockerfile:0 dockerfile",
+            "name tools/Containerfile:0 Containerfile",
             "name worker.Dockerfile:0 worker.Dockerfile"
         ]
+    );
+}
+
+#[test]
+fn a_file_is_an_image_file_only_by_the_image_files_names_compared_case_sensitively() {
+    let text = good();
+    let fixture = Fixture::new(&[
+        ("dockerfile.md", "# notes\n"),
+        ("rules/dockerfile.md", "# notes\n"),
+        ("src/dockerfile.ts", "export {};\n"),
+        ("src/Dockerfile.test.ts", "export {};\n"),
+        ("tools/dockerfile", &text),
+        ("a.b.Dockerfile", &text),
+        ("api.containerfile", &text),
+    ]);
+    assert_eq!(fixture.rows(RULE), Vec::<String>::new());
+
+    let named = r#"{"image-files": ["Dockerfile", "*.containerfile"]}"#;
+    let findings = fixture.check_with(RULE, "{}", named).expect("runs");
+    assert_eq!(
+        rows(&findings),
+        [
+            "ignore api.containerfile:0 missing",
+            "name api.containerfile:0 api.containerfile"
+        ]
+    );
+}
+
+#[test]
+fn an_image_copied_or_mounted_from_needs_a_digest_and_a_stage_name_passes() {
+    let digest = digest();
+    let text = format!(
+        "FROM node@sha256:{digest} AS build\n\
+         RUN --mount=type=cache,target=/cache,from=busybox:1 true\n\
+         RUN --mount=type=bind,from=build,target=/b true\n\
+         FROM node@sha256:{digest} AS runtime\n\
+         COPY --from=nginx:1.27 /etc/nginx /etc/nginx\n\
+         COPY --from=nginx:1.27 /usr/share/nginx /usr/share/nginx\n\
+         COPY --from=build /app /app\n\
+         COPY --from=0 /app /app\n\
+         COPY --from=nginx@sha256:{digest} /etc/x /etc/x\n\
+         USER node\n"
+    );
+    assert_eq!(
+        aspect(&text, "pinned"),
+        [
+            "pinned Dockerfile:2 busybox:1",
+            "pinned Dockerfile:5 nginx:1.27"
+        ]
+    );
+}
+
+#[test]
+fn ignore_takes_a_star_allow_list_and_reports_a_pattern_taken_back_in() {
+    let text = good();
+    let star = Fixture::new(&[
+        ("Dockerfile", &text),
+        ("Dockerfile.dockerignore", "*\n!src\n"),
+    ]);
+    assert_eq!(star.rows(RULE), Vec::<String>::new());
+
+    let taken_back = Fixture::new(&[
+        ("Dockerfile", &text),
+        ("Dockerfile.dockerignore", "**\n!src\n!.env\n"),
+    ]);
+    assert_eq!(
+        taken_back.rows(RULE),
+        ["ignore Dockerfile.dockerignore:3 .env"]
+    );
+
+    let listed = ".git\n.env\n.env.*\n*.env\n*.pem\n*.key\n";
+    let excluded_then_back = Fixture::new(&[
+        ("Dockerfile", &text),
+        ("Dockerfile.dockerignore", &format!("{listed}!*.pem\n")),
+    ]);
+    assert_eq!(
+        excluded_then_back.rows(RULE),
+        ["ignore Dockerfile.dockerignore:7 *.pem"]
+    );
+
+    let back_then_excluded = Fixture::new(&[
+        ("Dockerfile", &text),
+        ("Dockerfile.dockerignore", &format!("{listed}!.env\n.env\n")),
+    ]);
+    assert_eq!(back_then_excluded.rows(RULE), Vec::<String>::new());
+}
+
+#[test]
+fn secret_names_match_whole_words_and_a_metadata_last_word_passes() {
+    let text = format!(
+        "{}ARG AUTHOR\nARG NEXTAUTH_URL\nARG TOKEN_TTL\nARG POSTGRES_PASSWORD_FILE\nARG SECRET_NAME\n\
+         ARG NEXTAUTH_SECRET\nARG GITHUB_TOKEN\nARG AWS_SECRET_ACCESS_KEY\nARG SECRET_KEY_BASE\nARG AUTH\n",
+        good()
+    );
+    assert_eq!(
+        aspect(&text, "secret"),
+        [
+            "secret Dockerfile:14 NEXTAUTH_SECRET",
+            "secret Dockerfile:15 GITHUB_TOKEN",
+            "secret Dockerfile:16 AWS_SECRET_ACCESS_KEY",
+            "secret Dockerfile:17 SECRET_KEY_BASE",
+            "secret Dockerfile:18 AUTH"
+        ]
+    );
+}
+
+#[test]
+fn a_secret_mounted_into_one_step_passes_where_the_same_build_argument_is_reported() {
+    let digest = digest();
+    let stage = |step: &str| {
+        format!(
+            "FROM node@sha256:{digest} AS build\n{step}\nFROM node@sha256:{digest} AS runtime\n\
+             LABEL org.opencontainers.image.source=\"x\" org.opencontainers.image.revision=\"y\" \
+             org.opencontainers.image.version=\"z\"\nUSER node\n"
+        )
+    };
+    let mounted = stage("RUN --mount=type=secret,id=NPM_TOKEN,env=NPM_TOKEN npm ci");
+    let argument = stage("ARG NPM_TOKEN\nRUN NPM_TOKEN=$NPM_TOKEN npm ci");
+    assert_eq!(aspect(&mounted, "secret"), Vec::<String>::new());
+    assert_eq!(
+        aspect(&argument, "secret"),
+        ["secret Dockerfile:2 NPM_TOKEN"]
     );
 }

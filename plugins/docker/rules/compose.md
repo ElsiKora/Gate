@@ -19,28 +19,30 @@ with the parser's message.
 | `service` | in a well-named file, a service is not `<owner>-<purpose>-<role>` in kebab-case, its second part the file's purpose | the service |
 | `container-name` | a service sets `container_name` | the key |
 | `pinned` | a service without `build` names an image without `@sha256:<64 hex>` or from a registry `registries` does not list; `${NAME:?...}` passes, `${NAME:-default}` holds its default to the same pin, any other interpolation is reported | the image |
-| `secret` | outside an end-to-end file, an `environment` entry whose name contains one of `secret-names` has a literal value | the entry |
+| `secret` | outside an end-to-end file, an `environment` entry with a secret's name (`secret-names` and `secret-metadata-words`) has a literal value | the entry |
 | `port` | a `ports` entry is not published on `127.0.0.1` or `::1` | the entry |
 | `healthcheck` | a service another names in `depends_on` with `condition: service_healthy` declares no `healthcheck`, or disables it | the service |
 
 **Literal credentials.** An end-to-end file is one whose name ends in `.e2e.yml`. It starts throwaway
 services for one test run on the machine running it, so it may write their credentials in. In every
 other file, a value is literal when it is written in: not empty and not starting with `$`, or a
-`${NAME:-default}` with a non-empty default. A secret-named entry whose name ends in one of
-`reference-suffixes` holds a path to the secret, not the secret, and passes. No finding holds a value.
+`${NAME:-default}` with a non-empty default. An entry whose last word is one of
+`secret-metadata-words` (`POSTGRES_PASSWORD_FILE`) holds a path to the secret or a setting about it,
+not the secret, and passes. No finding holds a value.
 
 Scope: project. Reads history: no. Aspects: `name`, `service`, `container-name`, `pinned`, `secret`,
 `port`, `healthcheck`. Targets: `<path>:<service>` for every aspect but `name` and `secret`, and
-`<path>:<line>` for `secret`; a `name` finding has none.
+`<path>:<service>.<name>` for `secret` (no line, so an exception survives edits above it); a `name`
+finding has none.
 
 ## Options
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `purposes` | list of strings | `["development", "e2e"]` | The purposes a compose file and its services name. |
-| `reference-suffixes` | list of strings | `["_FILE", "_PATH"]` | A secret-named variable whose name ends in one of these holds a path, not the secret. |
 
-The rule also reads `secret-names` and `registries` from `[plugins.docker] options`
+The rule also reads `secret-names`, `secret-metadata-words` and `registries` from
+`[plugins.docker] options`
 ([`docker/dockerfile`](dockerfile.md#options)).
 
 ```toml

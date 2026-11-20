@@ -64,9 +64,15 @@ pub(crate) fn instructions(text: &str) -> Vec<Instruction> {
             .map_or((joined.as_str(), ""), |(keyword, rest)| {
                 (keyword, rest.trim())
             });
-        if let Some(delimiter) = heredoc(arguments) {
-            // The body runs to a line that is the delimiter; nothing in it is an instruction.
-            let _ = lines.by_ref().find(|(_, body)| body.trim() == delimiter);
+        if HEREDOC_KEYWORDS
+            .iter()
+            .any(|taker| keyword.eq_ignore_ascii_case(taker))
+        {
+            // Each body runs to a line that is its delimiter, one after another; nothing in them
+            // is an instruction.
+            for delimiter in heredocs(arguments) {
+                let _ = lines.by_ref().find(|(_, body)| body.trim() == delimiter);
+            }
         }
         instructions.push(Instruction {
             keyword: keyword.to_ascii_uppercase(),
@@ -77,16 +83,42 @@ pub(crate) fn instructions(text: &str) -> Vec<Instruction> {
     instructions
 }
 
-/// The delimiter of a heredoc the arguments open (`<<EOF`, `<<-EOF`, `<<"EOF"`), if any.
-fn heredoc(arguments: &str) -> Option<String> {
-    let start = arguments.find("<<")?;
-    let rest = arguments[start + 2..].trim_start_matches('-');
-    let rest = rest.trim_start_matches(['"', '\'']);
-    let delimiter: String = rest
-        .chars()
-        .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
-        .collect();
-    (!delimiter.is_empty()).then_some(delimiter)
+/// The instructions that take heredocs.
+const HEREDOC_KEYWORDS: [&str; 3] = ["RUN", "COPY", "ADD"];
+
+/// The delimiters of the heredocs the arguments open, in order: `<<` or `<<-` at the start of a
+/// word, an optional quote, then a word that starts with a letter or `_` (`<<EOF`, `<<-"EOF"`).
+/// `$((1<<2))` and the here-string `<<<` open none.
+fn heredocs(arguments: &str) -> Vec<String> {
+    let mut delimiters = Vec::new();
+    let mut from = 0;
+    while let Some(found) = arguments[from..].find("<<") {
+        let start = from + found;
+        from = start + 2;
+        if arguments[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|before| !before.is_whitespace())
+        {
+            continue;
+        }
+        let rest = &arguments[start + 2..];
+        let rest = rest.strip_prefix('-').unwrap_or(rest);
+        let rest = rest.strip_prefix(['"', '\'']).unwrap_or(rest);
+        if !rest
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        {
+            continue;
+        }
+        let delimiter: String = rest
+            .chars()
+            .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+            .collect();
+        delimiters.push(delimiter);
+    }
+    delimiters
 }
 
 /// The arguments split at white space, quotes kept together and removed.
@@ -271,6 +303,45 @@ mod tests {
         assert_eq!(parsed.stages[0].name.as_deref(), Some("build"));
         assert_eq!(parsed.expand("${BASE}").as_deref(), Some("node@sha256:x"));
         assert_eq!(parsed.expand("$OTHER"), None);
+    }
+
+    #[test]
+    fn a_heredoc_opens_only_at_a_word_start_in_an_instruction_that_takes_one() {
+        let keywords = |text: &str| -> Vec<(String, usize)> {
+            instructions(text)
+                .into_iter()
+                .map(|instruction| (instruction.keyword, instruction.line))
+                .collect()
+        };
+        let expected = |pairs: &[(&str, usize)]| -> Vec<(String, usize)> {
+            pairs
+                .iter()
+                .map(|(keyword, line)| ((*keyword).to_owned(), *line))
+                .collect()
+        };
+        // Shell arithmetic and a here-string open no heredoc: the USER after them is read.
+        assert_eq!(
+            keywords("FROM a\nRUN echo $((1<<2))\nUSER root\nRUN cat <<<\"x\"\nUSER node\n"),
+            expected(&[
+                ("FROM", 1),
+                ("RUN", 2),
+                ("USER", 3),
+                ("RUN", 4),
+                ("USER", 5)
+            ])
+        );
+        // A quoted, dashed delimiter, then two heredocs in one RUN whose bodies follow in order.
+        assert_eq!(
+            keywords(
+                "FROM a\nRUN <<-\"END\"\n\tUSER root\n\tEND\nRUN <<ONE cat - <<TWO\nUSER one\nONE\nUSER two\nTWO\nUSER node\n"
+            ),
+            expected(&[("FROM", 1), ("RUN", 2), ("RUN", 5), ("USER", 10)])
+        );
+        // COPY takes a heredoc; LABEL does not, so a value that looks like one is not.
+        assert_eq!(
+            keywords("FROM a\nCOPY <<EOF /app/x\nUSER root\nEOF\nLABEL a=\"<<EOF\"\nUSER node\n"),
+            expected(&[("FROM", 1), ("COPY", 2), ("LABEL", 5), ("USER", 6)])
+        );
     }
 
     #[test]

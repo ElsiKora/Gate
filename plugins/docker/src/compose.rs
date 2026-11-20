@@ -28,15 +28,12 @@ pub struct Compose;
 pub struct Options {
     /// The purposes a compose file and its services name.
     pub purposes: Vec<String>,
-    /// A secret-named variable whose name ends in one of these holds a path, not the secret.
-    pub reference_suffixes: Vec<String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
             purposes: vec!["development".to_owned(), "e2e".to_owned()],
-            reference_suffixes: vec!["_FILE".to_owned(), "_PATH".to_owned()],
         }
     }
 }
@@ -62,7 +59,6 @@ impl Rule for Compose {
         let tree = run.tree();
         let options = run.options();
         let purposes = options.purposes.clone();
-        let suffixes = options.reference_suffixes.clone();
         let report = run.report();
 
         for path in tree.paths() {
@@ -100,7 +96,6 @@ impl Rule for Compose {
                     ["yml", "e2e", _]
                 ),
                 settings: &settings,
-                suffixes: &suffixes,
             };
             let services = root
                 .get("services")
@@ -163,7 +158,6 @@ struct File<'f> {
     purpose: Option<&'f str>,
     end_to_end: bool,
     settings: &'f Settings,
-    suffixes: &'f [String],
 }
 
 impl File<'_> {
@@ -231,6 +225,7 @@ impl File<'_> {
                         "{name}#{}",
                         port.scalar()
                             .or_else(|| port.get("published").and_then(Node::scalar))
+                            .or_else(|| port.get("target").and_then(Node::scalar))
                             .unwrap_or("port")
                     ));
             }
@@ -277,11 +272,7 @@ impl File<'_> {
             _ => Vec::new(),
         };
         for (key, value, line) in entries {
-            let reference = self
-                .suffixes
-                .iter()
-                .any(|suffix| key.ends_with(suffix.as_str()));
-            if !self.settings.secret(&key) || reference {
+            if !self.settings.secret(&key) {
                 continue;
             }
             if value.as_deref().is_some_and(literal) {
@@ -291,7 +282,7 @@ impl File<'_> {
                         Location::line(self.path, line),
                         format!("the service {service} has a literal value for {key}"),
                     )
-                    .target(format!("{}:{line}", self.path))
+                    .target(format!("{}:{service}.{key}", self.path))
                     .help("take it from the environment, `${NAME}`, or from a compose secret; an end-to-end file (`*.e2e.yml`) may write local throwaway credentials")
                     .key(format!("{service}.{key}"));
             }

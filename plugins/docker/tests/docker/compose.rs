@@ -158,6 +158,18 @@ fn port_is_published_on_the_loopback_address_only() {
 }
 
 #[test]
+fn a_long_form_port_is_on_the_loopback_address_only_with_a_loopback_host_ip() {
+    let text = "services:\n  app-e2e-postgres:\n    build: .\n    ports:\n      - target: 5432\n        published: \"5432\"\n        host_ip: 127.0.0.1\n      - target: 5433\n        published: \"5433\"\n      - target: 5434\n        host_ip: 0.0.0.0\n      - target: 5435\n        host_ip: \"::1\"\n";
+    assert_eq!(
+        aspect("docker-compose.e2e.yml", text, "port"),
+        [
+            "port docker-compose.e2e.yml:10 app-e2e-postgres#5434",
+            "port docker-compose.e2e.yml:8 app-e2e-postgres#5433"
+        ]
+    );
+}
+
+#[test]
 fn a_file_that_is_not_yaml_stops_the_run() {
     let error = Fixture::new(&[("docker-compose.e2e.yml", "services: [\n")])
         .check_with(RULE, "{}", "")

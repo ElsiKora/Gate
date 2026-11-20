@@ -83,7 +83,7 @@ impl Rule for Dockerfile {
                     .key(".dockerignore");
                 continue;
             }
-            if !is_image_file(name) {
+            if !settings.image_file(name) {
                 continue;
             }
             if name != "Dockerfile" {
@@ -122,15 +122,22 @@ fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// Whether a file name is an image file: `Dockerfile` in any case, `Dockerfile.<x>` or
-/// `<x>.Dockerfile`, and not an ignore file.
-fn is_image_file(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    let extension = lower.rsplit_once('.').map(|(_, extension)| extension);
-    extension != Some("dockerignore")
-        && (lower == "dockerfile"
-            || lower.starts_with("dockerfile.")
-            || extension == Some("dockerfile"))
+/// What an instruction copies or mounts from, a stage or an image: the value of `COPY --from=`,
+/// and the `from=` of each `RUN --mount=`.
+fn sources(instruction: &instructions::Instruction) -> Vec<String> {
+    let (flags, _) = instructions::flags(&instruction.arguments);
+    let mut sources = Vec::new();
+    for (flag, value) in flags {
+        let source = match flag.as_str() {
+            "from" if instruction.keyword == "COPY" => Some(value),
+            "mount" if instruction.keyword == "RUN" => value
+                .split(',')
+                .find_map(|part| part.strip_prefix("from=").map(str::to_owned)),
+            _ => None,
+        };
+        sources.extend(source);
+    }
+    sources
 }
 
 /// One image file being checked.
@@ -142,33 +149,48 @@ struct Check<'c> {
 }
 
 impl Check<'_> {
+    /// Every image the file pulls is pinned: each `FROM` that is not `scratch` or an earlier
+    /// stage, and each `COPY --from=` and `RUN --mount=...,from=` that does not name a stage. An
+    /// image is reported once, where it first appears.
     fn pinned(&self, report: &mut Report) {
+        let mut reported = BTreeSet::new();
         for (index, stage) in self.parsed.stages.iter().enumerate() {
-            if stage.base.eq_ignore_ascii_case("scratch")
-                || self.parsed.stage(&stage.base, index).is_some()
-            {
-                continue;
+            let mut pulls = vec![("FROM", stage.line, stage.base.clone())];
+            for instruction in &stage.instructions {
+                let keyword = match instruction.keyword.as_str() {
+                    "COPY" => "COPY --from",
+                    "RUN" => "RUN --mount from",
+                    _ => continue,
+                };
+                for source in sources(instruction) {
+                    pulls.push((keyword, instruction.line, source));
+                }
             }
-            let problem = match self.parsed.expand(&stage.base) {
-                Some(image) => self.settings.unpinned(&image),
-                None => Some(format!(
-                    "`{}` uses a build argument without a default",
-                    stage.base
-                )),
-            };
-            if let Some(problem) = problem {
-                report
-                    .finding(
-                        "pinned",
-                        Location::line(self.path, stage.line),
-                        format!("FROM {problem}"),
-                    )
-                    .target(format!("{}:{}", self.path, stage.base))
-                    .help(
-                        "pin the base to its digest, `FROM <image>@sha256:<64 hex>`, with the tag in \
-                         a comment; a build argument's default is pinned the same way",
-                    )
-                    .key(stage.base.clone());
+            for (keyword, line, image) in pulls {
+                if image.eq_ignore_ascii_case("scratch")
+                    || self.parsed.stage(&image, index).is_some()
+                    || !reported.insert(image.clone())
+                {
+                    continue;
+                }
+                let problem = match self.parsed.expand(&image) {
+                    Some(expanded) => self.settings.unpinned(&expanded),
+                    None => Some(format!("`{image}` uses a build argument without a default")),
+                };
+                if let Some(problem) = problem {
+                    report
+                        .finding(
+                            "pinned",
+                            Location::line(self.path, line),
+                            format!("{keyword} {problem}"),
+                        )
+                        .target(format!("{}:{image}", self.path))
+                        .help(
+                            "pin the image to its digest, `<image>@sha256:<64 hex>`, with the tag in \
+                             a comment; a build argument's default is pinned the same way",
+                        )
+                        .key(image);
+                }
             }
         }
     }
@@ -196,16 +218,8 @@ impl Check<'_> {
                 used.insert(base);
             }
             for instruction in &stage.instructions {
-                let (flags, _) = instructions::flags(&instruction.arguments);
-                for (flag, value) in flags {
-                    let from = match flag.as_str() {
-                        "from" if instruction.keyword == "COPY" => Some(value.as_str()),
-                        "mount" if instruction.keyword == "RUN" => {
-                            value.split(',').find_map(|part| part.strip_prefix("from="))
-                        }
-                        _ => None,
-                    };
-                    if let Some(reference) = from.and_then(|from| self.parsed.stage(from, index)) {
+                for source in sources(instruction) {
+                    if let Some(reference) = self.parsed.stage(&source, index) {
                         used.insert(reference);
                     }
                 }
@@ -334,7 +348,7 @@ impl Check<'_> {
                                     Location::line(self.path, instruction.line),
                                     format!("{keyword} {name} puts a secret into the image's history"),
                                 )
-                                .target(format!("{}:{}", self.path, instruction.line))
+                                .target(format!("{}:{name}", self.path))
                                 .help("pass it to the step that needs it with `RUN --mount=type=secret`")
                                 .key(name);
                         }
@@ -354,7 +368,7 @@ impl Check<'_> {
                             argument.name
                         ),
                     )
-                    .target(format!("{}:{}", self.path, argument.line))
+                    .target(format!("{}:{}", self.path, argument.name))
                     .help("pass it to the step that needs it with `RUN --mount=type=secret`")
                     .key(argument.name.clone());
             }
@@ -362,7 +376,8 @@ impl Check<'_> {
     }
 }
 
-/// The ignore file beside `path` is an allow-list or excludes each of `must_ignore`.
+/// The ignore file beside `path` is an allow-list or excludes each of `must_ignore`, and no `!` line
+/// takes one of them back in.
 fn ignore(report: &mut Report, tree: Tree<'_>, path: &str, must_ignore: &[String]) {
     let ignore = format!("{path}.dockerignore");
     let Some(text) = tree.text(&ignore) else {
@@ -377,34 +392,53 @@ fn ignore(report: &mut Report, tree: Tree<'_>, path: &str, must_ignore: &[String
             .key("missing");
         return;
     };
-    let patterns: Vec<&str> = text
+    let patterns: Vec<(usize, &str)> = text
         .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .enumerate()
+        .map(|(index, line)| (index + 1, line.trim()))
+        .filter(|(_, line)| !line.is_empty() && !line.starts_with('#'))
         .collect();
-    if patterns.first() == Some(&"**") {
-        return;
-    }
-    let excluded: BTreeSet<&str> = patterns
-        .iter()
-        .map(|pattern| {
-            pattern
-                .trim_start_matches('/')
-                .trim_start_matches("**/")
-                .trim_end_matches('/')
-        })
-        .collect();
+    // An allow-list excludes everything first; the later lines decide, the last one that names a
+    // pattern winning.
+    let allow_list = matches!(patterns.first(), Some((_, "**" | "*")));
     for pattern in must_ignore {
-        if !excluded.contains(pattern.as_str()) {
-            report
-                .finding(
-                    "ignore",
-                    Location::file(ignore.clone()),
-                    format!("{ignore} does not exclude {pattern}"),
-                )
-                .target(format!("{ignore}:{pattern}"))
-                .help("add the pattern as a line, or turn the file into an allow-list: `**` first")
-                .key(pattern.clone());
+        let mut excluded = allow_list;
+        let mut taken_back = None;
+        for (line, written) in &patterns {
+            let (include, written) = written
+                .strip_prefix('!')
+                .map_or((false, *written), |rest| (true, rest.trim()));
+            if normalized(written) == pattern.as_str() {
+                excluded = !include;
+                taken_back = include.then_some(*line);
+            }
         }
+        if excluded {
+            continue;
+        }
+        let (location, message) = if let Some(line) = taken_back {
+            (
+                Location::line(ignore.as_str(), line),
+                format!("{ignore} takes {pattern} back in with `!{pattern}`"),
+            )
+        } else {
+            (
+                Location::file(ignore.clone()),
+                format!("{ignore} does not exclude {pattern}"),
+            )
+        };
+        report
+            .finding("ignore", location, message)
+            .target(format!("{ignore}:{pattern}"))
+            .help("exclude the pattern with a line of its own and no `!` line for it, or turn the file into an allow-list: `**` first")
+            .key(pattern.clone());
     }
+}
+
+/// An ignore pattern without a leading `/` or `**/` and a trailing `/`, as `must-ignore` writes it.
+fn normalized(pattern: &str) -> &str {
+    pattern
+        .trim_start_matches('/')
+        .trim_start_matches("**/")
+        .trim_end_matches('/')
 }
