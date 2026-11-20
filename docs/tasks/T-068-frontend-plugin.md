@@ -343,6 +343,7 @@ The lead approved the design at `6ebd2b0` for code in v0.3.0 and answered the op
 
 ## Resume point
 
-2026-11-20T00:01:58+00:00: approved at `6ebd2b0`; decisions recorded above. The per-call sources
-moved into `gate-typescript` (`933dd45`, branch `task/T-068-frontend` from `main` at `cf97401`).
-Next: the `plugins/frontend` crate, its options and the path rules (order of work, step 2).
+2026-11-20T01:51:58+00:00: the crate, its 17 rules, their native tests, the end-to-end tests, the
+plugin page, one page per rule and the changelogs are committed (`75b3253` to `787f656`), and
+`plugins/frontend` is a workspace member. Nothing of the crate has compiled yet: its first lane round
+is queued. Next: fix what that round reports, then the review of the order of work's last steps.
