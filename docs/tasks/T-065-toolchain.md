@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead (2026-11-19) with the rulings in "Decisions"; code next |
+| Status | design approved by the lead (2026-11-19) with the rulings in "Decisions"; code on `task/T-065-node-plugin`, in its first lane round |
 | Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -119,12 +119,14 @@ One package manager, pnpm, pinned at the repository root (decided: one way to do
 | `field` | the root `package.json` has no `packageManager`, or it is not `pnpm@<x.y.z>` | the root `package.json` | `packageManager` |
 | `lockfile` | `pnpm-lock.yaml` is not tracked at the root, or a lockfile of another manager (`package-lock.json`, `yarn.lock`, `bun.lock`, `bun.lockb`, `npm-shrinkwrap.json`) is tracked anywhere | the lockfile, or the root | the file |
 | `nested` | a `pnpm-lock.yaml` or `pnpm-workspace.yaml` is tracked below the root, outside a declared separate root | the file | the file |
-| `members` | a tracked `package.json` is in no workspace package glob of `pnpm-workspace.yaml` and not under a declared separate root (only when the root has a workspace file) | the `package.json` | the file |
+| `members` | a tracked `package.json` below an install root is in no package glob of that root's `pnpm-workspace.yaml`; with no workspace file, every such `package.json` is reported, since no install covers it | the `package.json` | the file |
 | `save-exact` | the root `.npmrc` is not tracked, or does not set `save-exact=true` | `.npmrc` | `save-exact` |
 
-Option `separate`: a list of `{ path, job }`, each a directory that is its own install (a spike, a load
-test) with its own lockfile and workspace file. It is the one extension, declared with its job like
-T-062's `extra`. A separate root is checked by every rule as a repository of its own.
+Plugin option `separate` (in `[plugins.node] options`, next to `kind`): a list of `{ path, job }`,
+each a directory that is its own install (a spike, a load test) with its own lockfile and workspace
+file. It is the one extension, declared with its job like T-062's `extra`. `node/package-manager`
+and `node/dependency-versions` check each separate root as an install root of its own; a `path` that
+is not a plain relative directory, or an empty `job`, is a configuration error.
 
 ### `node/node-version` (repository scope)
 
@@ -173,14 +175,14 @@ One flat ESLint configuration at the root, imported by the members and never cop
 | Aspect | Reported when | At | Key |
 | --- | --- | --- | --- |
 | `legacy` | an `.eslintrc*` file or an `eslintConfig` key is tracked | the file | the file |
-| `root` | no `eslint.config.mjs` is tracked at the root, or another name (`eslint.config.js`, `.cjs`, `.ts`) is used | the root | the file |
+| `root` | no `eslint.config.mjs` is tracked at the root, or a flat configuration with another name (`eslint.config.js`, `.cjs`, `.ts`) is tracked anywhere | the root, or the file | the file |
 | `shared` | the root configuration does not import the `shared` package, or imports another configuration package as a base | the root configuration | the package |
 | `detached` | a member's `eslint.config.mjs` does not import the root configuration by a relative path | the member's file | the file |
 
 Option `shared`: the package name of the shared ESLint configuration, default `@elsikora/eslint-config`.
 A project that uses ESLint extends it, and nothing else is a base: the root configuration imports it,
-and importing another configuration package (a name `eslint-config-*` or `@<scope>/eslint-config*`) is
-`shared` too. Every repository's root then imports one package, which is how two repositories stop
+and importing another configuration package (`eslint-config`, `eslint-config-*`,
+`@<scope>/eslint-config` or `@<scope>/eslint-config-*`) is `shared` too. Every repository's root then imports one package, which is how two repositories stop
 copying the same file. The rule reads the import lines as text; it never evaluates the file.
 
 ### `node/package` (project scope)
@@ -202,14 +204,14 @@ One name per job (rows 5 to 8).
 | `missing` | a script the kind requires is absent | the `package.json` | the script |
 | `synonym` | a script has a name whose job has a standard name: `lint:types`, `type-check`, `tsc`, `check-types` (`typecheck`); `format:check`, `prettier:check` (`format`); `prettier:fix`, `prettier:write`, `format:write` (`format:fix`); `lint:ts`, `eslint` (`lint`); `lint:ts:fix`, `eslint:fix` (`lint:fix`) | the line | the script |
 | `writes` | a script without `:fix` passes `--fix` or `--write`. A bare name checks; `<name>:fix` writes. | the line | the script |
-| `misplaced` | `format` or `format:fix` in a workspace member (row 6) | the line | the script |
+| `misplaced` | `format` or `format:fix` in a workspace member (row 6): a project with no `pnpm-lock.yaml` of its own | the line | the script |
 | `name` | a script name is not kebab-case segments joined by `:` | the line | the script |
 
 A project's other scripts (`start:api`, `migration:create`) are its own and need no declaration: the
 script table is already where a script states its job, unlike a `docs/` directory, which is why T-062
 asks for `extra` and this rule does not.
 
-### `node/tsconfig` (project scope, language `typescript`)
+### `node/tsconfig` (project scope)
 
 One base per repository; every configuration reaches it; no configuration weakens it.
 
@@ -228,7 +230,8 @@ may add any other flag (decorators, `paths`, `jsx`) and may be stricter. It may 
 through an exception, which names its reason.
 
 Option `base`: the base's path from the repository root, default `tsconfig.base.json`. The files are
-read as JSON with comments and trailing commas, as TypeScript reads them.
+read as JSON with comments and trailing commas, as TypeScript reads them, so the rule declares no
+language and needs no TypeScript plugin; a project with no `tsconfig*.json` has nothing to check.
 
 ## 4. One command runs ESLint, Prettier and the rest
 

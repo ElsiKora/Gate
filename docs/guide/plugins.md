@@ -41,6 +41,7 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `agents` | project | none | no | `agents/adapters`, `agents/agents-block` |
 | `ledger` | project | none | no | none |
 | `nestjs` | project | TypeScript | no | none |
+| `node` | repository, project | none | no | none |
 | `ci` | repository | none | no | none |
 
 ### `typescript`
@@ -198,6 +199,66 @@ forbidden-packages = ["@nestjs/swagger"]
 Every rule reads the shared `layout` block of `[plugins.nestjs] options`
 ([its page](../../plugins/nestjs/rules/layout.md)); each rule's page is under
 [plugins/nestjs/rules](../../plugins/nestjs/rules).
+
+### `node`
+
+One Node toolchain for every project of a kind. It does not replace ESLint or Prettier: it makes the
+package manager, the Node version, dependency versions, the Prettier and ESLint configuration, the
+manifest fields, the script names and the TypeScript base the same everywhere, and the tools run as
+Gate steps. Every value it checks is fixed by the plugin; the plugin option `kind` (`service`,
+`frontend`, `infrastructure`, `library`, `monorepo-root`) selects the few that differ by kind, each
+with its reason on the rule's page. A directory with an install of its own that is not a workspace
+member (a deployment bundle, say) is declared in `separate` with its job.
+
+```toml
+# gate.toml at the repository root
+[plugins]
+node = { source = "ElsiKora/Gate:node@0.3.0", options = { kind = "monorepo-root" } }
+
+[rules]
+"node/package-manager" = "error"
+"node/node-version" = "error"
+"node/dependency-versions" = "error"
+"node/formatter" = "error"
+"node/linter" = "error"
+
+[steps]
+format = { run = "pnpm run format" }
+lint = { run = "pnpm run lint" }
+typecheck = { run = "pnpm run typecheck" }
+test = { run = "pnpm run test", heavy = true }
+
+[suites]
+all = ["format", "lint", "typecheck", "test"]
+
+[hooks]
+pre-push = ["check --push", "run all --push"]
+```
+
+```toml
+# apps/api/gate.toml
+[project]
+name = "api"
+
+[plugins]
+node = { source = "ElsiKora/Gate:node@0.3.0", options = { kind = "service" } }
+
+[rules]
+"node/package" = "error"
+"node/scripts" = "error"
+"node/tsconfig" = "error"
+```
+
+| Rule | Checks |
+| --- | --- |
+| [`node/package-manager`](../../plugins/node/rules/package-manager.md) | pnpm pinned at one exact version in `packageManager`; `save-exact=true`; one tracked `pnpm-lock.yaml` per install root and no other lockfile; every manifest is a member of its root's workspace |
+| [`node/node-version`](../../plugins/node/rules/node-version.md) | one exact version in the root `.nvmrc`, in no other file; the root `engines.node` admits it and no older major; every other `engines.node` is the root's |
+| [`node/dependency-versions`](../../plugins/node/rules/dependency-versions.md) | exact versions; in a workspace, external dependencies through the catalog and members through `workspace:` |
+| [`node/formatter`](../../plugins/node/rules/formatter.md) | one root `.prettierrc.json` with `printWidth` 120, `proseWrap` "preserve" and `trailingComma` "all", and nothing else |
+| [`node/linter`](../../plugins/node/rules/linter.md) | one flat root `eslint.config.mjs` on the shared configuration (`@elsikora/eslint-config`) and no other base; members import the root's |
+| [`node/package`](../../plugins/node/rules/package.md) | the manifest fields of the kind: name, version, license, `"type": "module"`, `engines.node`; private, or published with its fields for a library |
+| [`node/scripts`](../../plugins/node/rules/scripts.md) | the standard script names (`build`, `lint`, `lint:fix`, `typecheck`, `test`, `format`, `format:fix`); a bare name checks, `<name>:fix` writes; no synonym |
+| [`node/tsconfig`](../../plugins/node/rules/tsconfig.md) | every configuration extends one base with the strict flags on, turns none off, and resolves modules the kind's way |
 
 ### `ci`
 
