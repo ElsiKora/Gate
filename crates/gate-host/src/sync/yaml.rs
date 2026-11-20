@@ -35,7 +35,7 @@ fn write_map(map: &serde_json::Map<String, Value>, indent: usize, lines: &mut Ve
                 write_list(items, indent + 2, lines);
             }
             Value::String(text) if key == "uses" => {
-                lines.push(format!("{pad}{key}: {}", uses(text)))
+                lines.push(format!("{pad}{key}: {}", uses(text)));
             }
             other => lines.push(format!("{pad}{key}: {}", scalar(other))),
         }
