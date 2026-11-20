@@ -494,8 +494,9 @@ all = ["lint", "unit"]
   generator seeds a project's documentation indexes). `gate sync` writes a seed only when nothing
   exists at its path (no file, link or directory, tracked or not) and never compares it afterwards;
   `gate sync --check` never reports one, and it is never stale. Whether the file must exist is a
-  rule's question. A seed under a glob its own generator owns is refused as an environment error:
-  a seed belongs to the project from the moment it is written.
+  rule's question. A seed under a glob any generator owns is refused as an environment error, naming
+  both generators: a seed belongs to the project from the moment it is written, and `gate sync`
+  would remove it as stale once its own generator stops running.
 - `gate sync` writes every generated file; `gate sync --check` reports drift as findings of the
   pseudo-rule `gate/sync`, which the core owns because the files are its own output.
   Facts that the generated files make true by construction (hooks call the gate, the gate job runs

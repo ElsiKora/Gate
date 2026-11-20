@@ -47,15 +47,18 @@ pub fn page(settings: &Settings, entry: &Entry, index: &Index) -> String {
     text
 }
 
-/// The table of the entries the kind seeds, then the delegated entries listed, in the standard order,
+/// The table of the entries the kind seeds and the delegated entries listed, in the standard order,
 /// each linked from `docs/`. A delegated entry links its directory: its owner decides what is inside.
 fn entry_table(settings: &Settings) -> String {
     let mut table = String::from("\n| Entry | Job |\n| --- | --- |\n");
-    for (entry, _) in standard::required_indexes(settings.kind) {
-        if entry.name == "README.md" {
-            continue;
-        }
-        let (label, link) = if entry.directory {
+    for entry in ENTRIES.iter().filter(|entry| {
+        entry.name != "README.md"
+            && (entry.required(settings.kind)
+                || (entry.delegated.is_some() && settings.delegates(entry.name)))
+    }) {
+        let (label, link) = if entry.delegated.is_some() {
+            (format!("{}/", entry.name), format!("{}/", entry.name))
+        } else if entry.directory {
             (
                 format!("{}/", entry.name),
                 format!("{}/README.md", entry.name),
@@ -64,17 +67,6 @@ fn entry_table(settings: &Settings) -> String {
             (entry.name.to_owned(), entry.name.to_owned())
         };
         let _ = writeln!(table, "| [{label}]({link}) | {} |", entry.job);
-    }
-    for entry in ENTRIES
-        .iter()
-        .filter(|entry| entry.delegated.is_some() && settings.delegates(entry.name))
-    {
-        let _ = writeln!(
-            table,
-            "| [{name}/]({name}/) | {} |",
-            entry.job,
-            name = entry.name
-        );
     }
     table
 }

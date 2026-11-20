@@ -5,7 +5,7 @@ use crate::fixture::{Fixture, kind};
 
 const MARKER: &str = "<!-- gate:seed: replace this page's text, then delete this line -->";
 
-const NINE: [&str; 9] = [
+const COMMON: [&str; 9] = [
     "docs/README.md",
     "docs/start-here.md",
     "docs/architecture/README.md",
@@ -23,16 +23,19 @@ fn an_empty_project_gets_the_required_indexes_of_its_kind_as_seeds() {
         ("service", 9),
         ("frontend", 9),
         ("infrastructure", 9),
-        ("library", 9),
+        ("library", 10),
         ("monorepo-root", 8),
     ] {
         let output = Fixture::new(&[]).generate(&kind(name)).expect("generates");
         let paths: Vec<&str> = output.files.iter().map(|file| file.path.as_str()).collect();
-        let expected: Vec<&str> = NINE
+        let mut expected: Vec<&str> = COMMON
             .iter()
             .copied()
             .filter(|path| name != "monorepo-root" || *path != "docs/modules/README.md")
             .collect();
+        if name == "library" {
+            expected.push("docs/releases/README.md");
+        }
         assert_eq!(paths, expected, "{name}");
         assert_eq!(paths.len(), count, "{name}");
         for file in &output.files {
@@ -125,7 +128,11 @@ fn the_seeds_of_a_kind_pass_the_rule_once_filled() {
             .iter()
             .map(|finding| finding.aspect.as_str())
             .collect();
-        let expected = if name == "monorepo-root" { 8 } else { 9 };
+        let expected = match name {
+            "monorepo-root" => 8,
+            "library" => 10,
+            _ => 9,
+        };
         assert_eq!(aspects, vec!["unfilled"; expected], "{name}");
         let filled = seeded.replaced(&format!("{MARKER}\n"), "");
         assert_eq!(

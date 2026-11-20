@@ -17,17 +17,23 @@ Each shared plugin keeps its own changelog next to its code.
   for 0.2.0 does not load; pin the plugins released with this core, or rebuild with `gate-sdk`
   0.3.0.
 - **plugin-agents:** `agents/no-claude-md` is a repository-scope rule, set in the root `gate.toml`'s
-  `[rules]` only; it reports every `CLAUDE.md` in the repository.
+  `[rules]` only; it reports every `CLAUDE.md` in the repository, and a project file or profile
+  that sets it is a configuration error. To migrate: in a monorepo whose root is not a project,
+  declare `agents` in the root `[plugins]` and run `gate lock`; set `"agents/no-claude-md"` in the
+  root `[rules]` only; remove it from every project's `gate.toml` and every profile; then delete
+  each `CLAUDE.md`, or move what it holds into `AGENTS.md`.
 
 ### Features
 
 - **host:** seeds. `gate sync` writes a generated file marked `seed` only when nothing exists at its
-  path, never overwrites it, and `gate sync --check` never reports it; a seed under a glob its own
-  generator owns is refused. A generator reads the plugin's options (`Generate::plugin_options`) and
+  path, never overwrites it, and `gate sync --check` never reports it; a seed under a glob any
+  generator owns is refused, since `gate sync` would remove it as stale. A generator reads the plugin's options (`Generate::plugin_options`) and
   writes a seed with `Generate::seed`.
 - **plugin-docs:** a new plugin, `docs`: one documentation layout per kind of project (`service`,
   `frontend`, `infrastructure`, `library`, `monorepo-root`), the rule `docs/layout` that checks it,
   and the generator `docs/layout` that seeds a project's required index pages.
+- **host:** a required `[plugins.<name>] options` key that is missing names where to set it and,
+  when its schema lists them, the values it takes.
 
 ## Unreleased
 

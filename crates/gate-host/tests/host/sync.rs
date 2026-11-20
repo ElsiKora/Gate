@@ -551,18 +551,109 @@ fn a_seed_under_a_glob_its_generator_owns_is_refused() {
 }
 
 #[test]
-fn a_seeded_file_is_never_stale() {
+fn a_seed_filled_and_committed_is_never_drift_never_rewritten_and_never_stale() {
     let repo = with_generator();
-    repo.write("docs/seeded.md", "filled\n");
-    repo.commit("a seed, filled");
+    let generators = Seeds(vec!["docs/seeded.md"], vec!["generated/**"]);
     let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
-    let generators = Seeds(Vec::new(), vec!["generated/**"]);
-    assert_eq!(reported(&workspace, &generators), ["generated/new.md"]);
+    let outputs = plan(&workspace, &generators).expect("plan");
+    let owned = owned(&workspace, &generators).expect("owned");
+    let synced = write(&workspace, &outputs, &owned).expect("write");
+    assert_eq!(synced.written, ["docs/seeded.md", "generated/new.md"]);
+    repo.write("docs/seeded.md", "filled\n");
+    repo.commit("the seed, filled");
+
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    assert_eq!(
+        reported(&workspace, &generators),
+        Vec::<String>::new(),
+        "a filled seed is not drift"
+    );
+    let outputs = plan(&workspace, &generators).expect("plan");
+    let synced = write(&workspace, &outputs, &owned).expect("write");
+    assert_eq!(synced.written, Vec::<String>::new());
+    assert_eq!(synced.removed, Vec::<String>::new());
+
+    // Its generator removed from [generate]: the page stays the project's.
+    repo.write("gate.toml", &format!("{ROOT}\n"));
+    repo.commit("no generator");
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    assert_eq!(reported(&workspace, &generators), Vec::<String>::new());
     let outputs = plan(&workspace, &generators).expect("plan");
     let owned = owned(&workspace, &generators).expect("owned");
     let synced = write(&workspace, &outputs, &owned).expect("write");
     assert_eq!(synced.removed, Vec::<String>::new());
-    assert!(repo.path().join("docs/seeded.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("docs/seeded.md")).expect("read"),
+        "filled\n"
+    );
+}
+
+/// A runtime of two generators: `demo/files` writes `generated/new.md` and owns `docs/**`;
+/// `docs/layout` seeds `docs/README.md`.
+struct Overlap;
+
+impl Generators for Overlap {
+    fn generate(
+        &self,
+        _project: Option<&str>,
+        generator: &PluginItem,
+        _options: Option<&serde_json::Value>,
+    ) -> Result<Vec<GeneratedFile>> {
+        Ok(if generator.plugin() == "docs" {
+            vec![GeneratedFile {
+                path: "docs/README.md".to_owned(),
+                contents: b"seed\n".to_vec(),
+                seed: true,
+            }]
+        } else {
+            vec![GeneratedFile {
+                path: "generated/new.md".to_owned(),
+                contents: b"generated\n".to_vec(),
+                seed: false,
+            }]
+        })
+    }
+
+    fn owns(&self, _project: Option<&str>, generator: &PluginItem) -> Result<Vec<String>> {
+        Ok(if generator.plugin() == "demo" {
+            vec!["docs/**".to_owned()]
+        } else {
+            Vec::new()
+        })
+    }
+
+    fn reads_history(&self, _filter: &RuleFilter) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_seed_under_a_glob_another_generator_owns_is_refused_before_anything_is_written() {
+    let repo = monorepo();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "{ROOT}\n[plugins]\ndemo = {{ source = \"ElsiKora/Gate:demo@0.1.0\" }}\ndocs = {{ source = \"ElsiKora/Gate:docs@0.3.0\" }}\n\n[generate]\n\"demo/files\" = {{}}\n\"docs/layout\" = {{}}\n"
+        ),
+    );
+    repo.write("docs/README.md", "a person's page\n");
+    repo.commit("two generators, one owning where the other seeds");
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    let error = plan(&workspace, &Overlap).expect_err("the seed is refused");
+    assert_eq!(error.kind(), ErrorKind::Environment, "{}", error.message());
+    assert!(
+        error.message().contains(
+            "docs/layout seeds docs/README.md, which is under \"docs/**\", a glob demo/files owns"
+        ),
+        "{}",
+        error.message()
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("docs/README.md")).expect("read"),
+        "a person's page\n",
+        "a refused plan writes and removes nothing"
+    );
+    assert!(!repo.path().join("generated/new.md").exists());
 }
 
 /// Whether `program --version` runs.

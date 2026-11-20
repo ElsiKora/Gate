@@ -351,8 +351,8 @@ impl Workspace {
                     continue;
                 };
                 let options = entry.value.options.as_ref();
-                let violations =
-                    validator.validate(&schema, options.map_or(&empty, |options| &options.value));
+                let value = options.map_or(&empty, |options| &options.value);
+                let violations = validator.validate(&schema, value);
                 if violations.is_empty() {
                     continue;
                 }
@@ -360,9 +360,11 @@ impl Workspace {
                     .and_then(|options| options.file.as_ref())
                     .map(|file| format!(" (from {file})"))
                     .unwrap_or_default();
+                let problem = missing_required(name, &entry.origin.file, &schema, value)
+                    .unwrap_or_else(|| violations.join("; "));
                 return Err(at(
                     Some(&entry.origin),
-                    format!("plugin {name} options{from}: {}", violations.join("; ")),
+                    format!("plugin {name} options{from}: {problem}"),
                 ));
             }
         }
@@ -762,6 +764,77 @@ fn check_rule(
             format!("\"{rule}\" options: {}", violations.join("; ")),
         ))
     }
+}
+
+/// What to say of the first property the plugin's options schema requires and `options` lacks:
+/// where to set it and, when its schema lists the values it takes, those values.
+fn missing_required(
+    name: &PluginName,
+    file: &str,
+    schema: &serde_json::Value,
+    options: &serde_json::Value,
+) -> Option<String> {
+    let key = schema
+        .get("required")?
+        .as_array()?
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .find(|key| options.get(key).is_none())?;
+    let values = schema
+        .get("properties")
+        .and_then(|properties| properties.get(key))
+        .map(|property| allowed_values(schema, property))
+        .unwrap_or_default();
+    let choices = if values.is_empty() {
+        String::new()
+    } else {
+        format!(", one of {}", values.join(", "))
+    };
+    Some(format!(
+        "{key} is required; set it in the [plugins.{name}] options in {file}{choices}"
+    ))
+}
+
+/// The values a property's schema allows, through a local `$ref`: its `enum`, or the one value of
+/// each branch of its `oneOf` or `anyOf`; empty when the schema lists none.
+fn allowed_values(root: &serde_json::Value, property: &serde_json::Value) -> Vec<String> {
+    let resolved = property
+        .get("$ref")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|reference| reference.strip_prefix('#'))
+        .and_then(|pointer| root.pointer(pointer))
+        .unwrap_or(property);
+    if let Some(values) = resolved.get("enum").and_then(serde_json::Value::as_array) {
+        return values.iter().map(shown_value).collect();
+    }
+    for keyword in ["oneOf", "anyOf"] {
+        let Some(branches) = resolved.get(keyword).and_then(serde_json::Value::as_array) else {
+            continue;
+        };
+        let values: Option<Vec<String>> = branches.iter().map(single_value).collect();
+        if let Some(values) = values {
+            return values;
+        }
+    }
+    Vec::new()
+}
+
+/// The one value a schema branch allows: its `const`, or an `enum` of one value.
+fn single_value(branch: &serde_json::Value) -> Option<String> {
+    if let Some(value) = branch.get("const") {
+        return Some(shown_value(value));
+    }
+    let [value] = branch.get("enum")?.as_array()?.as_slice() else {
+        return None;
+    };
+    Some(shown_value(value))
+}
+
+/// A JSON value as a person writes it in gate.toml: a string without its quotes.
+fn shown_value(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.to_string(), str::to_owned)
 }
 
 fn aspects_hint(found: &RuleDeclaration) -> String {

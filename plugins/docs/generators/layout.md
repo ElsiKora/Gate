@@ -6,9 +6,9 @@ The required index pages of the project's documentation standard, as seeds.
 
 For the kind in the `[plugins.docs]` options (see the rule [`docs/layout`](../rules/layout.md)), the
 index of every required entry: `docs/README.md`, `docs/start-here.md`, and the `README.md` of
-`architecture/`, `modules/`, `adr/`, `reference/`, `guide/`, `testing/` and `operations/`. That is
-nine files for a service, a frontend, infrastructure and a library, and eight for a monorepo root,
-which has no `modules/`.
+`architecture/`, `modules/`, `adr/`, `reference/`, `guide/`, `testing/` and `operations/`, and for
+a library `releases/`. That is nine files for a service, a frontend and infrastructure, ten for a
+library, and eight for a monorepo root, which has no `modules/`.
 
 Each file is a seed: `gate sync` writes it only when nothing exists at its path (no file, link or
 directory, tracked or not) and never compares it afterwards, so a page a person filled is never

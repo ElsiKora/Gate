@@ -55,6 +55,56 @@ fn each_required_entry_absent_gives_one_missing_finding() {
     );
 }
 
+/// Every required entry of each kind, removed alone from a complete book of that kind, gives exactly
+/// its one `missing` finding.
+#[test]
+fn each_required_entry_of_each_kind_absent_alone_gives_its_one_missing_finding() {
+    const COMMON: [(&str, &str); 9] = [
+        ("docs/README.md", "README.md"),
+        ("docs/start-here.md", "start-here.md"),
+        ("docs/architecture/README.md", "architecture"),
+        ("docs/modules/README.md", "modules"),
+        ("docs/adr/README.md", "adr"),
+        ("docs/reference/README.md", "reference"),
+        ("docs/guide/README.md", "guide"),
+        ("docs/testing/README.md", "testing"),
+        ("docs/operations/README.md", "operations"),
+    ];
+    for name in [
+        "service",
+        "frontend",
+        "infrastructure",
+        "library",
+        "monorepo-root",
+    ] {
+        let options = kind(name);
+        let mut required: Vec<(&str, &str)> = COMMON
+            .iter()
+            .copied()
+            .filter(|(_, entry)| name != "monorepo-root" || *entry != "modules")
+            .collect();
+        if name == "library" {
+            required.push(("docs/releases/README.md", "releases"));
+        }
+        assert_eq!(check(&book(name), &options), Vec::<String>::new(), "{name}");
+        for (index, entry) in required {
+            assert_eq!(
+                check(&book(name).without(index), &options),
+                [format!("missing {index} {entry}")],
+                "{name}: {entry}"
+            );
+        }
+    }
+    let pages_only = book("library")
+        .without("docs/releases/README.md")
+        .with("docs/releases/1.0.0.md", "# 1.0.0\n");
+    assert_eq!(
+        check(&pages_only, &kind("library")),
+        ["missing docs/releases/README.md releases"],
+        "required in a library, so missing and not entry-index"
+    );
+}
+
 #[test]
 fn an_unknown_top_level_entry_is_reported_with_where_its_content_goes() {
     let service = kind("service");
@@ -168,7 +218,13 @@ fn a_declared_extension_that_breaks_the_rules_is_a_configuration_error_naming_th
     for (name, says) in [
         ("concepts", "is reserved"),
         ("ledger", "is the standard entry docs/ledger/"),
+        ("ledger.md", "is the standard entry docs/ledger/"),
         ("modules", "is the standard entry docs/modules/"),
+        ("start-here", "is the standard entry docs/start-here.md"),
+        ("start-here.md", "is the standard entry docs/start-here.md"),
+        ("readme", "is the standard entry docs/README.md"),
+        ("readme.md", "is the standard entry docs/README.md"),
+        ("releases", "is the standard entry docs/releases/"),
         ("Playbooks", "is not kebab-case"),
     ] {
         let options =

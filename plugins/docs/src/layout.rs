@@ -153,15 +153,15 @@ fn not_an_entry(name: &str, top: &Top, settings: &Settings) -> Option<String> {
                 "{path} is not an entry of {}: {reason}",
                 kind.noun()
             )),
-            Cell::Same if entry.directory && top.file => Some(format!(
+            Cell::Same | Cell::Required(_) if entry.directory && top.file => Some(format!(
                 "docs/{name} is a file; the entry is the directory {}, with its README.md",
                 entry.path()
             )),
-            Cell::Same if !entry.directory && directory => Some(format!(
+            Cell::Same | Cell::Required(_) if !entry.directory && directory => Some(format!(
                 "{path} is a directory; the entry is the Markdown file {}",
                 entry.path()
             )),
-            Cell::Same => None,
+            Cell::Same | Cell::Required(_) => None,
         };
     }
     if let Some(extra) = settings.extra(name) {
@@ -254,8 +254,9 @@ fn entry_indexes(report: &mut Report, settings: &Settings, book: &Book) {
         if !top.directory() || top.has_index(name) {
             continue;
         }
-        let optional = standard::entry(name)
-            .is_some_and(|entry| entry.optional && entry.directory && entry.in_kind(kind));
+        let optional = standard::entry(name).is_some_and(|entry| {
+            entry.optional && !entry.required(kind) && entry.directory && entry.in_kind(kind)
+        });
         let declared = settings.extra(name).is_some_and(Extra::directory);
         if !optional && !declared {
             continue;

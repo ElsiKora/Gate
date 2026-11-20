@@ -77,7 +77,7 @@ impl Settings {
                 )));
             }
             let stem = name.strip_suffix(".md").unwrap_or(name);
-            if let Some(entry) = standard::entry(name).or_else(|| standard::entry(stem)) {
+            if let Some(entry) = standard::clash(name) {
                 return Err(Error::config(format!(
                     "{key}.name {name:?} is the standard entry {}; an extension adds an entry the standard does not have",
                     entry.path()

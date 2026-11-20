@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress: code, on the design the lead approved at `569ab76` |
+| Status | code review: the review's one fix round is in (see "Review fix round") |
 | Release | v0.3.0 (it changes the plugin interface, which v0.3.0 moves to `gate:plugin@0.3.0`) |
 | Writer | "Gate 005" |
 | Reviewer | a separate review session |
-| Depends on | the `gate:plugin@0.3.0` bump (T-057 or T-059, whichever merges first); T-061 for the delegated entries |
+| Depends on | nothing: this branch carries the `gate:plugin@0.3.0` bump, and whichever of T-057, T-059 and T-062 merges later rebases onto it. T-063 builds on it for the delegated entries |
 | Touches | `wit/gate.wit` (`generated-file`, `generate`), `crates/gate-sdk` (a seed and the plugin options in a generator), `crates/gate-host/src/sync` (writing and checking seeds), a new `plugins/docs` (one rule, one generator, the kinds, their pages), `Cargo.toml` (the workspace member), `plugins/agents` (`no-claude-md`: scope and page), `docs/architecture.md` sections 4 and 10, `docs/guide/plugins.md`, `CHANGELOG.md` |
 
 ## Goal
@@ -62,8 +62,8 @@ anywhere.
 ### The tree, side by side
 
 A cell is **same** (the entry exists with this job in this kind, as in the others), **same, optional**
-(it exists only when the project has that job, the same in every kind), or **absent** (not in this
-kind, with the reason). No cell is "kind-specific" at the top level. Where the kinds really differ,
+(it exists only when the project has that job), **required** (optional in the other kinds, required
+in this one, with the reason), or **absent** (not in this kind, with the reason). No cell is "kind-specific" at the top level. Where the kinds really differ,
 they differ inside an index (the next table), not in the tree. The rows are in the standard order,
 which is also the order of the index's entry table.
 
@@ -72,16 +72,16 @@ which is also the order of the index's entry table.
 | 1 | `README.md` | the index: the reading order and a table of every entry | same | same | same | same | same | |
 | 2 | `start-here.md` | the first reading path, for a person or an agent | same | same | same | same | same | |
 | 3 | `architecture/` | how the system is built and why | same | same | same | same | same | |
-| 4 | `modules/` | a chapter per owned part of the code: a module, a feature, a stack | same | same | same | same | absent | Root: the root owns no code; its parts are member projects, each with its own `docs/`, and the root's index links them (section "Members" below). |
+| 4 | `modules/` | a chapter per owned part of the code: a module, a feature, a stack, a package | same | same | same | same | absent | Root: the root owns no code; its parts are member projects, each with its own `docs/`, and the root's index links them (section "Members" below). |
 | 5 | `adr/` | decision records: the log and one `NNNN-<slug>.md` per decision | same | same | same | same | same | |
 | 6 | `reference/` | exact values and contracts: formats, inventories, settings, the glossary | same | same | same | same | same | |
 | 7 | `guide/` | task-oriented chapters: how to do one thing, with examples | same | same | same | same | same | |
 | 8 | `testing/` | what the tests are, where they live, what counts as evidence | same | same | same | same | same | |
-| 9 | `operations/` | runbooks: deploy, roll back, recover, rotate | same | same | same | same | same | |
+| 9 | `operations/` | runbooks: deploy, roll back, recover, rotate, release | same | same | same | same | same | |
 | 10 | `agents/` | agent rules, skills and the agents' reading map (`agents/context-map.md`); owned by the `agents` plugin | same | same | same | same | same | |
 | 11 | `ledger/` | work records, verification, follow-ups; owned by the `ledger` plugin | same | same | same | same | absent | Root: work is recorded in the ledger of the member project whose code it changes, and a repository-wide decision is an `adr/` record; a root ledger would be a second place for the same record. |
 | 12 | `research/` | exploration that informed a decision but is not one | same, optional | same, optional | same, optional | same, optional | same, optional | Optional in every kind: present only when the project has done such research. |
-| 13 | `releases/` | one page per released version: what a consumer changes | same, optional | same, optional | same, optional | same, optional | same, optional | Optional in every kind: present only when the project publishes versions. |
+| 13 | `releases/` | one page per released version: what a consumer changes | same, optional | same, optional | same, optional | required | same, optional | Optional where the project publishes versions. Library: required, because publishing versions is a library's nature, and the consumer of each version needs the page that says what to change. Its index has one section, Versions. |
 
 Every other top-level name is unknown, unless the project declares it (section 2). One form per
 entry: `architecture.md` in place of `architecture/` is a different, unknown entry. Dot entries are
@@ -527,6 +527,30 @@ content findings (`#unfilled`, and the input findings of the delegated plugins' 
   one CLI test per kind with `docs/agents/` and `docs/ledger/` tracked as stand-ins: after
   `gate sync`, every `docs/layout` finding is `#unfilled`; with the entry removed, one
   `#delegated-missing`. The three-plugin test is T-063's.
+
+## Review fix round (the lead, 2026-11-20)
+
+The review of `ec96a38`, fixed in one round, with the `delegated` option above:
+
+1. Rebased onto `main` at `e9e1434` (T-056's cache: `results::load(cache, plugin, key)`, format
+   3, `results/<plugin sha256>/`); the generator's cache calls use that form.
+2. A seed under a glob any generator owns is refused in `plan`, as an environment error naming both
+   generators; before, only its own generator's globs were checked, so a page seeded under another
+   generator's glob was deleted as stale once its own generator stopped running.
+3. A CLI test that the generator's stored output is keyed by the plugin's options.
+4. The seed host test seeds outside `generated/**` and removes the generator; a CLI test that a
+   direct commit editing a seeded page is a code change for `git/main-history`, not a generated
+   file in sync.
+5. A missing required plugin option names where to set it and, when its schema lists them, the
+   values it takes.
+6. An extension reuses no standard entry's name or stem, of any kind, in any case.
+7. A library requires `releases/`, with an index of one section, Versions. `operations/` stays
+   required in a library and a monorepo root; the jobs of `modules/` (a package) and
+   `operations/` (release) are the code's, and the table above says so.
+8. The CHANGELOG gives the whole `agents/no-claude-md` migration.
+9. Status, the dependency line, and the plan's T-062 and T-063 rows.
+10. Spec tests: each required entry of each kind absent alone; a nested project setting
+    `agents/no-claude-md` at the CLI; the root listed as `"."`.
 
 ## Proof
 

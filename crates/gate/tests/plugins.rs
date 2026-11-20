@@ -4164,7 +4164,7 @@ fn the_docs_plugin_lays_down_and_checks_the_standard_of_each_kind() {
         ("service", 9),
         ("frontend", 9),
         ("infrastructure", 9),
-        ("library", 9),
+        ("library", 10),
         ("monorepo-root", 8),
     ] {
         let repo = Repo::empty();
@@ -4263,7 +4263,7 @@ fn the_docs_index_seeds_and_requires_the_delegated_entries_of_each_kind() {
         ("service", r#"["agents", "ledger"]"#, "ledger", 9),
         ("frontend", r#"["agents", "ledger"]"#, "ledger", 9),
         ("infrastructure", r#"["agents", "ledger"]"#, "ledger", 9),
-        ("library", r#"["agents", "ledger"]"#, "ledger", 9),
+        ("library", r#"["agents", "ledger"]"#, "ledger", 10),
         ("monorepo-root", r#"["agents"]"#, "agents", 8),
     ] {
         let repo = Repo::empty();
@@ -4321,6 +4321,263 @@ fn the_docs_index_seeds_and_requires_the_delegated_entries_of_each_kind() {
             "{kind}: {report}"
         );
     }
+}
+
+/// A generator's stored output is keyed by the plugin's options too: with one cache, a sync after
+/// `kind` changes from `service` to `monorepo-root` seeds the monorepo root's book, not the
+/// service's it stored.
+#[test]
+fn a_generators_stored_output_is_keyed_by_the_plugins_options() {
+    let (path, _) = component("gate-plugin-docs", "docs");
+    let plugin = format!("docs={}", path.display());
+    let config = |kind: &str| {
+        format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\noptions = {{ kind = \"{kind}\" }}\n\n[generate]\n\"docs/layout\" = {{}}\n"
+        )
+    };
+    let written = |output: &Output| -> Vec<String> {
+        text(&output.stdout)
+            .lines()
+            .filter_map(|line| line.strip_prefix("wrote "))
+            .map(str::to_owned)
+            .collect()
+    };
+    let repo = Repo::empty();
+    repo.write("gate.toml", &config("service"));
+    repo.commit("a service");
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        written(&output).contains(&"docs/modules/README.md".to_owned()),
+        "{}",
+        text(&output.stdout)
+    );
+
+    std::fs::remove_dir_all(repo.path().join("docs")).expect("remove the seeds");
+    repo.write("gate.toml", &config("monorepo-root"));
+    repo.commit("a monorepo root");
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let pages = written(&output);
+    assert_eq!(pages.len(), 8, "{pages:?}");
+    assert!(
+        !pages.contains(&"docs/modules/README.md".to_owned()),
+        "{pages:?}"
+    );
+    let index = std::fs::read_to_string(repo.path().join("docs/README.md")).expect("read");
+    assert!(index.contains("\n## Members\n"), "{index}");
+}
+
+/// A missing `kind` names where to set it and the five values it takes.
+#[test]
+fn a_missing_required_plugin_option_says_where_to_set_it_and_its_values() {
+    let (path, _) = component("gate-plugin-docs", "docs");
+    let plugin = format!("docs={}", path.display());
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\n\n[generate]\n\"docs/layout\" = {{}}\n"
+        ),
+    );
+    repo.commit("no kind");
+    for command in ["sync", "check"] {
+        let output = repo.gate(&[command, "--plugin", &plugin]);
+        assert_eq!(output.status.code(), Some(2), "{command}");
+        let error = text(&output.stderr);
+        assert!(
+            error.contains(
+                "plugin docs options: kind is required; set it in the [plugins.docs] options in gate.toml, one of service, frontend, infrastructure, library, monorepo-root"
+            ),
+            "{command}: {error}"
+        );
+    }
+}
+
+/// A seed is the project's file once written, so `gate sync` does not produce it: a direct commit
+/// that edits a seeded page outside `documentation` is a code change for `git/main-history`, not a
+/// generated file in sync.
+#[test]
+fn main_history_judges_an_edit_of_a_seeded_page_as_the_projects_own_change() {
+    let git = component("gate-plugin-git", "git");
+    let docs = component("gate-plugin-docs", "docs");
+    let repo = Repo::empty();
+    repo.write("README.md", "# Synthetic\n");
+    let start = repo.commit("chore: start");
+    repo.write(
+        "gate.toml",
+        &format!(
+            r#"[gate]
+version = "{VERSION}"
+
+[project]
+name = "synthetic"
+
+[plugins.docs]
+source = "acme/rules:docs@0.1.0"
+options = {{ kind = "service" }}
+
+[plugins.git]
+source = "acme/rules:git@0.1.0"
+options = {{ activation = "{start}", main = ["refs/heads/main"], release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$', branch-pattern = "^feature/[a-z0-9-]+$", branch-length = [5, 50], documentation = ["README.md"], dependabot = ["package.json"] }}
+
+[rules]
+"git/main-history" = {{ level = "error" }}
+
+[generate]
+"docs/layout" = {{}}
+"#
+        ),
+    );
+    let mut pins = lock(
+        "acme/rules:docs@0.1.0",
+        "https://example.invalid/docs.wasm",
+        &"c".repeat(64),
+    );
+    let _ = write!(
+        pins,
+        "\n[plugins.\"acme/rules:git@0.1.0\"]\nurl = \"https://example.invalid/git.wasm\"\nsha256 = \"{}\"\n",
+        "d".repeat(64)
+    );
+    repo.write("gate.lock", &pins);
+    let configured = repo.commit("chore: configure gate");
+    repo.write(
+        "docs/start-here.md",
+        "# Start here\n\nA person's first page.\n",
+    );
+    let edited = repo.commit("docs: write the first page");
+
+    let docs_plugin = format!("docs={}", docs.0.display());
+    let git_plugin = format!("git={}", git.0.display());
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &docs_plugin,
+        "--plugin",
+        &git_plugin,
+        "--format",
+        "json",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
+    let mut messages: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str().map(str::to_owned))
+        .collect();
+    messages.sort();
+    let short = |commit: &str| commit[..12].to_owned();
+    let mut expected = vec![
+        format!(
+            "direct commit {} changes code path gate.lock; code reaches main through a branch merge",
+            short(&configured)
+        ),
+        format!(
+            "direct commit {} changes code path gate.toml; code reaches main through a branch merge",
+            short(&configured)
+        ),
+        format!(
+            "direct commit {} changes code path docs/start-here.md; code reaches main through a branch merge",
+            short(&edited)
+        ),
+    ];
+    expected.sort();
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    assert_eq!(messages, expected);
+}
+
+/// A workspace that lists `"."` makes the root a project of kind `monorepo-root`: its `docs/` is
+/// checked against the root's standard (a `ledger/` there is unknown, with the reason), and a member
+/// project checks its own kind independently.
+#[test]
+fn a_root_listed_as_a_project_checks_its_docs_as_a_monorepo_root_and_a_member_its_own_kind() {
+    let (path, _) = component("gate-plugin-docs", "docs");
+    let plugin = format!("docs={}", path.display());
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"top\"\n\n[workspace]\nprojects = [\".\", \"apps/*\"]\n\n[plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\noptions = {{ kind = \"monorepo-root\" }}\n\n[rules]\n\"docs/layout\" = \"error\"\n\n[generate]\n\"docs/layout\" = {{}}\n"
+        ),
+    );
+    repo.write(
+        "apps/a/gate.toml",
+        "[project]\nname = \"a\"\n\n[plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\noptions = { kind = \"service\" }\n\n[rules]\n\"docs/layout\" = \"error\"\n",
+    );
+    repo.commit("a root project and a member");
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let stdout = text(&output.stdout);
+    let written: Vec<&str> = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("wrote "))
+        .map(|line| {
+            if line.starts_with("docs/") {
+                "root"
+            } else {
+                line
+            }
+        })
+        .collect();
+    assert_eq!(written, vec!["root"; 8], "{stdout}");
+    repo.write("docs/ledger/index.md", "# Ledger\n");
+    repo.commit("docs: seed the root's book, and a root ledger");
+
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    let report = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{report}{}",
+        text(&output.stderr)
+    );
+    assert_eq!(
+        report.matches("docs/layout#unfilled").count(),
+        8,
+        "{report}"
+    );
+    assert!(
+        report.contains(
+            "docs/ledger/ is not an entry of a monorepo root: work is recorded in the ledger of the member project whose code it changes"
+        ),
+        "{report}"
+    );
+    assert_eq!(
+        report.matches("docs/layout#missing").count(),
+        9,
+        "the member is a service, with its modules/: {report}"
+    );
+    assert_eq!(report.matches("docs/layout#").count(), 18, "{report}");
+}
+
+/// `agents/no-claude-md` runs once for the whole repository: a nested project's gate.toml that sets
+/// it is a configuration error that says where it goes.
+#[test]
+fn a_nested_project_that_sets_no_claude_md_is_a_configuration_error() {
+    let (path, _) = component("gate-plugin-agents", "agents");
+    let plugin = format!("agents={}", path.display());
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[plugins.agents]\nsource = \"acme/rules:agents@0.1.0\"\n"
+        ),
+    );
+    repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\n\n[rules]\n\"agents/no-claude-md\" = \"error\"\n",
+    );
+    repo.commit("a project sets a repository rule");
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    let error = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{error}");
+    assert!(
+        error.contains(
+            "\"agents/no-claude-md\" is a repository-scope rule and runs once for the whole repository, not for project one; set it in the root gate.toml's [rules]"
+        ),
+        "{error}"
+    );
 }
 
 /// `docs/recommended` turns `docs/layout` on at error and `docs/adoption` at warning, with no

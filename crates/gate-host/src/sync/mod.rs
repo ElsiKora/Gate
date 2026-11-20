@@ -100,13 +100,36 @@ pub struct Stale {
 ///
 /// # Errors
 /// Fails when a hook or job is wrong for its place, a generator fails or writes outside the
-/// repository, or two outputs share a path.
+/// repository, a generator seeds a file under a glob any generator owns, or two outputs share a
+/// path.
 pub fn plan(workspace: &Workspace, generators: &dyn Generators) -> Result<Vec<Output>> {
     let mut outputs = core_outputs(workspace, generators)?;
     for entry in generator_entries(workspace) {
         outputs.extend(generator_outputs(&entry, generators)?);
     }
+    if outputs.iter().any(|output| output.seed) {
+        refuse_owned_seeds(&outputs, &owned(workspace, generators)?)?;
+    }
     sorted(outputs)
+}
+
+/// Refuses a seed under a glob another generator owns: the seed is the project's once written, and
+/// `gate sync` removes a file under an owned glob that no generator writes, so the page a person
+/// filled would be deleted as stale once its own generator stops running.
+fn refuse_owned_seeds(outputs: &[Output], owned: &[Owned]) -> Result<()> {
+    let matchers = matchers(owned)?;
+    for output in outputs.iter().filter(|output| output.seed) {
+        if let Some((owner, _)) = matchers
+            .iter()
+            .find(|(_, matcher)| matcher.is_match(&output.path))
+        {
+            return Err(Error::environment(format!(
+                "{} seeds {}, which is under {:?}, a glob {} owns; a seed belongs to the project once written, and gate sync removes a file under an owned glob that no generator writes; keep only one of the two generators in [generate], or report the overlap to the plugins' authors",
+                output.item, output.path, owner.glob, owner.item
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The files the core generates itself: the hooks of `[hooks]` and the workflow of `[ci.github]`.

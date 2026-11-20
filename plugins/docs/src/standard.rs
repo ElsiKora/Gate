@@ -84,6 +84,9 @@ pub enum Cell {
     /// The kind has no such entry, for the reason given (a clause, completing "… is not an entry of
     /// a monorepo root: ").
     Absent(&'static str),
+    /// The kind requires an entry that is optional in the other kinds, for the reason given (a
+    /// clause, completing "… is required in a library: ").
+    Required(&'static str),
 }
 
 /// A top-level entry of `docs/`.
@@ -95,7 +98,8 @@ pub struct Entry {
     pub directory: bool,
     /// What the entry holds.
     pub job: &'static str,
-    /// Present only when the project has that job, the same in every kind.
+    /// Present only when the project has that job, in every kind but one whose cell is
+    /// [`Cell::Required`].
     pub optional: bool,
     /// The plugin that owns what is inside: the layout never requires, seeds or reads it.
     pub delegated: Option<&'static str>,
@@ -113,13 +117,16 @@ impl Entry {
     /// Whether `kind` has the entry.
     #[must_use]
     pub fn in_kind(&self, kind: Kind) -> bool {
-        self.cell(kind) == Cell::Same
+        !matches!(self.cell(kind), Cell::Absent(_))
     }
 
-    /// Whether `kind` requires it: it has the entry, and it is neither optional nor delegated.
+    /// Whether `kind` requires it: it has the entry, it is not delegated, and it is not optional
+    /// or the kind's cell requires it.
     #[must_use]
     pub fn required(&self, kind: Kind) -> bool {
-        self.in_kind(kind) && !self.optional && self.delegated.is_none()
+        self.in_kind(kind)
+            && self.delegated.is_none()
+            && (!self.optional || matches!(self.cell(kind), Cell::Required(_)))
     }
 
     /// The entry's path in the project: `docs/architecture/` or `docs/start-here.md`.
@@ -148,6 +155,8 @@ const ALL_SAME: [Cell; 5] = [S; 5];
 
 /// Why a monorepo root has no `modules/`.
 pub const ROOT_NO_MODULES: &str = "the root owns no code; its parts are member projects, each with its own docs/, and the root's index links them under Members";
+/// Why a library requires `releases/`.
+pub const LIBRARY_RELEASES: &str = "publishing versions is a library's nature, and the consumer of each version needs the page that says what to change";
 /// Why a monorepo root has no `ledger/`.
 pub const ROOT_NO_LEDGER: &str = "work is recorded in the ledger of the member project whose code it changes, and a repository-wide decision is an adr/ record";
 
@@ -255,7 +264,7 @@ pub const ENTRIES: &[Entry] = &[
         job: "one page per released version: what a consumer changes",
         optional: true,
         delegated: None,
-        cells: ALL_SAME,
+        cells: [S, S, S, Cell::Required(LIBRARY_RELEASES), S],
     },
 ];
 
@@ -343,6 +352,20 @@ pub fn reserved(name: &str) -> Option<&'static Reserved> {
 #[must_use]
 pub fn entry(name: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|entry| entry.name == name)
+}
+
+/// The standard entry, of any kind, whose name `name` reuses: the same name or stem, a directory or
+/// a Markdown file, in any case (`start-here`, `readme`, `ledger.md`).
+#[must_use]
+pub fn clash(name: &str) -> Option<&'static Entry> {
+    let stem = name.strip_suffix(".md").unwrap_or(name);
+    ENTRIES.iter().find(|entry| {
+        entry
+            .name
+            .strip_suffix(".md")
+            .unwrap_or(entry.name)
+            .eq_ignore_ascii_case(stem)
+    })
 }
 
 /// A required level-2 section of an index, and what goes there (the line the seed writes under it).
@@ -517,6 +540,11 @@ const OPERATIONS: &[Section] = &[section(
     "One row per runbook: deploy, roll back, recover, rotate, release.",
 )];
 
+const RELEASES: &[Section] = &[section(
+    "Versions",
+    "One row per released version, newest first, each a link to its page: what a consumer changes.",
+)];
+
 const NO_REASONS: [Option<&str>; 5] = [None; 5];
 
 /// The required sections of every index, in the standard order of their entries.
@@ -595,6 +623,12 @@ pub const INDEXES: &[Index] = &[
         entry: "operations",
         title: "Operations",
         sections: [OPERATIONS; 5],
+        reasons: NO_REASONS,
+    },
+    Index {
+        entry: "releases",
+        title: "Releases",
+        sections: [RELEASES; 5],
         reasons: NO_REASONS,
     },
 ];

@@ -48,10 +48,10 @@ the reason given.
 | `agents/` | agent rules, skills and the agents' reading map; owned by the `agents` plugin | same | same | same | same | same |
 | `ledger/` | work records, verification, follow-ups; owned by the `ledger` plugin | same | same | same | same | absent: work is recorded in the ledger of the member project whose code it changes, and a repository-wide decision is an `adr/` record |
 | `research/` | exploration that informed a decision but is not one; optional | same | same | same | same | same |
-| `releases/` | one page per released version: what a consumer changes; optional | same | same | same | same | same |
+| `releases/` | one page per released version: what a consumer changes; optional | same | same | same | required: publishing versions is a library's nature, and the consumer of each version needs the page that says what to change | same |
 
 A directory entry's index is its `README.md`. `research/` and `releases/` are present only when the
-project has that job. `agents/` and `ledger/` are delegated: their own plugins' rules require what is
+project has that job, except that a library requires `releases/`; **required** marks that cell. `agents/` and `ledger/` are delegated: their own plugins' rules require what is
 inside them, so this rule requires them only when the project lists them (see below).
 
 **Reserved names** are refused, even as a declared extension, because their job has an entry. A name
@@ -82,6 +82,7 @@ Each index has these level-2 sections, in this order. Other sections may follow.
 | `guide/README.md` | Pages | same | same | same | same |
 | `testing/README.md` | Kinds of test, Evidence | same | same | same | same |
 | `operations/README.md` | Runbooks | same | same | same | same |
+| `releases/README.md` | Versions | same | same | same | same |
 
 The reasons for the differences:
 
@@ -102,8 +103,9 @@ A project adds an entry the standard does not have only by declaring it, with it
 docs = { source = "ElsiKora/Gate:docs@0.3.0", options = { kind = "service", extra = [{ name = "playbooks", job = "Plays for incidents nobody has automated yet" }] } }
 ```
 
-`name` is kebab-case: a directory (with its `README.md`), or a Markdown file ending in `.md`. It is
-not an entry of the standard, in any kind, and not a reserved name; `job` is not empty. Breaking any
+`name` is kebab-case: a directory (with its `README.md`), or a Markdown file ending in `.md`. It
+reuses no entry of the standard, of any kind, by name or stem, in any case (`start-here`, `readme`,
+`ledger.md` are refused), and is not a reserved name; `job` is not empty. Breaking any
 of these is a configuration error (exit 2) that names the key. Extensions come after the standard's
 entries in the index's order, in the order declared.
 

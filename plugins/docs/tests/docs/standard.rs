@@ -23,6 +23,40 @@ fn the_kinds_have_the_same_entries_in_the_same_order_but_the_two_absent_cells() 
 }
 
 #[test]
+fn only_a_library_requires_an_optional_entry_releases_and_says_why() {
+    let mut required = Vec::new();
+    for entry in ENTRIES {
+        for kind in Kind::ALL {
+            if let Cell::Required(reason) = entry.cell(kind) {
+                assert!(
+                    !reason.trim().is_empty(),
+                    "{} in {}: a difference without a reason",
+                    entry.name,
+                    kind.name()
+                );
+                assert!(
+                    entry.optional,
+                    "{}: required where optional elsewhere",
+                    entry.name
+                );
+                required.push(format!("{} {}", kind.name(), entry.name));
+            }
+        }
+    }
+    assert_eq!(required, ["library releases"]);
+    let releases = ENTRIES
+        .iter()
+        .find(|entry| entry.name == "releases")
+        .expect("releases");
+    let requiring: Vec<&str> = Kind::ALL
+        .iter()
+        .filter(|kind| releases.required(**kind))
+        .map(|kind| kind.name())
+        .collect();
+    assert_eq!(requiring, ["library"]);
+}
+
+#[test]
 fn every_index_differs_between_kinds_only_where_a_reason_says_why() {
     for index in INDEXES {
         let titles: Vec<Vec<&str>> = Kind::ALL.iter().map(|kind| index.titles(*kind)).collect();
@@ -100,8 +134,8 @@ fn every_index_belongs_to_an_entry_in_the_standard_order() {
         let has_index = INDEXES.iter().any(|index| index.entry == entry.name);
         assert_eq!(
             has_index,
-            !entry.optional && entry.delegated.is_none(),
-            "{}: every required entry has an index, and only those",
+            Kind::ALL.iter().any(|kind| entry.required(*kind)),
+            "{}: every entry some kind requires has an index, and only those",
             entry.name
         );
     }
