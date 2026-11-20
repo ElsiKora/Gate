@@ -135,7 +135,7 @@ fn measure() {
 
     // What each rule adds to a call that has already parsed the tree: the call of the rule
     // that reads every file together with the rule, less that rule alone.
-    let anchor = "string-enums";
+    let anchor = "declaration-files";
     let alone = |names: &[&str]| {
         let started = Instant::now();
         check(&host, names).expect("the rules run");

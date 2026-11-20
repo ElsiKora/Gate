@@ -1,20 +1,19 @@
-//! `nestjs/string-enums`: string-literal variant contracts use enums.
+//! `typescript/string-enums`: string-literal variant contracts use enums.
 //!
-//! Every `.ts` file (not `.d.ts`) below the source root, the test root and the code folders of the
-//! infrastructure-as-code root, outside skipped folders, is analysed on its own, with the TypeScript
-//! binder's view of one file: names resolve to the declarations of that file only, and an
-//! unresolved type name is a library type. Namespace forms beyond the ones the binder follows are
-//! reported as `unsupported-namespace` instead of being resolved. A source enum must not copy an
-//! installed `ErrorString` action enum (`error-string-shim`).
+//! Every tracked `.ts` file (not `.d.ts`) outside `[languages.typescript] skip-folders` is analysed
+//! on its own, with the TypeScript binder's view of one file: names resolve to the declarations of
+//! that file only, and an unresolved type name is a library type. A file below one of `test-roots`
+//! is a test. Namespace forms beyond the ones the binder follows are reported as
+//! `unsupported-namespace` instead of being resolved.
 
-mod error_string;
 mod namespace;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Rule, Run};
+use gate_sdk::{Error, Rule, Run};
 use gate_typescript::binder::{Binder, Meaning};
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
@@ -27,17 +26,16 @@ use gate_typescript::oxc_semantic::Semantic;
 use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::oxc_syntax::symbol::{SymbolFlags, SymbolId};
-use gate_typescript::{Settings, SourceFile};
+use gate_typescript::value::{string_like, unwrap};
+use gate_typescript::{Allocator, ReadSource, Settings, SourceFile, TypeScript};
 
-use crate::layout::{Layout, PluginOptions, folder_prefix};
-use crate::shared::report::Findings;
-use crate::shared::{project, tree};
+use crate::findings::Findings;
 
 /// The rule.
 #[derive(Debug, Default)]
 pub struct StringEnums;
 
-/// The options of `nestjs/string-enums`.
+/// The options of `typescript/string-enums`.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(
     crate = "gate_sdk::serde",
@@ -49,13 +47,13 @@ pub struct StringEnums;
 pub struct Options {
     /// Property names that are discriminants wherever they hold a string literal type.
     pub discriminant_names: Vec<String>,
-    /// The installed action enums no source enum may copy.
-    pub shim_enum_names: Vec<String>,
     /// Library generic types whose argument at the given index is a key list, not a variant.
     pub key_type_arguments: BTreeMap<String, usize>,
     /// The longest chain of `import N = …` aliases followed to a namespace.
     #[schemars(range(min = 1))]
     pub alias_depth: usize,
+    /// The folders of the tests, relative to the project root: a file below one is a test.
+    pub test_roots: Vec<String>,
 }
 
 impl Default for Options {
@@ -64,25 +62,50 @@ impl Default for Options {
             discriminant_names: ["action", "kind", "mode", "semantic", "state"]
                 .map(str::to_owned)
                 .to_vec(),
-            shim_enum_names: ["EErrorStringAction", "EErrorStringCompositeAction"]
-                .map(str::to_owned)
-                .to_vec(),
             key_type_arguments: [("Omit", 1), ("Pick", 1), ("Record", 0)]
                 .into_iter()
                 .map(|(name, index)| (name.to_owned(), index))
                 .collect(),
             alias_depth: 16,
+            test_roots: vec!["test".to_owned()],
         }
     }
 }
 
-impl Rule<crate::Nest> for StringEnums {
+impl Options {
+    /// The test roots as path prefixes, each ending with `/`.
+    ///
+    /// # Errors
+    /// When a test root is empty, absolute, or not a normalized relative folder.
+    fn test_prefixes(&self) -> gate_sdk::Result<Vec<String>> {
+        self.test_roots
+            .iter()
+            .map(|root| {
+                let normalized = !root.is_empty()
+                    && !root.starts_with('/')
+                    && !root.ends_with('/')
+                    && root
+                        .split('/')
+                        .all(|segment| !matches!(segment, "" | "." | ".."));
+                if normalized {
+                    Ok(format!("{root}/"))
+                } else {
+                    Err(Error::config(format!(
+                        "test-roots names {root:?}, which is not a folder relative to the project \
+                         root; write it like \"test\" or \"apps/api/test\""
+                    )))
+                }
+            })
+            .collect()
+    }
+}
+
+impl Rule for StringEnums {
     type Options = Options;
 
     const NAME: &'static str = "string-enums";
     const TITLE: &'static str = "String-literal variant contracts use enums";
     const ASPECTS: &'static [&'static str] = &[
-        "error-string-shim",
         "keyof-typeof-alias",
         "literal-union",
         "raw-discriminant",
@@ -92,68 +115,47 @@ impl Rule<crate::Nest> for StringEnums {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
-        run.with_call(|run, shared| {
-            let layout = PluginOptions::read(run)?.layout;
-            let options = run.options();
-            let source = shared.source();
-            let typescript = shared.typescript()?;
-            let test_prefix = folder_prefix(&layout.test_root);
-            let source_prefix = layout.source_prefix();
-            let mut findings = Findings::default();
+    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+        let options = run.options();
+        let test_prefixes = options.test_prefixes()?;
+        let tree = run.tree();
+        let source = ReadSource::new(tree.paths(), move |path| tree.bytes(path));
+        let settings = run.language::<Settings>("typescript")?.unwrap_or_default();
+        let allocator = Allocator::default();
+        let typescript = TypeScript::new(&source, settings, &allocator);
+        let mut findings = Findings::default();
 
-            for path in files(source, &layout, typescript.settings()) {
-                let Some(file) = project::parsed(typescript, path)? else {
-                    continue;
-                };
-
-                Analysis::new(options, &file, path.starts_with(&test_prefix))
-                    .report(path, &mut findings);
-                namespace::report(&file, path, &mut findings);
-
-                if path.starts_with(&source_prefix) {
-                    error_string::report(&file, path, &options.shim_enum_names, &mut findings);
-                }
+        for path in tree.paths() {
+            if !Path::new(&path)
+                .extension()
+                .is_some_and(|extension| extension == "ts")
+                || path.ends_with(".d.ts")
+                || typescript.settings().skips(&path)
+            {
+                continue;
             }
+            let Some(file) = typescript.parse(&path)?.filter(|file| !file.fatal()) else {
+                continue;
+            };
+            let test = test_prefixes.iter().any(|prefix| path.starts_with(prefix));
 
-            findings.report(run, help);
-            Ok(())
-        })
+            Analysis::new(options, &file, test).report(&path, &mut findings);
+            namespace::report(&file, &path, &mut findings);
+        }
+
+        findings.report(run, help);
+        Ok(())
     }
 }
 
 /// What to do about a finding of `aspect`.
 fn help(aspect: &str) -> &'static str {
     match aspect {
-        "error-string-shim" => "use the installed enum's members",
         "keyof-typeof-alias" => "use the enum type directly",
         "unsupported-namespace" => "declare the enum or namespace in a form the binder resolves",
         "raw-enum-value" | "raw-discriminant" => "use the enum member instead of the raw string",
         _ => "declare an enum for the variants and use its members",
     }
-}
-
-/// The `.ts` files the rule reads, in path order: below the source and test roots and the code
-/// folders of the infrastructure-as-code root, without declaration files.
-fn files<'s>(
-    source: &'s dyn gate_typescript::Source,
-    layout: &Layout,
-    settings: &Settings,
-) -> Vec<&'s str> {
-    let roots = [layout.source_root.clone(), layout.test_root.clone()];
-    let mut files: Vec<&str> = roots
-        .iter()
-        .flat_map(|root| tree::typescript_files(source, root, settings))
-        .filter(|path| {
-            std::path::Path::new(path)
-                .extension()
-                .is_some_and(|extension| extension == "ts")
-                && !path.ends_with(".d.ts")
-        })
-        .collect();
-    files.sort_unstable();
-    files.dedup();
-    files
 }
 
 /// What a type name at one location denotes.
@@ -259,8 +261,8 @@ impl<'s, 'a> Analysis<'s, 'a> {
             let Some(initializer) = &member.initializer else {
                 continue;
             };
-            let initializer = unwrap_expression(initializer);
-            let Some(value) = string_expression(initializer) else {
+            let initializer = unwrap(initializer);
+            let Some(value) = string_like(initializer) else {
                 continue;
             };
 
@@ -559,9 +561,9 @@ impl<'s, 'a> Analysis<'s, 'a> {
                         !declaration.body.members.is_empty()
                             && declaration.body.members.iter().all(|member| {
                                 member.initializer.as_ref().is_some_and(|initializer| {
-                                    string_expression(unwrap_expression(initializer)).is_some_and(
-                                        |value| value == member_name(self.file.source(), member),
-                                    )
+                                    string_like(unwrap(initializer)).is_some_and(|value| {
+                                        value == member_name(self.file.source(), member)
+                                    })
                                 })
                             })
                     }
@@ -741,7 +743,7 @@ fn property_name(key: &PropertyKey<'_>, computed: bool) -> Option<String> {
         PropertyKey::StringLiteral(literal) if !computed => Some(literal.value.to_string()),
         _ if computed => key
             .as_expression()
-            .and_then(|expression| string_expression(unwrap_expression(expression))),
+            .and_then(|expression| string_like(unwrap(expression))),
         _ => None,
     }
 }
@@ -759,7 +761,7 @@ fn string_literal_type(ty: &TSType<'_>) -> Option<String> {
 }
 
 /// The member name as the TypeScript compiler prints it; a computed name keeps its brackets.
-pub(super) fn member_name(source: &str, member: &TSEnumMember<'_>) -> String {
+fn member_name(source: &str, member: &TSEnumMember<'_>) -> String {
     match &member.id {
         TSEnumMemberName::Identifier(identifier) => identifier.name.to_string(),
         TSEnumMemberName::String(literal) => literal.value.to_string(),
@@ -772,15 +774,6 @@ pub(super) fn member_name(source: &str, member: &TSEnumMember<'_>) -> String {
                 .map_or(key_end, |offset| key_end + offset + 1);
             source[start..end].to_owned()
         }
-    }
-}
-
-/// The value of a string literal or a template literal without substitutions.
-pub(super) fn string_expression(expression: &Expression<'_>) -> Option<String> {
-    match expression {
-        Expression::StringLiteral(literal) => Some(literal.value.to_string()),
-        Expression::TemplateLiteral(template) => no_substitution_value(template),
-        _ => None,
     }
 }
 
@@ -807,17 +800,4 @@ fn unwrap_type<'t, 'a>(mut ty: &'t TSType<'a>) -> &'t TSType<'a> {
         ty = &parenthesized.type_annotation;
     }
     ty
-}
-
-pub(super) fn unwrap_expression<'e, 'a>(mut expression: &'e Expression<'a>) -> &'e Expression<'a> {
-    loop {
-        expression = match expression {
-            Expression::TSAsExpression(inner) => &inner.expression,
-            Expression::TSSatisfiesExpression(inner) => &inner.expression,
-            Expression::TSNonNullExpression(inner) => &inner.expression,
-            Expression::TSTypeAssertion(inner) => &inner.expression,
-            Expression::ParenthesizedExpression(inner) => &inner.expression,
-            _ => return expression,
-        };
-    }
 }

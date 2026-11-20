@@ -5,7 +5,7 @@ use gate_sdk::{NoOptions, Rule, Run};
 
 use crate::options::PluginOptions;
 use crate::rules::{Found, file_name, folder, name_and_role, report};
-use crate::sources::Cdk;
+use crate::sources::{Cdk, has_extension};
 use crate::standard::{ROLE_DIRECTORIES, ROLE_PLACES, ROLES, is_kebab};
 
 /// The rule.
@@ -26,7 +26,7 @@ impl Rule<Cdk> for FileNames {
 
         for path in paths
             .iter()
-            .filter(|path| path.starts_with("lib/") && path.ends_with(".ts"))
+            .filter(|path| path.starts_with("lib/") && has_extension(path, "ts"))
         {
             if let Some(found) = judge(path) {
                 report(run, found);

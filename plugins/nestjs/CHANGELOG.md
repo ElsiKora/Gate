@@ -3,6 +3,24 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
+## Unreleased
+
+### Breaking Changes
+
+- The plugin holds no knowledge of AWS CDK apps; a CDK app is a project of the `cdk` plugin.
+  - `layout.cdk-root` and `layout.cdk-code-folders` are removed; a configuration that sets them is a
+    configuration error.
+  - `barrel-exports` and `declaration-files` no longer read the CDK app (`cdk/barrels` and
+    `cdk/declarations` check it).
+  - `error-logging`'s default `roots` is `layout.source-root` alone, and `field-inventory`'s default
+    `contract-roots` no longer names `<cdk-root>/lib/config/`.
+  - `kind-layout`'s `unit-exempt-prefixes` defaults to `[]`.
+  - `asset-storage`'s aspect `cloudfront-cdk-only` is `cloudfront-infrastructure-only`; its message
+    says CloudFront belongs to the infrastructure-as-code project.
+- `nestjs/string-enums` moves to the `typescript` plugin as `typescript/string-enums`, which reads
+  every tracked `.ts` file and takes `test-roots`. Its aspect `error-string-shim` is the rule
+  `nestjs/error-string-shim`, whose option `enum-names` was `shim-enum-names`.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.1.0...plugin-nestjs-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

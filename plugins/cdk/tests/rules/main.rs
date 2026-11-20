@@ -404,6 +404,10 @@ pub(crate) fn app() -> Files {
 
 #[test]
 fn the_standard_app_passes_every_rule() {
-    let findings = run(&RULES, "{}", &app()).expect("the rules run");
-    assert!(findings.is_empty(), "{findings:#?}");
+    let findings: Vec<String> = run(&RULES, "{}", &app())
+        .expect("the rules run")
+        .into_iter()
+        .map(|finding| format!("{}#{} {}", finding.rule, finding.aspect, finding.message))
+        .collect();
+    assert_eq!(findings, Vec::<String>::new());
 }

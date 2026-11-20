@@ -70,8 +70,8 @@ const ADOPTION: &str = r#"{
 gate_sdk::plugin! {
     name: "cdk",
     version: env!("CARGO_PKG_VERSION"),
-    options: crate::options::PluginOptions,
-    call: crate::sources::Cdk,
+    options: PluginOptions,
+    call: Cdk,
     rules: [
         Layout,
         FileNames,

@@ -1,4 +1,4 @@
-//! The namespace forms `nestjs/string-enums` does not resolve, reported instead of answered.
+//! The namespace forms `typescript/string-enums` does not resolve, reported instead of answered.
 //!
 //! The binder follows TypeScript's namespace merging for the common forms. Beyond them the
 //! compiler and the rule could disagree, so these forms fail closed with an `unsupported-namespace`
@@ -21,7 +21,7 @@ use gate_typescript::oxc_ast::ast::{
 };
 use gate_typescript::oxc_span::GetSpan;
 
-use crate::shared::report::Findings;
+use crate::findings::Findings;
 
 /// What a name of a namespace scope declares.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -289,7 +289,7 @@ pub(super) fn report_construct(
         path,
         Some(file.line(start)),
         format!(
-            "uses {construct}, a namespace form nestjs/string-enums does not resolve; remove it"
+            "uses {construct}, a namespace form typescript/string-enums does not resolve; remove it"
         ),
     );
 }

@@ -334,7 +334,7 @@ through the built component.
 | The options | `layout.cdk-root` (`"infrastructure/cdk"`) and `layout.cdk-code-folders` (`["bin", "lib", "scripts"]`) | removed; a CDK app is a project of its own with the `cdk` plugin |
 | `barrel-exports` | `#reexport-only` and `#private-entrypoint` read the barrels below `cdk-root` | `cdk/barrels` (`reexport-only`, `outside`), with the standard's `missing` and `explicit-export` |
 | `declaration-files` | reads the `.ts` files below `cdk-root` (one owner per file, nested and kind-folder declarations) | `cdk/declarations`, in the standard's terms: one entity, its kind from the file's role |
-| `string-enums` | reads the code folders of `cdk-root` | the whole rule moves to `typescript/string-enums`, for every TypeScript project, with its aspects and options; `nestjs/string-enums` is removed. Its test-root distinction becomes the option `test-roots` (default `["test"]`) |
+| `string-enums` | reads the code folders of `cdk-root` | the rule moves to `typescript/string-enums`, which reads every tracked `.ts` file of a project; `nestjs/string-enums` is removed. Its test-root distinction becomes the option `test-roots` (default `["test"]`). Its aspect `error-string-shim` checks NestJS-Crud-Automator's `ErrorString` enums, framework knowledge, so it stays in `nestjs` as the rule `nestjs/error-string-shim` (option `enum-names`, was `shim-enum-names`) |
 | `error-logging` | the code folders of `cdk-root` are among its default `roots` | dropped, not moved: the rule checks the NestJS logger and `TypeORM` options, which a CDK app has neither of |
 | `field-inventory` | `<cdk-root>/lib/config/` is among the default `contract-roots` | dropped from the default; `contract-roots` stays a list of paths a project may set |
 | `kind-layout` | `unit-exempt-prefixes` defaults to `["test/unit/infrastructure/cdk/"]` | the default becomes `[]` |
@@ -366,3 +366,8 @@ which this task leaves alone where it can.
 answers above. Code on a fresh branch, `task/T-064-cdk`, from `main` at `ec66737`, carrying this
 file only: fourteen rules (`cdk/declarations` and `cdk/barrels` take the pieces of `nestjs`'s
 `cdk-root`, `cdk/nag` is the lead's fourth answer), section 6 for `nestjs`.
+2026-11-20T02:40:00+00:00: code on `task/T-064-cdk`, rebased on `main` at `e9e1434`: the plugin
+(`plugins/cdk`, fourteen rules, options, presets), its tests (`plugins/cdk/tests/rules`), its pages and
+changelog, the guide section; section 6 done in `nestjs` and `typescript` (`string-enums` moved,
+`nestjs/error-string-shim` added). Next: the first lane round, with cdk among the wasm builds,
+then its fixes.

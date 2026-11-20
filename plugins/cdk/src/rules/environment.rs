@@ -10,7 +10,7 @@ use gate_typescript::value::unwrap;
 
 use crate::options::PluginOptions;
 use crate::rules::{Found, argument, report, text};
-use crate::sources::{Cdk, code_files, parsed};
+use crate::sources::{Cdk, code_files, has_extension, parsed};
 use crate::standard::{CONTEXT_KEY, account_ids, regions};
 
 /// The rule.
@@ -40,7 +40,7 @@ impl Rule<Cdk> for Environment {
 
         for path in tree.paths() {
             if path.starts_with("deploy/")
-                && path.ends_with(".json")
+                && has_extension(&path, "json")
                 && !path.ends_with(".config.example.json")
             {
                 found.push(Owned {
@@ -54,7 +54,7 @@ impl Rule<Cdk> for Environment {
                     help: "untrack the file (ignore deploy/*.config.json) and keep an example beside it",
                 });
             }
-            if path.ends_with(".json")
+            if has_extension(&path, "json")
                 && !path.ends_with("package-lock.json")
                 && !path.split('/').any(|segment| segment == "node_modules")
                 && let Some(contents) = tree.text(&path)

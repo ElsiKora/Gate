@@ -73,10 +73,10 @@ impl Rule<Cdk> for StackNames {
     }
 }
 
-fn judge<'p, 'a>(
+fn judge<'p>(
     typescript: &TypeScript<'_>,
     path: &'p str,
-    file: &SourceFile<'a>,
+    file: &SourceFile<'_>,
 ) -> gate_sdk::Result<Vec<Found<'p>>> {
     let mut found = Vec::new();
 

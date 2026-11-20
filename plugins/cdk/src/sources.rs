@@ -80,6 +80,14 @@ impl<'o> Sources<'o> {
     }
 }
 
+/// Whether the file name of `path` has the extension `extension`, in any case.
+#[must_use]
+pub fn has_extension(path: &str, extension: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .is_some_and(|found| found.eq_ignore_ascii_case(extension))
+}
+
 /// The `.ts` files (not `.d.ts`) below `folder` (with its trailing `/`) that the view's skip list
 /// does not skip, in path order.
 #[must_use]
@@ -88,7 +96,9 @@ pub fn code_files<'a>(typescript: &TypeScript<'a>, folder: &str) -> Vec<&'a str>
     let source: &'a dyn Source = typescript.source();
     source
         .paths_with_prefix(folder)
-        .filter(|path| path.ends_with(".ts") && !path.ends_with(".d.ts") && !settings.skips(path))
+        .filter(|path| {
+            has_extension(path, "ts") && !path.ends_with(".d.ts") && !settings.skips(path)
+        })
         .collect()
 }
 

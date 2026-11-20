@@ -2,6 +2,18 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:typescript@<version>`.
 
+## Unreleased
+
+### Added
+
+- `typescript/string-enums`, moved from the `nestjs` plugin: string-literal variant contracts use
+  enums (`#literal-union`, `#test-literal-union`, `#raw-enum-value`, `#raw-discriminant`,
+  `#keyof-typeof-alias`, `#unsupported-namespace`). It reads every tracked `.ts` file of the project
+  outside `[languages.typescript] skip-folders`, so a CDK app or a script is covered as the
+  application is. The new option `test-roots` (default `["test"]`) names the test folders; a root
+  that is empty, absolute or not normalized is a configuration error (exit 2). The aspect
+  `error-string-shim` stays in `nestjs` as the rule `nestjs/error-string-shim`.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-typescript-v0.1.0...plugin-typescript-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

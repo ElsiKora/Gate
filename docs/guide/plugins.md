@@ -46,9 +46,8 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 
 ### `typescript`
 
-The TypeScript language: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`. Its rules check
-that every tracked source parses. The
-parser, module resolution (`tsconfig` paths, package exports) and source tables live in the TypeScript
+The TypeScript language: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, and the rules
+of any TypeScript code: every tracked source parses, and string variants are enums. The parser, module resolution (`tsconfig` paths, package exports) and source tables live in the TypeScript
 language library, which other plugins link; see [writing-a-rule.md](writing-a-rule.md#5-languages).
 
 ```toml
@@ -62,6 +61,7 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 | Rule | Checks |
 | --- | --- |
 | [`typescript/parse`](../../plugins/typescript/rules/parse.md) | every tracked TypeScript or JavaScript source parses into a syntax tree |
+| [`typescript/string-enums`](../../plugins/typescript/rules/string-enums.md) | string-literal variant contracts use enums, in every `.ts` file, with `test-roots` for the tests |
 
 ### `git`
 

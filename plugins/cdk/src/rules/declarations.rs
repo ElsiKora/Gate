@@ -180,8 +180,8 @@ type Raw<'a> = (Kind, &'a str, u32);
 
 /// The top-level entities of `file`: every class, interface, type alias and enum, the exported
 /// functions (overloads once) and constants, and the default export.
-fn entities<'a>(file: &SourceFile<'a>) -> Vec<Entity> {
-    let mut raw: Vec<Raw<'a>> = Vec::new();
+fn entities(file: &SourceFile<'_>) -> Vec<Entity> {
+    let mut raw: Vec<Raw<'_>> = Vec::new();
 
     for statement in &file.program().body {
         match statement {
