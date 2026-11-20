@@ -126,6 +126,10 @@ one-element slices in new tests; `27ca81d` writes them with `std::slice::from_re
 `main` moved to `a3dd8d5` (T-058, T-060, T-060b), and the branch is rebased onto it: one conflict, the
 `OnceLock` import of `crates/gate/tests/plugins.rs`, which `main` no longer uses there.
 
+On the rebased tip, lane ticket 277 on `1b141d3` (2026-11-20T01:33:03Z to 01:56:04Z, the lane's exit 0):
+fmt, clippy, deny and the release build exit 0; the workspace tests exit 0 with 1044 passed and 0
+failed; the same 14 changes are each caught by a failing test, 16 runs, each exit 101.
+
 ### The first full round
 
 Lane ticket 252 on `3d8c4a4` (2026-11-19T22:32:01Z to 22:50:18Z, the lane's exit 0), the script's
@@ -166,6 +170,8 @@ the code and its test show: where git lacks a pruned content too, the call still
 advice to run `git fetch` (the lead was told when the code showed it).
 
 ## Resume point
+
+2026-11-20T01:56:16+00:00: green on the rebased tip `1b141d3` (ticket 277), on `main` `a3dd8d5`. Next: the lead's merge.
 
 2026-11-20T01:32:59+00:00: the review's fix round passed on `27ca81d` (ticket 265, each of the 14 changes caught);
 rebased onto `main` `a3dd8d5`. Next: the same round on the rebased tip, then the lead's merge.
