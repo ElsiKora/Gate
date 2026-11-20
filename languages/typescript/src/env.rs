@@ -311,7 +311,7 @@ mod tests {
             ["undeclared src/a.ts:3 A", "undeclared src/b.ts:2 A"]
         );
         let declared = format!("A={VALUE}\nB=\n");
-        assert!(check(Some(&declared), &reads, &[]).is_empty());
+        assert_eq!(check(Some(&declared), &reads, &[]), Vec::<String>::new());
     }
 
     #[test]
@@ -326,7 +326,10 @@ mod tests {
             key: "NODE_OPTIONS".to_owned(),
             reader: "Node.js".to_owned(),
         }];
-        assert!(check(Some(&example), &reads, &external).is_empty());
+        assert_eq!(
+            check(Some(&example), &reads, &external),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -336,7 +339,7 @@ mod tests {
             check(Some("A=\n"), &reads, &[]),
             ["dynamic src/a.ts:5 name"]
         );
-        assert!(check(Some("A=\n"), &reads[1..], &[]).is_empty());
+        assert_eq!(check(Some("A=\n"), &reads[1..], &[]), Vec::<String>::new());
     }
 
     #[test]
@@ -349,7 +352,7 @@ mod tests {
             check(None, &reads, &[]),
             ["example-missing .env.example:0 .env.example"]
         );
-        assert!(check(None, &[], &[]).is_empty());
+        assert_eq!(check(None, &[], &[]), Vec::<String>::new());
         assert_eq!(
             check(None, &[read(None, "src/a.ts", 2)], &[]),
             ["dynamic src/a.ts:2 name"]
