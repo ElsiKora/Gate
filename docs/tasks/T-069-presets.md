@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | the review of `0e07734` found nothing blocking; its fix round is in the lane |
+| Status | the review's fix round green in lane round 332 on `37b05a1`; merges last of 0.3.0, after a rebase |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -207,9 +207,18 @@ Each mutation, applied to the round's tree, made its exact test fail (exit 101):
 | `typescript`: `parse` taken out of `adoption` | `typescript` `both_presets_turn_on_every_rule_but_the_ones_left_out` |
 | `ci/adoption` gives `actions-pinned` `error` | `gate` `a_project_that_extends_an_adoption_preset_is_told_at_warning_and_passes` |
 
+### Proof of the fix round
+
+Lane ticket 332 on `37b05a1`, 2026-11-20T09:02:43+00:00 to 2026-11-20T09:10:47+00:00
+(`round-inner.sh`, its own target directory, logs kept under the ticket): fmt 0, clippy 0, test 0
+(1074 passed, 0 failed), deny 0 (advisories, bans, licenses, sources ok), release build 0. The test
+log shows `Compiling` for the seven plugins and `gate` from the round's own checkout of `37b05a1`,
+and lists the seven preset tests and the CLI test by name, each `ok`. The nine mutations each made
+their exact test fail (exit 101): the eight of round 322, and `ci`'s options without their default
+(so `workflows` is required), which `ci`'s preset test catches through the new load check.
+
 ## Resume point
 
-2026-11-20T07:54:01+00:00: the review's four findings are fixed on the branch; the fix round is
-queued in the lane. The branch merges last of the 0.3.0 branches and is rebased then (string-enums
-moves to the typescript presets; T-064's error-string-shim and any rule T-061 or T-062 add get a
-decision).
+2026-11-20T09:48:55+00:00: the review's fix round is green in lane round 332 on `37b05a1`. The
+branch merges last of the 0.3.0 branches and is rebased then (string-enums moves to the typescript
+presets; T-064's error-string-shim and any rule T-061 or T-062 add get a decision).
