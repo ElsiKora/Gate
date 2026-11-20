@@ -238,8 +238,22 @@ read through the configuration service, which is how the services read almost al
 ## 3. Shared options and the same principles
 
 **Packs alike.** The two new plugins look like the others: kebab-case rule ids, aspects for the checks
-of one subject, a page per rule in the house form (what it checks and why, options, an example
-finding, how to fix it), no preset that sets a level.
+of one subject, and a page per rule in the house form (what it checks and why, options, an example
+finding, how to fix it).
+
+**Two presets per plugin** (the lead, for every new 0.3.0 plugin), declared in `gate_sdk::plugin!` as
+`git/recommended` is:
+
+| Preset | Rules |
+| --- | --- |
+| `docker/recommended` | `dockerfile` and `compose` at `error` |
+| `docker/adoption` | `dockerfile` and `compose` at `warning` |
+| `repository/recommended` | `tracked-secrets` and `large-files` at `error`, with `large-files#large` at `warning` (decision 5) |
+| `repository/adoption` | `tracked-secrets` and `large-files` at `warning` |
+
+A project turns one on with `extends = ["docker/recommended"]`, and its `[rules]` override it. A
+project that is adopting the standard takes `adoption`, and moves to `recommended` when its findings
+are gone.
 
 **One name per job.**
 
@@ -381,6 +395,11 @@ content of the same size does not invalidate it for a rule that read only the si
 - `dynamic`: `config.get(name)` with `name` a parameter is reported; `const name = "X"` passes.
 - `example-missing`: a project with reads and no `.env.example` gives one finding.
 - A finding's message names keys, never the example file's values.
+
+**Presets:** for each of the four, a test reads the plugin's `describe` and checks that the preset
+enables exactly the plugin's rules, each at the preset's level, that `repository/recommended` sets
+`large-files#large` to `warning` and nothing else below `error`, and that every aspect a preset names
+is one its rule declares. A rule added to a plugin and left out of its presets fails this test.
 
 **End to end:** one repository with every new rule enabled at `error`: one image, one compose file,
 one `.env.example`, a planted fake key and a 2 MiB PNG. `gate check` exits 1 with exactly the planted
