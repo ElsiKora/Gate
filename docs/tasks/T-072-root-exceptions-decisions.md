@@ -84,9 +84,11 @@ The lead approved Option 1 with these conditions:
   each, called from both scopes, no copied logic.
 - `config-file` in `check-request` is documented in `wit/gate.wit` and the SDK; a rule that ignores
   it is unaffected.
-- Order: the stack, then T-080 (which adds `excepted` to `check-request` and `judged` to
-  `check-result`), then T-072. Code starts on the stack tip; T-072 rebases onto `main` after T-080
-  merges and takes its WIT fields as they are.
+- Order: the stack, then T-080, then T-072. Code starts on the stack tip; T-072 rebases onto
+  `main` after T-080 merges and takes its WIT changes as they are. T-080 adds nothing to
+  `check-request` (it reads the existing `rule-run.exceptions`); it changes what `check` returns
+  (`check-result` with `judged`), `CallOutcome` and the result cache format, so `config-file` meets
+  it only where the rebase joins the two.
 - `ledger/recommended` and `ledger/adoption` (T-069) take the three rules; the preset tests still
   pass for a single-project repository, with nothing reported twice.
 - Docs: the configuration guide (where a monorepo root writes its decisions and exceptions), the
