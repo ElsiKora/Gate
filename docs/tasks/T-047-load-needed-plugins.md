@@ -211,6 +211,30 @@ times slower to load (12 920 ms against 1 342 ms). Neither opt level beat `Speed
 between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at a load near 50.
 `Runtime::new` is unchanged, and the switch was never committed.
 
+### Before and after: the released core against this branch
+
+Lane ticket 267 (Gate 005), 2026-11-20T00:41:02 to 00:41:47 UTC, load average 54 to 71. One copy
+of a consumer tree per binary, network denied, one run per row. `released` is the 0.2.0 core;
+`t047` is the release build of lane ticket 256 from `65e5a55`, sha256 `3eb84b41…`. The check rows
+ran `gate check --rule 'nestjs/*' --timings`; the hook rows ran the `commit-msg` hook, which
+prints no timings, so only wall time is given. Exit 1 on the check rows is the tree's findings,
+the same for both binaries. "Modules emptied" means `modules/` was removed from the cache after
+`gate sync`, so the check compiles what it runs.
+
+| Row | released: exit, wall, total (`load`) | t047: exit, wall, total (`load`) | modules compiled |
+| --- | --- | --- | --- |
+| first run, empty cache, check | 1, 4.20 s, 4 126 ms (3 006 ms) | 1, 5.10 s, 4 997 ms (3 797 ms) | 8, 8 |
+| first run, empty cache, `commit-msg` hook | 0, 1.11 s | 0, 1.39 s | 0, 0 |
+| `gate sync` | 0, 6.52 s | 0, 4.82 s | 8, 8; declarations stored 0, 7 |
+| after sync, modules emptied, hook | 0, 1.31 s | 0, 0.84 s | 0, 0 |
+| after sync, modules emptied, check | 1, 7.00 s, 6 944 ms (5 126 ms) | 1, 2.74 s, 2 664 ms (1 475 ms) | 8, 2 |
+| after sync, warm check | 1, 1.50 s, 1 438 ms (765 ms) | 1, 0.77 s, 674 ms (107 ms) | 8, 2 |
+
+After `gate sync`, the branch compiles the 2 plugins the check runs instead of all 8: the cold
+check's total falls from 6 944 ms to 2 664 ms and its `load` from 5 126 ms to 1 475 ms. A first
+run on an empty cache costs about the same with both binaries (it loads every plugin either way,
+and the branch also stores 7 declarations); one sample at this load is noise below about 0.5 s.
+
 ## Open items
 
 - **T-057, v0.3.0: a `--commit-message` check checks only the message.** The lead decided this
@@ -224,7 +248,7 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
 
 ## Resume point
 
-2026-11-19T23:38:51+00:00:
+2026-11-20T01:33:06+00:00:
 - First design: `ba462ff` (tests), `a491f40` (the change), `93749ae` (guards and section 9),
   `9bb5b36` (the trade test's fixture), `a6870b6` (clippy).
 - Lane ticket 224 ran the tests on `ba462ff`: the two load tests failed as expected (exit 101); the
@@ -263,7 +287,8 @@ between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at
 - The release binary of ticket 256 (`target/release/gate`, from `65e5a55`) has sha256
   `3eb84b41b421a3980363a9a4dd05b0a2321bea6a9b99c55479fe20db32922425` (`shasum -a 256`); the
   before/after measures run against it.
-- Next: the before/after table goes into the Proof with its ticket; then review.
+- The before/after table (lane ticket 267) is in the Proof.
+- Next: review.
 - Rounds of the redesign:
   - Lane ticket 242 ran the new tests on `7e904e4`: the six that must fail exited 101 and the two
     guards exited 0. Its gates stopped at clippy (E0027, `unused_qualifications`), fixed in
