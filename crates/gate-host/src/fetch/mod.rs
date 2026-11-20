@@ -89,6 +89,15 @@ fn advised(message: String, unavailable: Option<&str>, missing: bool) -> String 
     }
 }
 
+/// The error of a download from `url` that answered HTTP `status` and is not a GitHub release
+/// asset gate can ask the API for; a 404 carries the advice `unavailable`.
+fn http_failure(asset: &str, url: &str, status: u16, unavailable: Option<&str>) -> Error {
+    let message = format!(
+        "cannot download {asset} from {url}: HTTP {status}; check the URL in gate.lock, or run gate lock again"
+    );
+    Error::environment(advised(message, unavailable, status == 404))
+}
+
 /// The message of a download that does not hash to its `gate.lock` pin.
 fn lock_mismatch(asset: &str, url: &str, expected: &Sha256Sum, actual: &Sha256Sum) -> String {
     format!(
@@ -656,14 +665,7 @@ impl Fetcher {
         }
         let refused = matches!(status, 401 | 403 | 404);
         let Some(github) = refused.then(|| self.github_asset(url)).flatten() else {
-            let message = format!(
-                "cannot download {asset} from {url}: HTTP {status}; check the URL in gate.lock, or run gate lock again"
-            );
-            return Err(Error::environment(advised(
-                message,
-                unavailable,
-                status == 404,
-            )));
+            return Err(http_failure(asset, url, status, unavailable));
         };
 
         let Some(credential) = self.credential(github.endpoint) else {
