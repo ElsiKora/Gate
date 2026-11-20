@@ -8,6 +8,7 @@ use gate_sdk::{NoOptions, Result, Rule, Run, Scope, Tree};
 use crate::json::Node;
 use crate::repo::{self, CatalogEntry, Workspace, root_of};
 use crate::semver::is_exact;
+
 use crate::settings::Settings;
 
 #[derive(Debug, Default)]
@@ -56,7 +57,7 @@ impl Rule for DependencyVersions {
                             line,
                             ..
                         } = entry;
-                        if !is_exact(version) {
+                        if let Some(help) = Spec::of(version).fix() {
                             crate::report(
                                 run.report(),
                                 "range",
@@ -66,7 +67,7 @@ impl Rule for DependencyVersions {
                                     "the catalog of {} pins {name} at \"{version}\", not one exact version",
                                     workspace.path
                                 ),
-                                "write the exact version x.y.z the workspace installs",
+                                &help,
                             );
                         }
                     }
@@ -144,6 +145,9 @@ fn in_workspace(
         }
         return;
     }
+    if matches!(Spec::of(spec), Spec::Local) {
+        return;
+    }
     if let Some(which) = spec.strip_prefix("catalog:")
         && catalog
     {
@@ -182,7 +186,8 @@ fn in_workspace(
 fn alone(run: &mut Run<'_, NoOptions>, entries: &[Entry]) {
     let mut first: BTreeMap<&str, &Entry> = BTreeMap::new();
     for entry in entries {
-        if !is_exact(&entry.spec) {
+        let spec = Spec::of(&entry.spec);
+        if let Some(help) = spec.fix() {
             crate::report(
                 run.report(),
                 "range",
@@ -192,8 +197,11 @@ fn alone(run: &mut Run<'_, NoOptions>, entries: &[Entry]) {
                     "{} {} takes {} as \"{}\", not one exact version",
                     entry.path, entry.section, entry.name, entry.spec
                 ),
-                "write the exact version x.y.z that is installed; save-exact=true keeps it so",
+                &help,
             );
+            continue;
+        }
+        if matches!(spec, Spec::Local) {
             continue;
         }
         match first.get(entry.name.as_str()) {
@@ -214,4 +222,103 @@ fn alone(run: &mut Run<'_, NoOptions>, entries: &[Entry]) {
             }
         }
     }
+}
+
+/// What a dependency's specifier names, for `range`.
+#[derive(Debug, PartialEq, Eq)]
+enum Spec<'a> {
+    /// One version: `x.y.z`, `npm:<name>@x.y.z`, or a git URL pinned to a full commit.
+    Exact,
+    /// A package of the tree: `workspace:`, `file:` or `link:`. Not a range.
+    Local,
+    /// `npm:<name>@<range>`: an alias whose version is not exact.
+    Alias(&'a str),
+    /// A git URL that is not pinned to a full commit; the URL without its `#` part.
+    Git(&'a str),
+    /// `catalog:` without a pnpm workspace to hold the catalog.
+    Catalog,
+    /// A range, a tag or anything else.
+    Range,
+}
+
+impl<'a> Spec<'a> {
+    fn of(spec: &'a str) -> Self {
+        if is_exact(spec) {
+            return Self::Exact;
+        }
+        if ["workspace:", "file:", "link:"]
+            .iter()
+            .any(|prefix| spec.starts_with(prefix))
+        {
+            return Self::Local;
+        }
+        if spec.starts_with("catalog:") {
+            return Self::Catalog;
+        }
+        if let Some(alias) = spec.strip_prefix("npm:") {
+            return if split_alias(alias).is_some_and(|(_, version)| is_exact(version)) {
+                Self::Exact
+            } else {
+                Self::Alias(alias)
+            };
+        }
+        if is_git(spec) {
+            let (url, fragment) = spec.split_once('#').unwrap_or((spec, ""));
+            let commit = fragment.strip_prefix("commit=").unwrap_or(fragment);
+            return if commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()) {
+                Self::Exact
+            } else {
+                Self::Git(url)
+            };
+        }
+        Self::Range
+    }
+
+    /// The help for a specifier that is not one exact version; `None` when it is one, or local.
+    fn fix(&self) -> Option<String> {
+        match self {
+            Self::Exact | Self::Local => None,
+            Self::Alias(alias) => {
+                let name = split_alias(alias).map_or(*alias, |(name, _)| name);
+                Some(format!(
+                    "write npm:{name}@x.y.z with the exact version that is installed"
+                ))
+            }
+            Self::Git(url) => Some(format!(
+                "pin it to a full 40-character commit: {url}#<commit>"
+            )),
+            Self::Catalog => Some(
+                "catalog: needs a pnpm workspace that declares the catalog; write the exact \
+                 version x.y.z here"
+                    .to_owned(),
+            ),
+            Self::Range => Some(
+                "write the exact version x.y.z that is installed; save-exact=true keeps it so"
+                    .to_owned(),
+            ),
+        }
+    }
+}
+
+/// An alias `<name>@<version>` split at its version's `@`; a scoped name starts with `@`, so the
+/// search starts after the first character.
+fn split_alias(alias: &str) -> Option<(&str, &str)> {
+    let at = alias.get(1..)?.rfind('@')? + 1;
+    Some((&alias[..at], &alias[at + 1..]))
+}
+
+/// Whether `spec` names a git repository: a `git` URL, a URL ending in `.git`, a host shorthand
+/// (`github:`, `gitlab:`, `bitbucket:`), or `<owner>/<repo>` as npm reads it.
+fn is_git(spec: &str) -> bool {
+    let url = spec.split_once('#').map_or(spec, |(url, _)| url);
+    spec.starts_with("git+")
+        || spec.starts_with("git://")
+        || ["github:", "gitlab:", "bitbucket:"]
+            .iter()
+            .any(|prefix| spec.starts_with(prefix))
+        || (url.starts_with("https://") && url.ends_with(".git"))
+        || (!url.contains(':')
+            && !url.starts_with('@')
+            && url.split('/').count() == 2
+            && url.split('/').all(|part| !part.is_empty()))
 }

@@ -28,6 +28,17 @@ fn the_root_extends_the_shared_configuration_and_no_other_base() {
         run(own, &[]),
         ["shared eslint.config.mjs @elsikora/eslint-config"]
     );
+    let commented =
+        format!("// import {{ createConfig }} from \"@elsikora/eslint-config\";\n{own}");
+    assert_eq!(
+        run(&commented, &[]),
+        ["shared eslint.config.mjs @elsikora/eslint-config"]
+    );
+    let quoted = format!("const note = \"import from '@elsikora/eslint-config'\";\n{own}");
+    assert_eq!(
+        run(&quoted, &[]),
+        ["shared eslint.config.mjs @elsikora/eslint-config"]
+    );
     let two = ROOT.replace("\n\n", "\nimport other from \"eslint-config-other\";\n");
     assert_eq!(
         run(&two, &[]),

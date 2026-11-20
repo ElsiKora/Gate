@@ -126,11 +126,19 @@ fn named(run: &mut Run<'_, NoOptions>, script: &Member, member: bool) {
     }
 }
 
-/// Whether `command` passes `--fix` or `--write`, the flags that make a tool rewrite files.
+/// Whether `command` passes `--fix` or `--write`, the flags that make a tool rewrite files, or
+/// Prettier's short `-w` for `--write`.
 fn writes(command: &str) -> bool {
-    command.split_whitespace().any(|word| {
-        let flag = word.split_once('=').map_or(word, |(flag, _)| flag);
+    let words: Vec<&str> = command.split_whitespace().collect();
+    words.iter().enumerate().any(|(index, word)| {
+        let flag = word.split_once('=').map_or(*word, |(flag, _)| flag);
         matches!(flag, "--fix" | "--write")
+            || (*word == "-w"
+                && words[..index]
+                    .iter()
+                    .rev()
+                    .take_while(|earlier| !matches!(**earlier, "&&" | "||" | ";" | "|"))
+                    .any(|earlier| earlier.ends_with("prettier")))
     })
 }
 

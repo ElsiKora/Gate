@@ -48,8 +48,15 @@ impl Rule for Tsconfig {
         }
         let own_base = within(&base_path, &project).then(|| relative(&base_path, &project));
         for (path, config) in &configs {
-            weakened(run, path, config);
+            // The base is `node/tsconfig-base`'s, checked once per install from the repository.
             if own_base.as_deref() == Some(path.as_str()) {
+                continue;
+            }
+            weakened(run, path, config);
+            resolutions(run, path, config, kind);
+            // A solution-style configuration (`files: []`, no `include`) compiles nothing: its
+            // references are the configurations that compile, and they are checked as their own.
+            if compiles_nothing(config) {
                 continue;
             }
             if config.get("extends").is_none() && strict_count(config) >= COPY_THRESHOLD {
@@ -62,35 +69,52 @@ impl Rule for Tsconfig {
                     "extend the base and keep only what this configuration adds",
                 );
             }
-            if !reaches(&configs, path, &project, &base_path) {
-                crate::report(
+            let line = config.member("extends").map(|member| member.line);
+            match reaches(&configs, path, &project, &base_path) {
+                Reach::Base => {}
+                Reach::Nowhere => crate::report(
                     run.report(),
                     "base",
-                    (path, config.member("extends").map(|member| member.line)),
+                    (path, line),
                     file_name(path),
                     format!("{path} does not reach {base_path} through extends"),
                     "extend the base, directly or through a configuration that does",
+                ),
+                Reach::Leaves(outside) => crate::report(
+                    run.report(),
+                    "base",
+                    (path, line),
+                    file_name(path),
+                    format!(
+                        "{path} extends through {outside}, outside the project, so its chain to \
+                         {base_path} cannot be followed"
+                    ),
+                    &format!(
+                        "extend the base directly: \"extends\": \"{}\"",
+                        up_to(directory(&join(&project, path)), &base_path)
+                    ),
+                ),
+            }
+        }
+        if let Some(difference) = difference(kind, Row::Resolution) {
+            for start in resolution_roots(&configs) {
+                if sets_resolution(&configs, &start, own_base.as_deref()) {
+                    continue;
+                }
+                crate::report(
+                    run.report(),
+                    "resolution",
+                    (&start, None),
+                    "moduleResolution",
+                    format!(
+                        "{start} inherits the base's moduleResolution; a {} has {}: {}",
+                        kind.name(),
+                        difference.cell,
+                        difference.reason
+                    ),
+                    &format!("set module and moduleResolution in {start}"),
                 );
             }
-            resolutions(run, path, config, kind);
-        }
-        if let Some(difference) = difference(kind, Row::Resolution)
-            && configs.contains_key("tsconfig.json")
-            && !sets_resolution(&configs, "tsconfig.json", own_base.as_deref())
-        {
-            crate::report(
-                run.report(),
-                "resolution",
-                ("tsconfig.json", None),
-                "moduleResolution",
-                format!(
-                    "tsconfig.json inherits the base's moduleResolution; a {} has {}: {}",
-                    kind.name(),
-                    difference.cell,
-                    difference.reason
-                ),
-                "set module and moduleResolution in the project's tsconfig.json",
-            );
         }
         Ok(())
     }
@@ -202,10 +226,22 @@ fn target(
         .find(|candidate| exists(candidate.as_str()))
 }
 
-/// Whether the configuration at `start` reaches the base through `extends`.
-fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &str) -> bool {
+/// Where a configuration's `extends` chain goes.
+#[derive(Debug, PartialEq, Eq)]
+enum Reach {
+    /// It reaches the base.
+    Base,
+    /// It leaves the project through a configuration the project cannot read: the path named.
+    Leaves(String),
+    /// It ends without reaching the base.
+    Nowhere,
+}
+
+/// Where the configuration at `start` goes through `extends`.
+fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &str) -> Reach {
     let mut seen = BTreeSet::new();
     let mut queue = vec![start.to_owned()];
+    let mut leaves = None;
     while let Some(path) = queue.pop() {
         if !seen.insert(path.clone()) {
             continue;
@@ -220,17 +256,81 @@ fn reaches(configs: &BTreeMap<String, Node>, start: &str, project: &str, base: &
                         && configs.contains_key(&relative(candidate, project)))
             };
             let Some(repository) = target(project, &path, specifier, &exists) else {
+                let written = specifier
+                    .starts_with('.')
+                    .then(|| normalize(&join(project, &join(directory(&path), specifier))))
+                    .flatten();
+                if let Some(written) = written.filter(|written| !within(written, project)) {
+                    leaves.get_or_insert(written);
+                }
                 continue;
             };
             if repository == base {
-                return true;
+                return Reach::Base;
             }
             if within(&repository, project) {
                 queue.push(relative(&repository, project));
             }
         }
     }
-    false
+    leaves.map_or(Reach::Nowhere, Reach::Leaves)
+}
+
+/// The relative path from the repository directory `from` to the repository path `to`.
+fn up_to(from: &str, to: &str) -> String {
+    let from: Vec<&str> = from.split('/').filter(|part| !part.is_empty()).collect();
+    let to_parts: Vec<&str> = to.split('/').collect();
+    let common = from
+        .iter()
+        .zip(&to_parts)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut parts = vec![".."; from.len() - common];
+    parts.extend(&to_parts[common..]);
+    let path = parts.join("/");
+    if path.starts_with("..") {
+        path
+    } else {
+        format!("./{path}")
+    }
+}
+
+/// Whether `config` is solution-style: `files` is empty and there is no `include`, so it compiles
+/// nothing itself and only refers to the configurations that do.
+fn compiles_nothing(config: &Node) -> bool {
+    matches!(config.get("files").map(|node| &node.value), Some(Value::Array(items)) if items.is_empty())
+        && config.get("include").is_none()
+}
+
+/// The configurations whose resolution a kind with its own resolution must set: the project's
+/// `tsconfig.json`, or, when it compiles nothing, each configuration it refers to.
+fn resolution_roots(configs: &BTreeMap<String, Node>) -> Vec<String> {
+    let Some(root) = configs.get("tsconfig.json") else {
+        return Vec::new();
+    };
+    if !compiles_nothing(root) {
+        return vec!["tsconfig.json".to_owned()];
+    }
+    let references = match root.get("references").map(|node| &node.value) {
+        Some(Value::Array(items)) => items.as_slice(),
+        _ => &[],
+    };
+    references
+        .iter()
+        .filter_map(|reference| reference.get("path").and_then(Node::as_str))
+        .filter_map(|written| {
+            let written = if written.starts_with('.') {
+                written.to_owned()
+            } else {
+                format!("./{written}")
+            };
+            target("", "tsconfig.json", &written, &|candidate: &str| {
+                configs.contains_key(candidate)
+            })
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// Whether the configuration at `start`, or one it extends inside the project, sets

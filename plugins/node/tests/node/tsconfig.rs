@@ -1,4 +1,4 @@
-use crate::fixture::Fixture;
+use crate::fixture::{Fixture, lines};
 
 const RULE: &str = "tsconfig";
 
@@ -207,9 +207,103 @@ fn extends_resolves_as_typescript_resolves_it() {
         ("tsconfig.build.json", "{ \"extends\": \"./tsconfig\" }"),
     ];
     assert_eq!(member("service", "apps/s", &files), Vec::<String>::new());
+    let listed = [(
+        "tsconfig.json",
+        "{ \"extends\": [\"@tsconfig/strictest\", \"../../tsconfig.base.json\"] }",
+    )];
+    assert_eq!(member("service", "apps/s", &listed), Vec::<String>::new());
     let missing = [("tsconfig.json", "{ \"extends\": \"./configs\" }")];
     assert_eq!(
         member("service", "apps/s", &missing),
         ["base tsconfig.json:1 tsconfig.json"]
     );
+}
+
+#[test]
+fn a_solution_configuration_is_checked_through_its_references() {
+    let solution = "{\n  \"files\": [],\n  \"references\": [{ \"path\": \"./tsconfig.app.json\" }, { \"path\": \"tsconfig.node.json\" }]\n}\n";
+    let bundler = "{\n  \"extends\": \"../../tsconfig.base.json\",\n  \"include\": [\"src\"],\n  \"compilerOptions\": { \"module\": \"ESNext\", \"moduleResolution\": \"Bundler\" }\n}\n";
+    let files = [
+        ("tsconfig.json", solution),
+        ("tsconfig.app.json", bundler),
+        ("tsconfig.node.json", bundler),
+    ];
+    assert_eq!(member("frontend", "apps/web", &files), Vec::<String>::new());
+    let inherits = [
+        ("tsconfig.json", solution),
+        ("tsconfig.app.json", bundler),
+        ("tsconfig.node.json", EXTENDS_BASE),
+    ];
+    assert_eq!(
+        member("frontend", "apps/web", &inherits),
+        ["resolution tsconfig.node.json moduleResolution"]
+    );
+    let compiles = solution.replace("\"files\": []", "\"files\": [\"main.ts\"]");
+    assert_eq!(
+        member("service", "apps/s", &[("tsconfig.json", &compiles)]),
+        ["base tsconfig.json tsconfig.json"]
+    );
+}
+
+#[test]
+fn a_chain_that_leaves_the_project_says_so_and_names_the_base() {
+    let files = [(
+        "tsconfig.json",
+        "{ \"extends\": \"../../packages/config/tsconfig.json\" }",
+    )];
+    let fixture = Fixture::new("service", &files).project("apps/s");
+    let findings = fixture.check(RULE, "{}").expect("the rule runs");
+    assert_eq!(lines(&findings), ["base tsconfig.json:1 tsconfig.json"]);
+    assert!(
+        findings[0]
+            .message
+            .contains("extends through packages/config/tsconfig.json, outside the project"),
+        "{}",
+        findings[0].message
+    );
+    assert_eq!(
+        findings[0].help.as_deref(),
+        Some("extend the base directly: \"extends\": \"../../tsconfig.base.json\"")
+    );
+}
+
+#[test]
+fn a_base_inside_a_member_package_is_left_to_tsconfig_base() {
+    let weak_base = BASE.replace("\"strict\": true", "\"strict\": false");
+    let files = [
+        (
+            "tsconfig.json",
+            "{ \"extends\": \"./packages/tsconfig/tsconfig.base.json\" }",
+        ),
+        ("packages/tsconfig/package.json", "{}"),
+        ("packages/tsconfig/tsconfig.base.json", weak_base.as_str()),
+    ];
+    let options = r#"{"kind": "monorepo-root", "base": "packages/tsconfig/tsconfig.base.json"}"#;
+    let root = Fixture::new("monorepo-root", &files).plugin_options(options);
+    assert_eq!(root.lines(RULE), Vec::<String>::new());
+    let package = Fixture::new(
+        "library",
+        &[
+            ("tsconfig.base.json", weak_base.as_str()),
+            ("package.json", "{}"),
+        ],
+    )
+    .plugin_options(&options.replace("monorepo-root", "library"))
+    .project("packages/tsconfig");
+    assert_eq!(package.lines(RULE), Vec::<String>::new());
+    assert_eq!(
+        root.lines("tsconfig-base"),
+        ["flags packages/tsconfig/tsconfig.base.json:3 strict"]
+    );
+}
+
+#[test]
+fn files_a_reads_grant_adds_from_outside_the_project_are_not_its_own() {
+    let weak =
+        "{\n  \"compilerOptions\": { \"strict\": false, \"moduleResolution\": \"Bundler\" }\n}\n";
+    let files = [
+        ("tsconfig.json", EXTENDS_BASE),
+        ("../../docs/shared/tsconfig.json", weak),
+    ];
+    assert_eq!(member("service", "apps/s", &files), Vec::<String>::new());
 }

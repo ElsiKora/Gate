@@ -17,7 +17,8 @@ and the rule reports nothing. Otherwise:
 - **`#file`**: `.nvmrc` is tracked at each install root that has a `package.json` below it, and
   holds one exact version `x.y.z`, optionally with a pre-release or build part
   (`24.11.0-rc.1`), as every rule of the plugin reads an exact version, with nothing else but
-  surrounding white space. `24`, `v24.11.0` and `lts/*` are reported.
+  surrounding white space. `24`, `v24.11.0` and `lts/*` are reported; `v24.11.0` is what
+  `node --version` prints, and the help says to drop the `v`.
 - **`#form`**: no second place names the Node version: a `.node-version` file anywhere, an
   `.nvmrc` anywhere but an install root, a `.tool-versions` file with a line for `nodejs` or
   `node`, a `volta.node` field in any `package.json`.
@@ -75,7 +76,7 @@ line 3:
 ```text
 error node/node-version#differs apps/api/package.json:3
   apps/api/package.json declares engines.node ">=24", package.json ">=24.11.0 <25"
-  help: write the install root's range, or remove engines.node where the root's applies
+  help: write the root's range
 ```
 
 The finding's target is `<path>:<key>`, where the key is the field or the file name:

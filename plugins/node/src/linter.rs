@@ -5,6 +5,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Result, Rule, Run, Scope, Tree};
 
+use crate::js::specifiers;
 use crate::repo::{self, directory, file_name, join, normalize};
 use crate::settings::Settings;
 use crate::standard::SHARED_ESLINT;
@@ -192,59 +193,9 @@ fn detached(run: &mut Run<'_, Options>, tree: &Tree<'_>, path: &str) {
     }
 }
 
-/// The module specifiers of `text`'s static imports, dynamic imports and `require` calls, with
-/// their lines. Comments are not skipped: a commented-out import counts.
-fn specifiers(text: &str) -> Vec<(String, usize)> {
-    let mut found = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        for keyword in ["from", "import", "require"] {
-            let mut rest = line;
-            while let Some(at) = rest.find(keyword) {
-                let before = rest[..at].chars().next_back();
-                rest = &rest[at + keyword.len()..];
-                if before.is_some_and(|character| {
-                    character.is_alphanumeric() || character == '_' || character == '.'
-                }) {
-                    continue;
-                }
-                let after = rest
-                    .trim_start()
-                    .strip_prefix('(')
-                    .unwrap_or(rest.trim_start())
-                    .trim_start();
-                let Some(quote) = after
-                    .chars()
-                    .next()
-                    .filter(|character| matches!(character, '"' | '\'' | '`'))
-                else {
-                    continue;
-                };
-                if let Some((specifier, _)) = after[1..].split_once(quote) {
-                    found.push((specifier.to_owned(), index + 1));
-                }
-            }
-        }
-    }
-    found
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{is_config_package, specifiers};
-
-    #[test]
-    fn specifiers_of_every_import_form() {
-        let text = "import a from \"x\";\nimport \"side\";\nconst b = await import('dyn');\nconst c = require( \"req\" );\nexport { d } from 're';\nconst reimport = 1;\n";
-        let all = specifiers(text);
-        let found: Vec<(&str, usize)> = all
-            .iter()
-            .map(|(name, line)| (name.as_str(), *line))
-            .collect();
-        assert_eq!(
-            found,
-            [("x", 1), ("side", 2), ("dyn", 3), ("req", 4), ("re", 5)]
-        );
-    }
+    use super::is_config_package;
 
     #[test]
     fn configuration_packages_by_name() {

@@ -1,4 +1,4 @@
-use crate::fixture::{Fixture, message};
+use crate::fixture::{Fixture, lines, message};
 
 const RULE: &str = "node-version";
 
@@ -93,6 +93,7 @@ fn a_second_place_for_the_version_is_reported() {
         (".tool-versions", "nodejs 24.11.0\npython 3.12.0\n"),
         ("apps/a/.nvmrc", "24.11.0\n"),
         ("tools/other/.tool-versions", "python 3.12.0\n"),
+        ("tools/asdf/.tool-versions", "node 24.11.0\n"),
         (
             "apps/c/package.json",
             "{\n  \"volta\": {\n    \"node\": \"24.11.0\"\n  }\n}\n",
@@ -104,6 +105,7 @@ fn a_second_place_for_the_version_is_reported() {
             "form .node-version .node-version",
             "form .tool-versions .tool-versions",
             "form apps/a/.nvmrc .nvmrc",
+            "form tools/asdf/.tool-versions .tool-versions",
             "form apps/c/package.json:3 volta.node"
         ]
     );
@@ -141,5 +143,19 @@ fn a_separate_install_has_its_own_version() {
     assert_eq!(
         check(None, ">=22.12.0 <23"),
         ["file spikes/load/.nvmrc .nvmrc"]
+    );
+}
+
+#[test]
+fn a_v_prefixed_nvmrc_is_reported_with_help_to_drop_the_v() {
+    let root = root(">=24.11.0 <25");
+    let files = [(".nvmrc", "v24.11.0\n"), ("package.json", root.as_str())];
+    let findings = Fixture::new("monorepo-root", &files)
+        .check(RULE, "{}")
+        .expect("the rule runs");
+    assert_eq!(lines(&findings), ["file .nvmrc .nvmrc"]);
+    assert_eq!(
+        findings[0].help.as_deref(),
+        Some("drop the v: write 24.11.0 as the only line of .nvmrc")
     );
 }

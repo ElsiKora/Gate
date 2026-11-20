@@ -64,9 +64,9 @@ the workspace file, the Node version file, `.npmrc`, the Prettier and ESLint con
   for a separate `docs` plugin).
 - The kinds must look alike. In one plugin, the side-by-side table below is one source file, and a
   difference without a reason fails a unit test.
-- `tsconfig*.json` is a configuration file, read as JSON with comments. Its rule needs no parser
-  from `gate-typescript`. The rule declares the language `typescript`, so it receives
-  `[languages.typescript]` (the tsconfig path) like every plugin that declares it.
+- `tsconfig*.json` is a configuration file, read as JSON with comments. Its rules need no parser
+  from `gate-typescript` and declare no language (section 3): they find the files by name and read
+  the base's path from the plugin option `base`.
 
 The core names no framework, no package manager and no tool; the plugin does, as plugins may.
 
@@ -121,7 +121,7 @@ One package manager, pnpm, pinned at the repository root (decided: one way to do
 | `lockfile` | `pnpm-lock.yaml` is not tracked at the root, or a lockfile of another manager (`package-lock.json`, `yarn.lock`, `bun.lock`, `bun.lockb`, `npm-shrinkwrap.json`) is tracked anywhere | the lockfile, or the root | the file |
 | `nested` | a `pnpm-lock.yaml` or `pnpm-workspace.yaml` is tracked below the root, outside a declared separate root | the file | the file |
 | `members` | a tracked `package.json` below an install root is in no package glob of that root's `pnpm-workspace.yaml`; with no workspace file, every such `package.json` is reported, since no install covers it | the `package.json` | the file |
-| `save-exact` | the root `.npmrc` is not tracked, or does not set `save-exact=true` | `.npmrc` | `save-exact` |
+| `save-exact` | neither `save-exact` is `true` nor `save-prefix` empty, as pnpm reads them from the install root's `.npmrc` (the last line of a key wins) and its `pnpm-workspace.yaml` (`saveExact`, `savePrefix`, which win) | `.npmrc` | `save-exact` |
 
 Plugin option `separate` (in `[plugins.node] options`, next to `kind`): a list of `{ path, job }`,
 each a directory that is its own install (a spike, a load test) with its own lockfile and workspace
@@ -404,6 +404,51 @@ Rounds 270 and 272 to 275 stopped at clippy or at one test; each fix is its own 
 
 Gate 007's frontend ESLint options and the independent review's findings join these in one fix
 round; no round is queued until both are in.
+
+### Presets (the lead, 2026-11-20)
+
+`node/recommended` turns on all nine rules at `error`, `node/adoption` all nine at `warning`, for a
+repository on its way to the standard; built as `git/recommended` is, tested to enable exactly the
+nine at their level, and named on the plugin's page in the guide.
+
+### The independent review of `e492b66`, one fix round
+
+1. **A `pnpm-workspace.yaml` without `packages` is no workspace** (pnpm 10 keeps settings such as
+   `onlyBuiltDependencies` there). Decided: such an install root is read as one without a
+   workspace. In a workspace, the root's own `package.json` is read like every member's: its
+   dependencies come from the catalog too, as `catalog:`. Both are tested.
+2. **A solution-style `tsconfig.json`** (`files: []`, no `include`, only `references`) compiles
+   nothing: no `#base` or `#copy` for it, and a frontend's resolution is required of each
+   configuration it refers to.
+3. **A chain that leaves the project** through a configuration that is not the base is reported as
+   leaving, naming that configuration, with an `extends` to the base as the help.
+4. **A base inside a member package** is read only by `node/tsconfig-base`, from the repository;
+   `node/tsconfig` skips the base it holds (no `#weakened` on it), so one rule checks it.
+5. **A `reads` grant** adds files outside the project's root as `../…`; they are never the
+   project's own files.
+6. **`node/node-version#differs`** says "write the root's range", which agrees with
+   `node/package#missing`.
+7. **`.editorconfig`**: `node/formatter` has a fifth aspect, `editorconfig`. In a section that
+   covers files Prettier formats, `indent_style`, `indent_size`, `tab_width` (where `indent_size` is
+   absent or `tab`), `end_of_line` and `max_line_length` have the standard's value or are absent;
+   the Prettier configuration stays the one source of the values.
+8. **save-exact**: `saveExact: true` in `pnpm-workspace.yaml` and an empty `save-prefix` count;
+   the last assignment wins, so a later `save-exact=false` fails.
+9. **Specifiers**: `npm:<name>@<exact>` is exact; `workspace:`, `file:` and `link:` are local; a
+   git URL pinned to a full 40-hex commit is exact; the help fits each kind.
+10. **`prettier -w`** is a write. **Imports** are read from the file's tokens, so a comment or a
+    string never satisfies `node/linter#shared`. A `v`-prefixed `.nvmrc` stays a finding, and its
+    help says to drop the `v`.
+11. **Option errors** give advice for the key that is wrong: an unknown key, a bad `separate`
+    entry, `kind`, or another value.
+12. **Tests** that fail with each removed: the list arm of `extends`, grouping by install root in
+    `node/dependency-versions`, a byte order mark, `.tool-versions` with `node`, a `reads` grant
+    (a project tree with `../` paths) and a base inside a member package.
+13. **The end to end test** builds the component through the shared helper
+    `crates/gate-runtime/tests/support/component.rs`, which came with `main` (merged into the
+    branch for it).
+14. **The plugin changelog** names the plugin interface `gate:plugin@0.3.0`.
+15. **Section 1** now says what the code does: the `tsconfig` rules declare no language.
 
 ## Resume point
 

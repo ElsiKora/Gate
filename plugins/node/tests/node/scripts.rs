@@ -82,20 +82,25 @@ fn a_synonym_of_a_standard_name_is_reported_with_that_name() {
 
 #[test]
 fn a_bare_name_that_writes_is_reported() {
-    let scripts: Vec<(&str, &str)> = BASE
-        .iter()
-        .map(|(name, command)| {
-            if *name == "lint" {
-                (*name, "eslint --fix .")
-            } else {
-                (*name, *command)
-            }
-        })
-        .collect();
+    let lint = |lint: &'static str| {
+        let scripts: Vec<(&str, &str)> = BASE
+            .iter()
+            .map(|(name, command)| {
+                if *name == "lint" {
+                    (*name, lint)
+                } else {
+                    (*name, *command)
+                }
+            })
+            .collect();
+        run("service", &scripts, true, true)
+    };
+    assert_eq!(lint("eslint --fix ."), ["writes package.json:4 lint"]);
     assert_eq!(
-        run("service", &scripts, true, true),
+        lint("eslint . && pnpm exec prettier -w ."),
         ["writes package.json:4 lint"]
     );
+    assert_eq!(lint("tsc -w && eslint ."), Vec::<String>::new());
 }
 
 #[test]

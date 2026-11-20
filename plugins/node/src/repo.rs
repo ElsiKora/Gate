@@ -76,15 +76,19 @@ pub(crate) fn manifests(tree: &Tree<'_>) -> Vec<String> {
 
 /// The project's own paths: those whose nearest `package.json` above them is the project's, not a
 /// nested package's. A project at the repository root is granted the whole tree, and its members'
-/// files are theirs to check, against their own kind.
+/// files are theirs to check, against their own kind. A path a `reads` grant adds from outside
+/// the project's root (listed as `../...`) is never the project's own.
 pub(crate) fn own_paths(tree: &Tree<'_>) -> Vec<String> {
+    let inside = |path: &String| !path.starts_with("../");
     let packages: Vec<String> = manifests(tree)
         .iter()
+        .filter(|path| inside(path))
         .map(|path| directory(path).to_owned())
         .filter(|place| !place.is_empty())
         .collect();
     tree.paths()
         .into_iter()
+        .filter(inside)
         .filter(|path| !packages.iter().any(|place| within(path, place)))
         .collect()
 }
@@ -146,7 +150,8 @@ impl Workspace {
     }
 }
 
-/// The `pnpm-workspace.yaml` of install root `root`, when it is tracked.
+/// The workspace `pnpm-workspace.yaml` of install root `root` declares, when it is tracked and has
+/// `packages`.
 ///
 /// # Errors
 /// When the file is not YAML, or a package glob is not a glob: the call fails, naming the file.
@@ -157,13 +162,14 @@ pub(crate) fn workspace(tree: &Tree<'_>, root: &str) -> Result<Option<Workspace>
     };
     let document = yaml::parse(&text)
         .map_err(|message| Error::new(format!("{path} is not YAML ({message}); fix it")))?;
+    // A file with settings only (`onlyBuiltDependencies`, say) and no `packages` declares no
+    // workspace: pnpm reads it as configuration of a single package.
+    let Some(packages) = document.get("packages") else {
+        return Ok(None);
+    };
     let mut included = GlobSetBuilder::new();
     let mut excluded = GlobSetBuilder::new();
-    for item in document
-        .get("packages")
-        .and_then(yaml::Node::sequence)
-        .unwrap_or_default()
-    {
+    for item in packages.sequence().unwrap_or_default() {
         let Some(pattern) = item.scalar() else {
             continue;
         };

@@ -1,10 +1,11 @@
 //! `node/package-manager`: one package manager, pnpm, pinned at each install root.
 
-use gate_sdk::{NoOptions, Result, Rule, Run, Scope, Tree};
+use gate_sdk::{Error, NoOptions, Result, Rule, Run, Scope, Tree};
 
 use crate::repo::{self, directory, file_name, join, root_of};
 use crate::settings::Settings;
 use crate::standard::{OTHER_LOCKFILES, PACKAGE_MANAGER};
+use crate::yaml;
 
 #[derive(Debug, Default)]
 pub(crate) struct PackageManager;
@@ -27,7 +28,7 @@ impl Rule for PackageManager {
         let roots = settings.install_roots();
         for root in &roots {
             field(run, &tree, root)?;
-            save_exact(run, &tree, root);
+            save_exact(run, &tree, root)?;
             if !tree.contains(&join(root, "pnpm-lock.yaml")) {
                 let path = join(root, "pnpm-lock.yaml");
                 crate::report(
@@ -124,25 +125,68 @@ fn field(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, root: &str) -> Result<()
     Ok(())
 }
 
-/// `save-exact`: installs write exact versions.
-fn save_exact(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, root: &str) {
+/// `save-exact`: installs write exact versions. pnpm reads `save-exact` and `save-prefix` from the
+/// install root's `.npmrc`, where the last assignment of a key wins, and `saveExact` and
+/// `savePrefix` from its `pnpm-workspace.yaml`, which win over `.npmrc`. An install writes exact
+/// versions when `save-exact` is `true` or `save-prefix` is empty.
+fn save_exact(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, root: &str) -> Result<()> {
     let path = join(root, ".npmrc");
-    let set = tree.text(&path).is_some_and(|text| {
-        text.lines().any(|line| {
-            line.split_once('=')
-                .is_some_and(|(key, value)| key.trim() == "save-exact" && value.trim() == "true")
-        })
-    });
-    if !set {
+    let mut exact = None;
+    let mut prefix = None;
+    for line in tree.text(&path).unwrap_or_default().lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = unquote(value.trim());
+        match key.trim() {
+            "save-exact" => exact = Some(value == "true"),
+            "save-prefix" => prefix = Some(value.to_owned()),
+            _ => {}
+        }
+    }
+    let workspace = join(root, "pnpm-workspace.yaml");
+    if let Some(text) = tree.text(&workspace) {
+        let document = yaml::parse(&text).map_err(|message| {
+            Error::new(format!("{workspace} is not YAML ({message}); fix it"))
+        })?;
+        if let Some(value) = document.get("saveExact").and_then(yaml::Node::scalar) {
+            exact = Some(value == "true");
+        }
+        if let Some(value) = document.get("savePrefix").and_then(yaml::Node::scalar) {
+            prefix = Some(value.to_owned());
+        }
+    }
+    if exact != Some(true) && prefix.as_deref() != Some("") {
         crate::report(
             run.report(),
             "save-exact",
             (&path, None),
             "save-exact",
-            format!("{path} does not set save-exact=true, so an install may write a range"),
-            "add the line save-exact=true to .npmrc at the install root",
+            format!(
+                "{path} does not set save-exact=true (nor {workspace} saveExact: true, nor an \
+                 empty save prefix), so an install may write a range"
+            ),
+            "add the line save-exact=true to .npmrc at the install root, after any other \
+             save-exact line",
         );
     }
+    Ok(())
+}
+
+/// `value` without one pair of surrounding quotes, as npm reads an `.npmrc` value.
+fn unquote(value: &str) -> &str {
+    ['"', '\'']
+        .iter()
+        .find_map(|quote| {
+            value
+                .strip_prefix(*quote)
+                .and_then(|rest| rest.strip_suffix(*quote))
+        })
+        .unwrap_or(value)
 }
 
 /// `members`: every manifest below an install root is a member of that root's workspace.

@@ -27,9 +27,11 @@ Then:
 - **`#detached`**: a flat configuration below the root imports the root `eslint.config.mjs` by a
   relative path (`../../eslint.config.mjs` from `apps/web`).
 
-The rule finds imports line by line: a quoted specifier after `from`, `import` or `require` on the
-same line, with or without parentheses, so static imports, `export … from`, `import()` and
-`require()` all count. Comments are not skipped: an import in a comment counts too.
+The rule reads the imports from the file's tokens: a string after `from` or `import`, or as the
+first argument of `import(…)` or `require(…)`, so static imports, `export … from`, `import()` and
+`require()` all count. Comments, strings, template literals with substitutions and regular
+expressions are skipped as JavaScript reads them, so an import in a comment or a string does not
+count, and neither does a property such as `Array.from("x")`.
 
 The file names and forms are fixed by the plugin; only the shared package is configurable.
 

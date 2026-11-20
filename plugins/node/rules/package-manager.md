@@ -20,8 +20,12 @@ install root:
   `+<hash>` (as Corepack writes it). A range (`pnpm@^9`), a partial version (`pnpm@9.1`) or
   another manager (`npm@10.0.0`) is reported at the field's line; a missing field or a missing
   `package.json` is reported at the file.
-- **`#save-exact`**: the install root's `.npmrc` has a line `save-exact=true` (spaces around the
-  key and the value are allowed), so an install writes an exact version, not a range.
+- **`#save-exact`**: an install at the install root writes an exact version, not a range: pnpm's
+  `save-exact` is `true` or its `save-prefix` is empty. pnpm reads them from the install root's
+  `.npmrc` (`save-exact=true`, `save-prefix=` or `save-prefix=""`; spaces around the key and the
+  value are allowed, a line starting with `#` or `;` is a comment, and the last line of a key wins,
+  so a later `save-exact=false` is reported) and from its `pnpm-workspace.yaml` (`saveExact: true`
+  or `savePrefix: ''`), which wins over `.npmrc`.
 - **`#lockfile`**: the install root's `pnpm-lock.yaml` is tracked.
 
 And anywhere in the repository:

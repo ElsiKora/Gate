@@ -139,6 +139,37 @@ fn installs_keep_exact_versions_through_save_exact() {
         })
         .collect();
     assert_eq!(run(&files), ["save-exact .npmrc save-exact"]);
+    let with = |npmrc: &str, settings: &str| {
+        let files: Vec<(&str, String)> = workspace(PINNED, &[])
+            .into_iter()
+            .map(|(path, text)| match path {
+                ".npmrc" => (path, npmrc.to_owned()),
+                "pnpm-workspace.yaml" => (path, format!("{text}{settings}")),
+                _ => (path, text),
+            })
+            .collect();
+        run(&files)
+    };
+    let none = Vec::<String>::new();
+    let finding = ["save-exact .npmrc save-exact"];
+    assert_eq!(with("save-exact=true\nsave-exact=false\n", ""), finding);
+    assert_eq!(with("save-exact=false\nsave-exact=true\n", ""), none);
+    assert_eq!(with("# save-exact=true\n", ""), finding);
+    assert_eq!(with("save-prefix=\n", ""), none);
+    assert_eq!(with("save-prefix=\"\"\n", ""), none);
+    assert_eq!(with("save-prefix=^\n", ""), finding);
+    assert_eq!(with("", "saveExact: true\n"), none);
+    assert_eq!(with("", "savePrefix: ''\n"), none);
+    assert_eq!(with("save-exact=true\n", "saveExact: false\n"), finding);
+    let settings_only = [
+        ("package.json", PINNED.to_owned()),
+        ("pnpm-lock.yaml", String::new()),
+        (
+            "pnpm-workspace.yaml",
+            "onlyBuiltDependencies:\n  - esbuild\nsaveExact: true\n".to_owned(),
+        ),
+    ];
+    assert_eq!(run(&settings_only), none);
 }
 
 #[test]

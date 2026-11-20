@@ -25,7 +25,9 @@ For each script:
   `prettier` for `format`; `prettier:fix`, `prettier:write` and `format:write` for `format:fix`;
   `lint:ts` and `eslint` for `lint`; `lint:ts:fix` and `eslint:fix` for `lint:fix`.
 - **`#writes`**: a script whose name does not end in `:fix` has no `--fix` or `--write` word in its
-  command (`--fix=…` counts; `--fix-type` does not).
+  command (`--fix=…` counts; `--fix-type` does not), and no `-w` given to Prettier (a `-w` after a
+  word ending in `prettier` in the same command, before any `&&`, `||`, `;` or `|`; `tsc -w`
+  watches and does not count).
 - **`#misplaced`**: a workspace member has no `format` or `format:fix` script, because "formatting
   is repository-wide, with one configuration at the root; the root's `format` and `format:fix`
   cover every member".

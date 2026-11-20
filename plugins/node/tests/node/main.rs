@@ -86,7 +86,23 @@ fn the_plugin_options_are_checked_before_any_rule_runs() {
             "unknown field `other`",
         ),
     ];
-    for (options, expected) in cases {
+    let advice = [
+        (
+            r#"{"kind": "service", "other": 1}"#,
+            "remove or rename the key; the options are kind, separate and base",
+        ),
+        (
+            r#"{"kind": "service", "separate": [{"path": "spikes/x"}]}"#,
+            "each separate entry is { path",
+        ),
+        (
+            r#"{"kind": "service", "separate": [{"path": "spikes/x", "job": "a spike", "why": 1}]}"#,
+            "each separate entry is { path",
+        ),
+        ("{}", "write options = { kind"),
+        (r#"{"kind": "service", "base": 1}"#, "base is a path"),
+    ];
+    for (options, expected) in cases.into_iter().chain(advice) {
         let error = Fixture::new("service", &tree)
             .plugin_options(options)
             .check("package", "{}")
@@ -123,4 +139,42 @@ fn a_manifest_that_is_not_json_fails_the_call_and_names_it() {
         "{}",
         error.message()
     );
+}
+
+/// Each preset turns on every rule of the plugin, and only those, at its one level.
+#[test]
+fn the_two_presets_turn_on_all_nine_rules_at_their_level() {
+    let info = gate_sdk::describe(&node::PLUGIN);
+    let names: Vec<&str> = info.rules.iter().map(|rule| rule.name.as_str()).collect();
+    assert_eq!(names.len(), 9);
+    let presets: Vec<&str> = info
+        .presets
+        .iter()
+        .map(|preset| preset.name.as_str())
+        .collect();
+    assert_eq!(presets, ["recommended", "adoption"]);
+    for (preset, level) in [("recommended", "error"), ("adoption", "warning")] {
+        let rules: serde_json::Value = serde_json::from_str(
+            &info
+                .presets
+                .iter()
+                .find(|candidate| candidate.name == preset)
+                .expect("the preset")
+                .rules,
+        )
+        .expect("JSON");
+        let rules = rules.as_object().expect("an object");
+        let mut keys: Vec<&str> = rules.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        let mut expected = names.clone();
+        expected.sort_unstable();
+        assert_eq!(keys, expected, "{preset}");
+        for (rule, settings) in rules {
+            assert_eq!(
+                settings,
+                &serde_json::json!({ "level": level }),
+                "{preset} {rule}"
+            );
+        }
+    }
 }

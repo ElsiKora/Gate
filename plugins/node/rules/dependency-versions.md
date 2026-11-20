@@ -15,9 +15,26 @@ The rule reads every tracked `package.json` outside `node_modules` and groups th
 root: the repository root and each directory the plugin option `separate` names; a manifest
 belongs to the deepest install root that holds it. In each manifest it reads `dependencies`,
 `devDependencies` and `optionalDependencies`; `peerDependencies` may hold ranges and are not read.
-An exact version is `x.y.z`, optionally with a pre-release or build part (`1.2.3-rc.1`).
+An exact version is `x.y.z`, optionally with a pre-release or build part (`1.2.3-rc.1`). A
+specifier is read by its kind:
 
-When the install root has a `pnpm-workspace.yaml`:
+- `npm:<name>@<version>` is an alias, exact when its version is (`npm:@scope/pad@1.3.0`);
+- `workspace:…`, `file:…` and `link:…` name a package of the tree: they are local, not ranges, and
+  need no catalog entry (in a workspace, `workspace:` is read by `#internal` below);
+- a git dependency (`git+…`, `git://…`, a `https://….git` URL, `github:`, `gitlab:`,
+  `bitbucket:`, or `<owner>/<repo>`) is exact when it is pinned to a full 40-character commit
+  (`#<commit>` or `#commit=<commit>`); a branch, a tag or no pin is reported;
+- `catalog:` outside a workspace has no catalog to read and is reported;
+- anything else (`^1.2.3`, `~1.2.3`, `*`, `latest`, a tarball URL) is a range.
+
+The help of a `#range` finding fits the kind: the exact version to write, the alias with its exact
+version, or the git URL with `#<commit>`.
+
+When the install root has a `pnpm-workspace.yaml` with a `packages` key, it is a workspace, and
+every manifest of the install root is read the same way, the root's own `package.json` included:
+the root takes its dependencies from the catalog too. A `pnpm-workspace.yaml` without `packages`
+(one that holds only settings, such as pnpm 10's `onlyBuiltDependencies`) declares no workspace,
+and the install root is read as one without a workspace. In a workspace:
 
 - **`#range`**: every entry of its `catalog`, and of each named catalog under `catalogs`, is one
   exact version. It is reported at the entry's line in `pnpm-workspace.yaml`.
@@ -32,7 +49,7 @@ When the install root has a `pnpm-workspace.yaml`:
   `catalog:<name>` names `catalogs.<name>`; a reference to a catalog without that entry is
   reported.
 
-When the install root has no `pnpm-workspace.yaml`:
+When the install root is not a workspace:
 
 - **`#range`**: every dependency is one exact version; `^1.2.3`, `~1.2.3`, `*`, `latest` and a
   non-string value are reported.

@@ -79,6 +79,29 @@ pub struct Separate {
     pub job: String,
 }
 
+/// What to do about the options error `message`, for the key it is about.
+fn advice(message: &str) -> &'static str {
+    const SEPARATE: &str = "each separate entry is { path = \"<directory>\", job = \"<why it is an \
+                            install of its own>\" } and has no other key";
+    const KIND: &str = "write options = { kind = \"<kind>\" } with one of service, frontend, \
+                        infrastructure, library, monorepo-root";
+    let about_separate = message.contains("`job`") || message.contains("`path`");
+    if message.contains("unknown field") {
+        if about_separate {
+            SEPARATE
+        } else {
+            "remove or rename the key; the options are kind, separate and base"
+        }
+    } else if about_separate {
+        SEPARATE
+    } else if message.contains("`kind`") || message.contains("unknown variant") {
+        KIND
+    } else {
+        "kind is one of service, frontend, infrastructure, library, monorepo-root; separate is a \
+         list of { path, job }; base is a path from each install root"
+    }
+}
+
 impl Settings {
     /// The options of the run's `[plugins.node]` entry, checked.
     ///
@@ -88,9 +111,9 @@ impl Settings {
     pub fn read<O>(run: &Run<'_, O>) -> Result<Self> {
         let settings: Self = run.plugin_options().map_err(|error| {
             let message = format!(
-                "[plugins.node] options: {}; write options = {{ kind = \"<kind>\" }} with one of \
-                 service, frontend, infrastructure, library, monorepo-root",
-                error.message()
+                "[plugins.node] options: {}; {}",
+                error.message(),
+                advice(error.message())
             );
             error.with_message(message)
         })?;

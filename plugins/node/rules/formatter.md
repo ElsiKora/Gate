@@ -1,7 +1,7 @@
 # `node/formatter`
 
 A repository has one Prettier configuration: a root `.prettierrc.json` with the standard
-settings.
+settings, and no `.editorconfig` that changes what Prettier writes.
 
 ## What it checks and why
 
@@ -36,10 +36,30 @@ and the rule reports nothing. Otherwise:
 - **`#settings`**: the root `.prettierrc.json` sets each standard key to its value, compared as
   compact JSON (`"120"` is not `120`), and sets no other key but `$schema`.
 
+- **`#editorconfig`**: Prettier also reads `.editorconfig` and maps five of its keys to its own
+  options, so an `.editorconfig` can change the formatting while `.prettierrc.json` holds the
+  standard. In every tracked `.editorconfig` (outside `node_modules`), in a section whose pattern
+  covers a file Prettier formats (a `.js`, `.ts`, `.json`, `.md`, `.yaml`, `.css`, `.html` or
+  similar file; a pattern with a directory is matched by its last segment), each of these keys is
+  absent, `unset`, or has the standard's value, compared without regard to case:
+
+  | Key | Standard | Prettier option |
+  | --- | --- | --- |
+  | `indent_style` | `space` | `useTabs` |
+  | `indent_size` | `2` (or `tab`, which defers to `tab_width`) | `tabWidth` |
+  | `tab_width` | `2`, where the section's `indent_size` is absent or `tab` | `tabWidth` |
+  | `end_of_line` | `lf` | `endOfLine` |
+  | `max_line_length` | `120` | `printWidth` |
+
+  The Prettier configuration stays the one source of the values: the fix is to remove the key or
+  write the standard's value. A section for files Prettier does not format, such as `[Makefile]`
+  with `indent_style = tab`, is not read.
+
 The rule does not read `.prettierignore`. A directory the plugin option `separate` names is not
 exempt: it is formatted by the root configuration too.
 
-Scope: repository. Language: none. Reads history: no. Aspects: `form`, `nested`, `settings`.
+Scope: repository. Language: none. Reads history: no. Aspects: `form`, `nested`, `settings`,
+`editorconfig`.
 
 ## Options
 
@@ -79,8 +99,18 @@ error node/formatter#settings .prettierrc.json:5
   help: remove the key; the standard sets only printWidth, proseWrap and trailingComma
 ```
 
-The finding's target is `<path>:<key>`, where the key is the setting, the file name or `prettier`:
-`.prettierrc.json:printWidth`, `.prettierrc.json:semi`, `apps/web/.prettierrc:.prettierrc`.
+`.editorconfig` with `indent_size = 4` on its line 5, in its `[*]` section:
+
+```text
+error node/formatter#editorconfig .editorconfig:5
+  .editorconfig sets indent_size = 4 for [*], and Prettier reads it; the standard formats with 2
+  help: remove the key or write indent_size = 2; .prettierrc.json is the one source of Prettier's
+  settings
+```
+
+The finding's target is `<path>:<key>`, where the key is the setting, the file name or `prettier`,
+and for `.editorconfig` the section and the key: `.prettierrc.json:printWidth`,
+`.prettierrc.json:semi`, `apps/web/.prettierrc:.prettierrc`, `.editorconfig:[*]indent_size`.
 
 ## How to fix it
 
@@ -95,5 +125,6 @@ Keep one `.prettierrc.json` at the repository root:
 }
 ```
 
-Remove every other Prettier configuration file and every `prettier` key in a `package.json`. Code
+Remove every other Prettier configuration file and every `prettier` key in a `package.json`, and
+every `.editorconfig` key above that disagrees with the standard in a section Prettier reads. Code
 that should not be formatted goes into `.prettierignore`, not into a second configuration.

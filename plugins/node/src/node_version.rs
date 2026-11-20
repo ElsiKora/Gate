@@ -101,7 +101,7 @@ fn install(
                 (other, Some(member.line)),
                 "engines.node",
                 format!("{other} declares engines.node {written}, {path} \"{range}\""),
-                "write the install root's range, or remove engines.node where the root's applies",
+                "write the root's range",
             );
         }
     }
@@ -123,20 +123,33 @@ fn version_file(run: &mut Run<'_, NoOptions>, tree: &Tree<'_>, root: &str) -> Op
     let text = tree.text(&path);
     let pinned = text.as_deref().map(str::trim).and_then(semver::exact);
     if pinned.is_none() {
-        let message = match text {
+        let message = match text.as_deref() {
             None => format!("{path} is not tracked: an install root names its Node version there"),
             Some(text) => format!(
                 "{path} holds \"{}\", not one exact version x.y.z",
                 text.trim()
             ),
         };
+        // `v24.11.0` is what `node --version` prints, but the standard's form has no `v`.
+        let help = text
+            .as_deref()
+            .map(str::trim)
+            .and_then(|text| text.strip_prefix('v'))
+            .filter(|rest| semver::exact(rest).is_some())
+            .map_or_else(
+                || {
+                    "write the exact Node version, such as 24.11.0, as the only line of .nvmrc"
+                        .to_owned()
+                },
+                |rest| format!("drop the v: write {rest} as the only line of .nvmrc"),
+            );
         crate::report(
             run.report(),
             "file",
             (&path, None),
             ".nvmrc",
             message,
-            "write the exact Node version, such as 24.11.0, as the only line of .nvmrc",
+            &help,
         );
     }
     pinned

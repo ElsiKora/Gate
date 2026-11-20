@@ -24,12 +24,20 @@ the project is in, whose base is its own. The standard flags, which the base set
 
 The rule reads every tracked file of the project whose name starts with `tsconfig` and ends with
 `.json`, at any depth, as JSON with comments and trailing commas. A project without one has nothing
-to check. For each configuration:
+to check. The base itself, when it is one of the project's files, is not read here:
+[`node/tsconfig-base`](tsconfig-base.md) checks it once per install, from the repository. For each
+other configuration:
 
 - **`#weakened`**: no standard flag, and no flag `strict` turns on, is set to `false` in
-  `compilerOptions`. The base is checked too.
+  `compilerOptions`.
+- **`#resolution`**: `module` and `moduleResolution`, where the configuration sets them, are the
+  kind's, compared without regard to case: `ESNext` and `Bundler` for a `frontend`, `NodeNext` and
+  `NodeNext` for every other kind.
 
-For each configuration but the base:
+A solution-style configuration, whose `files` is an empty list and which has no `include`
+(Vite's `tsconfig.json` with only `references`), compiles nothing: it is not read for `#base` and
+`#copy`, and the configurations it refers to are checked instead, as their own files. For each
+other configuration:
 
 - **`#base`**: it reaches the base through `extends`, directly or through other configurations of
   the project. An `extends` (a string or a list of strings) is followed when it starts with `.`; it
@@ -37,17 +45,19 @@ For each configuration but the base:
   then with `.json` added, then, for a directory, its `tsconfig.json`; the first that exists is
   the target. A package (`@tsconfig/node24/tsconfig.json`) names an installed package, which is
   not in the tree, and is not followed. It is reported at the `extends` line, or at
-  the file when there is none.
+  the file when there is none. When the chain goes through a configuration outside the project
+  that is not the base, the project cannot read it, so the chain cannot be followed: the message
+  names the configuration it leaves through, and the help gives the `extends` that names the base
+  directly.
 - **`#copy`**: a configuration without `extends` does not set three or more standard flags to
   `true`; one that does repeats the base instead of extending it.
-- **`#resolution`**: `module` and `moduleResolution`, where the configuration sets them, are the
-  kind's, compared without regard to case: `ESNext` and `Bundler` for a `frontend`, `NodeNext` and
-  `NodeNext` for every other kind.
 
 For a `frontend` with a `tsconfig.json` at the project root, that file also sets
 `moduleResolution`, itself or through a configuration of the project it extends (followed as
-above) other than the base the project owns; otherwise it inherits the base's, and it is reported
-under `#resolution` at the file.
+above) other than the base; otherwise it inherits the base's, and it is reported under
+`#resolution` at the file. When that `tsconfig.json` is solution-style, each configuration of the
+project it refers to (`references[].path`, a file or a directory with a `tsconfig.json`) sets it
+instead, and the one that does not is reported.
 
 The kinds are `service`, `frontend`, `infrastructure`, `library` and `monorepo-root`. They share
 every flag; they differ in one row of the standard's table of differences (`DIFFERENCES` in
@@ -58,7 +68,8 @@ standard; only the base's path is configurable, in `[plugins.node] options`.
 
 The rule reads the project's own `tsconfig*.json` files: a file below a directory with its own
 `package.json` belongs to that package, which is checked as its own project against its own kind.
-A project at the repository root therefore leaves its members' configurations to them.
+A project at the repository root therefore leaves its members' configurations to them. A file a
+`reads` grant adds from outside the project's root is not the project's own and is not read.
 
 Scope: project. Language: none. Reads history: no. Aspects: `base`, `weakened`, `resolution`,
 `copy`.
@@ -107,6 +118,16 @@ The message names the path relative to the project root. The finding's target is
 the path relative to the project root, where the key is the flag or the file name:
 `tsconfig.json:strictNullChecks`, `tsconfig.json:moduleResolution`,
 `tsconfig.build.json:tsconfig.build.json`.
+
+`apps/api/tsconfig.json` with `"extends": "../../packages/config/tsconfig.json"`, a configuration
+outside the project:
+
+```text
+error node/tsconfig#base apps/api/tsconfig.json:1
+  tsconfig.json extends through packages/config/tsconfig.json, outside the project, so its chain to
+  tsconfig.base.json cannot be followed
+  help: extend the base directly: "extends": "../../tsconfig.base.json"
+```
 
 ## How to fix it
 

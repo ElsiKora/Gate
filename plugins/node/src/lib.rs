@@ -11,6 +11,7 @@
 
 mod dependency_versions;
 mod formatter;
+mod js;
 mod json;
 mod linter;
 mod node_version;
@@ -38,6 +39,32 @@ use self::settings::Settings;
 use self::tsconfig::Tsconfig;
 use self::tsconfig_base::TsconfigBase;
 
+/// `node/recommended`: every rule at error, for a repository that follows the standard.
+const RECOMMENDED: &str = r#"{
+    "package-manager": { "level": "error" },
+    "node-version": { "level": "error" },
+    "dependency-versions": { "level": "error" },
+    "formatter": { "level": "error" },
+    "linter": { "level": "error" },
+    "package": { "level": "error" },
+    "scripts": { "level": "error" },
+    "tsconfig": { "level": "error" },
+    "tsconfig-base": { "level": "error" }
+}"#;
+
+/// `node/adoption`: every rule at warning, for a repository on its way to the standard.
+const ADOPTION: &str = r#"{
+    "package-manager": { "level": "warning" },
+    "node-version": { "level": "warning" },
+    "dependency-versions": { "level": "warning" },
+    "formatter": { "level": "warning" },
+    "linter": { "level": "warning" },
+    "package": { "level": "warning" },
+    "scripts": { "level": "warning" },
+    "tsconfig": { "level": "warning" },
+    "tsconfig-base": { "level": "warning" }
+}"#;
+
 gate_sdk::plugin! {
     name: "node",
     version: env!("CARGO_PKG_VERSION"),
@@ -54,7 +81,16 @@ gate_sdk::plugin! {
         TsconfigBase,
     ],
     generators: [],
-    presets: [],
+    presets: [
+        gate_sdk::Preset {
+            name: "recommended",
+            rules: RECOMMENDED,
+        },
+        gate_sdk::Preset {
+            name: "adoption",
+            rules: ADOPTION,
+        },
+    ],
 }
 
 /// Reports one finding of `aspect` at `path` (and `line`, when known), keyed by `key` and
