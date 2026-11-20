@@ -18,8 +18,8 @@ Each shared plugin keeps its own changelog next to its code.
   passed `--sha256` passes the built file with `--file` instead.
 - **sdk:** the plugin interface is `gate:plugin@0.3.0`: a generated file carries `seed`, and
   `generate` receives the plugin's `[plugins.<name>] options` as `plugin-options`. A plugin built
-  for 0.2.0 does not load; pin the plugins released with this core, or rebuild with `gate-sdk`
-  0.3.0.
+  for 0.2.0 does not load; pin each plugin's release built for 0.3.0 (its `CHANGELOG.md` names
+  the interface), or rebuild with `gate-sdk` 0.3.0.
 - **plugin-agents:** `agents/no-claude-md` is a repository-scope rule, set in the root `gate.toml`'s
   `[rules]` only; it reports every `CLAUDE.md` in the repository, and a project file or profile
   that sets it is a configuration error. To migrate: in a monorepo whose root is not a project,
@@ -73,6 +73,18 @@ Each shared plugin keeps its own changelog next to its code.
   aspect `version-comment` at the rule's level: a pin with `# v4` that passed under ci 0.2.0 fails
   at `error` under 0.3.0. Write the release the commit is (`# v4.2.2`), or set
   `"ci/actions-pinned" = { levels = { version-comment = "warning" } }` while the pins are updated.
+- **host:** a `gate check --commit-message` run checks only the message being written: the
+  enabled repository rules that declare `READS_MESSAGE`. It no longer checks the work tree; the
+  tree stays with `pre-commit`, `pre-push` and CI. Its summary says `commit message`.
+  `--commit-message` with `--staged`, `--changed`, `--push` or `--rev` is a usage error, and a
+  `[hooks] commit-msg` entry that combines them is a configuration error. `git/branch-name`, which
+  does not read the message, now runs only in `pre-commit`: an empty commit
+  (`git commit --allow-empty`) on a protected branch is no longer checked by a hook; CI still
+  checks it.
+- **sdk:** `gate:plugin@0.3.0` also carries `reads-message` in `rule-info`: a rule declares
+  `READS_MESSAGE` to read the commit message, through `Run::message` (`Git::message` is gone).
+  `Run::git` answers only a rule that declares `READS_HISTORY`, so a rule that declares only
+  `READS_MESSAGE` reads no history.
 
 ### Features
 
@@ -186,22 +198,6 @@ the entries below say.
   bounds trim the others by last use. On an export of a consumer repository's NestJS service,
   after `gate sync` with the compiled modules removed, `gate check --rule 'nestjs/*'` compiled 2
   modules instead of 8 and took 2.74 s instead of 7.00 s. ([209c6c2](https://github.com/ElsiKora/Gate/commit/209c6c2188208f7b94707f99ea043a46638e383f))
-
-### Changed
-
-- **host:** a `gate check --commit-message` run checks only the message being written: the
-  enabled repository rules that declare `READS_MESSAGE`. It no longer checks the work tree; the
-  tree stays with `pre-commit`, `pre-push` and CI. Its summary says `commit message`.
-  `--commit-message` with `--staged`, `--changed`, `--push` or `--rev` is a usage error, and a
-  `[hooks] commit-msg` entry that combines them is a configuration error. `git/branch-name`, which
-  does not read the message, now runs only in `pre-commit`: an empty commit
-  (`git commit --allow-empty`) on a protected branch is no longer checked by a hook; CI still
-  checks it.
-- **sdk:** the plugin interface is `gate:plugin@0.3.0`. A rule declares `READS_MESSAGE` to read
-  the commit message, through `Run::message` (`Git::message` is gone); `rule-info` carries it as
-  `reads-message`. `Run::git` answers only a rule that declares `READS_HISTORY`, so a rule that
-  declares only `READS_MESSAGE` reads no history. A 0.3.0 core loads only plugins
-  built for 0.3.0, and every plugin of this repository is released at 0.3.0 with the core.
 
 ### Documentation
 

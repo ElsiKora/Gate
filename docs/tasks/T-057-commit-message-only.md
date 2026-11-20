@@ -26,9 +26,9 @@ CI.
    - A constant beside `READS_HISTORY`, `const READS_MESSAGE: bool = false`, carried in
      `rule-info` as `reads-message: bool`. `Rule::NEEDS` keeps its one meaning: keys the plugin's
      options must hold.
-   - The interface becomes `gate:plugin@0.3.0`. v0.3.0 already breaks the configuration, so it
-     is the release for it. As at 0.2.0, every plugin of this repository is released at 0.3.0
-     with the core, and a 0.3.0 core loads only plugins built for 0.3.0.
+   - It joins `gate:plugin@0.3.0`, the interface `main` already moved to for v0.3.0 (`seed`,
+     `plugin-options`, `tree.size`); a 0.3.0 core loads only plugins built for 0.3.0. Plugins are
+     versioned apart from the core, so the load error names the interface, not a core version.
    - `Run::message` answers only to a rule that declares it, and `Run::git` only to a rule that
      declares `READS_HISTORY` (the review round moved the message from `Git::message` to
      `Run::message`, so a rule that declares only `READS_MESSAGE` reaches no history and cannot
@@ -54,8 +54,10 @@ CI.
    error. The message says the tree is checked by `pre-commit`, `pre-push` or CI. There is no
    option to check the tree and the message in one run.
 5. **The `git` rules.** `git/commit-message` and `git/no-ci-skip` declare the message.
-   `git/commit-message` declares only `READS_MESSAGE`: it reads no history. `git/no-ci-skip` also
-   keeps `READS_HISTORY`, because it checks pushed commits in `pre-push`. A rule that reads
+   Both also keep `READS_HISTORY`, because both check pushed commits in `pre-push`
+   (`git/commit-message` since `main`'s commit-message push range; the review round's reading
+   that it declares only `READS_MESSAGE` held before that change and no longer does). Each reads
+   the message through `Run::message` and the pushed commits through `Run::git`. A rule that reads
    only the branch, such as `git/branch-name`, does not declare it, and so does not run in
    `commit-msg`.
 6. **Documents.** The getting-started page (the `commit-msg` paragraph and its summary line) and
@@ -146,5 +148,13 @@ Each test fails before its change. They use synthetic plugins and trees.
   and the release build exit 0; `done in 531s with exit code 0`. Its logs show `gate`,
   `gate-host`, `gate-runtime`, `gate-sdk`, `gate-plugin-git` and the probe compiled from this
   worktree, and the nine tests listed by name.
-- The branch merges after the 0.2.1 tag. Next: the consumer's cold `commit-msg` row, before and
+- 2026-11-20T16:27:51+00:00: rebased onto `main` at `cee6491` (batches 1 and 2). The WIT there is already
+  `gate:plugin@0.3.0`, so `reads-message` joins that version; `INTERFACE` and the load-error test
+  name it unchanged. Conflicts: `crates/gate/tests/plugins.rs` (both sides add tests; kept both),
+  `wit/gate.wit` (the header names both flags), `plugins/git/src/commit_message.rs` (`main`'s
+  rule now checks pushed commits: it declares `READS_HISTORY` and `READS_MESSAGE`, reads the
+  message through `Run::message` and the commits through `Run::git`). The `CHANGELOG.md` entries
+  move from the released 0.2.1 section into 0.3.0's Breaking Changes, without a second
+  interface-bump line. Not yet run in the lane.
+- Next: the round on the rebased tip, then the consumer's cold `commit-msg` row, before and
   after.
