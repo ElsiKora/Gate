@@ -25,7 +25,8 @@ use crate::cache::answers::{Answer, Answers, Question};
 use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
-    PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings, Sourced,
+    LevelSetting, PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting, Settings,
+    Sourced,
 };
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
@@ -643,6 +644,7 @@ impl Loaded {
         workspace.validate_except(&declaration, &JsonSchemaValidator, skipped)?;
         self.check_presets(workspace)?;
         self.check_needs(workspace, filter)?;
+        self.check_decisions(workspace)?;
         self.check_generators(workspace)?;
         workspace.check_rule_filter(filter, &declaration)
     }
@@ -693,6 +695,83 @@ impl Loaded {
         }
         if let Some(seen) = reach.iter().find(|seen| !seen.turns_on) {
             return Err(Error::config(seen.message(workspace.root_is_project())));
+        }
+        Ok(())
+    }
+
+    /// Checks that, where a `[decision-policy]` requires it, every level configuration sets below
+    /// its default names a decision. The default is what the rule's presets give the aspect, else
+    /// the rule; a rule no preset names has none, since turning it on at any level is stricter than
+    /// leaving it off. A whole-rule level (an entry's `level`, or a `"<plugin>/*"` family's) is
+    /// compared with the preset's rule level and with each preset aspect level it overrides.
+    ///
+    /// # Errors
+    /// Fails on the first level below its default with no decision, naming where it is written,
+    /// the default and where that comes from, and the policy that requires the decision.
+    fn check_decisions(&self, workspace: &Workspace) -> Result<()> {
+        for (project, settings) in scopes(workspace) {
+            let scope = if project.is_none() {
+                Scope::Repository
+            } else {
+                Scope::Project
+            };
+            for (name, declared) in &self.declarations {
+                if !settings.plugins.contains_key(name) {
+                    continue;
+                }
+                let presets = presets(&declared.info, name, settings)?;
+                for info in declared
+                    .info
+                    .rules
+                    .iter()
+                    .filter(|info| info.scope == scope)
+                {
+                    let id = rule_id(name, &info.name)?;
+                    let Some(preset) = presets.get(info.name.as_str()) else {
+                        // No preset names the rule: it runs only because an entry or a family
+                        // turns it on, which is stricter than not running, at any level.
+                        continue;
+                    };
+                    let entry = settings.rules.get(&id);
+                    let named =
+                        |aspect: &str| entry.is_some_and(|entry| entry.levels.contains_key(aspect));
+                    let whole = match entry.and_then(|entry| entry.level.as_ref()) {
+                        Some(level) => Some((level, Written::Rule(&id))),
+                        None => settings
+                            .families
+                            .get(name.as_str())
+                            .map(|level| (level, Written::Family(name))),
+                    };
+                    if let Some((level, written)) = whole {
+                        // A whole-rule level replaces the preset's rule level and each preset
+                        // aspect level the entry's `levels` does not name.
+                        let mut defaults: Vec<Floor> = Vec::new();
+                        if let Some(rule_level) = preset.level {
+                            defaults.push(Floor::rule(&id, None, rule_level, preset));
+                        }
+                        for (aspect, aspect_level) in &preset.levels {
+                            if !named(aspect) {
+                                defaults.push(Floor::aspect(&id, aspect, *aspect_level, preset));
+                            }
+                        }
+                        for default in defaults {
+                            decided(workspace, &written, level, &default)?;
+                        }
+                    }
+                    for (aspect, level) in entry.into_iter().flat_map(|entry| &entry.levels) {
+                        let default = match (preset.levels.get(aspect), preset.level) {
+                            (Some(aspect_level), _) => {
+                                Floor::aspect(&id, aspect, *aspect_level, preset)
+                            }
+                            (None, Some(rule_level)) => {
+                                Floor::rule(&id, Some(aspect), rule_level, preset)
+                            }
+                            (None, None) => continue,
+                        };
+                        decided(workspace, &Written::Aspect(&id, aspect), level, &default)?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1646,9 +1725,105 @@ fn preset_turns_on(info: &PluginInfo, preset: &str, scope: Scope) -> bool {
 /// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.
 #[derive(Debug, Default)]
 struct PresetRule {
+    /// The preset that set the rule, `<plugin>/<preset>`.
+    preset: String,
     level: Option<Setting>,
     levels: BTreeMap<String, Setting>,
     options: Option<Value>,
+}
+
+/// How strict a level is: `off` below `note` below `warning` below `error`.
+fn strictness(setting: Setting) -> u8 {
+    match setting {
+        Setting::Off => 0,
+        Setting::On(Level::Note) => 1,
+        Setting::On(Level::Warning) => 2,
+        Setting::On(Level::Error) => 3,
+    }
+}
+
+/// Where a level is written, as the user wrote its key.
+enum Written<'a> {
+    /// The level of a rule entry: `"<plugin>/<rule>" = "<level>"` or `{ level = ... }`.
+    Rule(&'a RuleId),
+    /// The level of a family wildcard: `"<plugin>/*"`.
+    Family(&'a PluginName),
+    /// A level in a rule entry's `levels`.
+    Aspect(&'a RuleId, &'a str),
+}
+
+/// The level a rule or one of its aspects has without the entry, and where a preset sets it.
+struct Floor {
+    /// What the level applies to: `<rule>` or `<rule>#<aspect>`.
+    subject: String,
+    /// The level.
+    level: Setting,
+    /// The preset and what it sets: `the preset p/q sets <rule>[#<aspect>] to <level>`.
+    source: String,
+}
+
+impl Floor {
+    /// The default of `aspect` of `id` (`None`: the whole rule) that the preset's rule level
+    /// gives.
+    fn rule(id: &RuleId, aspect: Option<&str>, level: Setting, preset: &PresetRule) -> Self {
+        Self {
+            subject: aspect.map_or_else(|| id.to_string(), |aspect| format!("{id}#{aspect}")),
+            level,
+            source: format!("the preset {} sets {id} to {level}", preset.preset),
+        }
+    }
+
+    /// The default of `aspect` of `id` that the preset's level of that aspect gives.
+    fn aspect(id: &RuleId, aspect: &str, level: Setting, preset: &PresetRule) -> Self {
+        Self {
+            subject: format!("{id}#{aspect}"),
+            level,
+            source: format!("the preset {} sets {id}#{aspect} to {level}", preset.preset),
+        }
+    }
+}
+
+/// Checks that `level`, written at `written`, names a decision when it is below the `default` a
+/// preset gives and a `[decision-policy]` covering the file that wrote it requires one.
+///
+/// # Errors
+/// A configuration error naming the key as written, the level, the default and the preset that
+/// sets it, the policy, and the form that adds the decision.
+fn decided(
+    workspace: &Workspace,
+    written: &Written<'_>,
+    level: &LevelSetting,
+    default: &Floor,
+) -> Result<()> {
+    if level.decision.is_some() || strictness(level.value) >= strictness(default.level) {
+        return Ok(());
+    }
+    let Some(policy) = workspace.decision_policy(&level.origin.file) else {
+        return Ok(());
+    };
+    let value = level.value;
+    let (key, advice) = match written {
+        Written::Rule(id) => (
+            format!("\"{id}\" (level \"{value}\")"),
+            format!(
+                "write it as \"{id}\" = {{ level = \"{value}\", decision = \"<record>\" }}, or add decision = \"<record>\" to its table"
+            ),
+        ),
+        Written::Family(plugin) => (
+            format!("\"{plugin}/*\" (level \"{value}\")"),
+            format!(
+                "write it as \"{plugin}/*\" = {{ level = \"{value}\", decision = \"<record>\" }}"
+            ),
+        ),
+        Written::Aspect(id, aspect) => (
+            format!("\"{id}\" (levels.{aspect} \"{value}\")"),
+            format!("add decision = \"<record>\" to the \"{id}\" table"),
+        ),
+    };
+    Err(Error::config(format!(
+        "{}: {key} sets {} below its default {} ({}), and {policy} [decision-policy] requires a decision for that; {advice}",
+        level.origin, default.subject, default.level, default.source
+    )))
 }
 
 /// The rules of the presets these settings extend from `plugin`, later presets over earlier.
@@ -1731,6 +1906,7 @@ fn presets(
             rules.insert(
                 rule,
                 PresetRule {
+                    preset: format!("{name}/{}", preset.name),
                     level,
                     levels,
                     options: value.get("options").cloned(),

@@ -369,7 +369,7 @@ all = ["lint", "unit"]
   decision = "D-ORM-014"
   ```
 
-  `[exception-policy]` in `gate.toml` says whether a decision is mandatory.
+  `[decision-policy]` in `gate.toml` says whether a decision is mandatory.
   There is no inline suppression comment: an exception is always an entry here, so every one has a
   reason, is listed by `gate list`, and is reported by `gate/exceptions` when unused or malformed.
 - Every section is validated: unknown keys, unknown rules, `[generate]` keys that name no generator of
@@ -700,10 +700,16 @@ The first readers raised these points; each is settled:
   running main check; no setting changes it.
 
 **Findings**
-- **Mandatory decisions on exceptions.** `[exception-policy] require-decision = true` makes a decision
-  mandatory on every exception; the core refuses an exception without one when it loads the
-  configuration. Whether a decision names a real record is the `ledger/exception-decisions` rule's
-  question. Option data that exempts something is written as an exception, not as data.
+- **Mandatory decisions on relaxations.** `[decision-policy] require-decision = true` makes a decision
+  mandatory on every relaxation of a rule: on every exception, and on every rule entry (a rule or a
+  family) that sets a level, or a level in `levels`, below its default. The default is the preset's
+  level of that aspect, else of the rule; a rule no preset names has none, since turning it on is
+  stricter than not running. `off` is below every level, and a whole-rule level is compared with the
+  preset aspect levels it replaces too. The core refuses an exception
+  without a decision when it loads the configuration, and a rule entry without one when it loads the
+  plugins, because presets come from plugins. A decision covers the levels of the entry that writes it,
+  so a project file that lowers what the root left alone needs its own. Whether a decision names a
+  real record is the `ledger/exception-decisions` rule's question, for exceptions. Option data that exempts something is written as an exception, not as data.
 - **Baselines.** `gate baseline write` stores the fingerprints of today's findings in
   `gate/baseline.json`; findings in it are not reported, entries that match nothing are, so a baseline
   only shrinks. `gate baseline prune` removes those entries (an aspect set to `off` while its rule

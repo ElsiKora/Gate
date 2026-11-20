@@ -92,6 +92,13 @@ Each shared plugin keeps its own changelog next to its code.
   `READS_MESSAGE` to read the commit message, through `Run::message` (`Git::message` is gone).
   `Run::git` answers only a rule that declares `READS_HISTORY`, so a rule that declares only
   `READS_MESSAGE` reads no history.
+- **config:** `[exception-policy]` is renamed to `[decision-policy]`, and `require-decision = true` now
+  covers every relaxation of a rule, not only exceptions: a `[rules]` entry (a rule or a
+  `"<plugin>/*"` family) that sets a level, or a level in `levels`, below its default must name the
+  decision that accepted it with `decision = "<record>"`. The default is the preset's level of that
+  aspect, else of the rule; a rule no preset names needs no decision at any level. `off` is below
+  every level. The check runs when the plugins load and fails with exit 2. `[exception-policy]` is
+  now an unknown table: rename it.
 
 ### Features
 
@@ -149,6 +156,8 @@ Each shared plugin keeps its own changelog next to its code.
   `extends = ["ci/recommended"]`: job permissions, concurrency, timeouts, versioned runners, release
   comments on action pins, checkout credentials, secrets in steps, environments for jobs that write,
   Node setup and names. See `plugins/ci/CHANGELOG.md`.
+- **config:** a rule entry's table form takes `decision`, the id of the decision record that accepted
+  its levels, and a family wildcard takes `decision` beside its level.
 
 ### Bug Fixes
 
