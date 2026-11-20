@@ -10,13 +10,13 @@ use gate_sdk::{CheckRequest, Finding, GitHost, Host, RuleRun, Scope, TreeHost};
 use serde_json::Value;
 
 /// A fixture tree that counts the contents it hands out.
-pub struct Fixture {
+pub(crate) struct Fixture {
     files: BTreeMap<String, Vec<u8>>,
     reads: Cell<usize>,
 }
 
 impl Fixture {
-    pub fn new(files: &[(&str, &[u8])]) -> Self {
+    pub(crate) fn new(files: &[(&str, &[u8])]) -> Self {
         Self {
             files: files
                 .iter()
@@ -26,7 +26,7 @@ impl Fixture {
         }
     }
 
-    pub fn check(&self, name: &str, options: &str) -> gate_sdk::Result<Vec<Finding>> {
+    pub(crate) fn check(&self, name: &str, options: &str) -> gate_sdk::Result<Vec<Finding>> {
         let request = CheckRequest {
             project: String::new(),
             rules: vec![RuleRun {
@@ -43,7 +43,7 @@ impl Fixture {
     }
 
     /// How many times a file's contents were read.
-    pub fn reads(&self) -> usize {
+    pub(crate) fn reads(&self) -> usize {
         self.reads.get()
     }
 }
@@ -82,7 +82,7 @@ impl Host for Fixture {
 }
 
 /// Each finding as `aspect path:line key`, the line 0 for none, sorted.
-pub fn rows(findings: &[Finding]) -> Vec<String> {
+pub(crate) fn rows(findings: &[Finding]) -> Vec<String> {
     let mut rows: Vec<String> = findings
         .iter()
         .map(|finding| {
@@ -105,7 +105,7 @@ pub fn rows(findings: &[Finding]) -> Vec<String> {
 }
 
 /// Every text of every finding, for checks that a value never appears.
-pub fn texts(findings: &[Finding]) -> String {
+pub(crate) fn texts(findings: &[Finding]) -> String {
     findings
         .iter()
         .map(|finding| {

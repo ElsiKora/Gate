@@ -31,7 +31,7 @@ fn both_rules_read_their_project_and_refuse_unknown_options() {
 }
 
 /// For each preset of `plugin`: its rules with their level, and the aspects it sets with theirs.
-pub fn presets(plugin: &gate_sdk::PluginInfo) -> BTreeMap<String, Vec<(String, String)>> {
+fn presets(plugin: &gate_sdk::PluginInfo) -> BTreeMap<String, Vec<(String, String)>> {
     plugin
         .presets
         .iter()
