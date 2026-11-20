@@ -41,8 +41,7 @@ fn typescript() -> &'static (PathBuf, Vec<u8>) {
 
 /// The ledger plugin's component.
 fn ledger() -> &'static (PathBuf, Vec<u8>) {
-    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
-    WASM.get_or_init(|| component("gate-plugin-ledger", "ledger"))
+    component("gate-plugin-ledger", "ledger")
 }
 
 /// The runtime's probe component.
