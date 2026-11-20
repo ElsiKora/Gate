@@ -563,6 +563,22 @@ impl Rule for Norms {
     }
 }
 
+/// A repository-scope rule: reports one finding, `whole`, once for the whole repository.
+#[derive(Debug, Default)]
+pub struct Whole;
+
+impl Rule for Whole {
+    type Options = gate_sdk::NoOptions;
+    const NAME: &'static str = "whole";
+    const TITLE: &'static str = "Reports one finding for the whole repository";
+    const SCOPE: gate_sdk::Scope = gate_sdk::Scope::Repository;
+
+    fn check(&self, run: &mut Run<'_, Self::Options>) -> gate_sdk::Result<()> {
+        run.report().finding("", None, "whole");
+        Ok(())
+    }
+}
+
 /// Options whose schema cannot be built: `describe` traps building it, or never ends.
 #[cfg(any(feature = "describe-traps", feature = "describe-spins"))]
 #[derive(Debug, serde::Deserialize)]
@@ -630,7 +646,7 @@ gate_sdk::plugin! {
     name: "probe",
     version: env!("CARGO_PKG_VERSION"),
     options: ProbeOptions,
-    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects],
+    rules: [Read, History, GitProbe, Sneak, Panic, Spin, Ambient, Hog, Flood, Needs, Norms, Aspects, Whole],
     generators: [Write, Toml],
     presets: [
         gate_sdk::Preset {
@@ -644,6 +660,10 @@ gate_sdk::plugin! {
         gate_sdk::Preset {
             name: "quiet",
             rules: r#"{"aspects": {"levels": {"quiet": "warning"}}}"#,
+        },
+        gate_sdk::Preset {
+            name: "both",
+            rules: r#"{"whole": {"level": "error"}, "aspects": {"level": "error"}}"#,
         },
     ],
 }

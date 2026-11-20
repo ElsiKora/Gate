@@ -12,6 +12,13 @@ Each shared plugin keeps its own changelog next to its code.
 
 ### Breaking Changes
 
+- **host:** an `extends` entry that turns on no rule of any scope it reaches is a configuration
+  error (exit 2) that names where it goes; it used to pass and turn on nothing. A member project's
+  or a profile's `extends` of a preset of repository-scope rules only, such as
+  `extends = ["git/recommended"]`, moves to the root: `[project] extends` when the root is the only
+  project, `[workspace] extends` when it is not. A root's `[workspace] extends` of a preset of
+  project-scope rules only moves to a `[[profiles]]` entry.
+
 - **lock:** `gate lock --set <name>=<url> --file <path>` replaces `--sha256 <hash>`, with no alias.
   The pin takes the sha256 of the file and the file enters the blob cache, so `gate check` runs
   exactly the build a release job is about to publish, before its asset exists. A release job that
@@ -76,6 +83,11 @@ Each shared plugin keeps its own changelog next to its code.
 
 ### Features
 
+- **host:** `[workspace] extends` turns on presets for the repository-scope rules of a root that is
+  not a project, such as `git/recommended` for `git/branch-name` and `git/commit-message` in a
+  monorepo; the root `[rules]` overrides them, and a preset's project-scope rules are skipped there
+  without a message. A root that is a project keeps `[project] extends`, and `[workspace] extends`
+  there is a configuration error.
 - **plugin-node:** a new shared plugin, `node`, checks that every Node project of a kind uses one
   toolchain: pnpm pinned exactly, one Node version, exact dependency versions, one Prettier
   configuration, one ESLint configuration on the shared package, the standard manifest fields and

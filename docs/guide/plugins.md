@@ -410,20 +410,17 @@ extends = ["ci/recommended"]
 ci = { source = "ElsiKora/Gate:ci@0.3.0" }
 ```
 
-Every `ci` rule is repository-scope, configured in the root file only. A monorepo root has no
-`[project]` and so extends no preset ([configuration.md](configuration.md#project)); it turns every
-rule on at `error`, which is what the preset sets, with the family in its `[rules]`:
+Every `ci` rule is repository-scope, configured in the root file only. A monorepo root, which has
+no `[project]`, extends the preset in `[workspace]` ([configuration.md](configuration.md#project)):
 
 ```toml
 # the root gate.toml of a monorepo
 [workspace]
 projects = ["apps/*"]
+extends = ["ci/recommended"]
 
 [plugins]
 ci = { source = "ElsiKora/Gate:ci@0.3.0" }
-
-[rules]
-"ci/*" = "error"
 ```
 
 | Rule | Checks |
@@ -478,20 +475,17 @@ extends = ["repository/recommended"]
 `repository/recommended` sets both rules to `error` and `large-files#large` to `warning`: a file over
 1 MiB is a warning, one over 5 MiB (`huge`) an error. Both rules are repository-scope: they run once
 over the whole repository and are configured in the root file only; a profile or a project file
-cannot turn them on. A monorepo root has no `[project]` and so extends no preset
-([configuration.md](configuration.md#project)); it sets what the preset sets in its `[rules]`:
+cannot turn them on. A monorepo root, which is not a project, extends the preset in `[workspace]`
+([configuration.md](configuration.md#workspace)):
 
 ```toml
 # the root gate.toml of a monorepo
 [workspace]
 projects = ["apps/*"]
+extends = ["repository/recommended"]
 
 [plugins]
 repository = { source = "ElsiKora/Gate:repository@0.3.0" }
-
-[rules]
-"repository/tracked-secrets" = "error"
-"repository/large-files" = { level = "error", levels = { large = "warning" } }
 ```
 
 | Rule | Checks |
@@ -502,8 +496,9 @@ repository = { source = "ElsiKora/Gate:repository@0.3.0" }
 ## 🎛 Presets
 
 A plugin may ship presets: named sets of rules with levels and options, turned on with
-`extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. The
-table above lists them:
+`extends = ["<plugin>/<preset>"]` in `[project]`, in `[workspace]` at a root that is not a project,
+or in a profile, which `[rules]` then overrides; each place takes the preset's rules of the scope it
+runs ([configuration.md](configuration.md#project)). The table above lists them:
 
 - `docs`, `docker`, `frontend`, `node` and `repository` ship `<plugin>/recommended`, every rule at
   `error`, and `<plugin>/adoption`, every rule at `warning`. `repository/recommended` keeps

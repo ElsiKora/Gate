@@ -130,6 +130,11 @@ pub struct WorkspaceSection {
     /// Globs of directories that are never projects; a `gate.toml` below them is not read.
     #[serde(default)]
     pub ignore: Vec<String>,
+    /// The presets the repository's rules start from, `"<plugin>/<preset>"`, at a root that is not
+    /// a project; a root that is a project writes them in `[project] extends`.
+    #[serde(default)]
+    #[schemars(with = "Vec<PluginItem>")]
+    pub extends: Vec<Spanned<PluginItem>>,
 }
 
 /// `[workspace] projects`: a package manager's workspace, or explicit globs of project roots.

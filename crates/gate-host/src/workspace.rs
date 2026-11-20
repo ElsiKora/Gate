@@ -143,7 +143,9 @@ impl Workspace {
         snapshot.record();
         let root_is_project = projects.iter().any(|project| project.root.is_empty());
 
-        if !root_is_project {
+        if root_is_project {
+            check_root_project(&root)?;
+        } else {
             check_workspace_root(&root)?;
         }
 
@@ -857,17 +859,44 @@ fn at(origin: Option<&SettingOrigin>, message: String) -> Error {
     }
 }
 
-/// A root that is not a project holds no project section.
+/// A root that is not a project holds no project section; its presets go in `[workspace] extends`.
 fn check_workspace_root(root: &Config) -> Result<()> {
+    let extends = root
+        .file()
+        .project
+        .as_ref()
+        .is_some_and(|project| !project.extends.is_empty());
     for (present, section) in [
         (root.file().project.is_some(), "[project]"),
         (!root.file().languages.is_empty(), "[languages]"),
     ] {
         if present {
+            let presets = if extends {
+                "; the root's presets go in [workspace] extends"
+            } else {
+                ""
+            };
             return Err(Error::config(format!(
-                "gate.toml: {section} belongs in a project's gate.toml or a [[profiles]] entry; the root is a project only without [workspace], or when [workspace] projects lists \".\""
+                "gate.toml: {section} belongs in a project's gate.toml or a [[profiles]] entry; the root is a project only without [workspace], or when [workspace] projects lists \".\"{presets}"
             )));
         }
+    }
+    Ok(())
+}
+
+/// A root that is a project writes its presets in `[project] extends`, which applies them to the
+/// repository's rules too; `[workspace] extends` is for a root that is not a project.
+fn check_root_project(root: &Config) -> Result<()> {
+    let first = root
+        .file()
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.extends.first());
+    if let Some(preset) = first {
+        return Err(root.error(
+            Some(preset.span().start),
+            "[workspace] extends: the root is a project, so its presets go in [project] extends, which applies them to the repository's rules too",
+        ));
     }
     Ok(())
 }
