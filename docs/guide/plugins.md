@@ -70,8 +70,8 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 | [`typescript/barrel-imports`](../../plugins/typescript/rules/barrel-imports.md) | a folder with a barrel is imported from outside only through its barrel, and only for names it exports |
 | [`typescript/string-enums`](../../plugins/typescript/rules/string-enums.md) | string-literal variant contracts use enums, in every `.ts` file, with `test-roots` for the tests |
 
-Presets: `typescript/recommended` turns on every rule at `error`, and `typescript/adoption` the same
-at `warning`.
+Presets: `typescript/recommended` turns on both rules, `typescript/parse` and
+`typescript/barrel-imports`, at `error`, and `typescript/adoption` the same at `warning`.
 
 ### `git`
 
@@ -103,8 +103,9 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 Presets: `git/recommended` turns on `git/branch-name` with the template `:type/:ticket-:name` and
 `git/commit-message` at `error`, and `git/adoption` the same at `warning`; `recommended` keeps
 `header-min-length` and `scope-max-length` at `warning`, as commitlint does. Both leave out
-`git/main-history` and `git/no-ci-skip`, which need `activation` and `release-subject` that only the
-repository can give.
+`git/main-history` and `git/no-ci-skip`, which need plugin options only the repository can give:
+`git/no-ci-skip` needs `activation` and `release-subject`, and `git/main-history` those two and
+`branch-pattern`, `branch-length`, `dependabot` and `documentation`.
 
 ### `markdown`
 

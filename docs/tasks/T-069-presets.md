@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | green in lane round 322 on `bb9cf53`; ready for review |
+| Status | the review of `0e07734` found nothing blocking; its fix round is in the lane |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -55,8 +55,9 @@ The generators `adapters` and `agents-block` are not rules and no preset names t
   `pattern`, and `git/recommended` gives the template), `commit-message` (in `recommended` with the
   two aspect levels `git/recommended` gives today, `header-min-length` and `scope-max-length` at
   `warning`).
-- Out: `main-history` and `no-ci-skip`. Both `NEEDS` `activation` (the commit the policy starts
-  after) and `release-subject`, which only the repository can give (reason 2).
+- Out: `main-history` and `no-ci-skip`, which `NEEDS` plugin options only the repository can give
+  (reason 2). Both need `activation` (the commit the policy starts after) and `release-subject`;
+  `main-history` also needs `branch-pattern`, `branch-length`, `dependabot` and `documentation`.
 
 `git/recommended` keeps its content and gains an explicit `"level": "error"` per rule. `git/adoption`
 gives both rules `warning` with the same template.
@@ -108,6 +109,11 @@ T-061 makes these three options required, which also gives them reason 1.
 `api-readiness` is in: every service is readiness-checkable, which is part of the NestJS standard
 (the lead's ruling).
 
+### `typescript` (2 rules): both in
+
+`parse`, `barrel-imports`, accepted by the lead in the review. `owners` and `exempt` default to
+`[]`, and the rule still checks every folder that has a barrel.
+
 ## Moves on other branches
 
 The lists are written against `main` at `340cf8b`. This branch changes only the preset arrays, docs
@@ -130,6 +136,11 @@ and tests, so the rebase stays mechanical. It merges last of the 0.3.0 branches 
   an action pinned by tag reports `ci/actions-pinned` at `warning`, and exits 0.
 - `git`'s test also holds the exact settings of both presets: the branch template in each, and
   `recommended`'s two aspect levels.
+- Each preset test also holds that every rule a preset turns on loads with what the preset gives
+  it: its options schema requires no key the preset leaves out (and one `oneOf` alternative is
+  given, as `git/branch-name`'s `template`), and its `x-gate-needs` has no entry without a `when`.
+  So a branch that makes an included rule's option required fails here, not in a project that
+  extends the preset (the review's first finding).
 
 ## Docs
 
@@ -147,6 +158,22 @@ and tests, so the rebase stays mechanical. It merges last of the 0.3.0 branches 
   fmt, clippy, test, deny and the release build exit 0. The log shows each changed crate compiled
   from this task's round checkout and lists each new test by name. Each new preset test fails with
   a rule taken out of its preset.
+
+## The independent review of `0e07734`, one fix round
+
+Nothing blocking. Four minor findings, each fixed:
+
+1. Each preset test also holds that every rule a preset turns on loads with what the preset gives
+   it (see Tests). Proved by a mutation that makes `ci`'s `workflows` option required.
+2. The plugins guide's `typescript` table lists `typescript/barrel-imports`, and its presets name
+   both rules; the lead accepted `parse` and `barrel-imports` as the `typescript` presets.
+3. The guide, `git/recommended`'s comment and the `git` test name every plugin option
+   `main-history` needs, not only `activation` and `release-subject`.
+4. The changelog entry says "an option without a default or whose default turns the rule off" and
+   names the subsystem reason (`nestjs/advisory-lock-manifest`, `nestjs/asset-storage`).
+
+The `typescript` section of this file, lost from `bb9cf53` by an edit of the `nestjs` section, is
+back.
 
 ## Proof
 
@@ -182,6 +209,7 @@ Each mutation, applied to the round's tree, made its exact test fail (exit 101):
 
 ## Resume point
 
-2026-11-20T07:48:28+00:00: green in lane round 322 on `bb9cf53`; waiting for the review. The branch
-merges last of the 0.3.0 branches and is rebased then (string-enums moves to the typescript presets;
-T-064's error-string-shim and any rule T-061 or T-062 add get a decision).
+2026-11-20T07:54:01+00:00: the review's four findings are fixed on the branch; the fix round is
+queued in the lane. The branch merges last of the 0.3.0 branches and is rebased then (string-enums
+moves to the typescript presets; T-064's error-string-shim and any rule T-061 or T-062 add get a
+decision).

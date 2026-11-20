@@ -27,8 +27,9 @@ pub use self::settings::Settings;
 
 /// `git/recommended`: the policies of the `ElsiKora` linters at error, with
 /// `@elsikora/git-branch-lint`'s default branch template and commitlint's levels, whose two level-1
-/// checks are warnings. It leaves out `main-history` and `no-ci-skip`, which need the plugin
-/// options `activation` and `release-subject` that only the repository can give.
+/// checks are warnings. It leaves out `main-history` and `no-ci-skip`, which need plugin options
+/// only the repository can give: both need `activation` and `release-subject`, and `main-history`
+/// also `branch-pattern`, `branch-length`, `dependabot` and `documentation`.
 const RECOMMENDED: &str = r#"{
     "branch-name": { "level": "error", "options": { "template": ":type/:ticket-:name" } },
     "commit-message": {

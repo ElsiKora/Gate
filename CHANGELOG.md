@@ -190,8 +190,10 @@ Each shared plugin keeps its own changelog next to its code.
   `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the
   standard. `git` gains `git/adoption`; `agents`, `ci`, `ledger`, `markdown`, `nestjs` and
   `typescript` gain both. A preset leaves out a rule that needs something only the project can
-  give (an option without a default, a plugin option such as `activation`, or the project's own
-  inventory); the plugins guide names each such rule and why.
+  give: an option without a default or whose default turns the rule off, a plugin option such as
+  `activation`, the project's own inventory, or a subsystem a service may not have
+  (`nestjs/advisory-lock-manifest`, `nestjs/asset-storage`). The plugins guide names each such
+  rule and why.
 
 ### Bug Fixes
 
