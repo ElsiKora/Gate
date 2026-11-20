@@ -2481,7 +2481,9 @@ fn a_missing_git_plugin_option_is_a_configuration_error_at_load() {
     assert!(
         message.contains("gate: configuration error: gate.toml:")
             && message.contains("plugin git options: ")
-            && message.contains("\"main\" is a required property"),
+            && message
+                .contains("main is required; set it in the [plugins.git] options in gate.toml")
+            && !message.contains("one of"),
         "{message}"
     );
 }
