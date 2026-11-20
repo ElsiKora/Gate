@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | round 276 green on `ed68f9a`; in review; the lead's rulings of 2026-11-20 being coded for one fix round |
+| Status | the review's fix round green in lane round 290 on `7075135`; ready for the second review |
 | Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -465,8 +465,41 @@ nine at their level, and named on the plugin's page in the guide.
 14. **The plugin changelog** names the plugin interface `gate:plugin@0.3.0`.
 15. **Section 1** now says what the code does: the `tsconfig` rules declare no language.
 
+### Proof of the fix round
+
+Lane ticket 290 on `7075135`, 2026-11-20T02:42:58+00:00 to 2026-11-20T02:54:05+00:00
+(`round-inner.sh`):
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --offline --locked --workspace --all-targets -j 4 -- -D warnings` | 0 |
+| test | `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0, 1122 passed, 0 failed |
+| deny | `cargo deny --offline --locked check` (advisories, bans, licenses, sources ok) | 0 |
+| release build | `cargo build --release --offline --locked -j 4` | 0 |
+
+The plugin's tests are its 15 unit tests and the 68 tests of `plugins/node/tests/node`; the end to
+end test `crates/gate/tests/node.rs` passed. The wrapper reported exit 1 only because the round
+script carried a stray copy of its clippy-failure branch after the mutations (fixed in the script,
+outside the repository); every step above exited 0. Round 282 on `6b47a0a` stopped at clippy
+(`case_sensitive_file_extension_comparisons` on a git URL's `.git`), fixed in `7075135`.
+
+Each mutation, applied to the round's tree, made its exact test fail (exit 101):
+
+| Mutation | Test |
+| --- | --- |
+| `dependency_versions.rs`: no `range` finding without a workspace | `dependency_versions::without_a_workspace_every_installed_version_is_exact_and_peers_may_range` |
+| `scripts.rs`: the synonym table is empty | `scripts::a_synonym_of_a_standard_name_is_reported_with_that_name` |
+| `tsconfig.rs`: the chain never reaches the base | `tsconfig::a_chain_that_reaches_the_base_passes_with_comments_and_trailing_commas` |
+| `tsconfig.rs`: a list `extends` is read as empty | `tsconfig::extends_resolves_as_typescript_resolves_it` |
+| `dependency_versions.rs`: every manifest grouped under the root | `dependency_versions::each_install_root_keeps_its_own_versions` |
+| `json.rs`: a byte order mark is not skipped | `dependency_versions::a_manifest_with_a_byte_order_mark_is_read` |
+| `node_version.rs`: `.tool-versions` reads only `nodejs` | `node_version::a_second_place_for_the_version_is_reported` |
+| `repo.rs`: granted `../` paths count as the project's own | `tsconfig::files_a_reads_grant_adds_from_outside_the_project_are_not_its_own` |
+| `tsconfig.rs`: the base a project holds is read | `tsconfig::a_base_inside_a_member_package_is_left_to_tsconfig_base` |
+| `tsconfig.rs`: a solution-style configuration is read as any other | `tsconfig::a_solution_configuration_is_checked_through_its_references` |
+
 ## Resume point
 
-2026-11-20T01:31:15+00:00: rulings 2 to 4 coded on the branch, not yet compiled (no round, as the lead asked). Waiting
-for: the lead's answer on ruling 1, Gate 007's ESLint options, the review's findings. Then one fix
-round.
+2026-11-20T02:54:55+00:00: the review's 15 items, the presets, `node/tsconfig-base` and the lead's
+ESLint ruling are on the branch, green in lane round 290 on `7075135`. Waiting for the second review.
