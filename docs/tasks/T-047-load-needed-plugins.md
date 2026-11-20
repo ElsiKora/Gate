@@ -164,15 +164,50 @@ Each test fails on `a6870b6`, the first design, unless it says otherwise. They g
   entry that does not parse reads as missing, and `gate cache prune` keeps the declarations of
   pinned plugins only.
 
+From the review of `f7269b4` (the lead, 2026-11-20). Each fails with its piece removed; the round
+removes each piece in turn and runs the test, and the Resume point records the exits:
+
+- `an_unknown_preset_fails_a_run_that_does_not_run_its_plugin`: an `extends` entry naming no
+  preset of `b` fails `gate check` and `gate check --rule 'a/*'` (piece: `check_presets` in
+  `validate`).
+- `a_rule_need_follows_the_rule_filter`: a missing need of `b`'s rule fails `gate check`, and
+  `gate check --rule 'a/*'` passes (piece: the filter in `check_needs`).
+- `a_sync_state_fallback_checks_rule_needs_with_the_run_s_rule_filter`: the same need fails a full
+  check, and a `--rule` run whose `sync-state` answer falls back to the run's configuration gives
+  the same answers as without `b` (piece: the run's filter in `run_context`).
+- `a_stored_declaration_that_is_corrupt_or_names_another_plugin_is_replaced_by_the_run_that_loads_it`:
+  for an entry that does not parse and one that names another plugin, the next run loads `b`,
+  writes the entry again, and the run after compiles nothing for `b` (pieces: the name filter in
+  `load`, and `declarations::write` placing over an existing entry).
+- `a_stored_declaration_whose_rule_schema_is_not_json_loads_the_plugin`: such an entry is not an
+  error; `b` loads (piece: a `Declaration::of` failure read as a miss).
+- `after_gate_sync_a_pinned_plugin_the_run_does_not_run_answers_from_its_stored_declaration`: a
+  pinned download left out by `--rule` compiles nothing (piece: the read of stored declarations).
+- Unit tests in `plugins/declarations.rs`: the entry name is `key_for(format, interface,
+  version)` and changes with each of the three; a stored entry is replaced when written again.
+
 ## Done when
 
-- The consumer measure, by Gate 005 or the lead, run before (the released core) and after (this
-  branch's build), cold and warm: `bin/gate check --rule 'nestjs/*' --timings`. The table records
-  each run's exit, wall time, gate total and `load` time, with the command and the lane ticket.
-  The expected change is in `load` cold: one plugin's compile instead of seven at once. How far it
-  falls is what the measure says.
-- The hooks in the same table: the consumer's `commit-msg` entry as it stands, run cold with
-  `--timings` on a message file, before and after (item 6).
+- The before/after measure, lane ticket 267 (Gate 005), 2026-11-20T00:41:02 to 00:41:47 UTC,
+  load average 54 to 71 on 18 CPUs: the released 0.2.0 core against the release build of lane
+  ticket 256 (`65e5a55`, sha256 `3eb84b41…`), on one export of a consumer tree, network denied,
+  one copy per binary and one run per row. The check rows ran
+  `gate check --rule 'nestjs/*' --timings`; the hook rows ran the `commit-msg` hook, which prints
+  no timings, so only wall time is given. Exit 1 on a check row is the tree's findings, the same
+  for both. "Modules emptied" means `modules/` was removed from the cache after `gate sync`.
+
+  | Row | 0.2.0: exit, wall, total (`load`) | this branch: exit, wall, total (`load`) | modules compiled |
+  | --- | --- | --- | --- |
+  | after sync, modules emptied, check | 1, 7.00 s, 6 944 ms (5 126 ms) | 1, 2.74 s, 2 664 ms (1 475 ms) | 8 → 2 |
+  | after sync, warm check | 1, 1.50 s, 1 438 ms (765 ms) | 1, 0.77 s, 674 ms (107 ms) | 8 → 2 |
+  | `gate sync` | 0, 6.52 s | 0, 4.82 s | 8 → 8; declarations stored 0 → 7 |
+  | after sync, modules emptied, `commit-msg` hook | 0, 1.31 s | 0, 0.84 s | 0 → 0 |
+  | first run, empty cache, check | 1, 4.20 s, 4 126 ms (3 006 ms) | 1, 5.10 s, 4 997 ms (3 797 ms) | 8 → 8 |
+  | first run, empty cache, `commit-msg` hook | 0, 1.11 s | 0, 1.39 s | 0 → 0 |
+
+  After `gate sync` a check compiles the plugins it runs, 2 of 8 here. A first run on an empty
+  cache loads every plugin either way and gains nothing; one sample at this load is noise below
+  about 0.5 s.
 - The table of item 7: what is on today, each variant's `load` and `nestjs` call times cold, and
   what this task changed, with the command and the lane ticket.
 - The tests above, each failing before its change where the list says so.
@@ -211,30 +246,6 @@ times slower to load (12 920 ms against 1 342 ms). Neither opt level beat `Speed
 between `Speed`, `None` and `SpeedAndSize` are within the noise of one sample at a load near 50.
 `Runtime::new` is unchanged, and the switch was never committed.
 
-### Before and after: the released core against this branch
-
-Lane ticket 267 (Gate 005), 2026-11-20T00:41:02 to 00:41:47 UTC, load average 54 to 71. One copy
-of a consumer tree per binary, network denied, one run per row. `released` is the 0.2.0 core;
-`t047` is the release build of lane ticket 256 from `65e5a55`, sha256 `3eb84b41…`. The check rows
-ran `gate check --rule 'nestjs/*' --timings`; the hook rows ran the `commit-msg` hook, which
-prints no timings, so only wall time is given. Exit 1 on the check rows is the tree's findings,
-the same for both binaries. "Modules emptied" means `modules/` was removed from the cache after
-`gate sync`, so the check compiles what it runs.
-
-| Row | released: exit, wall, total (`load`) | t047: exit, wall, total (`load`) | modules compiled |
-| --- | --- | --- | --- |
-| first run, empty cache, check | 1, 4.20 s, 4 126 ms (3 006 ms) | 1, 5.10 s, 4 997 ms (3 797 ms) | 8, 8 |
-| first run, empty cache, `commit-msg` hook | 0, 1.11 s | 0, 1.39 s | 0, 0 |
-| `gate sync` | 0, 6.52 s | 0, 4.82 s | 8, 8; declarations stored 0, 7 |
-| after sync, modules emptied, hook | 0, 1.31 s | 0, 0.84 s | 0, 0 |
-| after sync, modules emptied, check | 1, 7.00 s, 6 944 ms (5 126 ms) | 1, 2.74 s, 2 664 ms (1 475 ms) | 8, 2 |
-| after sync, warm check | 1, 1.50 s, 1 438 ms (765 ms) | 1, 0.77 s, 674 ms (107 ms) | 8, 2 |
-
-After `gate sync`, the branch compiles the 2 plugins the check runs instead of all 8: the cold
-check's total falls from 6 944 ms to 2 664 ms and its `load` from 5 126 ms to 1 475 ms. A first
-run on an empty cache costs about the same with both binaries (it loads every plugin either way,
-and the branch also stores 7 declarations); one sample at this load is noise below about 0.5 s.
-
 ## Open items
 
 - **T-057, v0.3.0: a `--commit-message` check checks only the message.** The lead decided this
@@ -248,57 +259,33 @@ and the branch also stores 7 declarations); one sample at this load is noise bel
 
 ## Resume point
 
-2026-11-20T01:33:06+00:00:
-- First design: `ba462ff` (tests), `a491f40` (the change), `93749ae` (guards and section 9),
-  `9bb5b36` (the trade test's fixture), `a6870b6` (clippy).
-- Lane ticket 224 ran the tests on `ba462ff`: the two load tests failed as expected (exit 101); the
-  trade test failed on its own fixture, fixed in `9bb5b36`. Ticket 226 stopped at clippy
-  (`similar_names`), fixed in `a6870b6`. Ticket 240 was withdrawn before it started, when the
-  lead changed the design.
-- The review of `a6870b6` said fix first; the lead's redesign is above.
-- Ticket 233, item 7's measurement build, still stands: the compile settings do not depend on it.
-- `7e904e4` holds the redesign's tests, written before its change.
-- The change, `plugins/declarations.rs`, stores each plugin's declaration in the cache under
-  `declarations/<plugin sha256>/<entry>`, whose name is the digest of the entry format, the plugin
-  interface and the core version. Every entry is written when its plugin loads and read only by
-  that core. A missing or unreadable entry loads the plugin. `Loaded` keeps a declaration for every
-  declared plugin and compiles only the plugins the run runs. The checks that need no plugin (one
-  source per plugin, a pin per plugin) run for every declared plugin; an exception's plugin
-  declared where its file applies is checked when the configuration loads, as before. `gate cache prune` removes the declarations of plugins no lock pins.
+2026-11-20T01:44:56+00:00:
+- Design: the lead's redesign above (validation never narrowed; stored declarations keyed by
+  entry format, interface and core version). The first design (`a6870b6`) was reviewed fix first
+  and replaced.
 - Overlap with T-056 (`gate cache prune`, Gate 004), decided by the lead: whichever branch merges
-  second puts `declarations/` into T-056's derived class, like `results/<plugin sha256>/`. An
-  unpinned plugin's directory goes; a pinned one's entries are bounded by `--older-than` and
-  `--max-size`; `declarations::read` sets the entry's last use. The interim rule in
-  `Cache::unreferenced` and its unit test then go. Agreed with Gate 004 against T-056's
-  `96552d0`: the declarations loop in `Cache::plan` mirrors its results loop (a child that is a
-  directory named by a sha256 in `plugins` adds its `derived_files`; anything else is
-  `Reason::Unpinned`). It sits before the `older_than` block, so both bounds see its files, and
-  `cache::touch` marks a read. Its test is a declarations case beside results in
+  second puts `declarations/` into T-056's derived class, like `results/<plugin sha256>/`; an
+  entry read is touched; the interim rule in `Cache::unreferenced` and its unit test go. Agreed
+  with Gate 004 against T-056's `96552d0`: a declarations loop in `Cache::plan` mirroring the
+  results loop, before the `older_than` block, with a declarations case in
   `prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download`.
-- Measures, as the lead set them: after `gate sync` with the module cache emptied, plus one row
-  for a first run on an empty cache, so the one-time cost is on record.
-- Redesign rounds: ticket 242 on `7e904e4` (pre) failed the new tests as expected (exit 101) and
-  stopped at clippy on `a9f1f95` (E0027, `unused_qualifications`), fixed in `bb7fc5d`. Ticket 251
-  on `bb7fc5d` passed 1025 tests and failed the exception test, which tested a case the
-  configuration load refuses for every command; rewritten in `65e5a55`. Ticket 256 (`round5.sh`):
-  the rewritten test fails on the redesign's tests commit with the change left out (exit 101), and
-  on `65e5a55` fmt, clippy, test (1026 passed, 0 failed, 7 ignored), deny and the release build
-  exit 0; the one-gate line reads `done in 964s with exit code 0`.
-- The release binary of ticket 256 (`target/release/gate`, from `65e5a55`) has sha256
-  `3eb84b41b421a3980363a9a4dd05b0a2321bea6a9b99c55479fe20db32922425` (`shasum -a 256`); the
-  before/after measures run against it.
-- The before/after table (lane ticket 267) is in the Proof.
-- Next: review.
-- Rounds of the redesign:
-  - Lane ticket 242 ran the new tests on `7e904e4`: the six that must fail exited 101 and the two
-    guards exited 0. Its gates stopped at clippy (E0027, `unused_qualifications`), fixed in
-    `bb7fc5d`.
-  - Lane ticket 251 ran the gates on `20d1122`. fmt, clippy, deny and build exited 0. The tests
-    were 1025 passed, 1 failed: the exception test. It expected the exception-scope message, but
-    `load_exceptions` refuses that case at configuration load, for every command and on `a6870b6`
-    too, so it never tested a skipped check. It now names a rule `typescript` does not declare,
-    which `a6870b6` did skip. The reordered check in `workspace.rs` repeated the load check and is
-    back as it was.
-- Next: one round. It runs the rewritten exception test on the pre-change tree, where it is
-  expected to fail, then the gates. It runs the new tests on `7e904e4`, each expected to fail but the
-  two guards, then the gates on the tip.
+- The review of `f7269b4` (2026-11-20) said fix first. Its points are in: presets checked for
+  every declared plugin in every scope in `validate`; needs follow `--rule` on both paths; a
+  stored entry is always placed; `key_for`; architecture section 7's validation list and
+  section 9's trust sentence; the tests above; the `CHANGELOG.md` entry under Performance; the
+  measure table in Done when. Point 6 (`with_generators` loading only the missing generator
+  plugins) is not a small change: a `Loaded` holds one runtime, and a plugin is instantiated by
+  the runtime that compiled it, so the run's plugins load again with them (from the module
+  cache); a comment there says so. The branch is rebased onto main `a3dd8d5`.
+- Rounds:
+  - First design: ticket 224 (tests on `ba462ff`; two expected failures, a fixture fixed in
+    `9bb5b36`), ticket 226 (clippy `similar_names`, fixed in `a6870b6`), ticket 240 withdrawn.
+  - Item 7: ticket 233 (measurement build), ticket 243 (variants; wasmtime's defaults stay).
+  - Redesign: ticket 242 (the new tests fail on `7e904e4`, exit 101; clippy E0027 and
+    `unused_qualifications`, fixed in `bb7fc5d`), ticket 251 (1025 passed, 1 failed: the exception
+    test, rewritten in `65e5a55`), ticket 256 (the rewritten test fails before the change, exit
+    101; on `65e5a55` fmt, clippy, test 1026 passed 0 failed, deny and the release build exit 0;
+    binary sha256 `3eb84b41b421a3980363a9a4dd05b0a2321bea6a9b99c55479fe20db32922425`).
+  - Measure: ticket 267 (before/after, in Done when).
+- Next: the review round, which removes each reviewed piece in turn and runs its test, then the
+  gates on the pushed tip.
