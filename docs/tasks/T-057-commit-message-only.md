@@ -89,7 +89,7 @@ Each test fails before its change. They use synthetic plugins and trees.
 
 ## Resume point
 
-2026-11-19T23:42:18+00:00:
+2026-11-20T02:23:16+00:00:
 - Branched from main `73d33e7`, then rebased onto the T-047 tip `1fb98c0`, because the load set
   of item 3 is T-047's. It is rebased again onto main when T-047 merges.
 - The lead approved the design: item 1 is `READS_MESSAGE` and `gate:plugin@0.3.0`, and items 2
@@ -105,4 +105,12 @@ Each test fails before its change. They use synthetic plugins and trees.
   declaration of a rule (`plugins/declarations.rs`, `StoredRule`) gains `reads_message`, so a run
   that answers from the cache still knows which rules read the message; its entry name already
   depends on the interface, so an entry written for `gate:plugin@0.2.0` is never read.
-- Next: the round, then the consumer's cold `commit-msg` row, before and after.
+- Rounds: ticket 264 ran the six new tests on `5bf5500` (each exit 101, as expected) and stopped
+  at clippy (`too_many_lines` on `Runtime::load`, 111 of 100), fixed in `964f573`
+  (`check_declaration`; `Loaded::run` shortened too). Ticket 279: the six tests again exit 101 on
+  `5bf5500`; on `964f573` fmt, clippy, the six tests, test (1030 passed, 0 failed, 7 ignored),
+  deny and the release build exit 0; `done in 1298s with exit code 0`.
+- This branch sits on T-047 at `f7269b4`. T-047's review round rebased T-047 onto main and
+  changed `plugins.rs`, `plugins/declarations.rs` and `cache/mod.rs`; when T-047 merges, this
+  branch rebases onto main and runs one more round.
+- Next: that rebase and round, then the consumer's cold `commit-msg` row, before and after.
