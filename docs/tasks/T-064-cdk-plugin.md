@@ -453,3 +453,8 @@ thirteen rulings above are in the code, the pages, the changelogs and this file
 `cdk/removal-policy`; maps in `cdk/tags`; construct-only ids and names; `cdk.context.json`,
 `cn-*`, `process.env`; `cdk/declarations` on the whole app). Each new test was written to fail
 with its fix removed. Next: round 5, then the report to the lead.
+2026-11-20T09:16:58+00:00: round 7 at `87d0afa`, on this task's own target directory: fmt, clippy,
+test (1135 passed, 0 failed, over 98 test binaries), deny, build and every wasm build exit 0. The
+log compiles `gate`, `gate-plugin-cdk`, `gate-plugin-typescript` and `gate-plugin-nestjs` from this
+checkout and lists the twenty new tests by name. Each new test was written so that it fails with
+its fix removed; that was reasoned from the code, not run as a mutation. Next: the lead's review.
