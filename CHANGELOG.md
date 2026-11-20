@@ -73,14 +73,14 @@ Each shared plugin keeps its own changelog next to its code.
   aspect `version-comment` at the rule's level: a pin with `# v4` that passed under ci 0.2.0 fails
   at `error` under 0.3.0. Write the release the commit is (`# v4.2.2`), or set
   `"ci/actions-pinned" = { levels = { version-comment = "warning" } }` while the pins are updated.
-- **host:** a `gate check --commit-message` run checks only the message being written: the
-  enabled repository rules that declare `READS_MESSAGE`. It no longer checks the work tree; the
-  tree stays with `pre-commit`, `pre-push` and CI. Its summary says `commit message`.
-  `--commit-message` with `--staged`, `--changed`, `--push` or `--rev` is a usage error, and a
+- **host:** a `gate check --commit-message` run checks only the message being written: the enabled
+  repository rules that declare `READS_MESSAGE`. It no longer checks the work tree; the tree stays
+  with `pre-commit`, `pre-push` and CI. Its summary says `commit message`. `--commit-message` with
+  `--staged`, `--changed`, `--base`, `--push` or `--rev` is a usage error, and a
   `[hooks] commit-msg` entry that combines them is a configuration error. `git/branch-name`, which
   does not read the message, now runs only in `pre-commit`: an empty commit
-  (`git commit --allow-empty`) on a protected branch is no longer checked by a hook; CI still
-  checks it.
+  (`git commit --allow-empty`) on a protected branch is no longer checked by a hook; CI still checks
+  it.
 - **sdk:** `gate:plugin@0.3.0` also carries `reads-message` in `rule-info`: a rule declares
   `READS_MESSAGE` to read the commit message, through `Run::message` (`Git::message` is gone).
   `Run::git` answers only a rule that declares `READS_HISTORY`, so a rule that declares only

@@ -4,6 +4,8 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
 
 # 0.3.0 (unreleased)
 
+Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
+
 ### Breaking Changes
 
 - `git/commit-message` also checks the message of each commit a `gate check --push` run sends (the
@@ -20,6 +22,9 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:git@<version>`.
   `pre-push` hook and by the CI job, under the same aspects as in the `commit-msg` hook. Reword such
   a commit before the push (`git rebase -i`), or, when it is already shared, give it an exception by
   its commit id. Commits already on the remote ref or on main are not checked.
+- `git/commit-message` and `git/no-ci-skip` declare `READS_MESSAGE`, so a
+  `gate check --commit-message` run runs them; `git/branch-name` and `git/main-history` do not,
+  and run only in the other hooks and CI.
 
 ### Added
 
@@ -60,14 +65,6 @@ Built for the plugin interface `gate:plugin@0.2.0`; it loads in a 0.2.0 or 0.2.1
   its version, and each old lock key gives way to exactly one new key. Anything else, the pin file
   added or deleted included, is a `release` finding (`#beyond-pin`, `#version`, `#unreadable`); the
   files are compared as parsed TOML. ([cb25331](https://github.com/ElsiKora/Gate/commit/cb2533134f222346d45a34eeced04f36d830bff0))
-
-### Changed
-
-- Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
-- `git/commit-message` and `git/no-ci-skip` declare `READS_MESSAGE`, so a
-  `gate check --commit-message` run runs them; `git/branch-name` and `git/main-history` do not,
-  and run in the other hooks and CI. `git/commit-message` reads only the message and no longer
-  declares `READS_HISTORY`.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-git-v0.1.0...plugin-git-v0.2.0) (2026-11-19)
 
