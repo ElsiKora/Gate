@@ -93,6 +93,13 @@ Each shared plugin keeps its own changelog next to its code.
   `repository/large-files`, and the presets `repository/recommended` and `repository/adoption`.
 - **sdk:** `gate_sdk::yaml`, behind the feature `yaml`: a YAML reader that keeps each node's line,
   for rules that report at a line of a YAML file.
+- **plugin-frontend:** a new plugin, `frontend`: one standard for React apps and libraries, with the
+  packs `react-vite`, `nextjs` and `react-library`. Its 20 rules hold the tree of Feature-Sliced
+  layers, names, import direction, paths and public APIs, components and hooks, stores, the network
+  and environment boundaries, literal text and messages, assets, styles, route files, the Next.js
+  client boundary, the alias and route folders in the toolchain files, and one tool per job; the
+  presets are `frontend/recommended` and `frontend/adoption`. Its rules are listed in
+  [docs/guide/plugins.md](docs/guide/plugins.md#frontend).
 
 ### Bug Fixes
 

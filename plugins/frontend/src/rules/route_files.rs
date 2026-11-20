@@ -15,7 +15,7 @@ use crate::standard::{FileName, folder_of, name_of, within};
 pub struct RouteFiles;
 
 /// The Next.js files of a route segment that export their content as the default export.
-pub const NEXT_DEFAULT_FILES: [&str; 16] = [
+pub const NEXT_DEFAULT_FILES: [&str; 17] = [
     "apple-icon",
     "default",
     "error",
@@ -32,6 +32,7 @@ pub const NEXT_DEFAULT_FILES: [&str; 16] = [
     "sitemap",
     "template",
     "twitter-image",
+    "unauthorized",
 ];
 
 /// The Next.js route handler file, which exports HTTP methods.

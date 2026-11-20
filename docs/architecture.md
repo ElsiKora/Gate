@@ -591,6 +591,7 @@ plugins/markdown     documentation links and sections
 plugins/agents       agent rule files and their generated adapters
 plugins/ledger       decision ledger records, statuses, closers; the review table generator
 plugins/nestjs       NestJS services on the CRUD automator, including egress notification
+plugins/frontend     React apps and libraries: one standard, with packs for Vite, Next.js, libraries
 docs/                guides: getting started, configuration, writing a plugin, writing a rule
 scripts/             the release build of a component and the core's archive
 ```

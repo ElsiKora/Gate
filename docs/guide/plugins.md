@@ -44,6 +44,7 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `nestjs` | project | TypeScript | no | none |
 | `node` | repository, project | none | no | none |
 | `cdk` | project | TypeScript | no | none |
+| `frontend` | project | TypeScript | no | none |
 | `ci` | repository | none | no | none |
 | `docker` | project | none | no | none |
 | `repository` | repository | none | no | none |
@@ -336,6 +337,52 @@ A project extends the standard only through `[plugins.cdk] options`: `extra` dir
 `extra-tags`, each with its job, `regions` and `nag-packs`. An existing app starts from the
 `adoption` preset, which keeps the renames at `warning`. The standard, the options and each rule's
 page are under [plugins/cdk/rules](../../plugins/cdk/rules/README.md).
+
+### `frontend`
+
+React apps and libraries held to one standard: Feature-Sliced layers under `src/`, kebab-case names,
+imports that point down through one alias, one module that talks to the network, one that reads the
+environment, every user-visible string through the translation layer, assets and styles in known
+places. The option `pack` (`react-vite`, `nextjs` or `react-library`) names the framework; every rule
+needs it. Nuxt and Vue are not covered. Links the TypeScript language library.
+
+```toml
+# apps/web/gate.toml
+[project]
+name = "web"
+extends = ["frontend/recommended"]
+
+[plugins]
+typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
+frontend = { source = "ElsiKora/Gate:frontend@0.3.0", options = { pack = "nextjs" } }
+
+[rules]
+"typescript/barrel-imports" = "error"
+```
+
+`frontend/recommended` sets every rule to `error`; `frontend/adoption` sets every rule to `warning`, for
+an existing app moving to the standard. The plugin's page is
+[plugins/frontend/rules/README.md](../../plugins/frontend/rules/README.md); each rule's page is beside it.
+
+| Rule | Checks |
+| --- | --- |
+| `frontend/layout` | every file sits in the tree of the standard: layers, slices with `index.ts`, segments |
+| `frontend/file-names` | names under `src/` are kebab-case; route folders take their router's syntax |
+| `frontend/typescript-sources` | no JavaScript under `src/` |
+| `frontend/import-direction` | layers import only layers below them, and no sibling slice |
+| `frontend/import-paths` | one alias, `@/`; relative imports stay inside a slice or segment |
+| `frontend/component-names` | a `ui` file exports, by name, the component its name gives |
+| `frontend/hook-names` | a hook lives in a file of its own name, in a `model` or `lib` segment |
+| `frontend/state-placement` | stores are created in `model` segments or the app layer |
+| `frontend/api-boundary` | only `shared/api` talks to the network; only `api` segments import it |
+| `frontend/env-access` | one module reads the environment, by literal public keys |
+| `frontend/literal-text` | no literal user-visible text in JSX |
+| `frontend/messages` | every locale has the same messages, none empty; the code uses only existing keys |
+| `frontend/asset-placement` | imported assets sit in the assets segment |
+| `frontend/style-files` | global styles in one place; CSS modules beside their component |
+| `frontend/route-files` | the route folder holds route files with their required exports |
+| `frontend/client-boundary` | Next.js route files stay server components |
+| `frontend/colocated-files` | tests and stories sit beside the file they are about |
 
 ### `ci`
 
