@@ -4,7 +4,7 @@
 # are the plugins/<name>/CHANGELOG.md section of the version (scripts/changelog-section.sh). gate lock
 # pins <owner>/<repo>:<name>@<version> to that asset. The build jobs, which compile third-party code,
 # can only read; the release job, which can write, compiles nothing.
-name: Release a plugin
+name: Release plugin
 
 on:
   push:
@@ -22,6 +22,9 @@ jobs:
   plugin:
     name: Find the plugin of ${{ github.ref_name }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     outputs:
       name: ${{ steps.plugin.outputs.name }}
     env:
@@ -66,10 +69,14 @@ jobs:
     with:
       components: plugin:${{ needs.plugin.outputs.name }}
 
+  # The one job that writes (the release and its tag): it runs in the environment `release`, whose
+  # protection rules guard it.
   release:
     name: Release ${{ github.ref_name }}
     needs: [plugin, build]
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
     permissions:
       contents: write
     env:

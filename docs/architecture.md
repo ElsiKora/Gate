@@ -292,7 +292,7 @@ pre-push = ["check --push"]
 
 [ci.github]
 workflow = ".github/workflows/gate.yml"
-jobs.gate = { name = "Gate", run = ["check --changed --base origin/main"] }
+jobs.gate = { name = "Gate", timeout-minutes = 15, run = ["check --changed --base origin/main"] }
 aggregate = "required"  # one more job: needs every job, fails unless each succeeded or was skipped
 ```
 
@@ -505,6 +505,13 @@ all = ["lint", "unit"]
   gives a step neither `GATE_GITHUB_TOKEN` nor `GITHUB_TOKEN` unless its own `env` sets it. The
   hooks call the gate, never skip themselves on an environment variable, and in a monorepo run only
   the projects the change touches.
+- **The CI standard**: the `ci` plugin's preset `ci/recommended` holds every workflow, generated or
+  written by hand, to one standard (job permissions, concurrency, timeouts, versioned runners,
+  release comments on action pins, checkout credentials, secrets in steps, environments, Node setup,
+  names). What Gate writes is decided in one place, the generator, from `[ci.github]`; the rules
+  check properties of workflow files and never restate a value `[ci.github]` holds. One test ties
+  them: a workflow generated from a `[ci.github]` that uses every key passes `ci/recommended` with no
+  finding. Gate's own workflows pass it too.
 - **Plugins'**: a generator returns files (for example the `AGENTS.md` block and the `.claude/rules` and
   `.claude/skills` adapters, scoped to the project's path; a ledger's review table). Its paths are
   relative to the project root, like a rule's; the host maps them to repository paths. A generator

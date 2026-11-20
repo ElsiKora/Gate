@@ -1,4 +1,4 @@
-use crate::fixture::{Fixture, lines};
+use crate::fixture::{Fixture, aspects, lines};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -13,12 +13,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@{SHA} # v4
+      - uses: actions/checkout@{SHA} # v4.2.2
       - uses: ./.github/actions/setup
       - uses: docker://alpine@sha256:{DIGEST}
+      - uses: \"actions/cache@{SHA}\" # v4.1.0
       - run: make
   reuse:
-    uses: example/workflows/.github/workflows/build.yml@{SHA}
+    uses: example/workflows/.github/workflows/build.yml@{SHA}   #   v1.0.0
 "
     );
     let fixture = Fixture::new(&[(".github/workflows/ci.yml", &workflow)]);
@@ -92,5 +93,67 @@ fn the_workflows_glob_chooses_the_files() {
     assert_eq!(
         lines(&findings),
         ["ci/pipelines/deep/release.yml:1 `y@v1` is not pinned by a full commit SHA"]
+    );
+}
+
+#[test]
+fn a_commit_pin_without_its_full_release_in_a_comment_is_a_version_comment_finding() {
+    let workflow = format!(
+        "\
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@{SHA} # v4
+      - uses: actions/cache@{SHA}
+      - uses: actions/setup-node@{SHA} # v4.1.0
+      - uses: actions/upload-artifact@v4 # v4.6.0
+"
+    );
+    let fixture = Fixture::new(&[(".github/workflows/ci.yml", &workflow)]);
+    let findings = fixture.check("actions-pinned", "{}").expect("runs");
+    assert_eq!(
+        lines(&findings),
+        [
+            format!(
+                ".github/workflows/ci.yml:4 `actions/checkout@{SHA}` names its release as `v4`, \
+                 which does not match version-comment"
+            ),
+            format!(".github/workflows/ci.yml:5 `actions/cache@{SHA}` has no comment naming its release"),
+            ".github/workflows/ci.yml:7 `actions/upload-artifact@v4` is not pinned by a full commit SHA"
+                .to_owned(),
+        ]
+    );
+    // The pin finding keeps the empty aspect and no key, so its fingerprint is the one 0.2.0 gave.
+    assert_eq!(
+        aspects(&findings),
+        [
+            format!("version-comment 4 actions/checkout@{SHA}"),
+            format!("version-comment 5 actions/cache@{SHA}"),
+            "- 7 -".to_owned(),
+        ]
+    );
+    assert_eq!(
+        findings[0].target.as_deref(),
+        Some(format!(".github/workflows/ci.yml:actions/checkout@{SHA}").as_str())
+    );
+}
+
+#[test]
+fn the_version_comment_option_sets_the_release_form() {
+    let workflow = format!("jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{SHA} # v4\n");
+    let fixture = Fixture::new(&[(".github/workflows/ci.yml", &workflow)]);
+    let findings = fixture
+        .check("actions-pinned", r#"{"version-comment": "^v\\d+$"}"#)
+        .expect("runs");
+    assert_eq!(lines(&findings), Vec::<String>::new());
+
+    let error = fixture
+        .check("actions-pinned", r#"{"version-comment": "v("}"#)
+        .expect_err("not a regular expression");
+    assert!(
+        error
+            .message()
+            .contains("version-comment is not a valid regular expression"),
+        "{error}"
     );
 }

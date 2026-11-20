@@ -718,6 +718,7 @@ checkout = "actions/checkout@0123456789abcdef0123456789abcdef01234567"
 
 [ci.github.jobs.check]
 name = "Check"
+timeout-minutes = 10
 run = ["check --push"]
 
 [ci.github.jobs.heavy]
@@ -1083,7 +1084,7 @@ fn a_core_rule_norm_is_printed_with_its_finding() {
 #[test]
 fn every_generated_checkout_keeps_no_credentials() {
     let repo = with_root(&format!(
-        "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check\"]\n\n[ci.github.jobs.shallow]\nname = \"Shallow\"\nfetch-depth = 5\nrun = [\"check\"]\n"
+        "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check\"]\n\n[ci.github.jobs.shallow]\nname = \"Shallow\"\ntimeout-minutes = 10\nfetch-depth = 5\nrun = [\"check\"]\n"
     ));
     let output = repo.gate(&["sync"]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
@@ -1091,7 +1092,9 @@ fn every_generated_checkout_keeps_no_credentials() {
 
     // Each checkout, with or without a fetch depth, says persist-credentials: false.
     let checkouts = workflow
-        .matches(&format!("      - uses: actions/checkout@{ACTION}\n"))
+        .matches(&format!(
+            "      - name: Check out the repository\n        uses: actions/checkout@{ACTION}\n"
+        ))
         .count();
     assert_eq!(checkouts, 3, "changes, lint and shallow: {workflow}");
     assert_eq!(
@@ -1103,7 +1106,7 @@ fn every_generated_checkout_keeps_no_credentials() {
     );
     assert!(
         job(&workflow, "shallow").contains(&format!(
-            "      - uses: actions/checkout@{ACTION}\n        with:\n          fetch-depth: 5\n          persist-credentials: false\n"
+            "      - name: Check out the repository\n        uses: actions/checkout@{ACTION}\n        with:\n          fetch-depth: 5\n          persist-credentials: false\n"
         )),
         "{}",
         job(&workflow, "shallow")
@@ -1129,7 +1132,7 @@ fn every_generated_checkout_keeps_no_credentials() {
 #[test]
 fn the_workflow_cancels_superseded_pull_request_runs_and_never_main() {
     let repo = with_root(&format!(
-        "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check --push\"]\n"
+        "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check --push\"]\n"
     ));
     let output = repo.gate(&["sync"]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
@@ -1193,6 +1196,7 @@ checkout = "actions/checkout@{ACTION}"
 
 [ci.github.jobs.static]
 name = "Static"
+timeout-minutes = 10
 working-directory = "apps/server"
 steps = [
   {{ name = "Node", uses = "actions/setup-node@{ACTION}" }},
@@ -1207,14 +1211,17 @@ run = ["run static"]
 
 [ci.github.jobs.history]
 name = "History"
+timeout-minutes = 10
 run = ["run history"]
 
 [ci.github.jobs.revision]
 name = "Revision"
+timeout-minutes = 10
 run = ["check --rev HEAD"]
 
 [ci.github.jobs.shallow]
 name = "Shallow"
+timeout-minutes = 10
 fetch-depth = 5
 run = ["check --budget 3"]
 
@@ -1238,7 +1245,7 @@ history = ["policy"]
     let static_job = &job(&workflow, "static");
     assert!(
         static_job.contains(&format!(
-            "\n    steps:\n      - uses: actions/checkout@{ACTION}\n        with:\n          persist-credentials: false\n      - name: Node\n        uses: actions/setup-node@{ACTION}\n      - name: Install\n        run: npm ci\n        working-directory: apps/server\n      - name: Tools\n        run: make\n        working-directory: tools/gen\n      - name: gate run static\n        run: bin/gate run static\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Upload\n        if: always() && hashFiles('reports/**') != ''\n        uses: actions/upload-artifact@{ACTION}\n        with:\n          path: reports/\n      - name: Summary\n        if: always()\n        run: cat summary.txt\n        working-directory: apps/server\n"
+            "\n    steps:\n      - name: Check out the repository\n        uses: actions/checkout@{ACTION}\n        with:\n          persist-credentials: false\n      - name: Node\n        uses: actions/setup-node@{ACTION}\n      - name: Install\n        run: npm ci\n        working-directory: apps/server\n      - name: Tools\n        run: make\n        working-directory: tools/gen\n      - name: gate run static\n        run: bin/gate run static\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Upload\n        if: always() && hashFiles('reports/**') != ''\n        uses: actions/upload-artifact@{ACTION}\n        with:\n          path: reports/\n      - name: Summary\n        if: always()\n        run: cat summary.txt\n        working-directory: apps/server\n"
         )),
         "no fetch-depth without history; the job's directory for its run steps, not for actions or gate commands; after steps after the gate commands: {static_job}"
     );
@@ -1246,7 +1253,7 @@ history = ["policy"]
     for id in ["history", "revision"] {
         assert!(
             job(&workflow, id).contains(&format!(
-                "      - uses: actions/checkout@{ACTION}\n        with:\n          fetch-depth: 0\n"
+                "      - name: Check out the repository\n        uses: actions/checkout@{ACTION}\n        with:\n          fetch-depth: 0\n"
             )),
             "{id}: {}",
             job(&workflow, id)
@@ -1279,7 +1286,7 @@ fn ci_steps_refuse_if_before_the_gate_commands_and_a_directory_on_an_action() {
         ),
     ] {
         let repo = with_root(&format!(
-            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check\"]\n{extra}"
+            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check\"]\n{extra}"
         ));
         let output = repo.gate(&["sync"]);
         assert_eq!(output.status.code(), Some(2), "{extra}");
@@ -1325,7 +1332,7 @@ fn ci_steps_refuse_if_before_the_gate_commands_and_a_directory_on_an_action() {
         "check --hook",
     ] {
         let repo = with_root(&format!(
-            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"{run}\"]\n"
+            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"{run}\"]\n"
         ));
         let output = repo.gate(&["sync"]);
         assert_eq!(output.status.code(), Some(2), "{run}");
@@ -1438,7 +1445,7 @@ fn a_configuration_whose_hooks_or_workflow_sync_refuses_does_not_load() {
         ),
         (
             format!(
-                "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{action}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check\"]\nprojects = [\"nowhere\"]\n"
+                "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{action}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check\"]\nprojects = [\"nowhere\"]\n"
             ),
             "[ci.github] jobs.lint: projects names \"nowhere\", which is not a project",
         ),
@@ -1793,7 +1800,7 @@ fn doctor_reports_a_changed_plugin_and_leaves_the_cache_as_it_is() {
 fn a_workflow_moved_anywhere_leaves_no_stale_copy() {
     let ci = |path: &str| {
         format!(
-            "\n# {path}\n[ci.github]\nworkflow = \"{path}\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\nrun = [\"check\"]\n"
+            "\n# {path}\n[ci.github]\nworkflow = \"{path}\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check\"]\n"
         )
     };
     let repo = with_root(&ci("ci/gate.yml"));
@@ -1833,7 +1840,9 @@ fn two_projects_with_aggregate(id: &str) -> Repo {
 
 /// The aggregate job `two_projects_with_aggregate("gate")` adds after its other jobs.
 const AGGREGATE_JOB: &str = r#"  gate:
+    name: gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     needs:
       - changes
       - check
@@ -2067,4 +2076,31 @@ fn a_step_gets_no_token_gate_reads_releases_with_unless_its_env_sets_one() {
     assert!(text.contains("tokens none none\n"), "{text}");
     assert!(text.contains("own set-by-the-step\n"), "{text}");
     assert!(!text.contains("secret-"), "{text}");
+}
+
+#[test]
+fn a_ci_job_without_timeout_minutes_or_with_an_empty_release_is_a_configuration_error() {
+    for (job, message) in [
+        (
+            "name = \"Lint\"\nrun = [\"check\"]\n",
+            "[ci.github] jobs.lint: timeout-minutes is not set; give the job's time limit in minutes",
+        ),
+        (
+            "name = \"Lint\"\ntimeout-minutes = 0\nrun = [\"check\"]\n",
+            "[ci.github] jobs.lint: timeout-minutes is 0",
+        ),
+        (
+            &*format!(
+                "name = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check\"]\nsteps = [{{ name = \"Node\", uses = \"actions/setup-node@{ACTION} # \" }}]\n"
+            ),
+            "the release after \" # \" is empty or spans lines",
+        ),
+    ] {
+        let repo = with_root(&format!(
+            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION} # v4.2.2\"\n\n[ci.github.jobs.lint]\n{job}"
+        ));
+        let output = repo.gate(&["sync"]);
+        assert_eq!(output.status.code(), Some(2), "{job}");
+        assert!(stderr(&output).contains(message), "{}", stderr(&output));
+    }
 }

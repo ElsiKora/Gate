@@ -21,6 +21,9 @@ jobs:
   version:
     name: Check the tag
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     env:
       TAG: ${{ github.ref_name }}
     steps:
@@ -55,10 +58,14 @@ jobs:
     with:
       components: core
 
+  # The one job that writes (the release and its tag): it runs in the environment `release`, whose
+  # protection rules guard it, and it compiles nothing.
   release:
     name: Create the release
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
     permissions:
       contents: write
     env:

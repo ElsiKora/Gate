@@ -40,18 +40,22 @@ checkout = "actions/checkout@0123456789abcdef0123456789abcdef01234567"
 
 [ci.github.jobs.all]
 name = "All rules"
+timeout-minutes = 10
 run = ["check"]
 
 [ci.github.jobs.named]
 name = "The history rule"
+timeout-minutes = 10
 run = ["check --rule history/commits"]
 
 [ci.github.jobs.other]
 name = "Another rule"
+timeout-minutes = 10
 run = ["check --rule layers/imports"]
 
 [ci.github.jobs.suite]
 name = "A suite that calls it"
+timeout-minutes = 10
 run = ["run policy"]
 
 [steps]
@@ -72,7 +76,7 @@ policy = {{ run = "bin/gate check --rule=history/commits" }}
     )
     .expect("utf-8");
 
-    let full = "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n";
+    let full = "      - name: Check out the repository\n        uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n";
     for (id, deep) in [
         ("all", true),
         ("named", true),

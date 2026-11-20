@@ -60,6 +60,19 @@ Each shared plugin keeps its own changelog next to its code.
 - **plugin interface:** `gate:plugin@0.3.0` adds `tree.size`, the size of a tracked file without its
   contents. A rule that asks only sizes is answered from the result cache (format 4) until a size
   changes. Plugins built for 0.2.0 do not load; take their 0.3.0 releases.
+- **host:** each job of `[ci.github]` needs `timeout-minutes`: a job without it is a configuration
+  error (exit 2) that names the job, where before the workflow gave the job GitHub's six hours. To
+  upgrade, add `timeout-minutes = <minutes>` to every `[ci.github.jobs.<id>]`, a little above the
+  job's usual time, run `gate sync` and commit the workflow.
+- **host:** the workflow `gate sync` writes meets the `ci/recommended` standard: its top-level
+  `permissions` is `{}` (every job already set its own), the checkout step is named
+  `Check out the repository`, the `changes` job has a 15-minute timeout, and the aggregate job is
+  named by its id, so its check name is unchanged, with a 5-minute timeout. A workflow written by
+  0.2.x is drift; run `gate sync`.
+- **ci:** `ci/actions-pinned` reports a commit pin whose comment is not the full release, as the
+  aspect `version-comment` at the rule's level: a pin with `# v4` that passed under ci 0.2.0 fails
+  at `error` under 0.3.0. Write the release the commit is (`# v4.2.2`), or set
+  `"ci/actions-pinned" = { levels = { version-comment = "warning" } }` while the pins are updated.
 
 ### Features
 
@@ -104,6 +117,14 @@ Each shared plugin keeps its own changelog next to its code.
   body lines a message may not carry, so a note such as `Generated with ...`, which is no trailer,
   can be refused in the `commit-msg` hook and in the pushed commits. `body-full-stop` judges the
   body above its trailer block, so a person's `Co-authored-by` no longer fails it.
+- **host:** `[ci.github]` `checkout` and a step's `uses` take the release after the pin,
+  `actions/checkout@<sha> # v4.2.2`, which `gate sync` writes as a comment after the pin, as a
+  workflow written by hand carries it; the pin before ` # ` is checked as before. A job takes
+  `environment`, the deployment environment whose protection rules guard what it writes.
+- **ci:** the plugin holds GitHub Actions workflows to one standard, turned on with
+  `extends = ["ci/recommended"]`: job permissions, concurrency, timeouts, versioned runners, release
+  comments on action pins, checkout credentials, secrets in steps, environments for jobs that write,
+  Node setup and names. See `plugins/ci/CHANGELOG.md`.
 
 ### Bug Fixes
 

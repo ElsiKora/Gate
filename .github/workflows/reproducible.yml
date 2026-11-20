@@ -10,7 +10,7 @@
 # build's files only after the comparison passes. Each runner that built something uploads its first
 # build as the artifact components-<target>: gate-<target>.tar.gz for the core, <directory>.wasm for a
 # plugin of plugins/<directory>.
-name: Reproducible components
+name: Reproducible
 
 on:
   push:
@@ -29,9 +29,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a task branch cancels the branch's running build; a push to main and a release's
+# build (a tag ref) always run to their end.
 concurrency:
   group: reproducible-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/task/') }}
 
 jobs:
   build:
@@ -48,6 +50,8 @@ jobs:
             plugins: false
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    permissions:
+      contents: read
     env:
       TARGET: ${{ matrix.target }}
       COMPONENTS: ${{ inputs.components || 'all' }}

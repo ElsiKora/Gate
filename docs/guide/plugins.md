@@ -386,21 +386,53 @@ an existing app moving to the standard. The plugin's page is
 
 ### `ci`
 
-GitHub Actions workflows, generated or written by hand.
+GitHub Actions workflows, generated or written by hand, held to one standard: every rule on at
+`error`, the same in every repository; a workflow that must differ says so with an exception and its
+reason in `gate.exceptions.toml`. The workflow `gate sync` writes from `[ci.github]` meets the
+standard wherever it decides; what `[ci.github]` decides for it, a step's name, a pin's release, the
+workflow's file name, a job id, the runner, the preset still reports
+([configuration.md](configuration.md#cigithub) lists each).
+
+A repository whose root is a project takes the standard through the preset `ci/recommended`:
 
 ```toml
+[project]
+name = "server"
+extends = ["ci/recommended"]
+
 [plugins]
-ci = { source = "ElsiKora/Gate:ci@0.2.0" }
+ci = { source = "ElsiKora/Gate:ci@0.3.0" }
+```
+
+Every `ci` rule is repository-scope, configured in the root file only. A monorepo root has no
+`[project]` and so extends no preset ([configuration.md](configuration.md#project)); it turns every
+rule on at `error`, which is what the preset sets, with the family in its `[rules]`:
+
+```toml
+# the root gate.toml of a monorepo
+[workspace]
+projects = ["apps/*"]
+
+[plugins]
+ci = { source = "ElsiKora/Gate:ci@0.3.0" }
 
 [rules]
-"ci/actions-pinned" = "error"
-"ci/workflow-run-target" = "error"
+"ci/*" = "error"
 ```
 
 | Rule | Checks |
 | --- | --- |
-| [`ci/actions-pinned`](../../plugins/ci/rules/actions-pinned.md) | actions and reusable workflows are pinned by a full commit SHA |
+| [`ci/actions-pinned`](../../plugins/ci/rules/actions-pinned.md) | actions and reusable workflows are pinned by a full commit SHA, with the release in a comment |
 | [`ci/workflow-run-target`](../../plugins/ci/rules/workflow-run-target.md) | `workflow_run` triggers name workflows that exist |
+| [`ci/permissions`](../../plugins/ci/rules/permissions.md) | every job sets its own token permissions; a workflow's own permissions only read |
+| [`ci/concurrency`](../../plugins/ci/rules/concurrency.md) | every workflow has a concurrency group, and a newer run cancels only a pull request's |
+| [`ci/timeout`](../../plugins/ci/rules/timeout.md) | every job that runs steps sets `timeout-minutes` |
+| [`ci/runner-pinned`](../../plugins/ci/rules/runner-pinned.md) | jobs run on a versioned runner image, never `*-latest` |
+| [`ci/checkout-credentials`](../../plugins/ci/rules/checkout-credentials.md) | every checkout sets `persist-credentials: false` |
+| [`ci/secrets-in-steps`](../../plugins/ci/rules/secrets-in-steps.md) | secrets reach only the steps that use them |
+| [`ci/environment`](../../plugins/ci/rules/environment.md) | a job that writes outside the checks runs in an environment |
+| [`ci/node-setup`](../../plugins/ci/rules/node-setup.md) | `actions/setup-node` reads the version from a file, sets a cache and runs once per job |
+| [`ci/names`](../../plugins/ci/rules/names.md) | every workflow, job and step is named; a file is its workflow's name in kebab case |
 
 ### `docker`
 
@@ -469,8 +501,8 @@ plugin new in 0.3.0 ships two: `<plugin>/recommended`, every rule at error, and 
 every rule at warning (`docs`, `docker` and `repository`; `repository/recommended` keeps
 `repository/large-files#large` at `warning`); `cdk` ships `cdk/recommended` and `cdk/adoption`,
 which differs: it warns only on the renames and keeps the other rules at error. `git` ships
-`git/recommended`. Turn the rules of the other plugins on one by one in `[rules]`; `gate list`
-shows the result.
+`git/recommended` and `ci` ships `ci/recommended`, every rule at error. Turn the rules of the other
+plugins on one by one in `[rules]`; `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 

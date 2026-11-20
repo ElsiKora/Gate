@@ -1,11 +1,11 @@
 [package]
 name = "gate-plugin-ci"
-description = "The ci plugin of Gate: workflow actions are pinned by commit, workflow_run names workflows that exist"
+description = "The ci plugin of Gate: GitHub Actions workflows held to one standard, the ci/recommended preset"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
-version = "0.2.0"
+version = "0.3.0"
 
 [lib]
 # The component is `ci.wasm`; the rlib lets the native tests call the plugin.

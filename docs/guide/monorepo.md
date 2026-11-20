@@ -179,16 +179,18 @@ that need particular projects declare them and are skipped when none of them cha
 ```toml
 [ci.github]
 workflow = ".github/workflows/gate.yml"
-checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"   # v7.0.1
+checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
 aggregate = "gate-passed"
 
 [ci.github.jobs.gate]
 name = "Gate"
+timeout-minutes = 15
 run = ["check --push"]
 
 [ci.github.jobs.unit]
 name = "Unit tests"
 projects = ["server", "web"]
+timeout-minutes = 30
 run = ["run unit --push"]
 ```
 

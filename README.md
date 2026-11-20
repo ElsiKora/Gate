@@ -409,12 +409,13 @@ budget = 10
 
 [ci.github]
 workflow = ".github/workflows/gate.yml"
-checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"   # v7.0.1
+checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
 aggregate = "gate-passed"
 
 [ci.github.jobs.gate]
 name = "Gate"
-runs-on = "ubuntu-latest"
+runs-on = "ubuntu-24.04"
+timeout-minutes = 15
 run = ["check --push"]
 ```
 

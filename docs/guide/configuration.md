@@ -483,14 +483,15 @@ corresponds to `--budget 10` before `--hook`, and `pre-commit = ["check --staged
 ```toml
 [ci.github]
 workflow = ".github/workflows/gate.yml"
-checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"   # v7.0.1
+checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
 branches = ["main"]
 aggregate = "gate-passed"
 
 [ci.github.jobs.gate]
 name = "Gate"
-runs-on = "ubuntu-latest"
+runs-on = "ubuntu-24.04"
 permissions = { contents = "read" }
+timeout-minutes = 15
 budget = 300
 run = ["check --push"]
 
@@ -504,7 +505,7 @@ run = ["run unit --push"]
 | `[ci.github]` key | Meaning |
 | --- | --- |
 | `workflow` | required: the workflow file, relative to the repository root |
-| `checkout` | required: the checkout action pinned by commit, `actions/checkout@<40 hex digits>` |
+| `checkout` | required: the checkout action pinned by commit, with its release after ` # `: `actions/checkout@<40 hex digits> # v7.0.1`; the workflow carries the release as a comment |
 | `name` | the workflow's display name; defaults to `Gate` |
 | `branches` | branch globs whose pushes, and pull requests into them, run the workflow; defaults to `["main"]` |
 | `runs-on` | the runner of the generated jobs; defaults to `ubuntu-24.04` |
@@ -512,12 +513,24 @@ run = ["run unit --push"]
 | `aggregate` | the id of one more generated job that needs every other job, always runs, and fails unless each of them succeeded or was skipped: the single check branch protection requires |
 
 A job keeps the id and the `name` you give it and takes `run` (the gate commands: `check ...`,
-`run <step or suite> [--staged | --push]` or `sync --check`), `runs-on`, `permissions` (defaults to
-`{ contents = "read" }`), `services`, `steps` (before the gate commands), `after` (after them, each
-with an optional `if`), `working-directory`, `fetch-depth`, `budget`, `projects` and
-`timeout-minutes`. A step is an action pinned by commit (`uses`, `with`) or a shell command (`run`,
-`env`, `working-directory`). In a job, `--push` takes no value: the job passes the pull request's or
-the push's range.
+`run <step or suite> [--staged | --push]` or `sync --check`), `timeout-minutes` (required: the job's
+time limit in minutes), `runs-on`, `permissions` (defaults to `{ contents = "read" }`), `environment`
+(the deployment environment whose protection rules guard what the job writes), `services`, `steps`
+(before the gate commands), `after` (after them, each with an optional `if`), `working-directory`,
+`fetch-depth`, `budget` and `projects`. A step is an action pinned by commit (`uses`, `with`, the
+release after ` # ` as for `checkout`) or a shell command (`run`, `env`, `working-directory`). In a
+job, `--push` takes no value: the job passes the pull request's or the push's range.
+
+The workflow meets the standard of the `ci` plugin's `ci/recommended` preset: top-level
+`permissions: {}` and each job its own, a timeout on every job (15 minutes for `changes`, 5 for the
+aggregate job), named steps, the aggregate job named by its id, which is the check name branch
+protection requires. What it cannot decide for you the preset reports: an unnamed step of `setup`,
+`steps` or `after` (`ci/names#step`); a pin without its release (`ci/actions-pinned#version-comment`);
+a job that writes `contents`, `deployments`, `id-token` or `packages` without an `environment`
+(`ci/environment`); a `workflow` file whose name is not the kebab case of `name`, such as
+`.github/workflows/ci.yml` with the default name `Gate` (`ci/names#file`); a job id not in kebab case,
+such as `lint_rust` (`ci/names#job-id`); a moving `runs-on` label, such as `ubuntu-latest`
+(`ci/runner-pinned`).
 
 The generated first job, `changes`, runs `gate sync --check` and lists the projects the change touches;
 a job that lists `projects` is skipped when none of them changed. Generated `check` commands get

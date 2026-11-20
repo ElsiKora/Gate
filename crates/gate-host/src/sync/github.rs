@@ -20,6 +20,16 @@ pub const DEFAULT_RUNNER: &str = "ubuntu-24.04";
 /// The id of the generated first job, which lists the changed projects.
 pub const CHANGES_JOB: &str = "changes";
 
+/// The time limit of the `changes` job, in minutes: it checks the generated files and lists the
+/// changed projects, which fetches the plugins on a cold cache.
+pub const CHANGES_TIMEOUT_MINUTES: u64 = 15;
+
+/// The time limit of the aggregate job, in minutes: one `jq` line.
+pub const AGGREGATE_TIMEOUT_MINUTES: u64 = 5;
+
+/// The name of the checkout step of every generated job.
+pub const CHECKOUT_STEP: &str = "Check out the repository";
+
 /// The pushed range the `changes` job compares: the pull request's base or the push's previous tip
 /// (zeros, which select every project, when there is neither), to the commit under test.
 const RANGE: &str = "${{ github.event.pull_request.base.sha || github.event.before || '0000000000000000000000000000000000000000' }}..${{ github.sha }}";
@@ -85,6 +95,7 @@ pub fn workflow(
         json!({
             "name": "Changes",
             "runs-on": runner,
+            "timeout-minutes": CHANGES_TIMEOUT_MINUTES,
             "permissions": { "contents": "read" },
             "outputs": { "projects": "${{ steps.changes.outputs.projects }}" },
             "steps": [
@@ -118,7 +129,10 @@ pub fn workflow(
 
     if let Some(aggregate) = &github.aggregate {
         let needs: Vec<String> = jobs.keys().cloned().collect();
-        jobs.insert(aggregate.to_string(), aggregate_value(runner, &needs));
+        jobs.insert(
+            aggregate.to_string(),
+            aggregate_value(aggregate.as_str(), runner, &needs),
+        );
     }
 
     let document = json!({
@@ -127,7 +141,7 @@ pub fn workflow(
             "push": { "branches": branches },
             "pull_request": { "branches": branches },
         },
-        "permissions": { "contents": "read" },
+        "permissions": {},
         "concurrency": {
             "group": concurrency_group(github.workflow.as_str()),
             "cancel-in-progress": CANCEL_IN_PROGRESS,
@@ -144,10 +158,12 @@ pub const AGGREGATE_SCRIPT: &str = r#"failed=$(printf '%s' "$NEEDS" | jq -r 'to_
 
 /// The aggregate job: it needs every job in `needs` and runs even when one of them failed or was
 /// cancelled, so it fails then instead of being skipped. It checks out nothing and holds no token
-/// permission.
-fn aggregate_value(runner: &str, needs: &[String]) -> Value {
+/// permission. Its name is its id, the check name branch protection requires.
+fn aggregate_value(id: &str, runner: &str, needs: &[String]) -> Value {
     json!({
+        "name": id,
         "runs-on": runner,
+        "timeout-minutes": AGGREGATE_TIMEOUT_MINUTES,
         "needs": needs,
         "if": "${{ always() }}",
         "permissions": {},
@@ -161,7 +177,7 @@ fn aggregate_value(runner: &str, needs: &[String]) -> Value {
     })
 }
 
-/// The checkout step, with `fetch-depth` when one is set. It keeps no credentials
+/// The checkout step, named, with `fetch-depth` when one is set. It keeps no credentials
 /// (`persist-credentials: false`): a token left in the clone's git configuration reaches every later
 /// step and any artifact of the workspace. No setting keeps them, since the generated jobs never
 /// push and read private plugin releases through `GATE_GITHUB_TOKEN`, not through git.
@@ -171,7 +187,7 @@ fn checkout(github: &CiGithub, depth: Option<u64>) -> Value {
         with.insert("fetch-depth".to_owned(), json!(depth));
     }
     with.insert("persist-credentials".to_owned(), json!(false));
-    json!({ "uses": github.checkout, "with": with })
+    json!({ "name": CHECKOUT_STEP, "uses": github.checkout, "with": with })
 }
 
 /// The `if` of a job that needs some projects: it runs when one of them changed, and also when the
@@ -266,6 +282,9 @@ fn job_value(
             .collect()
     };
     value.insert("permissions".to_owned(), Value::Object(permissions));
+    if let Some(environment) = &job.environment {
+        value.insert("environment".to_owned(), json!(environment));
+    }
 
     if !job.services.is_empty() {
         let services: Map<String, Value> = job

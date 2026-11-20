@@ -685,7 +685,8 @@ pub struct CiGithub {
     /// globs, written to the workflow as given (`["**"]` is every branch); defaults to `["main"]`.
     #[serde(default)]
     pub branches: Vec<String>,
-    /// The checkout action, pinned by commit: `actions/checkout@<40 hex digits>`.
+    /// The checkout action, pinned by commit, with its release after ` # `:
+    /// `actions/checkout@<40 hex digits> # v4.2.2`. The workflow carries the release as a comment.
     pub checkout: String,
     /// The runner of the generated `changes` job and of the `aggregate` job, which runs `bash` and
     /// `jq` (GitHub's hosted runners have both); defaults to `ubuntu-24.04`.
@@ -736,8 +737,14 @@ pub struct CiJob {
     /// The projects the job needs: it is skipped when none of them changed. Empty: it always runs.
     #[serde(default)]
     pub projects: Vec<String>,
-    /// A time limit for the job, in minutes.
+    /// The job's time limit in minutes; required, so a hung step never holds a runner for the
+    /// six hours GitHub allows.
+    #[schemars(required)]
     pub timeout_minutes: Option<u64>,
+    /// The deployment environment the job runs in, whose protection rules guard what it writes:
+    /// required by `ci/environment` for a job that writes `contents`, `deployments`, `id-token` or
+    /// `packages`.
+    pub environment: Option<String>,
 }
 
 /// A step of a job: an action pinned by commit, or a shell command.
@@ -746,7 +753,9 @@ pub struct CiJob {
 pub struct CiStep {
     /// The step's display name.
     pub name: Option<String>,
-    /// An action pinned by commit: `<owner>/<repo>[/<path>]@<40 hex digits>`.
+    /// An action pinned by commit, with its release after ` # `:
+    /// `<owner>/<repo>[/<path>]@<40 hex digits> # v1.2.3`. The workflow carries the release as a
+    /// comment.
     pub uses: Option<String>,
     /// The action's inputs.
     #[serde(default)]
