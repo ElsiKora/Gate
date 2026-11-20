@@ -126,10 +126,11 @@ fn file_name(path: &str) -> &str {
 /// `<x>.Dockerfile`, and not an ignore file.
 fn is_image_file(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    !lower.ends_with(".dockerignore")
+    let extension = lower.rsplit_once('.').map(|(_, extension)| extension);
+    extension != Some("dockerignore")
         && (lower == "dockerfile"
             || lower.starts_with("dockerfile.")
-            || lower.ends_with(".dockerfile"))
+            || extension == Some("dockerfile"))
 }
 
 /// One image file being checked.

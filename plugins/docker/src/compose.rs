@@ -95,7 +95,10 @@ impl Rule for Compose {
             let file = File {
                 path: &path,
                 purpose: purpose.as_deref(),
-                end_to_end: name.ends_with(".e2e.yml"),
+                end_to_end: matches!(
+                    name.rsplitn(3, '.').collect::<Vec<_>>().as_slice(),
+                    ["yml", "e2e", _]
+                ),
                 settings: &settings,
                 suffixes: &suffixes,
             };
