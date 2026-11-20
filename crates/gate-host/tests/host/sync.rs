@@ -556,8 +556,8 @@ fn a_seed_filled_and_committed_is_never_drift_never_rewritten_and_never_stale() 
     let generators = Seeds(vec!["docs/seeded.md"], vec!["generated/**"]);
     let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
     let outputs = plan(&workspace, &generators).expect("plan");
-    let owned = owned(&workspace, &generators).expect("owned");
-    let synced = write(&workspace, &outputs, &owned).expect("write");
+    let globs = owned(&workspace, &generators).expect("owned");
+    let synced = write(&workspace, &outputs, &globs).expect("write");
     assert_eq!(synced.written, ["docs/seeded.md", "generated/new.md"]);
     repo.write("docs/seeded.md", "filled\n");
     repo.commit("the seed, filled");
@@ -569,7 +569,7 @@ fn a_seed_filled_and_committed_is_never_drift_never_rewritten_and_never_stale() 
         "a filled seed is not drift"
     );
     let outputs = plan(&workspace, &generators).expect("plan");
-    let synced = write(&workspace, &outputs, &owned).expect("write");
+    let synced = write(&workspace, &outputs, &globs).expect("write");
     assert_eq!(synced.written, Vec::<String>::new());
     assert_eq!(synced.removed, Vec::<String>::new());
 
@@ -579,8 +579,8 @@ fn a_seed_filled_and_committed_is_never_drift_never_rewritten_and_never_stale() 
     let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
     assert_eq!(reported(&workspace, &generators), Vec::<String>::new());
     let outputs = plan(&workspace, &generators).expect("plan");
-    let owned = owned(&workspace, &generators).expect("owned");
-    let synced = write(&workspace, &outputs, &owned).expect("write");
+    let globs = owned(&workspace, &generators).expect("owned");
+    let synced = write(&workspace, &outputs, &globs).expect("write");
     assert_eq!(synced.removed, Vec::<String>::new());
     assert_eq!(
         std::fs::read_to_string(repo.path().join("docs/seeded.md")).expect("read"),
