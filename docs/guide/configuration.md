@@ -544,11 +544,17 @@ core for each platform and of every plugin, keyed by its source. Tools are pinne
 Run `gate lock` after changing `[gate]` or any `[plugins]`; a run with a stale lock fails with exit
 code `2` and says so.
 
-A release job can move one pin without resolving the others:
+A release job can pin the build it is about to publish without resolving the others:
 
 ```bash
-bin/gate lock --set house=https://github.com/your-org/your-repo/releases/download/plugin-house-v1.3.0/house.wasm --sha256 <sha256>
+bin/gate lock --set house=https://github.com/your-org/your-repo/releases/download/plugin-house-v1.3.0/house.wasm --file target/house.wasm
 ```
+
+The pin gets the sha256 of the file and the cache gets the file, so `gate check` on this machine runs
+exactly that build before the asset exists. Anywhere else, `gate check` downloads the asset and fails
+closed if it is not the pinned file; when the asset is not found, the error says to publish it or to
+admit the build with `--file`. A refused or missing credential keeps its own message, since the asset
+may be private.
 
 ## ⏱ Time Budgets
 

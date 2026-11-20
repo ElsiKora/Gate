@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use gate_host::cache::{Bounds, Cache, Entry, Reason};
 use gate_host::config::PluginName;
 use gate_host::lock::{self, LOCK_FILE, Lock, Pin, Wanted};
-use gate_host::{Error, Fetcher, Git, Sha256Sum, Source, Workspace};
+use gate_host::{Error, Fetcher, Git, Source, Workspace};
 
 /// The launcher `gate init` writes to `bin/gate`.
 pub const LAUNCHER: &str = include_str!("launcher.sh");
@@ -21,21 +21,22 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct LockRequest {
     /// `--set <name>=<url>`.
     pub set: Option<String>,
-    /// `--sha256 <hash>`.
-    pub sha256: Option<String>,
+    /// `--file <path>`: the built plugin `--set` pins.
+    pub file: Option<PathBuf>,
     /// `--plugin` overrides, which `gate lock` refuses.
     pub overrides: Vec<String>,
 }
 
-/// `gate lock`: resolves what the configuration declares into `gate.lock`, or, with `--set`, moves
-/// one pin without a download.
+/// `gate lock`: resolves what the configuration declares into `gate.lock`, or, with `--set` and
+/// `--file`, pins one plugin to a local build under its future release URL: the build's sha256
+/// goes into the pin and its bytes into the cache, where `gate check` finds them.
 ///
 /// # Errors
 /// Fails with an override, on a configuration error, and when a release cannot be resolved.
 pub fn lock(request: &LockRequest) -> Result<String, Error> {
     if let Some(first) = request.overrides.first() {
         return Err(Error::config(format!(
-            "gate lock refuses --plugin {first}: an override replaces a plugin for one gate check run and never enters gate.lock; release the build and pin it with gate lock --set <name>=<url> --sha256 <hash>"
+            "gate lock refuses --plugin {first}: an override replaces a plugin for one gate check run and never enters gate.lock; pin the build under its release URL with gate lock --set <name>=<url> --file <path>"
         )));
     }
     let workspace = Workspace::open(Path::new("."), Source::WorkTree)?;
@@ -49,14 +50,32 @@ pub fn lock(request: &LockRequest) -> Result<String, Error> {
             ))
         })?;
         let name = PluginName::try_from(name.to_owned()).map_err(Error::config)?;
-        let sha256 = Sha256Sum::parse(request.sha256.as_deref().unwrap_or_default())
-            .map_err(|message| Error::config(format!("--sha256: {message}")))?;
+        let file = request.file.as_deref().ok_or_else(|| {
+            Error::config(format!(
+                "--set {set} needs --file <path>, the built plugin to pin"
+            ))
+        })?;
+        let sha256 = gate_host::cache::hash_file(file)
+            .map_err(|error| Error::environment(format!("--file: {}", error.message())))?;
         let pin = Pin {
             url: url.to_owned(),
-            sha256,
+            sha256: sha256.clone(),
         };
-        let line = format!("pinned {name} to {} sha256 {}", pin.url, pin.sha256);
+        let line = format!(
+            "pinned {name} to {} sha256 {} from {}, now in the cache",
+            pin.url,
+            pin.sha256,
+            file.display()
+        );
+        // Every check first: nothing enters the cache or gate.lock for a pin that is refused.
         let locked = lock::set(&wanted, Lock::read(&root)?, &name, pin)?;
+        let admitted = Cache::from_env()?.admit(file)?;
+        if admitted != sha256 {
+            return Err(Error::environment(format!(
+                "--file {} changed while gate read it (sha256 {sha256}, then {admitted}); gate.lock is unchanged: run gate lock --set again once the build has finished",
+                file.display()
+            )));
+        }
         locked.write(&root)?;
         return Ok(format!("{LOCK_FILE}: {line}\n{}", untracked(&workspace)));
     }

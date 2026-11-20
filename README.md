@@ -382,7 +382,7 @@ selection.
 | `gate explain <plugin>/<rule>` | Print what the configuration says about a rule (levels, norms, origins, exceptions), or that no `gate.toml` configures it |
 | `gate schema` / `gate schema --exceptions` | Print the JSON Schema of `gate.toml`, or of `gate.exceptions.toml` |
 | `gate lock` | Resolve the core and plugins and write `gate.lock` |
-| `gate lock --set <name>=<url> --sha256 <hash>` | Move one pin, from a plugin's release job |
+| `gate lock --set <name>=<url> --file <file.wasm>` | Pin one plugin to a build under its release URL and put the build in the cache, from a plugin's release job |
 | `gate baseline write` | Store today's findings in `gate/baseline.json`; they stop being reported |
 | `gate sync` / `gate sync --check` | Write, or verify, hooks, CI jobs and generated files |
 | `gate run <suite or step>` | Run the repository's steps and report each exit code; takes `--staged`, `--changed --base <rev>` or `--push <base>..<tip>` |

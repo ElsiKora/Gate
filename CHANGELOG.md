@@ -10,6 +10,13 @@ Each shared plugin keeps its own changelog next to its code.
 
 # 0.3.0 (unreleased)
 
+### Breaking Changes
+
+- **lock:** `gate lock --set <name>=<url> --file <path>` replaces `--sha256 <hash>`, with no alias.
+  The pin takes the sha256 of the file and the file enters the blob cache, so `gate check` runs
+  exactly the build a release job is about to publish, before its asset exists. A release job that
+  passed `--sha256` passes the built file with `--file` instead.
+
 ### Features
 
 - **plugin-node:** a new shared plugin, `node`, checks that every Node project of a kind uses one
@@ -17,6 +24,10 @@ Each shared plugin keeps its own changelog next to its code.
   configuration, one ESLint configuration on the shared package, the standard manifest fields and
   script names, and one strict TypeScript base. Its nine rules are listed in
   [docs/guide/plugins.md](docs/guide/plugins.md#node).
+- **plugins:** a pinned plugin whose blob is not in the cache and whose asset is not found (HTTP
+  404 from a URL outside GitHub, or a GitHub release without that asset) says what to do: publish
+  the asset, or admit the build with `gate lock --set <name>=<url> --file <path>`. A refused or
+  missing credential keeps its own message, since the asset may be private.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

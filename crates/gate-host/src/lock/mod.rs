@@ -603,9 +603,9 @@ pub fn resolve(wanted: &Wanted, existing: Option<&Lock>, fetcher: &Fetcher) -> R
     Ok(resolution)
 }
 
-/// `gate lock --set <name>=<url> --sha256 <hash>`: pins the source declared under `name` to `url`
-/// and `sha256` without a download, and drops pins no configuration declares. Every other pin
-/// stays as it is.
+/// `gate lock --set <name>=<url> --file <path>`: pins the source declared under `name` to `url`
+/// and the sha256 of the build, without a download, and drops pins no configuration declares.
+/// Every other pin stays as it is.
 ///
 /// # Errors
 /// Fails when there is no lock yet, `name` is not declared with one source, or the URL is not one

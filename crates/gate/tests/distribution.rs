@@ -957,17 +957,29 @@ fn lock_set_moves_exactly_the_one_pin() {
     let repo = with_plugins();
     let before = repo.read("gate.lock");
     let url = "https://github.com/acme/rules/releases/download/plugin-house-v1.3.0/house.wasm";
-    let hash = "e".repeat(64);
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("house.wasm");
+    std::fs::write(&file, b"\0asm house 1.3.0").expect("build");
+    let hash = sha256(b"\0asm house 1.3.0");
 
     let output = repo.gate(
-        &["lock", "--set", &format!("house={url}"), "--sha256", &hash],
+        &[
+            "lock",
+            "--set",
+            &format!("house={url}"),
+            "--file",
+            path(&file),
+        ],
         None,
         &[],
     );
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     assert_eq!(
         text(&output.stdout),
-        format!("gate.lock: pinned house to {url} sha256 {hash}\n")
+        format!(
+            "gate.lock: pinned house to {url} sha256 {hash} from {}, now in the cache\n",
+            file.display()
+        )
     );
     let after = repo.read("gate.lock");
     let expected = before
@@ -988,9 +1000,270 @@ fn lock_set_moves_exactly_the_one_pin() {
         "the moved pin matches: {}",
         text(&output.stderr)
     );
+}
 
-    let output = repo.gate(&["lock", "--set", &format!("house={url}")], None, &[]);
-    assert_eq!(output.status.code(), Some(2), "--set needs --sha256");
+fn path(file: &Path) -> &str {
+    file.to_str().expect("a UTF-8 path")
+}
+
+/// The entries of the blob cache under `cache`.
+fn blobs(cache: &Path) -> Vec<PathBuf> {
+    let directory = cache.join("blobs/sha256");
+    if !directory.exists() {
+        return Vec::new();
+    }
+    files(&directory)
+}
+
+/// A repository whose `gate.toml` turns on `git/commit-message` from the git plugin of this release,
+/// pinned in `gate.lock` to `url` with the sha256 `hash`, and committed.
+fn git_pinned(url: &str, hash: &str) -> Repo {
+    let source = format!("ElsiKora/Gate:git@{VERSION}");
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ngit = {{ source = \"{source}\", options = {{ main = [\"refs/heads/main\"] }} }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n"
+        ),
+    )
+    .write(
+        "gate.lock",
+        &pinned(&[(&source, 'b')])
+            .replace("https://example.invalid/b.wasm", url)
+            .replace(&"b".repeat(64), hash),
+    );
+    repo.commit();
+    repo
+}
+
+#[test]
+fn lock_set_file_admits_the_build_and_check_runs_exactly_it_before_it_is_published() {
+    let server = Server::start();
+    let wasm = git_component();
+    let url = server.url(&format!(
+        "/acme/releases/download/plugin-git-v{VERSION}/git.wasm"
+    ));
+    let repo = git_pinned(&url, &"b".repeat(64));
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("git.wasm");
+    std::fs::write(&file, &wasm).expect("build");
+    let hash = sha256(&wasm);
+
+    let output = repo.gate(
+        &[
+            "lock",
+            "--set",
+            &format!("git={url}"),
+            "--file",
+            path(&file),
+        ],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        repo.read("gate.lock")
+            .contains(&format!("url = \"{url}\"\nsha256 = \"{hash}\"\n")),
+        "{}",
+        repo.read("gate.lock")
+    );
+    let entry = repo.cache.path().join("blobs/sha256").join(&hash);
+    assert_eq!(
+        std::fs::read(&entry).expect("the build is in the cache"),
+        wasm
+    );
+    repo.commit();
+
+    // The asset is not published: the URL answers 404, so the run can only use the admitted build.
+    let output = repo.gate(&["check"], None, &[]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert!(
+        text(&output.stdout).contains("gate check (tree): 1 rule, 0 errors"),
+        "{}",
+        text(&output.stdout)
+    );
+    assert!(server.requests().is_empty(), "nothing was downloaded");
+    server.stop();
+}
+
+#[test]
+fn another_file_under_the_pinned_sha256_is_refused_and_nothing_runs() {
+    let server = Server::start();
+    let url = server.url("/acme/releases/download/plugin-git-v9.9.9/git.wasm");
+    let repo = git_pinned(&url, &"b".repeat(64));
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("git.wasm");
+    std::fs::write(&file, b"\0asm the build that was pinned").expect("build");
+    let output = repo.gate(
+        &[
+            "lock",
+            "--set",
+            &format!("git={url}"),
+            "--file",
+            path(&file),
+        ],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit();
+    let hash = sha256(b"\0asm the build that was pinned");
+    let entry = repo.cache.path().join("blobs/sha256").join(&hash);
+    std::fs::write(&entry, b"\0asm another build").expect("replace the entry");
+
+    let output = repo.gate(&["check"], None, &[]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+    assert!(
+        !text(&output.stdout).contains("gate check"),
+        "no rule ran: {}",
+        text(&output.stdout)
+    );
+    assert!(
+        !entry.exists(),
+        "the entry that is not the pinned file is gone"
+    );
+    assert!(
+        text(&output.stderr).contains(&format!("plugin git = ElsiKora/Gate:git@{VERSION}: "))
+            && text(&output.stderr).contains("--file <the built .wasm>"),
+        "{}",
+        text(&output.stderr)
+    );
+    server.stop();
+}
+
+#[test]
+fn a_pin_whose_blob_is_missing_and_cannot_be_downloaded_fails_closed_and_says_what_to_do() {
+    let server = Server::start();
+    let url = server.url("/acme/releases/download/plugin-git-v9.9.9/git.wasm");
+    let repo = git_pinned(&url, &"d".repeat(64));
+
+    let output = repo.gate(&["check"], None, &[]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+    assert!(
+        !text(&output.stdout).contains("gate check"),
+        "no rule ran: {}",
+        text(&output.stdout)
+    );
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains(&format!("plugin git = ElsiKora/Gate:git@{VERSION}: ")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!(
+            "; if the asset is not published yet, publish it, or admit the build on this machine with gate lock --set git={url} --file <the built .wasm>"
+        )),
+        "{stderr}"
+    );
+    assert!(
+        blobs(repo.cache.path()).is_empty(),
+        "nothing entered the cache"
+    );
+    server.stop();
+}
+
+#[test]
+fn a_refused_download_or_a_missing_credential_gets_no_admit_advice() {
+    for status in [401, 403] {
+        let server = Server::start();
+        let path = "/acme/releases/download/plugin-git-v9.9.9/git.wasm";
+        server.route(path, Route::status(status));
+        let repo = git_pinned(&server.url(path), &"d".repeat(64));
+
+        let output = repo.gate(&["check"], None, &[]);
+        assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+        let stderr = text(&output.stderr);
+        assert!(
+            stderr.contains(&format!("HTTP {status}")) && !stderr.contains("--file"),
+            "{stderr}"
+        );
+        server.stop();
+    }
+
+    // A GitHub release asset refused without a credential may be private: the advice is to set a
+    // credential, never to pin a local build.
+    let server = Server::start();
+    let url = server.url("/acme/rules/releases/download/plugin-git-v9.9.9/git.wasm");
+    let repo = git_pinned(&url, &"d".repeat(64));
+    let output = repo.gate(&["check"], Some(&server), &[]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains("was refused without a credential (HTTP 404)")
+            && !stderr.contains("--file"),
+        "{stderr}"
+    );
+    server.stop();
+}
+
+#[test]
+fn lock_set_needs_a_readable_file_and_a_declared_name_and_has_no_sha256() {
+    let server = Server::start();
+    let url = server.url("/acme/releases/download/plugin-git-v9.9.9/git.wasm");
+    let repo = git_pinned(&url, &"b".repeat(64));
+    let before = repo.read("gate.lock");
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("git.wasm");
+    std::fs::write(&file, b"\0asm a build").expect("build");
+    let set = format!("git={url}");
+
+    for arguments in [
+        vec!["lock", "--set", &set],
+        vec!["lock", "--file", path(&file)],
+        vec!["lock", "--set", &set, "--sha256", &"e".repeat(64)],
+    ] {
+        let output = repo.gate(&arguments, None, &[]);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+    }
+
+    let missing = build.path().join("missing.wasm");
+    let output = repo.gate(
+        &["lock", "--set", &set, "--file", path(&missing)],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        text(&output.stderr).contains(&format!("--file: cannot read {}", missing.display())),
+        "{}",
+        text(&output.stderr)
+    );
+
+    let output = repo.gate(
+        &[
+            "lock",
+            "--set",
+            &format!("house={url}"),
+            "--file",
+            path(&file),
+        ],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stderr).contains("house"),
+        "{}",
+        text(&output.stderr)
+    );
+
+    assert_eq!(repo.read("gate.lock"), before, "gate.lock is unchanged");
+    assert!(
+        blobs(repo.cache.path()).is_empty(),
+        "a refused pin admits nothing"
+    );
+    server.stop();
 }
 
 #[test]

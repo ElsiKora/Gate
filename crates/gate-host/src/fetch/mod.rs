@@ -80,6 +80,22 @@ impl Bounds {
     };
 }
 
+/// `message`, with the advice `unavailable` added when the asset is `missing`.
+fn advised(message: String, unavailable: Option<&str>, missing: bool) -> String {
+    if missing && let Some(advice) = unavailable {
+        format!("{message}; {advice}")
+    } else {
+        message
+    }
+}
+
+/// The message of a download that does not hash to its `gate.lock` pin.
+fn lock_mismatch(asset: &str, url: &str, expected: &Sha256Sum, actual: &Sha256Sum) -> String {
+    format!(
+        "checksum mismatch for {asset} from {url}: gate.lock pins sha256 {expected}, the download has sha256 {actual}; nothing entered the cache. Do not use the download; if the release was replaced on purpose, pin it again with gate lock"
+    )
+}
+
 /// Checks that gate fetches `url`: `https`, or plain `http` to this machine only (`127.0.0.1`,
 /// `[::1]`, `localhost`), with no user information, quote, backslash, space or control
 /// character.
@@ -349,6 +365,29 @@ impl Fetcher {
         Ok(path)
     }
 
+    /// [`Fetcher::fetch`], with `unavailable` added to the message when the asset is not found: a
+    /// URL outside GitHub that answers HTTP 404, or a GitHub release that lists no such asset, as
+    /// for an asset that is not published yet. A refused or missing credential keeps its own
+    /// message, since the asset may be private, and so does a checksum mismatch, since the asset
+    /// exists and is another file.
+    ///
+    /// # Errors
+    /// Fails like [`Fetcher::fetch`].
+    pub fn fetch_advised(&self, asset: &str, pin: &Pin, unavailable: &str) -> Result<PathBuf> {
+        if let Some(path) = self.cache.get(&pin.sha256)? {
+            return Ok(path);
+        }
+        let url = &pin.url;
+        let (_, path) = self.download_checked(
+            asset,
+            url,
+            Some(&pin.sha256),
+            Some(unavailable),
+            |expected, actual| lock_mismatch(asset, url, expected, actual),
+        )?;
+        Ok(path)
+    }
+
     /// [`Fetcher::fetch`] for a pin that `pinned_by` (such as `gate.toml [tools.fmt]`) holds, not
     /// `gate.lock`: a mismatch says to pin the new sha256 there.
     ///
@@ -359,7 +398,7 @@ impl Fetcher {
             return Ok(path);
         }
         let url = &pin.url;
-        let (_, path) = self.download_checked(asset, url, Some(&pin.sha256), |expected, actual| {
+        let (_, path) = self.download_checked(asset, url, Some(&pin.sha256), None, |expected, actual| {
             format!(
                 "checksum mismatch for {asset} from {url}: {pinned_by} pins sha256 {expected}, the download has sha256 {actual}; nothing entered the cache. Do not use the download; if the release was replaced on purpose, pin the new sha256 in {pinned_by}"
             )
@@ -378,23 +417,24 @@ impl Fetcher {
         url: &str,
         expected: Option<&Sha256Sum>,
     ) -> Result<(Sha256Sum, PathBuf)> {
-        self.download_checked(asset, url, expected, |expected, actual| {
-            format!(
-                "checksum mismatch for {asset} from {url}: gate.lock pins sha256 {expected}, the download has sha256 {actual}; nothing entered the cache. Do not use the download; if the release was replaced on purpose, pin it again with gate lock"
-            )
+        self.download_checked(asset, url, expected, None, |expected, actual| {
+            lock_mismatch(asset, url, expected, actual)
         })
     }
 
+    /// Downloads `url` into the cache; with `expected`, bytes that hash otherwise fail with
+    /// `mismatch`. `unavailable`, when given, is added to the message when the asset is not found.
     fn download_checked(
         &self,
         asset: &str,
         url: &str,
         expected: Option<&Sha256Sum>,
+        unavailable: Option<&str>,
         mismatch: impl FnOnce(&Sha256Sum, &Sha256Sum) -> String,
     ) -> Result<(Sha256Sum, PathBuf)> {
         check_url(url).map_err(|message| Error::environment(format!("{asset}: {message}")))?;
         let mut temporary = self.cache.temporary()?;
-        let actual = self.download_into(asset, url, &mut temporary)?;
+        let actual = self.download_into(asset, url, &mut temporary, unavailable)?;
         if let Some(expected) = expected
             && expected != &actual
         {
@@ -463,7 +503,7 @@ impl Fetcher {
             None => None,
         };
         let (actual, _) =
-            self.download_checked(asset, &url, published.as_ref(), |published, actual| {
+            self.download_checked(asset, &url, published.as_ref(), None, |published, actual| {
                 format!(
                     "{asset} of release {tag} of {owner}/{repo}: the release publishes sha256 {published}, the download from {url} has sha256 {actual}; nothing was pinned or cached, do not trust the download"
                 )
@@ -596,6 +636,7 @@ impl Fetcher {
         asset: &str,
         url: &str,
         temporary: &mut Temporary,
+        unavailable: Option<&str>,
     ) -> Result<Sha256Sum> {
         let deadline = Instant::now() + GLOBAL_TIMEOUT;
         // Every 200 answer streams into the temporary file under the same asset name, URL and bounds.
@@ -615,8 +656,13 @@ impl Fetcher {
         }
         let refused = matches!(status, 401 | 403 | 404);
         let Some(github) = refused.then(|| self.github_asset(url)).flatten() else {
-            return Err(Error::environment(format!(
+            let message = format!(
                 "cannot download {asset} from {url}: HTTP {status}; check the URL in gate.lock, or run gate lock again"
+            );
+            return Err(Error::environment(advised(
+                message,
+                unavailable,
+                status == 404,
             )));
         };
 
@@ -634,10 +680,11 @@ impl Fetcher {
             deadline,
         )?;
         let Some(found) = release.assets.iter().find(|item| item.name == github.name) else {
-            return Err(Error::environment(format!(
+            let message = format!(
                 "release {} of {}/{} has no asset {}; check the URL in gate.lock, or run gate lock again",
                 github.tag, github.owner, github.repo, github.name
-            )));
+            );
+            return Err(Error::environment(advised(message, unavailable, true)));
         };
         // The credential goes to this repository's release assets on its own API only.
         let prefix = format!(
