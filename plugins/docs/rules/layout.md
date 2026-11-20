@@ -22,10 +22,11 @@ docs = { source = "ElsiKora/Gate:docs@0.3.0", options = { kind = "service" } }
 required and never inferred: a missing or unknown kind is a configuration error (exit 2).
 
 The rule reads the tracked paths under `docs/` and the text of the indexes. It never reads inside
-`agents/` or `ledger/`, whose plugins own what is there.
+`agents/` or `ledger/`, whose plugins own what is there; of a delegated entry the project lists, it
+checks only that some file is tracked under it.
 
-Scope: project. Reads history: no. Aspects: `missing`, `unknown`, `extra-missing`, `entry-index`,
-`index`, `sections`, `unfilled`.
+Scope: project. Reads history: no. Aspects: `missing`, `unknown`, `extra-missing`,
+`delegated-missing`, `entry-index`, `index`, `sections`, `unfilled`.
 
 ### The entries
 
@@ -51,7 +52,7 @@ the reason given.
 
 A directory entry's index is its `README.md`. `research/` and `releases/` are present only when the
 project has that job. `agents/` and `ledger/` are delegated: their own plugins' rules require what is
-inside them, so this rule never requires them.
+inside them, so this rule requires them only when the project lists them (see below).
 
 **Reserved names** are refused, even as a declared extension, because their job has an entry. A name
 without `.md` is reserved as a directory and as a Markdown file.
@@ -106,6 +107,22 @@ not an entry of the standard, in any kind, and not a reserved name; `job` is not
 of these is a configuration error (exit 2) that names the key. Extensions come after the standard's
 entries in the index's order, in the order declared.
 
+### The delegated entries
+
+A project that enables the `agents` or the `ledger` plugin lists the entry in the `delegated` key of
+the same options:
+
+```toml
+docs = { source = "ElsiKora/Gate:docs@0.3.0", options = { kind = "service", delegated = ["agents", "ledger"] } }
+```
+
+The seed of `docs/README.md` then has a row for each entry listed, linking its directory, after the
+seeded entries; the index must link each one listed; and each one listed must be tracked, which its
+own plugin's `gate sync` does. A delegated directory that exists needs its row in the index whether
+it is listed or not. The default is empty. A name that is not a delegated entry, an entry the kind
+does not have (`ledger` in a monorepo root) or a name listed twice is a configuration error
+(exit 2) that names the key.
+
 ### The monorepo root
 
 A path belongs to the project with the longest root that contains it, so a root `docs/` is checked
@@ -116,7 +133,8 @@ the fix is the root's configuration.
 
 ## Options
 
-None of its own. It reads `kind` and `extra` from the `[plugins.docs]` options.
+None of its own. It reads `kind`, `extra` and `delegated` from the `[plugins.docs]` options. A
+preset carries rule options only, so neither preset sets them.
 
 ## Presets
 
@@ -132,8 +150,9 @@ overrides it as usual. The generator is not part of a preset: put `"docs/layout"
 | `missing` | a required entry of the kind is not tracked (for a directory, its `README.md`) | the entry's index | the entry |
 | `unknown` | a top-level name is not an entry of the kind and not declared; for a reserved name, a kind's absent entry or a Markdown file named like a directory entry, the message says where the content goes or why the kind has none | the name | the name |
 | `extra-missing` | a declared extension is not tracked | the declared name | the name |
+| `delegated-missing` | a delegated entry listed in `delegated` has no tracked file under it | the entry's name | the entry |
 | `entry-index` | an optional or declared directory has no `README.md` | its `README.md` | the entry |
-| `index` | the Entries section of `docs/README.md` does not link a present entry, or lists the entries out of the standard order | `docs/README.md` | `link <entry>`, `order <entry>` |
+| `index` | the Entries section of `docs/README.md` does not link a present entry or a listed delegated entry, or lists the entries out of the standard order | `docs/README.md` | `link <entry>`, `order <entry>` |
 | `sections` | an index lacks a required section of its kind, or has them out of order | the index (the first misplaced heading, for the order) | `<index>#<section>`, `<index>#order` |
 | `unfilled` | a required index still holds the seed's marker line | the marker's line | the index |
 
@@ -153,4 +172,6 @@ The target of each finding is the entry's or the index's path. A project that is
 
 Run `gate sync` with [`docs/layout`](../generators/layout.md) in `[generate]`: it lays down every
 required index that is missing. Then fill each page and delete its marker line. Move the content of
-an unknown entry into the entry its message names, or declare the entry with its job.
+an unknown entry into the entry its message names, or declare the entry with its job. For a listed
+delegated entry that is missing, run `gate sync` with its plugin's generator in `[generate]`, or
+remove it from `delegated`.

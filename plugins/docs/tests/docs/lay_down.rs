@@ -151,3 +151,41 @@ fn a_kind_that_is_missing_or_unknown_is_a_configuration_error_listing_the_five()
         );
     }
 }
+
+#[test]
+fn the_index_seed_lists_the_delegated_entries_the_options_name_after_the_seeded_ones() {
+    let rows = |options: &str| -> Vec<String> {
+        let output = Fixture::new(&[]).generate(options).expect("generates");
+        let index = output
+            .files
+            .iter()
+            .find(|file| file.path == "docs/README.md")
+            .expect("seeded");
+        String::from_utf8(index.contents.clone())
+            .expect("UTF-8")
+            .lines()
+            .filter(|line| line.starts_with("| ["))
+            .map(|line| line.split(" | ").next().unwrap_or(line).to_owned())
+            .collect()
+    };
+    let service = rows(r#"{"kind": "service", "delegated": ["ledger", "agents"]}"#);
+    assert_eq!(
+        service[service.len() - 3..],
+        [
+            "| [operations/](operations/README.md)",
+            "| [agents/](agents/)",
+            "| [ledger/](ledger/)"
+        ]
+    );
+    let root = rows(r#"{"kind": "monorepo-root", "delegated": ["agents"]}"#);
+    assert_eq!(
+        root.last().map(String::as_str),
+        Some("| [agents/](agents/)")
+    );
+    assert!(
+        !rows(&kind("service"))
+            .iter()
+            .any(|row| row.contains("agents/") || row.contains("ledger/")),
+        "nothing listed, no row"
+    );
+}

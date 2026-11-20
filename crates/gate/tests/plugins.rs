@@ -4251,6 +4251,78 @@ fn the_docs_plugin_lays_down_and_checks_the_standard_of_each_kind() {
     }
 }
 
+/// The `delegated` option of the built `docs` plugin, in each kind, with the delegated entries
+/// tracked as their plugins would lay them down: after `gate sync`, `gate check` reports no
+/// structural finding, only each seed unfilled; with `docs/ledger/` (a monorepo root:
+/// `docs/agents/`) removed, it reports the listed entry missing.
+#[test]
+fn the_docs_index_seeds_and_requires_the_delegated_entries_of_each_kind() {
+    let (path, _) = component("gate-plugin-docs", "docs");
+    let plugin = format!("docs={}", path.display());
+    for (kind, delegated, removed, count) in [
+        ("service", r#"["agents", "ledger"]"#, "ledger", 9),
+        ("frontend", r#"["agents", "ledger"]"#, "ledger", 9),
+        ("infrastructure", r#"["agents", "ledger"]"#, "ledger", 9),
+        ("library", r#"["agents", "ledger"]"#, "ledger", 9),
+        ("monorepo-root", r#"["agents"]"#, "agents", 8),
+    ] {
+        let repo = Repo::empty();
+        repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\noptions = {{ kind = \"{kind}\", delegated = {delegated} }}\n\n[rules]\n\"docs/layout\" = \"error\"\n\n[generate]\n\"docs/layout\" = {{}}\n"
+            ),
+        );
+        repo.write("docs/agents/rules/general.md", "# General\n");
+        if kind != "monorepo-root" {
+            repo.write("docs/ledger/manifest.json", "{}\n");
+        }
+        repo.commit("configure, with the delegated entries in place");
+
+        let output = repo.gate(&["sync", "--plugin", &plugin]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{kind}: {}",
+            text(&output.stderr)
+        );
+        repo.commit("docs: seed the book");
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        let report = text(&output.stdout);
+        assert_eq!(output.status.code(), Some(1), "{kind}: {report}");
+        assert_eq!(
+            report.matches("docs/layout#unfilled").count(),
+            count,
+            "{kind}: {report}"
+        );
+        assert_eq!(
+            report.matches("docs/layout#").count(),
+            count,
+            "{kind}: no structural finding: {report}"
+        );
+
+        repo.git(&["rm", "-r", "-q", &format!("docs/{removed}")]);
+        repo.commit("remove a delegated entry");
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        let report = text(&output.stdout);
+        assert_eq!(output.status.code(), Some(1), "{kind}: {report}");
+        assert_eq!(
+            report
+                .matches(&format!(
+                    "error[docs/layout#delegated-missing] docs/{removed}: docs/{removed}/ is listed"
+                ))
+                .count(),
+            1,
+            "{kind}: {report}"
+        );
+        assert_eq!(
+            report.matches("docs/layout#").count(),
+            count + 1,
+            "{kind}: {report}"
+        );
+    }
+}
+
 /// `docs/recommended` turns `docs/layout` on at error and `docs/adoption` at warning, with no
 /// `[rules]` line: on an empty project the same nine findings, failing the check only at error.
 #[test]

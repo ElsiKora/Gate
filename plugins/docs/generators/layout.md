@@ -24,16 +24,17 @@ Each seed holds:
 - the kind's required sections as level-2 headings, in order, each with one line that says what goes
   there.
 
-`docs/README.md` adds a table of the seeded entries, in the standard order, each linked. The
-decision log, `docs/adr/README.md`, adds the record template as a fenced block.
+`docs/README.md` adds a table of the seeded entries, in the standard order, each linked, then a row
+for each delegated entry listed in `delegated`, linking its directory. The decision log,
+`docs/adr/README.md`, adds the record template as a fenced block.
 
 The generator never writes an optional, delegated or declared entry. `agents/` and `ledger/` are
 laid down by their own plugins.
 
 ## Options
 
-None. It reads `kind` from the `[plugins.docs]` options; a missing or unknown kind is a configuration
-error (exit 2).
+None. It reads `kind` and `delegated` from the `[plugins.docs]` options; a missing or unknown kind
+is a configuration error (exit 2).
 
 ```toml
 [plugins]

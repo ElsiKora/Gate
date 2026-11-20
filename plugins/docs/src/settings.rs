@@ -1,5 +1,5 @@
-//! The `[plugins.docs]` options: the project's kind and its declared extensions. The rule and the
-//! generator read the same options.
+//! The `[plugins.docs]` options: the project's kind, its declared extensions and the delegated
+//! entries whose plugins it enables. The rule and the generator read the same options.
 
 use std::collections::BTreeSet;
 
@@ -7,7 +7,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Result};
 
-use crate::standard::{self, Kind};
+use crate::standard::{self, Cell, ENTRIES, Kind};
 
 /// The plugin's options.
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -24,6 +24,10 @@ pub struct Settings {
     /// index's order, in the order declared.
     #[serde(default)]
     pub extra: Vec<Extra>,
+    /// The delegated entries (`agents`, `ledger`) whose owning plugin the project enables: the
+    /// index's seed lists each, the index must link each, and each must be tracked.
+    #[serde(default)]
+    pub delegated: Vec<String>,
 }
 
 /// An entry a project adds to its standard.
@@ -58,6 +62,7 @@ impl Settings {
             ))
         })?;
         settings.check()?;
+        settings.check_delegated()?;
         Ok(settings)
     }
 
@@ -96,6 +101,43 @@ impl Settings {
             }
         }
         Ok(())
+    }
+
+    fn check_delegated(&self) -> Result<()> {
+        let mut seen = BTreeSet::new();
+        for (position, name) in self.delegated.iter().enumerate() {
+            let key = format!("the [plugins.docs] options delegated[{position}]");
+            let Some(entry) = standard::entry(name).filter(|entry| entry.delegated.is_some())
+            else {
+                let choices: Vec<&str> = ENTRIES
+                    .iter()
+                    .filter(|entry| entry.delegated.is_some())
+                    .map(|entry| entry.name)
+                    .collect();
+                return Err(Error::config(format!(
+                    "{key} {name:?} is not a delegated entry; list one of {}",
+                    choices.join(", ")
+                )));
+            };
+            if let Cell::Absent(reason) = entry.cell(self.kind) {
+                return Err(Error::config(format!(
+                    "{key} {name:?} is not an entry of {}: {reason}",
+                    self.kind.noun()
+                )));
+            }
+            if !seen.insert(name.as_str()) {
+                return Err(Error::config(format!(
+                    "{key} {name:?} is listed twice; list each delegated entry once"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `name` is a delegated entry the options list.
+    #[must_use]
+    pub fn delegates(&self, name: &str) -> bool {
+        self.delegated.iter().any(|area| area == name)
     }
 
     /// The declared extension named `name` (a top-level name under `docs/`).

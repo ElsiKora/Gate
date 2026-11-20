@@ -296,3 +296,64 @@ fn a_seeded_page_is_unfilled_until_its_marker_line_is_deleted() {
         ["unfilled docs/guide/README.md:3 docs/guide/README.md"]
     );
 }
+
+#[test]
+fn a_listed_delegated_entry_is_linked_by_the_seed_and_must_be_tracked() {
+    let options = r#"{"kind": "service", "delegated": ["agents", "ledger"]}"#;
+    let seeded = Fixture::from_output(&Fixture::new(&[]).generate(options).expect("seeds"))
+        .replaced(MARKER, "");
+    let tracked = seeded
+        .with("docs/agents/rules/general.md", "# General\n")
+        .with("docs/ledger/manifest.json", "{}\n");
+    assert_eq!(check(&tracked, options), Vec::<String>::new());
+    assert_eq!(
+        check(&tracked.without("docs/ledger/manifest.json"), options),
+        ["delegated-missing docs/ledger ledger"]
+    );
+    let unlinked = tracked.replaced(
+        "| [ledger/](ledger/) | work records, verification, follow-ups |\n",
+        "",
+    );
+    assert_eq!(
+        check(&unlinked, options),
+        ["index docs/README.md link ledger"]
+    );
+    assert_eq!(
+        check(&unlinked.without("docs/ledger/manifest.json"), options),
+        [
+            "delegated-missing docs/ledger ledger",
+            "index docs/README.md link ledger"
+        ],
+        "a listed entry needs its row whether or not it is tracked"
+    );
+    let unlisted = r#"{"kind": "service", "delegated": ["agents"]}"#;
+    assert_eq!(
+        check(&unlinked, unlisted),
+        ["index docs/README.md link ledger"],
+        "a delegated directory that exists needs its row, listed or not"
+    );
+}
+
+#[test]
+fn a_delegated_list_that_breaks_the_rules_is_a_configuration_error_naming_the_key() {
+    for (options, says) in [
+        (
+            r#"{"kind": "service", "delegated": ["research"]}"#,
+            r#"delegated[0] "research" is not a delegated entry; list one of agents, ledger"#,
+        ),
+        (
+            r#"{"kind": "monorepo-root", "delegated": ["agents", "ledger"]}"#,
+            r#"delegated[1] "ledger" is not an entry of a monorepo root: "#,
+        ),
+        (
+            r#"{"kind": "service", "delegated": ["agents", "agents"]}"#,
+            r#"delegated[1] "agents" is listed twice"#,
+        ),
+    ] {
+        let error = book("service")
+            .check(options)
+            .expect_err("a configuration error");
+        assert!(error.is_config(), "{options}: {error}");
+        assert!(error.to_string().contains(says), "{options}: {error}");
+    }
+}

@@ -23,6 +23,7 @@ impl Rule for Layout {
         "missing",
         "unknown",
         "extra-missing",
+        "delegated-missing",
         "entry-index",
         "index",
         "sections",
@@ -37,6 +38,7 @@ impl Rule for Layout {
         missing(report, &settings, &book);
         unknown(report, &settings, &book);
         extras(report, &settings, &book);
+        delegated(report, &settings, &book);
         entry_indexes(report, &settings, &book);
         index(report, &settings, &book, tree);
         sections(report, settings.kind, &book, tree);
@@ -223,6 +225,29 @@ fn extras(report: &mut Report, settings: &Settings, book: &Book) {
     }
 }
 
+fn delegated(report: &mut Report, settings: &Settings, book: &Book) {
+    for entry in ENTRIES
+        .iter()
+        .filter(|entry| settings.delegates(entry.name))
+    {
+        if book.present(entry.name, true) {
+            continue;
+        }
+        let owner = entry.delegated.unwrap_or(entry.name);
+        report
+            .finding(
+                "delegated-missing",
+                Location::file(format!("docs/{}", entry.name)),
+                format!(
+                    "{} is listed in the [plugins.docs] options' delegated and is not tracked; run gate sync to let the {owner} plugin lay it down, or remove it from delegated",
+                    entry.path()
+                ),
+            )
+            .target(entry.path())
+            .key(entry.name);
+    }
+}
+
 fn entry_indexes(report: &mut Report, settings: &Settings, book: &Book) {
     let kind = settings.kind;
     for (name, top) in &book.tops {
@@ -249,11 +274,14 @@ fn entry_indexes(report: &mut Report, settings: &Settings, book: &Book) {
 }
 
 /// The rank of `name` in the index's order: the standard's entries, then the extensions as
-/// declared; `None` for a name that is not an entry of the project in the form tracked.
+/// declared; `None` for a name that is not an entry of the project in the form tracked. A delegated
+/// entry the options list has its rank whether or not it is tracked.
 fn rank(name: &str, settings: &Settings, book: &Book) -> Option<usize> {
-    let top = book.tops.get(name)?;
-    if not_an_entry(name, top, settings).is_some() || name == "README.md" {
-        return None;
+    if !settings.delegates(name) {
+        let top = book.tops.get(name)?;
+        if not_an_entry(name, top, settings).is_some() || name == "README.md" {
+            return None;
+        }
     }
     ENTRIES
         .iter()
@@ -301,9 +329,16 @@ fn index(report: &mut Report, settings: &Settings, book: &Book, tree: Tree<'_>) 
             order.push((name, rank));
         }
     }
-    for (name, top) in &book.tops {
-        if rank(name, settings, book).is_some() && order.iter().all(|(seen, _)| seen != name) {
-            let path = shown(name, top.directory());
+    let candidates: BTreeSet<&str> = book
+        .tops
+        .keys()
+        .chain(&settings.delegated)
+        .map(String::as_str)
+        .collect();
+    for name in candidates {
+        if rank(name, settings, book).is_some() && order.iter().all(|(seen, _)| *seen != name) {
+            let directory = book.tops.get(name).is_none_or(Top::directory);
+            let path = shown(name, directory);
             report
                 .finding(
                     "index",

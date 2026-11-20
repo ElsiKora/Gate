@@ -509,6 +509,25 @@ every rule at warning, built like `git/recommended`: here `docs/recommended` and
 native test checks that each enables exactly the plugin's rules at its level, and a CLI test that
 each turns `docs/layout` on at that level with no `[rules]` line.
 
+## Delegated entries (the lead, 2026-11-20)
+
+The bar: after `gate sync` on an empty project, `gate check` reports no structural finding, only
+content findings (`#unfilled`, and the input findings of the delegated plugins' own rules).
+
+- `delegated` in the `[plugins.docs]` options lists the delegated entries whose plugins the project
+  enables (`agents`, `ledger`); empty by default. A name that is not a delegated entry, an entry the
+  kind does not have, or a name listed twice is a configuration error naming the key.
+- The seed of `docs/README.md` has a row for each listed entry, linking its directory.
+- `#index` requires a row for each listed entry and for any delegated directory that exists.
+- `#delegated-missing`: a listed entry with no tracked file under it; the finding says to run
+  `gate sync` or remove it from `delegated`.
+- A preset carries rule options only, not plugin options, so `delegated` is documented on the
+  `docs/layout` pages and set by the project.
+- Tests: native (the seed's rows, the index rule, the missing entry, the configuration errors) and
+  one CLI test per kind with `docs/agents/` and `docs/ledger/` tracked as stand-ins: after
+  `gate sync`, every `docs/layout` finding is `#unfilled`; with the entry removed, one
+  `#delegated-missing`. The three-plugin test is T-063's.
+
 ## Proof
 
 Lane round on `6f4019d` (ticket 268, 2026-11-20, 00:41 to 00:49 UTC, load average about 69 at the

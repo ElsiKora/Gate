@@ -112,7 +112,8 @@ One documentation layout for every project, a standard per kind: `service`, `fro
 `infrastructure`, `library` and `monorepo-root`. The standards share their top-level names, index
 files and order, and differ only where a kind's nature demands it, each difference with its reason.
 A project names its kind in the plugin's options, which the rule and the generator both read; it
-adds an entry of its own only by declaring it, with its job, in `extra`.
+adds an entry of its own only by declaring it, with its job, in `extra`, and lists in `delegated`
+the entries whose plugins it enables (`agents`, `ledger`), so the index links them.
 
 ```toml
 [plugins]
