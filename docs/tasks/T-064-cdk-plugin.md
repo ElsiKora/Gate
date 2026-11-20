@@ -376,3 +376,6 @@ then its fixes.
 `nestjs` and `typescript` changelogs, and an end-to-end test proves `nestjs/string-enums` is now an
 unknown-rule configuration error. Neither `nestjs` nor `typescript` ships a preset, so the two rules
 join none; asked the lead. Next: round 2.
+2026-11-20T03:29:48+00:00: round 3 at `585c3e6`: fmt, clippy, deny, build and every wasm build pass. Tests failed in four
+targets, all on test expectations (the SDK's rule prefix on errors, a fixture named only by roles,
+the typescript rule count, a walk order), fixed in `382b9c3` and `6a2b24a`. Next: round 4.
