@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | rebased onto `main` at `d0c6cda3`; its round waits for the lead |
+| Status | rebased onto `main` at `d0c6cda3`; the `frontend` fix after round 380 waits for its round |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -32,6 +32,12 @@ A preset never turns on a rule that needs something only the project can give. R
 4. whose main option is the project's own inventory or registry, which is empty by default and
    which the rule holds every file to (so an empty one reports every controller or field, or
    checks nothing).
+
+One plugin setting is the exception to reason 2, by the lead's ruling after round 380: every
+`frontend` rule needs `pack`, the plugin's one required setting, which names the project's framework
+(`react-vite`, `nextjs` or `react-library`). No preset can choose it, so the `frontend` presets keep
+every rule and a project that extends either one sets `[plugins.frontend] options pack` first. No
+other plugin gets this exception.
 
 Each preset names the same rules. The two differ only in the level. A rule a preset leaves out is
 listed on the plugin's section of `docs/guide/plugins.md` with its reason, and is turned on in
@@ -169,6 +175,10 @@ A second rebase, onto `d0c6cda3` (after T-044, T-067, T-068, T-071 and T-082, am
   given, as `git/branch-name`'s `template`), and its `x-gate-needs` has no entry without a `when`.
   So a branch that makes an included rule's option required fails here, not in a project that
   extends the preset (the review's first finding).
+- `frontend`'s check accepts a need of `pack` only: it runs every preset rule once per pack with
+  that pack given, through the SDK on a synthetic tree, and every run must succeed; without a pack,
+  every preset rule must stop with the existing error, whose text the test asserts (it names `pack`,
+  the three packs and `[plugins.frontend] options`).
 
 ## Docs
 
@@ -247,6 +257,8 @@ their exact test fail (exit 101): the eight of round 322, and `ci`'s options wit
 
 ## Resume point
 
-2026-11-20T20:31:14+00:00: rebased onto `main` at `d0c6cda3` (after T-071) and pushed. The lane
-round waits for the lead: the Gate 001 stack and T-057 go first, and the branch merges last of
-0.3.0.
+2026-11-20T21:32:48+00:00: round 380 on `0fcdc642` failed one test, the `frontend` preset check,
+because every `frontend` rule needs `pack`. By the lead's ruling, `frontend`'s check now runs once
+per pack with `pack` given and asserts the missing-pack error, and the guide and the plugin's page
+say to set `pack` first. The next round is queued after T-071b's round 384; the branch merges
+last of 0.3.0.

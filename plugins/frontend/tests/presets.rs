@@ -1,8 +1,23 @@
 //! Both presets of the `frontend` plugin turn on the same rules: every rule but the ones left
 //! out, each at the preset's one level. A new rule fails here until it joins the presets or this
 //! list.
+//!
+//! Every rule of the plugin needs `pack`, the plugin's one required setting: which framework the
+//! project is. No preset can choose it, so a project that extends a preset sets
+//! `[plugins.frontend] options pack` first. The load check gives each preset rule each pack in turn
+//! and checks every other need and every required option as the other plugins' checks do.
+
+mod support;
 
 use gate_sdk::serde_json::{self, json};
+
+/// The values of `pack`, the one plugin option a preset rule may need whatever its options are.
+const PACKS: [&str; 3] = ["react-vite", "nextjs", "react-library"];
+
+/// The error a project that extends a preset without a pack gets: it names `pack`, its three
+/// values and the table to write it in.
+const NO_PACK: &str = "[plugins.frontend] options has no pack; the standard differs by framework \
+    where the framework requires it: write pack = \"react-vite\", \"nextjs\" or \"react-library\"";
 
 /// The rules no preset turns on, each with the reason the plugins guide gives.
 const LEFT_OUT: &[(&str, &str)] = &[];
@@ -43,19 +58,30 @@ fn both_presets_turn_on_every_rule_but_the_ones_left_out() {
         assert_eq!(names, expected, "{preset}");
         for (rule, settings) in rules {
             assert_eq!(settings, &json!({ "level": level }), "{preset} {rule}");
-            assert_loads(&info, preset, rule, settings);
+            for pack in PACKS {
+                assert_loads(&info, preset, rule, settings, pack);
+            }
+            let error = support::run_raw(rule, "{}", "{}", &[])
+                .expect_err("a preset rule without a pack does not run");
+            assert!(
+                error.message().contains(NO_PACK),
+                "{preset} {rule}: {}",
+                error.message()
+            );
         }
     }
 }
 
-/// The rule loads with what the preset gives it: every option its schema requires (or every one of
-/// a `oneOf` alternative), and no plugin option it needs whatever the options are. A rule whose
-/// option becomes required fails here before a project that extends the preset does.
+/// The rule loads with what the preset gives it and the pack `pack`: every option its schema
+/// requires (or every one of a `oneOf` alternative), no plugin option but `pack` it needs whatever
+/// the options are, and it runs. A rule whose option becomes required fails here before a project
+/// that extends the preset does.
 fn assert_loads(
     info: &gate_sdk::PluginInfo,
     preset: &str,
     rule: &str,
     settings: &serde_json::Value,
+    pack: &str,
 ) {
     let text = &info
         .rules
@@ -86,10 +112,17 @@ fn assert_loads(
         .flatten()
     {
         assert!(
-            !need["when"].is_null(),
+            !need["when"].is_null() || need["key"] == "pack",
             "{preset} {rule} needs the plugin option {} whatever the options are",
             need["key"]
         );
+    }
+    let options = settings
+        .get("options")
+        .map_or_else(|| "{}".to_owned(), serde_json::Value::to_string);
+    let plugin_options = json!({ "pack": pack }).to_string();
+    if let Err(error) = support::run_raw(rule, &options, &plugin_options, &[]) {
+        panic!("{preset} {rule} with pack {pack}: {}", error.message());
     }
 }
 

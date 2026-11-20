@@ -414,7 +414,9 @@ frontend = { source = "ElsiKora/Gate:frontend@0.3.0", options = { pack = "nextjs
 ```
 
 `frontend/recommended` sets every rule to `error`; `frontend/adoption` sets every rule to `warning`, for
-an existing app moving to the standard. The plugin's page is
+an existing app moving to the standard. No preset can choose the framework, so a project that
+extends either preset sets `[plugins.frontend] options pack` first; without it the check stops with
+a configuration error that names the three packs. The plugin's page is
 [plugins/frontend/rules/README.md](../../plugins/frontend/rules/README.md); each rule's page is beside it.
 
 | Rule | Checks |
@@ -558,7 +560,9 @@ there. `git/recommended` keeps two aspects at `warning`, described under [`git`]
 `repository/recommended` keeps `repository/large-files#large` at `warning`. A preset leaves out a
 rule that needs something only the project can give, such as an option without a default or the
 project's own inventory; each plugin's section above names those rules, and `[rules]` turns them on
-with their options. `gate list` shows the result.
+with their options. One plugin setting is the exception: every `frontend` rule needs `pack`, the
+project's framework, so the `frontend` presets keep every rule and a project that extends either one
+sets `[plugins.frontend] options pack` first. `gate list` shows the result.
 
 ```toml
 [project]

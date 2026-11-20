@@ -61,6 +61,10 @@ Router. A library's `src/` holds the segments `api`, `config`, `i18n`, `lib`, `m
 
 ## Presets
 
+Set `pack` first: no preset can choose the framework, so a project that extends either preset writes
+`[plugins.frontend] options pack`, and without it the check stops with the configuration error
+above.
+
 - `frontend/recommended`: every rule at `error`. For a project that meets the standard.
 - `frontend/adoption`: every rule at `warning`. For an existing project moving to the standard, so it
   sees every departure without a failing gate. A Vite app still on React Router, or a Next.js app with
