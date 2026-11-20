@@ -69,6 +69,14 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
 
 ## Resume point
 
-2026-11-20T17:58:09+00:00: rebased onto T-061 at `d2f6710`, the top of the stack T-048, T-059,
-T-061 on `main` at `7f62554`; the CHANGELOG keeps T-059's and T-061's Breaking entries and this
-one after T-048's. One lane round on this branch's tip counts for all four; next: that round.
+2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on this branch's tip `d52d7a0`, the
+top of the stack T-048, T-059, T-061 on `main` at `4c09a04`, was green: fmt, clippy, test, deny,
+release build, sync, actionlint and the leak scan all exit 0; all 18 changed crates compiled from
+the round's own checkout, and the 4 tests this branch adds passed by name. Rebased onto T-061 on
+`main` at `d0c6cda`: main moved the checks of a CI job into `check_ci_job`, which now refuses a
+budget table through `check_budget`; main's sync state 7 (the workflow meets `ci/recommended`) is
+taken, so this branch's change of hooks and workflows is state 8; the guide's job example keeps
+main's `timeout-minutes` and writes the budget as a table; main's end-to-end test of the CI standard
+wrote `budget = 300`, which this branch refuses, so it writes the table too; the plan keeps main's
+rows and names the time thresholds where it named `--budget`. One lane round on this branch's tip
+counts for all four; next: that round.
