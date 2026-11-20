@@ -186,13 +186,18 @@ end-to-end tests in `crates/gate/tests/plugins.rs`; the rule pages, the guide an
 Round 263 (ticket 000000000263, on `2cb3001`) stopped at clippy: `too_many_lines` in
 `instruction-references` (105/100); fixed by moving the command pattern and the files read into
 functions of their own. Rebased onto T-059 at `21d2d53`; the `agents()` test helper now uses the
-memoized `component()` that main's T-060 brought. Round 309 was a false green: it shared a
-target with T-059 and tested T-059's ledger and `gate` builds. Round 318 (own target, on
-`25033d5`) compiled every crate from this worktree and ran every new test; two end-to-end tests
-failed: the agents test ran `gate sync` before committing the rule file (sync reads the committed
-tree), and an existing test enabled `ledger/reuses` without the now required `catalog`. Both fixed.
-Round 330 (on `6c678e1`) green on T-059 at `21d2d53`. 2026-11-20T16:43:30+00:00: rebased onto
-T-059 at `c733d6a`, on main at `cee6491`; the guide keeps main's preset paragraph and adds the
-sentence on presets and required options. 2026-11-20T17:58:09+00:00: rebased onto T-059 at
-`904f5c7`, on main at `7f62554`; T-052 is stacked on this branch, and one lane round on T-052's tip
-counts for all four. Next: that round.
+memoized `component()` that main's T-060 brought. Round 309 was a false green: it shared a target
+with T-059 and tested T-059's ledger and `gate` builds. Round 318 (own target, on `25033d5`)
+compiled every crate from this worktree and ran every new test; two end-to-end tests failed: the
+agents test ran `gate sync` before committing the rule file (sync reads the committed tree), and an
+existing test enabled `ledger/reuses` without the now required `catalog`. Both fixed. Round 330 (on
+`6c678e1`) green on T-059 at `21d2d53`. 2026-11-20T16:43:30+00:00: rebased onto T-059 at `c733d6a`,
+on main at `cee6491`; the guide keeps main's preset paragraph and adds the sentence on presets and
+required options. 2026-11-20T17:58:09+00:00: rebased onto T-059 at `904f5c7`, on main at `7f62554`;
+T-052 is stacked on this branch, and one lane round on T-052's tip counts for all four. Next: that
+round. 2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on T-052's tip `d52d7a0`, on
+`main` at `4c09a04`, was green in every step, with every changed crate compiled from the round's own
+checkout; the 16 tests this branch adds passed by name. Rebased onto T-059 on `main` at `d0c6cda`:
+the guide keeps main's preset paragraph, which now names `[workspace] extends` and the `frontend`
+and `ci` presets, and adds this branch's sentence on presets and required options after it. T-052 is
+stacked on this branch; next: one lane round on T-052's tip for all four.
