@@ -316,7 +316,10 @@ fn is_git(spec: &str) -> bool {
         || ["github:", "gitlab:", "bitbucket:"]
             .iter()
             .any(|prefix| spec.starts_with(prefix))
-        || (url.starts_with("https://") && url.ends_with(".git"))
+        || (url.starts_with("https://")
+            && std::path::Path::new(url)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("git")))
         || (!url.contains(':')
             && !url.starts_with('@')
             && url.split('/').count() == 2

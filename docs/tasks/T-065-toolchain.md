@@ -402,8 +402,23 @@ Rounds 270 and 272 to 275 stopped at clippy or at one test; each fix is its own 
    the `node/package-manager` page says so.
 4. **Changelog**: the entry is under `# 0.3.0 (unreleased)`.
 
-Gate 007's frontend ESLint options and the independent review's findings join these in one fix
-round; no round is queued until both are in.
+The independent review's findings join these in one fix round; the frontend's ESLint options are
+not required (below).
+
+### The frontend's ESLint options (the lead, 2026-11-20)
+
+1. `node/linter` requires none of the FSD or i18n options of the shared configuration
+   (`no-public-api-sidestep`, check-file folder naming, `no-literal-string`, `enforceForLayers`,
+   route or `@x` ignores, a perfectionist rule id) and forbids none of them. The `frontend` plugin
+   (T-068) owns layer and slice boundaries, file and folder case and literal text, so each finding
+   is reported once, and `node/linter` does not depend on a release of the shared configuration.
+   It keeps only what is generic to every Node project. The earlier instruction to require four
+   such values is withdrawn.
+2. T-068's section 6 items (the `@/*` paths alias and the Vite alias, TanStack Router's
+   `routesDirectory` and `generatedRouteTree`, one package per job) are frontend facts, checked by
+   the `frontend` plugin; they are outside T-065. No `node/*` rule names a framework's route folder
+   or an alias, and none reads `paths`, a Vite alias or a router plugin's options (checked with
+   `grep` over `plugins/node/src`: no rule reads them), so none reports on them either way.
 
 ### Presets (the lead, 2026-11-20)
 
