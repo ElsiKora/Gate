@@ -6,7 +6,7 @@
 | Release | v0.3.0 (both plugins release with it) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | T-059 (both touch `plugins/ledger`): the code is built on T-059's tip `c733d6a` (T-059 rebased onto main at `cee6491`), as T-052 was on T-048, and is rebased when T-059 merges |
+| Depends on | T-059 (both touch `plugins/ledger`): the code is built on T-059's tip `904f5c7` (on main at `7f62554`); T-052 is stacked on this branch, as T-052 was on T-048, and is rebased when T-059 merges |
 | Touches | `plugins/ledger` (every rule that reads a file, three option types, the rule pages), `plugins/agents` (the rules that read the rule files or the entry, the `agents-block` generator, their pages), tests, `docs/guide/plugins.md`, `CHANGELOG.md` |
 
 ## Goal
@@ -193,4 +193,6 @@ failed: the agents test ran `gate sync` before committing the rule file (sync re
 tree), and an existing test enabled `ledger/reuses` without the now required `catalog`. Both fixed.
 Round 330 (on `6c678e1`) green on T-059 at `21d2d53`. 2026-11-20T16:43:30+00:00: rebased onto
 T-059 at `c733d6a`, on main at `cee6491`; the guide keeps main's preset paragraph and adds the
-sentence on presets and required options. Next: a round on this base, then review.
+sentence on presets and required options. 2026-11-20T17:58:09+00:00: rebased onto T-059 at
+`904f5c7`, on main at `7f62554`; T-052 is stacked on this branch, and one lane round on T-052's tip
+counts for all four. Next: that round.
