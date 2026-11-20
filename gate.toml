@@ -1,0 +1,40 @@
+[gate]
+version = "0.2.1"
+
+[plugins.git]
+source = "ElsiKora/Gate:git@0.2.1"
+
+[plugins.git.options]
+main = ["refs/remotes/origin/main", "refs/heads/main"]
+
+[plugins]
+agents = { source = "ElsiKora/Gate:agents@0.2.0" }
+markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
+ci = { source = "ElsiKora/Gate:ci@0.2.0" }
+
+[rules]
+"git/commit-message" = { level = "error", levels = { header-min-length = "warning", scope-max-length = "warning", header-case = "off", subject-case = "off", body-full-stop = "off" }, options = { types = ["feat", "fix", "test", "docs", "ci", "chore", "refactor", "perf", "style", "revert"], subject-max-length = 0, ignores = ['^Merge (task|lead)/'], prohibited-trailers = [
+  '^[Cc]o-[Aa]uthored-[Bb]y: .*([Cc]laude|[Aa]nthropic|[Cc]opilot|[Oo]pen[Aa][Ii]|[Cc]hat[Gg][Pp][Tt]|[Gg]emini|[Cc]odex|[Cc]ursor|\b[Aa]gent\b|\b[Bb]ot\b|\bAI\b|\b[Aa]ssistant\b)',
+  '^[Gg]enerated-([Ww]ith|[Bb]y): ',
+] } }
+"git/branch-name" = { level = "error", options = { pattern = '^(main|task/T-[0-9]{3}[a-z]?-[a-z0-9.-]+|lead/[a-z0-9.-]+|release/v[0-9]+[.][0-9]+[.][0-9]+|(agent|claude)/[A-Za-z0-9._/-]+)$', min-length = 4, max-length = 80, prohibited = ["master"] } }
+"agents/instruction-references" = "error"
+"agents/no-claude-md" = "error"
+"markdown/local-links" = { level = "error", options = { roots = ["docs", "plugins"], extra-files = ["README.md", "AGENTS.md", "CHANGELOG.md"] } }
+"ci/actions-pinned" = "error"
+"ci/workflow-run-target" = "error"
+
+[hooks]
+pre-commit = ["check --staged"]
+commit-msg = ["check --commit-message"]
+pre-push = ["check --push"]
+
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"   # v7.0.1
+branches = ["main"]
+aggregate = "gate-passed"
+
+[ci.github.jobs.gate]
+name = "Gate"
+run = ["check --push"]
