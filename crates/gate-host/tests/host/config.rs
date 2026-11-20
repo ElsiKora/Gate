@@ -809,7 +809,7 @@ fn budget_root(hooks: Option<&str>, job: Option<&str>) -> String {
     });
     let job = job.map_or_else(String::new, |budget| {
         format!(
-            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@0123456789abcdef0123456789abcdef01234567\"\n\n[ci.github.jobs.gate]\nname = \"Gate\"\nrun = [\"check\"]\nbudget = {budget}\n"
+            "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@0123456789abcdef0123456789abcdef01234567\"\n\n[ci.github.jobs.gate]\nname = \"Gate\"\ntimeout-minutes = 15\nrun = [\"check\"]\nbudget = {budget}\n"
         )
     });
     root_with(&format!("{hooks}{job}"))
