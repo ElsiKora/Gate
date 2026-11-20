@@ -6,7 +6,7 @@
 | Release | v0.3.0 (it replaces two options of `gate check`; with T-048) |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | a separate review session |
-| Depends on | the T-048 tip `52b2935`, over `main` at `9b18b32`; both merge after the v0.2.1 tag |
+| Depends on | T-061's tip `d2f6710` (over T-059 and T-048, on `main` at `7f62554`); the four merge as one batch |
 | Touches | `crates/gate-host/src/lib.rs` (the run options, `gate/budget`), `crates/gate` (the CLI), `crates/gate-host/src/config` (`[hooks]`, CI jobs), `crates/gate-host/src/sync` (hook and workflow generation, sync-state version), tests, docs, `CHANGELOG.md` |
 
 ## Goal
@@ -69,6 +69,6 @@ with the expected table in the message. `SYNC_STATE_VERSION` rises, since genera
 
 ## Resume point
 
-2026-11-19: review fix round of `c552c19` written (entries parsed by `gate check`'s own definition,
-the `=` form tested, too many seconds refused, two plan lines); next: one lane round on the pushed
-tip.
+2026-11-20T17:58:09+00:00: rebased onto T-061 at `d2f6710`, the top of the stack T-048, T-059,
+T-061 on `main` at `7f62554`; the CHANGELOG keeps T-059's and T-061's Breaking entries and this
+one after T-048's. One lane round on this branch's tip counts for all four; next: that round.
