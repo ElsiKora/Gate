@@ -242,7 +242,27 @@ any branch push, `main` included. `cancel-in-progress` is now
 `${{ startsWith(github.ref, 'refs/heads/task/') }}`: a task branch's newer push cancels its
 running build, a push to `main` and a release's build (a tag ref) run to their end.
 
-The triggers of all three files are unchanged. The environment `release` is created by GitHub on
+`gate.yml`, which `main` gained with T-074, is written by `gate sync` of the core this repository
+pins (0.2.1), which predates the standard, so `gate_s_own_workflows_pass_every_rule` leaves out a
+workflow that starts with `gate sync`'s marker; this tree's generator is held to the standard by
+`the_generated_workflow_meets_the_ci_standard`. Read from the rule pages against the file, the
+pinned core's `gate.yml` would get:
+
+| Finding | Where |
+| --- | --- |
+| `ci/actions-pinned#version-comment` | the two checkout steps (`changes`, `gate`): no release comment |
+| `ci/timeout#missing` | `changes`, `gate` and `gate-passed` |
+| `ci/names#step` | the two checkout steps: no name |
+| `ci/names#job` | `gate-passed`: no name |
+
+The fix, when this repository pins the 0.3.0 core and the ci plugin built for it: in `gate.toml`,
+`[gate] version = "0.3.0"`, `timeout-minutes` on `[ci.github.jobs.gate]` (required from 0.3.0),
+and the checkout's release inside the string (`"actions/checkout@<sha> # v7.0.1"`, not a TOML
+comment); then `gate lock` and `gate sync`. The generator then writes every name, timeout and
+release comment above. 0.2.1 cannot express them, so this task leaves `gate.toml` and `gate.yml`
+as `main` has them.
+
+The triggers of all three hand-written files are unchanged. The environment `release` is created by GitHub on
 the first run that names it, with no protection rules, so a release starts as before; the owner can
 add reviewers or a tag policy to it later.
 
@@ -273,5 +293,9 @@ add reviewers or a tag policy to it later.
   (`wasmtime-wasi` 50.0.2 in `main`'s lock, Windows only; T-073 bumps it), which the lead does
   not count against the round. Its logs show `gate`, `gate-host`, `gate-sdk` and
   `gate-plugin-ci` compiled from this worktree and the 27 new tests listed by name.
-- Next: one more rebase when T-073 lands, then review by a session that did not write it, then
-  the lead merges.
+- 2026-11-20T17:58:39+00:00: rebased onto `main` at `7f62554b` (T-073, wasmtime 50.0.3; T-074, Gate checks its own
+  repository) without conflict. `gate_s_own_workflows_pass_every_rule` now leaves out the
+  workflow the pinned core generates (`gate.yml`, new on `main`); its findings and the fix at the
+  0.3.0 pin are listed under "Gate's own workflows". Not yet run in the lane on this tip.
+- Next: the round on this tip, then review by a session that did not write it, then the lead
+  merges.
