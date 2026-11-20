@@ -1,36 +1,14 @@
 //! `gate check` running the built `node` plugin on a synthetic pnpm workspace of a root, a service
 //! and a library: the standard passes, and one change against each rule gives that rule's finding.
 
-use std::path::{Path, PathBuf};
+#[path = "../../gate-runtime/tests/support/component.rs"]
+mod built;
+
+use std::path::Path;
 use std::process::{Command, Output};
 
 /// The version of the core under test.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// The node plugin built as a component; the one test of this binary builds it once.
-fn component() -> PathBuf {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("gate-plugin-node");
-    let status = Command::new(env!("CARGO"))
-        .current_dir(&workspace)
-        .args([
-            "build",
-            "--locked",
-            "--release",
-            "-p",
-            "gate-plugin-node",
-            "--target",
-            "wasm32-wasip2",
-        ])
-        .env("CARGO_TARGET_DIR", &target)
-        .status()
-        .expect("cargo runs");
-    assert!(
-        status.success(),
-        "gate-plugin-node builds for wasm32-wasip2"
-    );
-    target.join("wasm32-wasip2/release/node.wasm")
-}
 
 const ROOT_GATE: &str = r#"
 [workspace]
@@ -49,11 +27,15 @@ node = { source = "acme/rules:node@0.1.0", options = { kind = "monorepo-root" } 
 "#;
 
 /// A project's `gate.toml`: its name, its kind and the three project-scope rules.
-fn project_gate(name: &str, kind: &str) -> String {
+fn project_gate(name: &str, kind: &str, reads: &str) -> String {
     format!(
-        "[project]\nname = \"{name}\"\n\n[plugins]\nnode = {{ source = \"acme/rules:node@0.1.0\", options = {{ kind = \"{kind}\" }} }}\n\n[rules]\n\"node/package\" = \"error\"\n\"node/scripts\" = \"error\"\n\"node/tsconfig\" = \"error\"\n"
+        "[project]\nname = \"{name}\"\n\n[plugins]\nnode = {{ source = \"acme/rules:node@0.1.0\", options = {{ kind = \"{kind}\" }}{reads} }}\n\n[rules]\n\"node/package\" = \"error\"\n\"node/scripts\" = \"error\"\n\"node/tsconfig\" = \"error\"\n"
     )
 }
+
+/// A configuration outside every project that does not extend the base; the service is granted
+/// a read of it, which must not make it the service's own.
+const SHARED_TSCONFIG: &str = "{\n  \"compilerOptions\": { \"strict\": false }\n}\n";
 
 const ROOT_MANIFEST: &str = r#"{
   "name": "workspace",
@@ -170,16 +152,20 @@ fn standard() -> Vec<(&'static str, String)> {
         ),
         ("eslint.config.mjs", ROOT_ESLINT.to_owned()),
         ("tsconfig.base.json", BASE.to_owned()),
-        ("apps/api/gate.toml", project_gate("api", "service")),
+        (
+            "apps/api/gate.toml",
+            project_gate("api", "service", ", reads = [\"tools/shared\"]"),
+        ),
         ("apps/api/package.json", SERVICE.to_owned()),
         ("apps/api/eslint.config.mjs", MEMBER_ESLINT.to_owned()),
         ("apps/api/tsconfig.json", MEMBER_TSCONFIG.to_owned()),
         ("apps/api/src/main.ts", "export const answer = 42;\n".to_owned()),
-        ("packages/lib/gate.toml", project_gate("lib", "library")),
+        ("packages/lib/gate.toml", project_gate("lib", "library", "")),
         ("packages/lib/package.json", LIBRARY.to_owned()),
         ("packages/lib/eslint.config.mjs", MEMBER_ESLINT.to_owned()),
         ("packages/lib/tsconfig.json", MEMBER_TSCONFIG.to_owned()),
         ("packages/lib/src/index.ts", "export const one = 1;\n".to_owned()),
+        ("tools/shared/tsconfig.json", SHARED_TSCONFIG.to_owned()),
     ]
 }
 
@@ -296,8 +282,8 @@ fn findings(output: &Output) -> Vec<String> {
 
 #[test]
 fn the_standard_workspace_passes_and_one_change_against_each_rule_gives_that_rules_finding() {
-    let plugin = component();
-    let output = Repo::new(&standard()).check(&plugin);
+    let plugin = &built::component("gate-plugin-node", "node", "").0;
+    let output = Repo::new(&standard()).check(plugin);
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -306,7 +292,7 @@ fn the_standard_workspace_passes_and_one_change_against_each_rule_gives_that_rul
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let output = Repo::new(&broken()).check(&plugin);
+    let output = Repo::new(&broken()).check(plugin);
     assert_eq!(
         output.status.code(),
         Some(1),
