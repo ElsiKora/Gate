@@ -27,7 +27,7 @@ impl Rule for Scripts {
         let Some(manifest) = repo::read_json(&tree, MANIFEST)? else {
             return Ok(());
         };
-        let paths = tree.paths();
+        let paths = repo::own_paths(&tree);
         let member = !paths.iter().any(|path| path == "pnpm-lock.yaml");
         let typescript = paths.iter().any(|path| {
             let name = file_name(path);

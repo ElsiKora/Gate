@@ -183,3 +183,15 @@ fn a_project_without_typescript_has_nothing_to_check() {
         Vec::<String>::new()
     );
 }
+
+#[test]
+fn a_root_project_leaves_its_members_configurations_to_them() {
+    let web = "{\n  \"extends\": \"../../tsconfig.base.json\",\n  \"compilerOptions\": { \"moduleResolution\": \"Bundler\" }\n}\n";
+    let files = [
+        ("tsconfig.base.json", BASE),
+        ("tsconfig.json", "{ \"extends\": \"./tsconfig.base.json\" }"),
+        ("apps/web/package.json", "{}"),
+        ("apps/web/tsconfig.json", web),
+    ];
+    assert_eq!(member("monorepo-root", "", &files), Vec::<String>::new());
+}

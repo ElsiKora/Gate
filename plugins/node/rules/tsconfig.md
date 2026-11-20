@@ -55,6 +55,10 @@ bundler resolves a frontend's imports, so Bundler is the resolution that matches
 other kind keeps the base's `NodeNext`. The flags and the resolutions are fixed by the plugin's
 standard; only the base's path is configurable.
 
+The rule reads the project's own `tsconfig*.json` files: a file below a directory with its own
+`package.json` belongs to that package, which is checked as its own project against its own kind.
+A project at the repository root therefore leaves its members' configurations to them.
+
 Scope: project. Language: none. Reads history: no. Aspects: `base`, `weakened`, `flags`,
 `resolution`, `copy`.
 

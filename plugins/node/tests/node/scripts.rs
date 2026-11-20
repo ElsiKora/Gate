@@ -161,3 +161,23 @@ fn a_name_is_kebab_case_segments() {
         ["name package.json:12 startApi"]
     );
 }
+
+#[test]
+fn a_root_project_takes_no_typescript_from_its_members() {
+    let untyped: Vec<(&str, &str)> = BASE
+        .iter()
+        .copied()
+        .filter(|(name, _)| *name != "typecheck")
+        .collect();
+    let manifest = manifest(&untyped);
+    let files = [
+        ("package.json", manifest.as_str()),
+        ("pnpm-lock.yaml", ""),
+        ("apps/a/package.json", "{}"),
+        ("apps/a/tsconfig.json", "{}"),
+    ];
+    assert_eq!(
+        Fixture::new("monorepo-root", &files).lines(RULE),
+        Vec::<String>::new()
+    );
+}

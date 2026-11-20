@@ -67,6 +67,21 @@ pub(crate) fn manifests(tree: &Tree<'_>) -> Vec<String> {
         .collect()
 }
 
+/// The project's own paths: those whose nearest `package.json` above them is the project's, not a
+/// nested package's. A project at the repository root is granted the whole tree, and its members'
+/// files are theirs to check, against their own kind.
+pub(crate) fn own_paths(tree: &Tree<'_>) -> Vec<String> {
+    let packages: Vec<String> = manifests(tree)
+        .iter()
+        .map(|path| directory(path).to_owned())
+        .filter(|place| !place.is_empty())
+        .collect();
+    tree.paths()
+        .into_iter()
+        .filter(|path| !packages.iter().any(|place| within(path, place)))
+        .collect()
+}
+
 /// The JSON of tracked `path`, when it is tracked.
 ///
 /// # Errors

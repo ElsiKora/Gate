@@ -46,6 +46,9 @@ frontend's job; the other kinds have no single such command". No other kind requ
 none forbids it. The names, synonyms and flags are fixed by the plugin's standard; none is
 configurable.
 
+Whether the project uses TypeScript is decided by its own `tsconfig*.json` files: a file below a
+directory with its own `package.json` belongs to that package, not to the project.
+
 Scope: project. Language: none. Reads history: no. Aspects: `missing`, `synonym`, `writes`,
 `misplaced`, `name`.
 

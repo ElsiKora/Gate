@@ -45,7 +45,7 @@ impl Rule for Tsconfig {
         let project = run.project().to_owned();
         let base_path = run.options().base.clone();
         let mut configs = BTreeMap::new();
-        for path in tree.paths() {
+        for path in repo::own_paths(&tree) {
             let name = file_name(&path);
             if name.starts_with("tsconfig")
                 && name.ends_with(".json")
