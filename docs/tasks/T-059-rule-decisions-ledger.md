@@ -148,7 +148,18 @@ If v0.3.0 is to stay as it is, the interface addition waits for 0.4.0; a plugin 
   release build exit 0, and the leak scan prints nothing.
 - docs/plan.md: only the T-059 row (lead, 2026-11-19).
 
+## Proof
+
+Round 317 (ticket 000000000317) on `21d2d53`, rebased onto main at `e9e1434`, with a target of
+its own (`CARGO_TARGET_DIR` per task), from 2026-11-20T06:14:19+00:00 to 2026-11-20T06:36:17+00:00:
+`cargo fmt --all --check` exit 0, `cargo clippy --locked --workspace --all-targets -- -D warnings`
+exit 0, `cargo test --locked --workspace --no-fail-fast` exit 0, `cargo deny --locked check` exit 0,
+`cargo build --release --locked` exit 0, leak scan exit 0. The log has `Compiling` from this
+worktree for every crate the branch changes, and each of the 28 tests the branch adds over T-048's
+tip `52b2935` passes by name. Earlier green rounds 261 and 308 shared a cargo target with other
+worktrees and are not counted.
+
 ## Resume point
 
-2026-11-19: design approved; code written on T-048's tip `52b2935`; next: one lane round on the
-pushed tip, then review.
+2026-11-20: code on T-048's work, rebased onto main at `e9e1434`; round 317 green (see Proof).
+Next: review.
