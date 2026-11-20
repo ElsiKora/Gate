@@ -233,7 +233,7 @@ impl Groups {
             let [SOURCE_ROOT, layer, unit, child, ..] = parts.as_slice() else {
                 continue;
             };
-            if !Layer::from_name(layer).is_some_and(Layer::grouped) {
+            if Layer::from_name(layer).is_none_or(|found| !found.grouped()) {
                 continue;
             }
             let folder = format!("{SOURCE_ROOT}/{layer}/{unit}");

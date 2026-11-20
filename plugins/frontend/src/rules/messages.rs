@@ -279,9 +279,9 @@ fn bound_functions(pack: Pack, file: &SourceFile<'_>) -> Vec<(SymbolId, String)>
             let Expression::CallExpression(call) = init else {
                 continue;
             };
-            if !bindings
+            if bindings
                 .resolve(&call.callee)
-                .is_some_and(|names| names == [*export])
+                .is_none_or(|names| names != [*export])
             {
                 continue;
             }

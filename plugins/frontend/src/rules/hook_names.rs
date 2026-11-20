@@ -33,6 +33,7 @@ impl Rule<TypeScriptCall> for HookNames {
 }
 
 /// Whether `name` is a hook's: `use` and a capital letter.
+#[must_use]
 pub fn is_hook(name: &str) -> bool {
     name.strip_prefix("use")
         .is_some_and(|rest| rest.starts_with(|character: char| character.is_ascii_uppercase()))

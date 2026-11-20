@@ -15,6 +15,7 @@ pub mod options;
 pub mod rules;
 pub mod standard;
 
+use self::options::PluginOptions;
 use self::rules::api_boundary::ApiBoundary;
 use self::rules::asset_placement::AssetPlacement;
 use self::rules::client_boundary::ClientBoundary;
@@ -88,7 +89,7 @@ const ADOPTION: &str = r#"{
 gate_sdk::plugin! {
     name: "frontend",
     version: env!("CARGO_PKG_VERSION"),
-    options: crate::options::PluginOptions,
+    options: PluginOptions,
     call: gate_typescript::call::TypeScriptCall,
     rules: [
         Layout,
