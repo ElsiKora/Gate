@@ -266,5 +266,12 @@ add reviewers or a tag policy to it later.
   presets). The `CHANGELOG.md` entries move from the released 0.2.1 section into 0.3.0. No
   `[ci.github]` job that `main` added lacks `timeout-minutes`; Gate's workflows are unchanged on
   `main`. Not yet run in the lane on this tip.
-- Next: the round on the rebased tip, then review by a session that did not write it, then the
-  lead merges.
+- 2026-11-20T17:02:08+00:00: ticket 348 on `6edc90c`, target `T-067/target`: fmt, clippy, the ci plugin tests, the
+  host yaml test, the two new `gate` tests by name, `cargo test --workspace --no-fail-fast` (1370
+  passed, 0 failed, 7 ignored), the release build, actionlint on Gate's own workflows and on a
+  generated one exit 0; `done in 1128s`. `cargo deny` exit 1 on RUSTSEC-2026-0587 alone
+  (`wasmtime-wasi` 50.0.2 in `main`'s lock, Windows only; T-073 bumps it), which the lead does
+  not count against the round. Its logs show `gate`, `gate-host`, `gate-sdk` and
+  `gate-plugin-ci` compiled from this worktree and the 27 new tests listed by name.
+- Next: one more rebase when T-073 lands, then review by a session that did not write it, then
+  the lead merges.
