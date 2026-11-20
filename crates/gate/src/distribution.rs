@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use gate_host::cache::{Cache, Entry};
+use gate_host::cache::{Bounds, Cache, Entry, Reason};
 use gate_host::config::PluginName;
 use gate_host::lock::{self, LOCK_FILE, Lock, Pin, Wanted};
 use gate_host::{Error, Fetcher, Git, Sha256Sum, Source, Workspace};
@@ -186,11 +186,12 @@ fn executable(_path: &Path) -> Result<(), Error> {
 }
 
 /// `gate cache prune`: lists, or with `yes` removes, the cache entries no `gate.lock` of the given
-/// repositories (every worktree of each) pins.
+/// repositories (every worktree of each) pins, the derived entries nothing can use, and those the
+/// bounds remove.
 ///
 /// # Errors
 /// Fails when a repository or a lock cannot be read, or an entry cannot be removed.
-pub fn prune(repositories: &[PathBuf], yes: bool) -> Result<String, Error> {
+pub fn prune(repositories: &[PathBuf], bounds: &Bounds, yes: bool) -> Result<String, Error> {
     let current = [PathBuf::from(".")];
     let repositories = if repositories.is_empty() {
         &current[..]
@@ -205,7 +206,8 @@ pub fn prune(repositories: &[PathBuf], yes: bool) -> Result<String, Error> {
     let locks = &pinned.files;
 
     let cache = Cache::from_env()?;
-    let entries = cache.unreferenced(referenced, !pinned.plugins.is_empty())?;
+    let plan = cache.plan(referenced, &pinned.plugins, bounds)?;
+    let entries = &plan.entries;
     let mut text = format!(
         "{} pinned by {} {}; cache {}\n",
         plural(referenced.len(), "entry", "entries"),
@@ -217,6 +219,14 @@ pub fn prune(repositories: &[PathBuf], yes: bool) -> Result<String, Error> {
         text.push_str("no gate.lock was found: every entry counts as unreferenced\n");
     }
     let total: u64 = entries.iter().map(|entry| entry.bytes).sum();
+    if let Some(max) = plan.over {
+        let _ = writeln!(
+            text,
+            "the cache stays at {}, over --max-size {}: what is left is pinned downloads, modules/ and files in use, which no bound removes",
+            size(plan.left),
+            size(max)
+        );
+    }
     if entries.is_empty() {
         text.push_str("nothing to remove\n");
         return Ok(text);
@@ -228,15 +238,35 @@ pub fn prune(repositories: &[PathBuf], yes: bool) -> Result<String, Error> {
         plural(entries.len(), "entry", "entries"),
         size(total)
     );
-    for entry in &entries {
-        let _ = writeln!(text, "  {}  {}", relative(&cache, entry), size(entry.bytes));
+    for entry in entries {
+        let _ = writeln!(
+            text,
+            "  {}  {}  {}",
+            relative(&cache, entry),
+            size(entry.bytes),
+            why(entry.reason)
+        );
     }
     if yes {
-        cache.remove(&entries)?;
+        cache.remove(entries)?;
     } else {
         text.push_str("run gate cache prune --yes to remove them\n");
     }
     Ok(text)
+}
+
+fn why(reason: Reason) -> String {
+    match reason {
+        Reason::Unpinned => "no lock pins it".to_owned(),
+        Reason::Stale => "left by a run that stopped".to_owned(),
+        Reason::Unnamed => "no stored answer names it".to_owned(),
+        Reason::OldFormat => "an older results format".to_owned(),
+        Reason::Older(days) => format!(
+            "last used more than {} ago",
+            plural(usize::try_from(days).unwrap_or(usize::MAX), "day", "days")
+        ),
+        Reason::OverSize(max) => format!("least recently used, over --max-size {}", size(max)),
+    }
 }
 
 fn relative(cache: &Cache, entry: &Entry) -> String {

@@ -2,13 +2,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use gate_host::ErrorKind;
-use gate_host::cache::{CACHE_TAG, Cache, Sha256Sum};
+use gate_host::cache::{Bounds as PruneBounds, CACHE_TAG, Cache, Reason, Sha256Sum};
 use gate_host::config::{PluginName, PluginSource, SettingOrigin};
 use gate_host::fetch::{Bounds, Endpoint, FetchConfig, Fetcher, Secret};
 use gate_host::lock::{self, CorePin, Declaration, Lock, Pin, TARGETS, Wanted};
+use sha2::{Digest as _, Sha256};
 
 use crate::http::{Route, Server, release_json, sha256};
 
@@ -805,4 +806,218 @@ fn prune_keeps_every_entry_a_lock_pins_and_modules_while_a_plugin_is_pinned() {
         outside.path().join("precious").exists(),
         "removing a link leaves its target"
     );
+}
+
+/// The size of the tag [`tagged_cache`] writes.
+const TAG_BYTES: u64 = 44;
+
+/// A tagged, empty cache.
+fn tagged_cache() -> (tempfile::TempDir, Cache) {
+    let directory = tempfile::tempdir().expect("cache");
+    std::fs::write(
+        directory.path().join(CACHE_TAG),
+        "Signature: 8a477f597d28d172789f06886806bc55\n",
+    )
+    .expect("tag");
+    let cache = Cache::at(directory.path());
+    (directory, cache)
+}
+
+/// Writes `contents` at `path`, last used `days` days before `now`.
+fn put(path: &Path, contents: &str, now: SystemTime, days: u64) {
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("directories");
+    std::fs::write(path, contents).expect("write");
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("open")
+        .set_modified(now - Duration::from_hours(24 * days))
+        .expect("set the time");
+}
+
+/// Where the content of the blob `id` is stored.
+fn stored_blob(cache: &Cache, id: &str) -> PathBuf {
+    cache.answer(
+        "blobs",
+        &Sha256Sum::from_digest(&Sha256::digest(id.as_bytes())),
+    )
+}
+
+/// The removed paths of a plan, with their reasons.
+fn removed(plan: &gate_host::cache::Plan) -> Vec<(PathBuf, Reason)> {
+    plan.entries
+        .iter()
+        .map(|entry| (entry.path.clone(), entry.reason))
+        .collect()
+}
+
+#[test]
+fn prune_removes_derived_entries_nothing_can_use_and_bounds_never_remove_a_pinned_download() {
+    let (_directory, cache) = tagged_cache();
+    let now = SystemTime::now();
+    let pinned = sum(&"a".repeat(64));
+    let unpinned = sum(&"c".repeat(64));
+    let key = sum(&"e".repeat(64));
+    // A pinned download and its core, last used long ago: no bound removes them.
+    put(&cache.blob(&pinned), "plugin", now, 400);
+    put(&cache.core(&pinned).join("gate"), "core", now, 400);
+    // Results of the pinned plugin, of an unpinned one, and the format-2 layout.
+    let kept_result = cache.result(pinned.as_str(), &key);
+    put(&kept_result, "kept result", now, 40);
+    put(&cache.result(unpinned.as_str(), &key), "unpinned", now, 0);
+    let format_2 = cache.results().join("ee");
+    put(&format_2.join("e".repeat(64)), "format 2", now, 0);
+    // One stored answer names the content of blob 2...2; the contents of 3...3, stored two days
+    // ago, and of 5...5, stored now (its answer file not written yet), are named by none.
+    let answers = cache.answer("answers/1", &sum(&"f".repeat(64)));
+    let answer = format!(
+        r#"{{"kind":"read-at","of":["{}","a.txt"],"answer":{{"blob":"{}"}}}}"#,
+        "1".repeat(40),
+        "2".repeat(40)
+    );
+    put(&answers, &format!("{answer}\n"), now, 0);
+    let named = stored_blob(&cache, &"2".repeat(40));
+    put(&named, "named", now, 0);
+    let unnamed = stored_blob(&cache, &"3".repeat(40));
+    put(&unnamed, "unnamed", now, 2);
+    let young_unnamed = stored_blob(&cache, &"5".repeat(40));
+    put(&young_unnamed, "young", now, 0);
+    let sync_state = cache.answer("sync-state", &key);
+    put(&sync_state, "state", now, 40);
+
+    let referenced: BTreeSet<Sha256Sum> = [pinned.clone()].into_iter().collect();
+    let plugins = referenced.clone();
+
+    // Without a bound: what nothing can use goes, and nothing else; a content no answer names
+    // stays a day, since a run stores it before the answer that names it.
+    let plan = cache
+        .plan(&referenced, &plugins, &PruneBounds::default())
+        .expect("plan");
+    let mut expected = vec![
+        (format_2.clone(), Reason::OldFormat),
+        (cache.results().join(unpinned.as_str()), Reason::Unpinned),
+        (unnamed.clone(), Reason::Unnamed),
+    ];
+    expected.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(removed(&plan), expected);
+    assert_eq!(plan.over, None);
+    assert_eq!(files(cache.root()).len(), 10, "planning removes nothing");
+
+    // Older than 30 days: the derived files last used 40 days ago go too; the pinned download
+    // and core, 400 days old, stay.
+    let bounds = PruneBounds {
+        older_than: Some(30),
+        max_size: None,
+    };
+    let plan = cache.plan(&referenced, &plugins, &bounds).expect("plan");
+    expected.extend([
+        (kept_result.clone(), Reason::Older(30)),
+        (sync_state.clone(), Reason::Older(30)),
+    ]);
+    expected.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(removed(&plan), expected);
+
+    // Every bound at its tightest: every derived file goes, no pinned download does, and the
+    // plan says the cache stays over the size.
+    let bounds = PruneBounds {
+        older_than: Some(0),
+        max_size: Some(1),
+    };
+    let plan = cache.plan(&referenced, &plugins, &bounds).expect("plan");
+    let paths: Vec<PathBuf> = plan
+        .entries
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect();
+    for kept in [cache.blob(&pinned), cache.core(&pinned)] {
+        assert!(
+            !paths
+                .iter()
+                .any(|path| kept.starts_with(path) || path.starts_with(&kept)),
+            "{kept:?} is pinned: {paths:?}"
+        );
+    }
+    for gone in [&kept_result, &answers, &named, &young_unnamed, &sync_state] {
+        assert!(paths.contains(gone), "{gone:?} should go: {paths:?}");
+    }
+    assert_eq!(plan.over, Some(1));
+    assert_eq!(
+        plan.left,
+        "plugin".len() as u64 + "core".len() as u64 + TAG_BYTES
+    );
+
+    cache.remove(&plan.entries).expect("remove");
+    let left: Vec<PathBuf> = files(cache.root()).into_keys().collect();
+    assert_eq!(left.len(), 2, "{left:?}");
+    // The `<2 hex>/` shards and the plugin's results directory the removal emptied go with it.
+    for emptied in [
+        cache.results(),
+        cache.git().join("answers/1"),
+        cache.git().join("blobs"),
+        cache.git().join("sync-state"),
+    ] {
+        let children: Vec<PathBuf> = std::fs::read_dir(&emptied)
+            .expect("read")
+            .map(|entry| entry.expect("entry").path())
+            .collect();
+        assert_eq!(children, Vec::<PathBuf>::new(), "{emptied:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn an_answer_file_prune_cannot_read_stops_it_before_anything_is_removed() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (_directory, cache) = tagged_cache();
+    let now = SystemTime::now();
+    let unnamed = stored_blob(&cache, &"3".repeat(40));
+    put(&unnamed, "unnamed", now, 2);
+    let answers = cache.answer("answers/1", &sum(&"f".repeat(64)));
+    put(&answers, "{}\n", now, 0);
+    std::fs::set_permissions(&answers, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    let planned = cache.plan(&BTreeSet::new(), &BTreeSet::new(), &PruneBounds::default());
+    std::fs::set_permissions(&answers, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    let error = planned.expect_err("an unreadable answer file stops prune");
+    assert!(
+        error.to_string().contains("so nothing was pruned"),
+        "{error}"
+    );
+    assert!(unnamed.is_file(), "the content it may name stays");
+}
+
+#[test]
+fn max_size_removes_the_least_recently_used_derived_files_first_by_path_on_a_tie() {
+    let (_directory, cache) = tagged_cache();
+    let now = SystemTime::now();
+    let pinned = sum(&"a".repeat(64));
+    put(&cache.blob(&pinned), &"p".repeat(1000), now, 400);
+    let state = |digit: &str| cache.answer("sync-state", &sum(&digit.repeat(64)));
+    let hundred = "s".repeat(100);
+    put(&state("4"), &hundred, now, 0);
+    put(&state("3"), &hundred, now, 2);
+    put(&state("2"), &hundred, now, 2);
+    put(&state("1"), &hundred, now, 3);
+    let total: u64 = files(cache.root())
+        .values()
+        .map(|bytes| bytes.len() as u64)
+        .sum::<u64>()
+        + TAG_BYTES;
+
+    let referenced: BTreeSet<Sha256Sum> = [pinned].into_iter().collect();
+    let bounds = PruneBounds {
+        older_than: None,
+        max_size: Some(total - 150),
+    };
+    let plan = cache.plan(&referenced, &referenced, &bounds).expect("plan");
+    let max = total - 150;
+    assert_eq!(
+        removed(&plan),
+        vec![
+            (state("1"), Reason::OverSize(max)),
+            (state("2"), Reason::OverSize(max)),
+        ],
+        "the oldest, then of the two used at the same time the first by path"
+    );
+    assert_eq!(plan.left, total - 200);
+    assert_eq!(plan.over, None);
 }

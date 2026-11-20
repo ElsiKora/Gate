@@ -7,8 +7,8 @@
 //! blobs/sha256/<sha256>                       a verified download: a plugin, a core archive
 //! core/<sha256>/gate                          the core unpacked by bin/gate from that archive
 //! modules/                                    compiled plugins: wasmtime's own cache (the plugin runtime)
-//! results/                                    the result cache (the plugin runtime)
-//! git/                                        answers about commits (the plugin runtime)
+//! results/<plugin sha256>/                    the result cache, by plugin (the plugin runtime)
+//! git/                                        answers about commits and file contents (the plugin runtime)
 //! tmp/                                        downloads in progress
 //! CACHEDIR.TAG                                marks the directory as a cache (bford.info/cachedir)
 //! ```
@@ -17,6 +17,11 @@
 //! two processes filling the same entry both succeed with one entry. A filled entry needs no
 //! network, and is hashed again each time it is read: an entry that is not a regular file, or no
 //! longer hashes to its name, is removed and downloaded again.
+//!
+//! Downloads (`blobs/sha256/`, `core/`, `tools/`) are pinned: `gate cache prune` keeps one exactly
+//! while a lock names it. Everything under `results/` and `git/` is derived: a run that finds it
+//! missing computes it again, so `gate cache prune` removes it when nothing can use it, and by its
+//! last use, the file's modification time, which a run sets each time it uses the file.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -48,6 +53,10 @@ const STALE_TEMPORARY: Duration = Duration::from_hours(24);
 /// How old a tool's temporary directory (`tools/.<name>.<pid>.<attempt>`, being unpacked or set
 /// aside by a run) must be before `gate cache prune` removes it: older than any unpacking.
 const STALE_TOOL_TEMPORARY: Duration = Duration::from_hours(1);
+
+/// How long a stored file content that no stored answer names is kept: a run stores the contents
+/// of the files it reads before the answer file that names them.
+const UNNAMED_GRACE: Duration = Duration::from_hours(24);
 
 /// A sha256 checksum: 64 lowercase hexadecimal digits.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -319,20 +328,27 @@ impl Cache {
         self.git().join(kind).join(&digits[..2]).join(digits)
     }
 
-    /// The file of a stored plugin call result under `key`, in [`Cache::results`].
+    /// The file of a stored call result of the plugin with sha256 `plugin` under `key`, in
+    /// [`Cache::results`]: one directory per plugin, so the results go with the plugin.
     #[must_use]
-    pub fn result(&self, key: &Sha256Sum) -> PathBuf {
+    pub fn result(&self, plugin: &str, key: &Sha256Sum) -> PathBuf {
         let digits = key.as_str();
-        self.results().join(&digits[..2]).join(digits)
+        self.results().join(plugin).join(&digits[..2]).join(digits)
     }
 
-    /// Moves a written temporary file into place as the result of [`Cache::result`] for `key`.
-    /// When another process filled it first, this one replaces it with an equally valid result.
+    /// Moves a written temporary file into place as the result of [`Cache::result`] for `plugin`
+    /// and `key`. When another process filled it first, this one replaces it with an equally valid
+    /// result.
     ///
     /// # Errors
     /// Fails when the file cannot be synced or renamed.
-    pub fn insert_result(&self, temporary: Temporary, key: &Sha256Sum) -> Result<PathBuf> {
-        Self::place(temporary, self.result(key))
+    pub fn insert_result(
+        &self,
+        temporary: Temporary,
+        plugin: &str,
+        key: &Sha256Sum,
+    ) -> Result<PathBuf> {
+        Self::place(temporary, self.result(plugin, key))
     }
 
     /// Moves a written temporary file into place as the answer of [`Cache::answer`] for `kind`
@@ -359,13 +375,22 @@ impl Cache {
                 temporary.path.display()
             ))
         })?;
-        fs::rename(&temporary.path, &target).map_err(|error| {
-            Error::environment(format!(
+        let mut tries = 0;
+        while let Err(error) = fs::rename(&temporary.path, &target) {
+            // `gate cache prune` removed the emptied directory meanwhile: create it again.
+            if error.kind() == io::ErrorKind::NotFound && tries < 3 && temporary.path.exists() {
+                tries += 1;
+                if let Some(directory) = target.parent() {
+                    create_directory(directory)?;
+                }
+                continue;
+            }
+            return Err(Error::environment(format!(
                 "cannot move {} to {}: {error}",
                 temporary.path.display(),
                 target.display()
-            ))
-        })?;
+            )));
+        }
         // Renamed: nothing is left for the drop to remove.
         temporary.path = PathBuf::new();
         Ok(target)
@@ -396,7 +421,7 @@ impl Cache {
         }
         let modules = self.modules();
         if !plugins_pinned && self.directory(&modules)? {
-            entries.push(Entry::at(modules)?);
+            entries.push(Entry::at(modules, Reason::Unpinned)?);
         }
         let blobs = self.root.join("blobs");
         for directory in [blobs.join("sha256"), self.root.join("core")] {
@@ -406,7 +431,7 @@ impl Cache {
             for (path, name) in children(&directory)? {
                 let kept = Sha256Sum::parse(&name).is_ok_and(|sum| referenced.contains(&sum));
                 if !kept {
-                    entries.push(Entry::at(path)?);
+                    entries.push(Entry::at(path, Reason::Unpinned)?);
                 }
             }
         }
@@ -425,17 +450,17 @@ impl Cache {
                 if name.starts_with('.') {
                     // A run may still be unpacking it or setting it aside: only a stale one goes.
                     if age(&path, now) > STALE_TOOL_TEMPORARY {
-                        entries.push(Entry::at(path)?);
+                        entries.push(Entry::at(path, Reason::Stale)?);
                     }
                     continue;
                 }
                 if !Sha256Sum::parse(&name).is_ok_and(|sum| referenced.contains(&sum)) {
-                    entries.push(Entry::at(path)?);
+                    entries.push(Entry::at(path, Reason::Unpinned)?);
                     removed = true;
                 }
             }
             if removed && let Some(bin) = bin {
-                entries.push(Entry::at(bin)?);
+                entries.push(Entry::at(bin, Reason::Unpinned)?);
             }
         }
         let temporary = self.root.join("tmp");
@@ -446,11 +471,100 @@ impl Cache {
         };
         for (path, _) in stale {
             if age(&path, now) > STALE_TEMPORARY {
-                entries.push(Entry::at(path)?);
+                entries.push(Entry::at(path, Reason::Stale)?);
             }
         }
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(entries)
+    }
+
+    /// What `gate cache prune` removes: the entries of [`Cache::unreferenced`]; the results of a
+    /// plugin `plugins` does not name, and any other entry of `results/` that is no plugin's; the
+    /// stored file contents no stored answer names, stored more than a day ago (a run stores a
+    /// content before the answer that names it); then, of the derived files left (under
+    /// `results/` and `git/`), those last used longer ago than `bounds.older_than`, and, while the
+    /// whole cache is over `bounds.max_size`, the least recently used, by path on a tie. A pinned
+    /// download and `modules/` are never removed by a bound.
+    ///
+    /// # Errors
+    /// As [`Cache::unreferenced`], and when a stored answer cannot be read: the contents it names
+    /// are then unknown, and nothing is planned.
+    pub fn plan(
+        &self,
+        referenced: &BTreeSet<Sha256Sum>,
+        plugins: &BTreeSet<Sha256Sum>,
+        bounds: &Bounds,
+    ) -> Result<Plan> {
+        let mut entries = self.unreferenced(referenced, !plugins.is_empty())?;
+        if !self.directory(&self.root)? {
+            return Ok(Plan::default());
+        }
+        let now = SystemTime::now();
+        // The derived files a bound may remove, with their last use.
+        let mut derived: Vec<Derived> = Vec::new();
+        let results = self.results();
+        if self.directory(&results)? {
+            for (path, name) in children(&results)? {
+                let reason = match Sha256Sum::parse(&name) {
+                    Ok(plugin) if !plugins.contains(&plugin) => Reason::Unpinned,
+                    Ok(_) if self.directory(&path)? => {
+                        derived.extend(derived_files(&path)?);
+                        continue;
+                    }
+                    _ => Reason::OldFormat,
+                };
+                entries.push(Entry::at(path, reason)?);
+            }
+        }
+        let git = self.git();
+        if self.directory(&git)? {
+            let answered = answers::stored_blob_files(self)?;
+            let blobs = git.join("blobs");
+            for file in derived_files(&git)? {
+                let unnamed = file.path.starts_with(&blobs) && !answered.contains(&file.path);
+                if unnamed && now.duration_since(file.used).unwrap_or_default() > UNNAMED_GRACE {
+                    entries.push(file.entry(Reason::Unnamed));
+                } else {
+                    derived.push(file);
+                }
+            }
+        }
+        if let Some(days) = bounds.older_than {
+            let limit = Duration::from_secs(days.saturating_mul(24 * 60 * 60));
+            derived.retain(|file| {
+                let old = now.duration_since(file.used).unwrap_or_default() > limit;
+                if old {
+                    entries.push(file.entry(Reason::Older(days)));
+                }
+                !old
+            });
+        }
+        let removed: u64 = entries.iter().map(|entry| entry.bytes).sum();
+        let mut left = size(&self.root).saturating_sub(removed);
+        let mut over = None;
+        if let Some(max) = bounds.max_size {
+            derived.sort_by(|first, second| {
+                first
+                    .used
+                    .cmp(&second.used)
+                    .then_with(|| first.path.cmp(&second.path))
+            });
+            let mut candidates = derived.into_iter();
+            while left > max {
+                let Some(file) = candidates.next() else {
+                    over = Some(max);
+                    break;
+                };
+                left = left.saturating_sub(file.bytes);
+                entries.push(file.entry(Reason::OverSize(max)));
+            }
+        }
+        entries.sort_by(|first, second| first.path.cmp(&second.path));
+        Ok(Plan {
+            entries,
+            left,
+            over,
+        })
     }
 
     /// Whether `path` is a directory: `false` when it does not exist.
@@ -493,6 +607,7 @@ impl Cache {
                 fs::remove_file(&entry.path)
             };
             match removed {
+                Ok(()) if !entry.directory => remove_emptied(&entry.path),
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => {
@@ -505,6 +620,59 @@ impl Cache {
         }
         Ok(())
     }
+}
+
+/// Removes the directories that removing `file` emptied: its `<2 hex>/` shard, and the results
+/// directory of a plugin, `<plugin sha256>/`, above it. A directory a run filled meanwhile stays,
+/// and a run that finds its shard gone creates it again ([`Cache::place`]).
+fn remove_emptied(file: &Path) {
+    let mut directory = file.parent();
+    while let Some(path) = directory {
+        let name = path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        let shard = (name.len() == 2 && name.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            || Sha256Sum::parse(name).is_ok();
+        if !shard || fs::remove_dir(path).is_err() {
+            return;
+        }
+        directory = path.parent();
+    }
+}
+
+/// Every file below `directory`, with its last use; no symbolic link is followed, and a link
+/// counts as a file.
+fn derived_files(directory: &Path) -> Result<Vec<Derived>> {
+    let mut files = Vec::new();
+    let mut directories = vec![directory.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        for (path, _) in children(&directory)? {
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                // A run removed it meanwhile (an answer file it merged).
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(Error::environment(format!(
+                        "cannot read {}: {error}",
+                        path.display()
+                    )));
+                }
+            };
+            if metadata.is_dir() {
+                directories.push(path);
+                continue;
+            }
+            // Unreadable times count as now: the file is kept as recent.
+            let used = metadata.modified().unwrap_or_else(|_| SystemTime::now());
+            files.push(Derived {
+                path,
+                bytes: metadata.len(),
+                used,
+            });
+        }
+    }
+    Ok(files)
 }
 
 /// How long ago `path` was last modified; zero when that cannot be read, so it counts as recent.
@@ -536,10 +704,71 @@ pub struct Entry {
     pub directory: bool,
     /// Its size in bytes, with everything below it.
     pub bytes: u64,
+    /// Why it goes.
+    pub reason: Reason,
+}
+
+/// Why `gate cache prune` removes an entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Reason {
+    /// No lock names the download, or the plugin of the results; `modules/` when no plugin is
+    /// pinned.
+    Unpinned,
+    /// A temporary file or directory older than any download or unpacking.
+    Stale,
+    /// A stored file content that no stored answer names, stored more than a day ago.
+    Unnamed,
+    /// An entry under `results/` that no plugin's results are laid out as: the format-2 layout.
+    OldFormat,
+    /// A derived file last used more than this many days ago (`--older-than`).
+    Older(u64),
+    /// A derived file removed, least recently used first, to bring the cache within this many
+    /// bytes (`--max-size`).
+    OverSize(u64),
+}
+
+/// A derived file: under `results/` or `git/`, with its last use.
+struct Derived {
+    path: PathBuf,
+    bytes: u64,
+    used: SystemTime,
+}
+
+impl Derived {
+    fn entry(&self, reason: Reason) -> Entry {
+        Entry {
+            path: self.path.clone(),
+            directory: false,
+            bytes: self.bytes,
+            reason,
+        }
+    }
+}
+
+/// The bounds of `gate cache prune`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Bounds {
+    /// `--older-than <days>`: derived files last used longer ago go.
+    pub older_than: Option<u64>,
+    /// `--max-size <bytes>`: derived files go, least recently used first, while the cache is
+    /// larger.
+    pub max_size: Option<u64>,
+}
+
+/// What [`Cache::plan`] removes, and what is left.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Plan {
+    /// The entries to remove, sorted by path.
+    pub entries: Vec<Entry>,
+    /// The bytes the cache holds once they are removed.
+    pub left: u64,
+    /// `--max-size` when the cache stays over it with no derived file left: what is left is
+    /// pinned downloads, `modules/` and files in use, which no bound removes.
+    pub over: Option<u64>,
 }
 
 impl Entry {
-    fn at(path: PathBuf) -> Result<Self> {
+    fn at(path: PathBuf, reason: Reason) -> Result<Self> {
         let metadata = fs::symlink_metadata(&path).map_err(|error| {
             Error::environment(format!("cannot read {}: {error}", path.display()))
         })?;
@@ -553,8 +782,44 @@ impl Entry {
             path,
             directory,
             bytes,
+            reason,
         })
     }
+}
+
+/// Sets the modification time of `path` to now: the file's last use, which `gate cache prune`
+/// bounds. A file that cannot be touched keeps its time; the run goes on.
+pub(crate) fn touch(path: &Path) {
+    let _ignored = File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(SystemTime::now()));
+}
+
+/// For tests: sets the last use of `path` to `days` days ago.
+#[cfg(test)]
+pub(crate) fn used_days_ago(path: &Path, days: u64) {
+    File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(SystemTime::now() - Duration::from_hours(24 * days)))
+        .expect("set the last use");
+}
+
+/// For tests: what `gate cache prune --older-than 30` removes from `cache`, with no lock.
+#[cfg(test)]
+pub(crate) fn older_than_30(cache: &Cache) -> Vec<PathBuf> {
+    let bounds = Bounds {
+        older_than: Some(30),
+        max_size: None,
+    };
+    cache
+        .plan(&BTreeSet::new(), &BTreeSet::new(), &bounds)
+        .expect("plan")
+        .entries
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect()
 }
 
 /// A file being written in `tmp/`, removed when dropped unless it was inserted.

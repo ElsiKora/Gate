@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -56,22 +56,11 @@ pub(crate) struct Answers {
 }
 
 impl Answers {
-    /// Every answer stored in `cache`.
+    /// Every answer stored in `cache`. Each file read counts as used now.
     pub(crate) fn load(cache: &Cache) -> Self {
         let mut answers = Self::default();
-        // The files sit two levels down, as every answer of the cache does: `<2 hex>/<digest>`.
-        let files = std::fs::read_dir(directory(cache))
-            .into_iter()
-            .flatten()
-            .filter_map(std::result::Result::ok)
-            .filter_map(|shard| std::fs::read_dir(shard.path()).ok())
-            .flatten()
-            .filter_map(std::result::Result::ok);
-        for file in files {
-            let path = file.path();
-            let Some(parsed) = std::fs::read(&path).ok().and_then(|bytes| parse(&bytes)) else {
-                continue;
-            };
+        for (path, parsed) in stored_files(cache).files {
+            super::touch(&path);
             answers.stored.extend(parsed);
             answers.read.push(path);
         }
@@ -147,6 +136,93 @@ fn kind() -> String {
 
 fn directory(cache: &Cache) -> PathBuf {
     cache.git().join(kind())
+}
+
+/// The answer files of a cache, as [`stored_files`] read them.
+#[derive(Debug, Default)]
+struct Stored {
+    /// Each file that parses, with its answers; a file that does not is skipped.
+    files: Vec<(PathBuf, Vec<(Question, Answer)>)>,
+    /// The first file or directory that could not be read; one a run removed meanwhile (an
+    /// answer file it merged) is not counted.
+    unread: Option<(PathBuf, std::io::Error)>,
+}
+
+impl Stored {
+    /// The paths in `directory`; none when it cannot be read.
+    fn listed(&mut self, directory: &Path) -> Vec<PathBuf> {
+        match std::fs::read_dir(directory) {
+            Ok(entries) => entries
+                .filter_map(|entry| match entry {
+                    Ok(entry) => Some(entry.path()),
+                    Err(error) => {
+                        self.failed(directory, error);
+                        None
+                    }
+                })
+                .collect(),
+            Err(error) => {
+                self.failed(directory, error);
+                Vec::new()
+            }
+        }
+    }
+
+    fn failed(&mut self, path: &Path, error: std::io::Error) {
+        if error.kind() != std::io::ErrorKind::NotFound && self.unread.is_none() {
+            self.unread = Some((path.to_path_buf(), error));
+        }
+    }
+}
+
+/// Every answer file of `cache`, with its answers.
+fn stored_files(cache: &Cache) -> Stored {
+    let mut stored = Stored::default();
+    // The files sit two levels down, as every answer of the cache does: `<2 hex>/<digest>`.
+    for shard in stored.listed(&directory(cache)) {
+        if !shard.is_dir() {
+            continue;
+        }
+        for path in stored.listed(&shard) {
+            if path.is_dir() {
+                continue;
+            }
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    if let Some(parsed) = parse(&bytes) {
+                        stored.files.push((path, parsed));
+                    }
+                }
+                Err(error) => stored.failed(&path, error),
+            }
+        }
+    }
+    stored
+}
+
+/// The files of the stored contents that a stored `read-at` answer names, for `gate cache
+/// prune`; nothing is touched.
+///
+/// # Errors
+/// When an answer file or its directory cannot be read: the contents it names are unknown.
+pub(crate) fn stored_blob_files(cache: &Cache) -> Result<HashSet<PathBuf>> {
+    let stored = stored_files(cache);
+    if let Some((path, error)) = stored.unread {
+        return Err(Error::environment(format!(
+            "cannot read {}: {error}; gate cache prune needs every stored answer to tell which stored file contents are in use, so nothing was pruned. Make it readable, or remove {} (gate asks git again)",
+            path.display(),
+            directory(cache).display()
+        )));
+    }
+    Ok(stored
+        .files
+        .into_iter()
+        .flat_map(|(_, parsed)| parsed)
+        .filter_map(|(_, answer)| match answer {
+            Answer::Blob(Some(id)) => Some(blob_file(cache, &id)),
+            _ => None,
+        })
+        .collect())
 }
 
 fn line(question: &Question, answer: &Answer) -> String {
@@ -242,8 +318,12 @@ fn blob_file(cache: &Cache, id: &str) -> PathBuf {
 }
 
 /// The content of the blob `id` an earlier run stored; `None` when none is, or it cannot be read.
+/// A content read counts as used now.
 pub(crate) fn blob(cache: &Cache, id: &str) -> Option<Vec<u8>> {
-    std::fs::read(blob_file(cache, id)).ok()
+    let file = blob_file(cache, id);
+    let content = std::fs::read(&file).ok()?;
+    super::touch(&file);
+    Some(content)
 }
 
 /// Stores the content of the blob `id`, unless a run stored it already.
@@ -340,6 +420,47 @@ mod tests {
             parse(b"{\"kind\": \"tree\"}\n"),
             None,
             "a broken line fails its file"
+        );
+    }
+
+    #[test]
+    fn the_answer_files_a_run_loads_and_the_contents_it_reads_count_as_used() {
+        let directory = tempfile::tempdir().expect("cache");
+        let cache = Cache::at(directory.path());
+        let id = "4".repeat(40);
+        store_blob(&cache, &id, b"content\n").expect("store the content");
+        let mut learned = Answers::default();
+        learned.learn(
+            ("read-at", vec!["3".repeat(40), "a.txt".to_owned()]),
+            Answer::Blob(Some(id.clone())),
+        );
+        learned.store(&cache).expect("store the answer");
+        let answer_files: Vec<PathBuf> = stored_files(&cache)
+            .files
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(answer_files.len(), 1, "{answer_files:?}");
+        let content = blob_file(&cache, &id);
+        super::super::used_days_ago(&answer_files[0], 40);
+        super::super::used_days_ago(&content, 40);
+        assert_eq!(
+            super::super::older_than_30(&cache),
+            [answer_files[0].clone(), content.clone()],
+            "both last used 40 days ago"
+        );
+
+        let _loaded = Answers::load(&cache);
+        assert_eq!(
+            super::super::older_than_30(&cache),
+            std::slice::from_ref(&content),
+            "the run loaded the answer file"
+        );
+        assert_eq!(blob(&cache, &id), Some(b"content\n".to_vec()));
+        assert_eq!(
+            super::super::older_than_30(&cache),
+            Vec::<PathBuf>::new(),
+            "the run read the content"
         );
     }
 }
