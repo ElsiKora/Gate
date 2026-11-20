@@ -860,6 +860,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gate-plugin-cdk"
+version = "0.2.0"
+dependencies = [
+ "gate-sdk",
+ "gate-typescript",
+]
+
+[[package]]
 name = "gate-plugin-ci"
 version = "0.2.0"
 dependencies = [

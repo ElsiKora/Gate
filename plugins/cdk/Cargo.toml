@@ -1,0 +1,20 @@
+[package]
+name = "gate-plugin-cdk"
+description = "The cdk plugin of Gate: one standard for every AWS CDK app written in TypeScript"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+# The component is `cdk.wasm`; the rlib lets the native tests call the plugin.
+name = "cdk"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+gate-typescript.workspace = true
+
+[lints]
+workspace = true
