@@ -150,6 +150,9 @@ interface types {
   }
   record generated-file { path: string, contents: list<u8>, seed: bool }   // a seed: written only
                                                                            // where nothing exists
+  record judged-targets { rule: string, targets: list<string> } // what a rule judged when less
+                                                                 // than its whole scope
+  record check-result { findings: list<finding>, judged: list<judged-targets> }
   record generate-result { files: list<generated-file>, findings: list<finding> }
   variant plugin-error {      // why check or generate failed; the message says what to do
     configuration(string),    // the options or settings cannot be used: a configuration error
@@ -193,7 +196,7 @@ interface git {       // granted only to rules that declare reads-history; messa
 world plugin {
   import tree; import git; import log: func(message: string);
   export describe: func() -> types.plugin-info;
-  export check: func(request: types.check-request) -> result<list<types.finding>, types.plugin-error>;
+  export check: func(request: types.check-request) -> result<types.check-result, types.plugin-error>;
   export generate: func(name: string, project: string, options: string, plugin-options: string)
       -> result<types.generate-result, types.plugin-error>;   // findings surface as
                                                                // gate/sync#<generator>

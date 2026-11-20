@@ -79,8 +79,9 @@ pub mod bindings;
 pub use self::git::{Commit, CommitRange, Git, SyncState};
 pub use self::host::{GitHost, Host, TreeHost};
 pub use self::plugin::{
-    CheckRequest, GenerateOutput, GeneratorEntry, NoOptions, PluginInfo, PluginSpec, Preset,
-    PresetInfo, RuleDecision, RuleEntry, RuleRun, check, describe, generate,
+    CheckOutput, CheckRequest, GenerateOutput, GeneratorEntry, Judged, NoOptions, PluginInfo,
+    PluginSpec, Preset, PresetInfo, RuleDecision, RuleEntry, RuleRun, check, check_output,
+    describe, generate,
 };
 pub use self::report::{FileLocation, Finding, Location, Report, Span};
 pub use self::rule::{

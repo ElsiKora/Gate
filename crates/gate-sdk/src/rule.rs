@@ -346,6 +346,8 @@ pub struct Run<'h, O, S: CallState = ()> {
     pub(crate) options: O,
     pub(crate) options_file: Option<String>,
     pub(crate) exceptions: Vec<String>,
+    /// The targets the rule judged, once it narrowed its view; `None`: its whole scope.
+    pub(crate) judged: Option<Vec<String>>,
     pub(crate) state: &'h (dyn Enter<S> + 'h),
 }
 
@@ -450,6 +452,22 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
     #[must_use]
     pub fn exceptions(&self) -> &[String] {
         &self.exceptions
+    }
+
+    /// Narrows what this run judged to `targets`, written as the rule's findings write their
+    /// target: for a rule whose subjects change from run to run, such as the pushed commits or the
+    /// checked-out branch. An exception of the rule is then due, and reported when it matches no
+    /// finding, only when its target is among the targets the run listed; a run that judged
+    /// nothing calls it with none. Each call adds to the list. A rule that never calls it judged
+    /// its whole scope, and every exception of it is due.
+    pub fn judges_only<T: Into<String>>(&mut self, targets: impl IntoIterator<Item = T>) {
+        let judged = self.judged.get_or_insert_with(Vec::new);
+        for target in targets {
+            let target = target.into();
+            if !judged.contains(&target) {
+                judged.push(target);
+            }
+        }
     }
 
     /// The project's root relative to the repository; empty for the repository.

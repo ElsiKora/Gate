@@ -123,6 +123,14 @@ interface types {
   /// once written.
   record generated-file { path: string, contents: list<u8>, seed: bool }
 
+  /// The targets one rule judged in a `check` call, when it judged less than its whole scope: the
+  /// pushed commits it checked, say, or the branch it checked. An exception of the rule is due (a
+  /// `gate/exceptions` error when it matches no finding) only when its target is one of them.
+  record judged-targets { rule: string, targets: list<string> }
+
+  /// What `check` answers. A rule `judged` does not list judged its whole scope.
+  record check-result { findings: list<finding>, judged: list<judged-targets> }
+
   /// What `generate` answers; its findings surface as `gate/sync#<generator>`.
   record generate-result { files: list<generated-file>, findings: list<finding> }
 
@@ -207,7 +215,7 @@ interface git {
 }
 
 world plugin {
-  use types.{plugin-info, check-request, finding, generate-result, plugin-error};
+  use types.{plugin-info, check-request, check-result, generate-result, plugin-error};
 
   import tree;
   import git;
@@ -216,7 +224,7 @@ world plugin {
 
   export describe: func() -> plugin-info;
   /// `err` fails the run, as a configuration or an environment error (see `plugin-error`).
-  export check: func(request: check-request) -> result<list<finding>, plugin-error>;
+  export check: func(request: check-request) -> result<check-result, plugin-error>;
   /// `options`: JSON, the generator's own options; `plugin-options`: JSON, the `[plugins.<name>]`
   /// options, as a `check` call receives them.
   export generate: func(name: string, project: string, options: string, plugin-options: string) -> result<generate-result, plugin-error>;

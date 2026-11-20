@@ -154,7 +154,7 @@ pub fn describe<S: CallState>(spec: &PluginSpec<S>) -> wit::PluginInfo {
 pub fn check<S: CallState>(
     spec: &PluginSpec<S>,
     request: wit::CheckRequest,
-) -> Result<Vec<wit::Finding>, wit::PluginError> {
+) -> Result<wit::CheckResult, wit::PluginError> {
     let request = plugin::CheckRequest {
         project: request.project,
         rules: request
@@ -180,8 +180,18 @@ pub fn check<S: CallState>(
             })
             .collect(),
     };
-    plugin::check(spec, &ComponentHost, &request)
-        .map(|findings| findings.into_iter().map(finding).collect())
+    plugin::check_output(spec, &ComponentHost, &request)
+        .map(|output| wit::CheckResult {
+            findings: output.findings.into_iter().map(finding).collect(),
+            judged: output
+                .judged
+                .into_iter()
+                .map(|judged| wit::JudgedTargets {
+                    rule: judged.rule,
+                    targets: judged.targets,
+                })
+                .collect(),
+        })
         .map_err(plugin_error)
 }
 
@@ -372,7 +382,7 @@ macro_rules! plugin {
                 fn check(
                     request: $crate::bindings::gate::plugin::types::CheckRequest,
                 ) -> ::core::result::Result<
-                    ::std::vec::Vec<$crate::bindings::gate::plugin::types::Finding>,
+                    $crate::bindings::gate::plugin::types::CheckResult,
                     $crate::bindings::gate::plugin::types::PluginError,
                 > {
                     $crate::bindings::check(&PLUGIN, request)
