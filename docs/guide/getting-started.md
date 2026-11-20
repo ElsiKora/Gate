@@ -168,11 +168,12 @@ Its summary says so: `gate check (tree, commit message): ...`. The form is
 ```toml
 [ci.github]
 workflow = ".github/workflows/gate.yml"
-checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"   # v7.0.1
+checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
 
 [ci.github.jobs.gate]
 name = "Gate"
-runs-on = "ubuntu-latest"
+runs-on = "ubuntu-24.04"
+timeout-minutes = 15
 run = ["check --push --format github"]
 ```
 
@@ -183,7 +184,8 @@ git commit -m "chore(gate): add the workflow"
 ```
 
 `gate sync` writes the workflow file, and the commit adds it. `checkout` pins the checkout action by
-its full commit id. The workflow's generated first job runs `gate sync --check`, which fails when
+its full commit id, with the release after ` # `, which the workflow keeps as a comment.
+`timeout-minutes` is the job's time limit; every job needs one. The workflow's generated first job runs `gate sync --check`, which fails when
 the hooks or the workflow drift from `gate.toml`, and lists the projects the change touches. In a
 job, `--push` takes no value: the job passes the pull request's or the push's range. Generated
 `check` commands run with `--no-overrides`, so no plugin can be swapped in CI, and, when the job

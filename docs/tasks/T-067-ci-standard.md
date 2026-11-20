@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, for the lead's review |
+| Status | design approved by the lead; code written, round to run |
 | Release | v0.3.0 |
 | Writer | "Gate 006" |
 | Reviewer | the lead |
-| Depends on | `main` at `ec66737` |
-| Touches | `plugins/ci/src/*` (new rules, the `recommended` preset), `plugins/ci/rules/*.md`, `plugins/ci/tests/ci/*`, `plugins/ci/Cargo.toml` (0.3.0), `plugins/ci/CHANGELOG.md`, `crates/gate-host/src/sync/github.rs`, `crates/gate-host/src/sync/yaml.rs`, `crates/gate-host/src/config/file.rs` (`CiJob`), `crates/gate-host/src/plugins.rs` (`SYNC_STATE_VERSION` only), `crates/gate/tests/cli.rs`, `docs/guide/configuration.md`, `docs/architecture.md` section 10, `CHANGELOG.md` |
+| Depends on | `main` at `340cf8b` |
+| Touches | `plugins/ci/src/*` (new rules, the `recommended` preset), `plugins/ci/rules/*.md`, `plugins/ci/tests/ci/*`, `plugins/ci/Cargo.toml` (0.3.0), `plugins/ci/CHANGELOG.md`, `crates/gate-host/src/sync/github.rs`, `crates/gate-host/src/sync/yaml.rs`, `crates/gate-host/src/config/file.rs` (`CiJob`), `crates/gate-host/src/plugins.rs` (`SYNC_STATE_VERSION` only), `crates/gate-host/src/config/mod.rs` (`check_github`), `crates/gate/tests/cli.rs`, `crates/gate/tests/plugins.rs`, `crates/gate-host/tests/host/sync.rs`, `.github/workflows/*.yml`, `docs/guide/*.md`, `README.md`, `docs/architecture.md` section 10, `CHANGELOG.md` |
 
 ## Goal
 
@@ -89,7 +89,7 @@ Exceptions to any rule go in `gate.exceptions.toml` with a reason, the one way G
   aggregate job, which has no configured name, its id: the check name it has today, so no branch
   protection rule changes.
 
-(Reading of "packs alike, one name per job" above is the writer's; see Open questions.)
+The lead confirmed this reading (see Decisions).
 
 ## New rules in the ci plugin
 
@@ -174,12 +174,16 @@ comment and a tag pin are two findings, the old one unchanged).
 Preset: `ci/recommended` turns on every rule at `error` (one test over a workflow that breaks each
 rule once).
 
-Generator, in `crates/gate/tests/cli.rs`:
+Generator:
 
-- `the_generated_workflow_meets_the_ci_standard`: `gate sync` from a `[ci.github]` with every key
-  (an aggregate, `projects`, `services`, `setup`, `after`, a version comment on `checkout`), then
-  `gate check` with `extends = ["ci/recommended"]` and the built `ci` plugin: exit 0, no finding.
-- `a_ci_job_without_timeout_minutes_is_a_configuration_error`: exit 2, the message names the job.
+- `the_generated_workflow_meets_the_ci_standard` (`crates/gate/tests/plugins.rs`, where the built
+  plugin components are): `gate sync` from a `[ci.github]` with an aggregate, `projects`,
+  `services`, `setup`, `after`, an `environment` and a version comment on `checkout`, then
+  `gate check` with `extends = ["ci/recommended"]` and the built `ci` plugin: exit 0. A second,
+  hand-written workflow that breaks five rules then makes the check exit 1 with those rules
+  reported and `gate.yml` not reported.
+- `a_ci_job_without_timeout_minutes_or_with_an_empty_release_is_a_configuration_error`
+  (`crates/gate/tests/cli.rs`): exit 2, the message names the job.
 - The checkout comment is written after the scalar and the workflow still parses
   (`actionlint` on the round's generated workflow, as T-043's round does).
 
@@ -191,19 +195,61 @@ Generator, in `crates/gate/tests/cli.rs`:
   `timeout-minutes` required) say what changed.
 - Do not edit docs/plan.md.
 
-## Open questions for the lead
+## Decisions (the lead, on design `1881985`)
 
-1. "Packs alike, one name per job": the reading above (one preset taken the same way everywhere;
-   one name per job, the aggregate named by its id) is the writer's. Confirm or correct.
-2. `timeout-minutes` required in `[ci.github]` (breaking) or a default the generator writes
-   (not breaking, but a value nobody chose). The design says required.
-3. `ci/environment`'s default `scopes` include `contents`: a release job that pushes a tag then
-   needs an environment. Keep, or leave `contents` out and rely on an exception?
-4. `ci/node-setup` in this plugin, or left out of v0.3.0.
-5. Dependabot configuration is outside workflows and outside this task.
+1. "Packs alike, one name per job": the reading above is confirmed. One preset taken the same way
+   everywhere; one name per job; the aggregate job named by its id.
+2. `timeout-minutes` is required in `[ci.github]`. The Breaking entry of `CHANGELOG.md` gives the
+   migration step (add `timeout-minutes` to each `[ci.github.jobs.<id>]`).
+3. `contents` stays in `ci/environment`'s default `scopes`; a repository that wants otherwise
+   writes an exception.
+4. `ci/node-setup` is in v0.3.0, in `ci/recommended`.
+5. Dependabot stays out.
+6. Gate's own `.github/workflows` pass `ci/recommended`, the release workflows included, without
+   changing their triggers (a release starts only on a tag push that is not batched).
+
+Made while writing the code:
+
+- `[ci.github]` step names stay optional; a step without one gets a `ci/names#step` finding, which
+  is how a repository learns to add it. Only the generator's own checkout step is named by Gate.
+- `CiJob` gains `environment` (a string): without it a generated job that holds `contents: write`
+  could not meet `ci/environment`. The generator writes it after the job's `permissions`.
+- `ci/environment` skips a job that calls a reusable workflow (`uses:`): such a job cannot set
+  `environment`; the called workflow's jobs are checked in their own file.
+- `ci/permissions` and `ci/timeout`: a reusable-workflow call job can set `permissions`, so it is
+  asked to; it cannot set `timeout-minutes`, so it is not.
+
+## Gate's own workflows
+
+`gate_s_own_workflows_pass_every_rule` (`plugins/ci/tests/ci/main.rs`) runs every rule of
+`ci/recommended` over the repository's `.github/workflows` and asserts no finding. The findings
+they had at `340cf8b`, read from the rule pages against the files, and the change made for each:
+
+| File | Finding | Change |
+| --- | --- | --- |
+| `release.yml` | `ci/permissions#job-missing` on `version` | `permissions: { contents: read }` |
+| `release.yml` | `ci/timeout#missing` on `version` and `release` | `timeout-minutes` 15 and 20 |
+| `release.yml` | `ci/environment` on `release` (`contents: write`) | `environment: release` |
+| `release-plugin.yml` | `ci/names#file`: `Release a plugin` is `release-a-plugin`, not the file's stem | name `Release plugin` |
+| `release-plugin.yml` | `ci/permissions#job-missing` on `plugin` | `permissions: { contents: read }` |
+| `release-plugin.yml` | `ci/timeout#missing` on `plugin` and `release` | `timeout-minutes` 15 and 20 |
+| `release-plugin.yml` | `ci/environment` on `release` | `environment: release` |
+| `reproducible.yml` | `ci/names#file`: `Reproducible components` is not the file's stem | name `Reproducible` |
+| `reproducible.yml` | `ci/permissions#job-missing` on `build` | `permissions: { contents: read }` |
+
+Not a finding, changed for the standard's item 2: `reproducible.yml` cancelled a running build on
+any branch push, `main` included. `cancel-in-progress` is now
+`${{ startsWith(github.ref, 'refs/heads/task/') }}`: a task branch's newer push cancels its
+running build, a push to `main` and a release's build (a tag ref) run to their end.
+
+The triggers of all three files are unchanged. The environment `release` is created by GitHub on
+the first run that names it, with no protection rules, so a release starts as before; the owner can
+add reviewers or a tag policy to it later.
 
 ## Resume point
 
-2026-11-19T23:34:40+00:00: survey done (read-only), divergence table written outside the
-repository, this design written on `task/T-067-ci-standard` from `main` at `ec66737`. No code yet;
-the code starts when the lead approves the design.
+2026-11-20T06:04:31+00:00: design approved; code written on `task/T-067-ci-standard`, rebased on
+`main` at `340cf8b`: nine new rules and `version-comment` in the ci plugin, `ci/recommended`, the
+generator and `[ci.github]` changes, Gate's own workflows, the rule pages, the guides and the
+changelogs. Not yet run in the lane; next: the round (fmt, clippy, the new tests by name, the
+workspace test, deny, the release build, actionlint) with its own target, then the log check.

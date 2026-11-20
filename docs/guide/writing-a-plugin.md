@@ -235,22 +235,39 @@ name: Release
 on:
   push:
     tags: ["plugin-todo-v*"]
-permissions:
-  contents: write
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   release:
-    runs-on: ubuntu-latest
+    name: Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - run: cargo test --locked
-      - run: sh scripts/build-component.sh plugin-todo wasm32-wasip2
-      - run: |
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test
+        run: cargo test --locked
+      - name: Build the module
+        run: sh scripts/build-component.sh plugin-todo wasm32-wasip2
+      - name: Write its checksum
+        run: |
           cp target/wasm32-wasip2/release/plugin_todo.wasm todo.wasm
           sha256sum todo.wasm > todo.wasm.sha256
-      - run: gh release create "$GITHUB_REF_NAME" todo.wasm todo.wasm.sha256 --title "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
+      - name: Create the release
+        run: gh release create "$GITHUB_REF_NAME" todo.wasm todo.wasm.sha256 --title "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
         env:
           GH_TOKEN: ${{ github.token }}
 ```
+
+The workflow meets the `ci` plugin's standard (`ci/recommended`): the job that writes runs in an
+environment, whose protection rules decide which tags may release.
 
 Build the plugin only in the release job, reproducibly, so the published file is the one the tests ran
 on. `scripts/build-component.sh <package> wasm32-wasip2`, copied from Gate's repository, is how Gate

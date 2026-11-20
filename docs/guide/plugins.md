@@ -339,21 +339,34 @@ page are under [plugins/cdk/rules](../../plugins/cdk/rules/README.md).
 
 ### `ci`
 
-GitHub Actions workflows, generated or written by hand.
+GitHub Actions workflows, generated or written by hand, held to one standard. Every repository takes
+it the same way, through the preset `ci/recommended`, which turns every rule on at `error`; a workflow
+that must differ says so with an exception and its reason in `gate.exceptions.toml`. The workflow
+`gate sync` writes from `[ci.github]` meets the standard, so the preset reports only workflows written
+by hand.
 
 ```toml
-[plugins]
-ci = { source = "ElsiKora/Gate:ci@0.2.0" }
+[project]
+name = "server"
+extends = ["ci/recommended"]
 
-[rules]
-"ci/actions-pinned" = "error"
-"ci/workflow-run-target" = "error"
+[plugins]
+ci = { source = "ElsiKora/Gate:ci@0.3.0" }
 ```
 
 | Rule | Checks |
 | --- | --- |
-| [`ci/actions-pinned`](../../plugins/ci/rules/actions-pinned.md) | actions and reusable workflows are pinned by a full commit SHA |
+| [`ci/actions-pinned`](../../plugins/ci/rules/actions-pinned.md) | actions and reusable workflows are pinned by a full commit SHA, with the release in a comment |
 | [`ci/workflow-run-target`](../../plugins/ci/rules/workflow-run-target.md) | `workflow_run` triggers name workflows that exist |
+| [`ci/permissions`](../../plugins/ci/rules/permissions.md) | every job sets its own token permissions; a workflow's own permissions only read |
+| [`ci/concurrency`](../../plugins/ci/rules/concurrency.md) | every workflow has a concurrency group, and a newer run cancels only a pull request's |
+| [`ci/timeout`](../../plugins/ci/rules/timeout.md) | every job that runs steps sets `timeout-minutes` |
+| [`ci/runner-pinned`](../../plugins/ci/rules/runner-pinned.md) | jobs run on a versioned runner image, never `*-latest` |
+| [`ci/checkout-credentials`](../../plugins/ci/rules/checkout-credentials.md) | every checkout sets `persist-credentials: false` |
+| [`ci/secrets-in-steps`](../../plugins/ci/rules/secrets-in-steps.md) | secrets reach only the steps that use them |
+| [`ci/environment`](../../plugins/ci/rules/environment.md) | a job that writes outside the checks runs in an environment |
+| [`ci/node-setup`](../../plugins/ci/rules/node-setup.md) | `actions/setup-node` reads the version from a file, sets a cache and runs once per job |
+| [`ci/names`](../../plugins/ci/rules/names.md) | every workflow, job and step is named; a file is its workflow's name in kebab case |
 
 ### `docker`
 
@@ -422,8 +435,8 @@ plugin new in 0.3.0 ships two: `<plugin>/recommended`, every rule at error, and 
 every rule at warning (`docs`, `docker` and `repository`; `repository/recommended` keeps
 `repository/large-files#large` at `warning`); `cdk` ships `cdk/recommended` and `cdk/adoption`,
 which differs: it warns only on the renames and keeps the other rules at error. `git` ships
-`git/recommended`. Turn the rules of the other plugins on one by one in `[rules]`; `gate list`
-shows the result.
+`git/recommended` and `ci` ships `ci/recommended`, every rule at error. Turn the rules of the other
+plugins on one by one in `[rules]`; `gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 
