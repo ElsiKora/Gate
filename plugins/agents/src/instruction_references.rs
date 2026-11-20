@@ -74,45 +74,23 @@ impl Rule for InstructionReferences {
 
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let tree = run.tree();
-        let command = run
-            .options()
-            .command_pattern
-            .as_deref()
-            .map(|pattern| {
-                Regex::new(pattern)
-                    .ok()
-                    .filter(|compiled| compiled.captures_len() > 1)
-                    .ok_or_else(|| {
-                        Error::config(format!(
-                            "command-pattern `{pattern}` is not a regular expression with a group; \
-                             write one whose first group captures the script name"
-                        ))
-                    })
-            })
-            .transpose()?;
+        let command = command_pattern(run.options().command_pattern.as_deref())?;
 
         // The entry is one of the files the rule reads: a missing one is reported, and the files
         // below the root are still checked.
         let entry = run.options().entry.clone();
-        has_entry(
+        let entry = has_entry(
             run.report(),
             &tree,
             &entry,
             "agents/instruction-references",
             INPUT,
             "create it",
-        );
+        )
+        .then_some(entry);
         let options = run.options();
         let paths = tree.paths();
-        let root = options.root.trim_end_matches('/');
-        let files: Vec<String> = std::iter::once(options.entry.clone())
-            .filter(|entry| tree.contains(entry))
-            .chain(
-                tree.under(root)
-                    .into_iter()
-                    .filter(|path| has_extension(path, "md")),
-            )
-            .collect();
+        let files = read_files(&tree, entry, &options.root);
         if files.is_empty() {
             return Ok(());
         }
@@ -186,6 +164,38 @@ impl Rule for InstructionReferences {
         }
         Ok(())
     }
+}
+
+/// `pattern` compiled, when set.
+///
+/// # Errors
+/// When it is not a regular expression with a group.
+fn command_pattern(pattern: Option<&str>) -> Result<Option<Regex>> {
+    pattern
+        .map(|pattern| {
+            Regex::new(pattern)
+                .ok()
+                .filter(|compiled| compiled.captures_len() > 1)
+                .ok_or_else(|| {
+                    Error::config(format!(
+                        "command-pattern `{pattern}` is not a regular expression with a group; \
+                         write one whose first group captures the script name"
+                    ))
+                })
+        })
+        .transpose()
+}
+
+/// The files the rule reads: the entry when it is tracked, and every `*.md` below `root`.
+fn read_files(tree: &Tree<'_>, entry: Option<String>, root: &str) -> Vec<String> {
+    entry
+        .into_iter()
+        .chain(
+            tree.under(root.trim_end_matches('/'))
+                .into_iter()
+                .filter(|path| has_extension(path, "md")),
+        )
+        .collect()
 }
 
 /// Where a cited path may exist: in the project (its tracked paths and its `.gitignore`) and, in a
