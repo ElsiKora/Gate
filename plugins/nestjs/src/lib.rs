@@ -31,6 +31,7 @@ const RECOMMENDED: &str = r#"{
     "entity-table-name": { "level": "error" },
     "enum-values": { "level": "error" },
     "error-logging": { "level": "error" },
+    "error-string-shim": { "level": "error" },
     "eslint-directives": { "level": "error" },
     "import-aliases": { "level": "error" },
     "kind-layout": { "level": "error" },
@@ -41,7 +42,6 @@ const RECOMMENDED: &str = r#"{
     "native-repository": { "level": "error" },
     "prefix-nesting": { "level": "error" },
     "repeated-segment": { "level": "error" },
-    "string-enums": { "level": "error" },
     "typeorm-relation": { "level": "error" },
     "wrappers": { "level": "error" }
 }"#;
@@ -61,6 +61,7 @@ const ADOPTION: &str = r#"{
     "entity-table-name": { "level": "warning" },
     "enum-values": { "level": "warning" },
     "error-logging": { "level": "warning" },
+    "error-string-shim": { "level": "warning" },
     "eslint-directives": { "level": "warning" },
     "import-aliases": { "level": "warning" },
     "kind-layout": { "level": "warning" },
@@ -71,7 +72,6 @@ const ADOPTION: &str = r#"{
     "native-repository": { "level": "warning" },
     "prefix-nesting": { "level": "warning" },
     "repeated-segment": { "level": "warning" },
-    "string-enums": { "level": "warning" },
     "typeorm-relation": { "level": "warning" },
     "wrappers": { "level": "warning" }
 }"#;

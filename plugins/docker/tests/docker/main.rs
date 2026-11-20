@@ -3,6 +3,7 @@
 mod compose;
 mod dockerfile;
 mod fixture;
+mod presets;
 
 use std::collections::BTreeMap;
 

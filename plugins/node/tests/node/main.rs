@@ -7,6 +7,7 @@ mod linter;
 mod node_version;
 mod package;
 mod package_manager;
+mod presets;
 mod scripts;
 mod tsconfig;
 mod tsconfig_base;

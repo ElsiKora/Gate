@@ -4,6 +4,7 @@
 mod fixture;
 mod lay_down;
 mod layout;
+mod presets;
 mod standard;
 
 /// Each preset turns on exactly the plugin's rules, every one at the preset's level and with

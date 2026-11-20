@@ -18,14 +18,16 @@ pub use self::string_enums::{Options as StringEnumsOptions, StringEnums};
 /// `typescript/recommended`: every rule at error, for a repository that follows the standard.
 const RECOMMENDED: &str = r#"{
     "parse": { "level": "error" },
-    "barrel-imports": { "level": "error" }
+    "barrel-imports": { "level": "error" },
+    "string-enums": { "level": "error" }
 }"#;
 
 /// `typescript/adoption`: the rules of `typescript/recommended` at warning, for a repository on its
 /// way to the standard.
 const ADOPTION: &str = r#"{
     "parse": { "level": "warning" },
-    "barrel-imports": { "level": "warning" }
+    "barrel-imports": { "level": "warning" },
+    "string-enums": { "level": "warning" }
 }"#;
 
 gate_sdk::plugin! {

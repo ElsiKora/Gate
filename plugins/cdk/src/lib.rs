@@ -32,7 +32,7 @@ use self::rules::stack_names::StackNames;
 use self::rules::tags::Tags;
 use self::rules::tests::Tests;
 
-/// Every rule at `error`.
+/// Every rule at `error`, for an app that follows the standard.
 const RECOMMENDED: &str = r#"{
     "layout": { "level": "error" },
     "file-names": { "level": "error" },
@@ -51,23 +51,22 @@ const RECOMMENDED: &str = r#"{
     "tests": { "level": "error" }
 }"#;
 
-/// `recommended`, with the aspects that rename files and classes at `warning`, so an existing app
-/// fixes what protects a deploy first and renames in its own commits.
+/// The rules of `recommended` at `warning`, for an app on its way to the standard.
 const ADOPTION: &str = r#"{
-    "layout": { "level": "error" },
+    "layout": { "level": "warning" },
     "file-names": { "level": "warning" },
-    "app": { "level": "error" },
-    "environment": { "level": "error" },
+    "app": { "level": "warning" },
+    "environment": { "level": "warning" },
     "declarations": { "level": "warning" },
     "barrels": { "level": "warning" },
-    "stack-names": { "level": "error", "levels": { "topic": "warning" } },
-    "construct-ids": { "level": "error" },
-    "physical-names": { "level": "error" },
+    "stack-names": { "level": "warning" },
+    "construct-ids": { "level": "warning" },
+    "physical-names": { "level": "warning" },
     "properties": { "level": "warning" },
-    "tags": { "level": "error" },
-    "removal-policy": { "level": "error" },
-    "nag": { "level": "error" },
-    "container-health": { "level": "error" },
+    "tags": { "level": "warning" },
+    "removal-policy": { "level": "warning" },
+    "nag": { "level": "warning" },
+    "container-health": { "level": "warning" },
     "tests": { "level": "warning" }
 }"#;
 

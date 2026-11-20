@@ -1,6 +1,7 @@
 //! The repository plugin's rules run natively through the SDK against synthetic trees.
 
 mod large_files;
+mod presets;
 mod tracked_secrets;
 
 use std::cell::Cell;

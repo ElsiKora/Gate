@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | the review's fix round green in lane round 332 on `37b05a1`; merges last of 0.3.0, after a rebase |
+| Status | rebased onto `main` at `16d94316` for its merge, locally; its round waits for the lead |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -84,10 +84,12 @@ T-061 makes these three options required, which also gives them reason 1.
 
 - In: `adapter-boundary`, `api-readiness`, `automator-metadata`, `barrel-exports`,
   `constant-files`, `custom-routes`, `declaration-files`, `dto-decorators`, `entity-descriptions`,
-  `entity-table-name`, `enum-values`, `error-logging`, `eslint-directives`, `import-aliases`,
-  `kind-layout`, `migrations`, `module-names`, `module-registry`, `native-functions`,
-  `native-repository`, `prefix-nesting`, `repeated-segment`, `string-enums`, `typeorm-relation`,
-  `wrappers`.
+  `entity-table-name`, `enum-values`, `error-logging`, `error-string-shim`, `eslint-directives`,
+  `import-aliases`, `kind-layout`, `migrations`, `module-names`, `module-registry`,
+  `native-functions`, `native-repository`, `prefix-nesting`, `repeated-segment`,
+  `typeorm-relation`, `wrappers`. `string-enums` left for `typescript` at the rebase (T-064), and
+  `error-string-shim`, which T-064 split out of it, is in: its `enum-names` defaults to the CRUD
+  automator's two enums, and it needs no plugin option.
 - Out, an option without a default (reason 1); the options are an error without it:
   - `advisory-lock-boundary` (`executor`);
   - `import-direction` (`contracts`);
@@ -109,27 +111,39 @@ T-061 makes these three options required, which also gives them reason 1.
 `api-readiness` is in: every service is readiness-checkable, which is part of the NestJS standard
 (the lead's ruling).
 
-### `typescript` (2 rules): both in
+### `typescript` (3 rules): all in
 
 `parse`, `barrel-imports`, accepted by the lead in the review. `owners` and `exempt` default to
-`[]`, and the rule still checks every folder that has a barrel.
+`[]`, and the rule still checks every folder that has a barrel. `string-enums`, moved from `nestjs`
+by T-064: every option has a default (`test-roots` among them), and it needs no plugin option.
 
-## Moves on other branches
+### `cdk`, `docker`, `docs`, `node` and `repository`: already two presets
 
-The lists are written against `main` at `340cf8b`. This branch changes only the preset arrays, docs
-and tests, so the rebase stays mechanical. It merges last of the 0.3.0 branches and is rebased then:
+These plugins came to `main` with both presets, every rule in each. `cdk/adoption` warned only on
+the renames and kept its other rules at `error`; at the rebase it turns on every rule at `warning`,
+as the ruling of this task has it (the lead, 2026-11-20). `repository/recommended` keeps
+`repository/large-files#large` at `warning`, an aspect level, as `git/recommended` keeps two.
 
-- T-064 moves `nestjs/string-enums` to `typescript/string-enums`: at the rebase it leaves the
-  `nestjs` presets and joins the `typescript` ones (its options keep their defaults). T-064 also adds
-  `nestjs/error-string-shim`, which gets a decision at the rebase, and the preset test fails until
-  it has one.
-- T-061 and T-062 change `agents` and `ledger`. A rule they add fails the preset test until it has a
-  decision. An option they make required moves its rule out, with reason 1.
+## The rebase onto `main`
+
+The lists were written against `main` at `340cf8b`; the branch is rebased onto `16d94316` (after
+T-064, T-061, T-062, T-066, T-066b, T-073 and T-074):
+
+- `nestjs/string-enums` is `typescript/string-enums` (T-064): it leaves the `nestjs` presets and
+  joins the `typescript` ones. `nestjs/error-string-shim` joins the `nestjs` presets.
+- T-061 and T-062 added no rule to `agents` or `ledger` (each still declares nine), so their
+  presets stand as written; the preset tests' load check holds, in the round, that no included
+  rule's option became required.
+- `cdk/adoption` turns on every rule at `warning` (above).
+- `cdk`, `docker`, `docs`, `node` and `repository` each gain the load check of the preset tests (a
+  `presets` test module). Their own tests already hold that each preset names every rule at its
+  level; `cdk`'s now holds `adoption` at `warning` for every rule.
 
 ## Tests
 
-- One test per plugin, in its tests: both presets exist and name exactly the plugin's rules minus
-  the excluded ones, each rule with `level` `error` in `recommended` and `warning` in `adoption`.
+- One test per plugin of this task, in its tests: both presets exist and name exactly the
+  plugin's rules minus the excluded ones, each rule with `level` `error` in `recommended` and
+  `warning` in `adoption`.
   The exclusions are a list in the test with each reason, so a new rule fails the test until it is
   added to the presets or to the list.
 - One CLI test in `crates/gate/tests/plugins.rs`: a repository with `extends = ["ci/adoption"]` and
@@ -219,6 +233,6 @@ their exact test fail (exit 101): the eight of round 322, and `ci`'s options wit
 
 ## Resume point
 
-2026-11-20T09:48:55+00:00: the review's fix round is green in lane round 332 on `37b05a1`. The
-branch merges last of the 0.3.0 branches and is rebased then (string-enums moves to the typescript
-presets; T-064's error-string-shim and any rule T-061 or T-062 add get a decision).
+2026-11-20T18:59:25+00:00: rebased onto `main` at `16d94316` locally, with the rebase's changes
+above in one commit; not pushed. The lane round and the push wait for the lead: the branch merges
+last of 0.3.0, after T-071, which edits the plugins guide's Presets paragraph too.

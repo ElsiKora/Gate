@@ -70,8 +70,9 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 | [`typescript/barrel-imports`](../../plugins/typescript/rules/barrel-imports.md) | a folder with a barrel is imported from outside only through its barrel, and only for names it exports |
 | [`typescript/string-enums`](../../plugins/typescript/rules/string-enums.md) | string-literal variant contracts use enums, in every `.ts` file, with `test-roots` for the tests |
 
-Presets: `typescript/recommended` turns on both rules, `typescript/parse` and
-`typescript/barrel-imports`, at `error`, and `typescript/adoption` the same at `warning`.
+Presets: `typescript/recommended` turns on all three rules, `typescript/parse`,
+`typescript/barrel-imports` and `typescript/string-enums`, at `error`, and `typescript/adoption` the
+same at `warning`.
 
 ### `git`
 
@@ -390,7 +391,7 @@ cdk = { source = "ElsiKora/Gate:cdk@0.3.0", options = { regions = ["eu-central-1
 
 A project extends the standard only through `[plugins.cdk] options`: `extra` directories and
 `extra-tags`, each with its job, `regions` and `nag-packs`. An existing app starts from the
-`adoption` preset, which keeps the renames at `warning`. The standard, the options and each rule's
+`adoption` preset, every rule at `warning`. The standard, the options and each rule's
 page are under [plugins/cdk/rules](../../plugins/cdk/rules/README.md).
 
 ### `frontend`
