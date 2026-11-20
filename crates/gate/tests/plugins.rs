@@ -17,7 +17,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const SOURCE: &str = "acme/rules:hello@0.1.0";
 
-/// A workspace package built as a component once per test binary: its path and bytes.
+/// A workspace package built as a component once per process: its path and bytes.
 fn component(package: &str, library: &str) -> &'static (PathBuf, Vec<u8>) {
     built::component(package, library, "")
 }

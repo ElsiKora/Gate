@@ -1,5 +1,5 @@
 //! The runtime's sandbox, limits, read set and cache, against the probe plugin in `tests/probe`,
-//! built for `wasm32-wasip2` once per test binary.
+//! built for `wasm32-wasip2` once per process.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
