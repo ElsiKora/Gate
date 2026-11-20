@@ -63,14 +63,9 @@ fn one_owner_per_file_and_contracts_in_their_kind_folder_pass() {
 fn a_second_owner_is_reported_with_every_entity_in_order() {
     let text =
         "export class UserService {}\ninterface Row { id: string }\nexport default class {}\n";
-    let stack = "export class Stack {}\nexport const make = (): number => 1;\n";
 
     assert_eq!(
-        check(
-            RULE,
-            "{}",
-            &[(SERVICE, text), ("infrastructure/cdk/lib/stack.ts", stack)]
-        ),
+        check(RULE, "{}", &[(SERVICE, text)]),
         [
             row(
                 "single-owner",
@@ -83,15 +78,6 @@ fn a_second_owner_is_reported_with_every_entity_in_order() {
                 )
             ),
             misplaced(SERVICE, 2, "Row", "interface"),
-            row(
-                "single-owner",
-                "infrastructure/cdk/lib/stack.ts",
-                None,
-                &owners(
-                    "infrastructure/cdk/lib/stack.ts",
-                    "ClassDeclaration Stack, FunctionValuedConst make"
-                )
-            ),
         ]
     );
 }
@@ -219,11 +205,10 @@ fn the_contract_kinds_are_an_option() {
 fn the_walk_skips_the_typescript_skip_folders() {
     let stack = "export class Stack {}\nexport const make = (): number => 1;\n";
     let source = "src/modules/generated/user/user.service.ts";
-    let cdk = "infrastructure/cdk/lib/generated/stack.ts";
-    let vendored = "infrastructure/cdk/node_modules/pkg/stack.ts";
-    let files = [(source, stack), (cdk, stack), (vendored, stack)];
+    let vendored = "src/node_modules/pkg/user.service.ts";
+    let files = [(source, stack), (vendored, stack)];
     let paths = |languages: &str| support::paths_with(RULE, "{}", "{}", languages, &files);
 
-    assert_eq!(paths("{}"), [source, cdk]);
+    assert_eq!(paths("{}"), [source]);
     assert_eq!(paths(support::SKIP_GENERATED), [vendored]);
 }

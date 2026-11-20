@@ -26,6 +26,30 @@ Each shared plugin keeps its own changelog next to its code.
   declare `agents` in the root `[plugins]` and run `gate lock`; set `"agents/no-claude-md"` in the
   root `[rules]` only; remove it from every project's `gate.toml` and every profile; then delete
   each `CLAUDE.md`, or move what it holds into `AGENTS.md`.
+- **plugin-typescript:** `nestjs/string-enums` is now `typescript/string-enums`, and no alias keeps the
+  old id: a `[rules]` entry or a profile that names `nestjs/string-enums` is a configuration error
+  (exit 2, `plugin nestjs has no rule string-enums`). Rename the entry and every profile that sets
+  it to `typescript/string-enums` and declare the `typescript` plugin; the option
+  `shim-enum-names` is gone from it. The rule no longer reads `[plugins.nestjs] options`
+  `layout.test-root`: a project whose tests are not in `test` sets the rule's own option,
+  `"typescript/string-enums" = { level = "error", options = { test-roots = ["<test-root>"] } }`.
+- **plugin-nestjs:** the aspect `error-string-shim` of `nestjs/string-enums` is now the rule
+  `nestjs/error-string-shim`, its option `enum-names` (was `shim-enum-names`). Add the rule to
+  `[rules]` and to every profile that had `nestjs/string-enums` on.
+- **plugin-nestjs:** `layout.cdk-root` and `layout.cdk-code-folders` are removed and the rules no
+  longer read a CDK app; list the app as a project of its own with the `cdk` plugin. The
+  `asset-storage` aspect `cloudfront-cdk-only` is `cloudfront-infrastructure-only`; rename it in
+  `levels` and exceptions.
+- **migration:** an `[[exception]]` entry that names `nestjs/string-enums`, or an aspect of it now in
+  `nestjs/error-string-shim`, is a configuration error like a `[rules]` entry (exit 2,
+  `[[exception]] rule "nestjs/string-enums": plugin nestjs has no rule string-enums`); rename it
+  with the rule. A baseline entry's fingerprint holds the rule id, so an entry of `nestjs/string-enums`
+  matches no finding of the new ids and, as its rule no longer runs, `gate baseline prune` keeps
+  it: remove those entries from `gate/baseline.json` by hand and, in the commit that renames the
+  rule and before any other change, run `bin/gate baseline write` once to accept the same findings
+  under `typescript/string-enums`. Entries of the renamed
+  `asset-storage` aspect are stale and `gate baseline prune` drops them; accept the findings again
+  the same way.
 
 ### Features
 
@@ -47,6 +71,12 @@ Each shared plugin keeps its own changelog next to its code.
   and the generator `docs/layout` that seeds a project's required index pages.
 - **host:** a required `[plugins.<name>] options` key that is missing names where to set it and,
   when its schema lists them, the values it takes.
+- **plugin-cdk:** the `cdk` plugin, one standard for every AWS CDK app written in TypeScript,
+  checked from the tracked files without running the app: fifteen rules (layout, file names,
+  declarations, barrels, `cdk.json` and `package.json`, accounts and regions, stack names, construct
+  ids, physical names, properties, tags, removal policies, cdk-nag 3 registered on the App, ECS
+  container health checks and unit tests) and the presets `recommended` and `adoption`. Its rules
+  are on [plugins/cdk/rules](plugins/cdk/rules/README.md).
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

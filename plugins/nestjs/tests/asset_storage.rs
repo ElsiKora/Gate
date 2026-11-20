@@ -86,18 +86,18 @@ fn image_fields_and_sdk_imports_are_checked_without_central_admission() {
                 )
             ),
             finding(
-                "cloudfront-cdk-only",
+                "cloudfront-infrastructure-only",
                 "src/infrastructure/storage/client.ts",
                 None,
                 "src/infrastructure/storage/client.ts imports CloudFront at runtime; CloudFront \
-                 is CDK-only"
+                 belongs to the infrastructure-as-code project"
             ),
             finding(
-                "cloudfront-cdk-only",
+                "cloudfront-infrastructure-only",
                 "src/modules/public/user/user.service.ts",
                 None,
                 "src/modules/public/user/user.service.ts imports CloudFront at runtime; \
-                 CloudFront is CDK-only"
+                 CloudFront belongs to the infrastructure-as-code project"
             ),
             finding(
                 "s3-sdk-placement",

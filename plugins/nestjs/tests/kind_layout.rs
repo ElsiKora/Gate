@@ -228,7 +228,6 @@ fn files_where_their_kind_belongs_pass() {
         "test/unit/modules/domain/book.test.ts",
         "test/unit/api/route.test.ts",
         "test/unit/public/owner.test.ts",
-        "test/unit/infrastructure/cdk/stack.test.ts",
         "test/unit/domain/readme.md",
         "test/unit/node_modules/pkg/index.ts",
     ]);

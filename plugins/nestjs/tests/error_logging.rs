@@ -104,7 +104,7 @@ fn orm_options_must_end_with_logging_false_and_stay_unchanged() {
 }
 
 #[test]
-fn roots_cover_source_and_infrastructure_code_but_not_tests_or_declarations() {
+fn roots_cover_source_code_but_not_other_projects_tests_or_declarations() {
     let text =
         format!("{IMPORTS}export function fail(error: Error): void {{ Logger.error(error); }}\n");
     let files = [
@@ -119,7 +119,6 @@ fn roots_cover_source_and_infrastructure_code_but_not_tests_or_declarations() {
     assert_eq!(
         check(RULE, "{}", &files),
         [
-            logger("infrastructure/cdk/lib/stack.ts", 3),
             logger("src/node_modules/pkg/index.ts", 3),
             logger("src/user.ts", 3),
         ]

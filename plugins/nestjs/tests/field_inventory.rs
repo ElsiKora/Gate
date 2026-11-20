@@ -374,7 +374,7 @@ fn configuration_keys_name_their_contracts() {
             source(
                 "\"src/other/user.config.ts: IUserConfig.users\", which lies outside the \
                  configuration and secret roots src/config/runtime-config/, \
-                 src/infrastructure/configuration/, infrastructure/cdk/lib/config/"
+                 src/infrastructure/configuration/"
             ),
         ]
     );

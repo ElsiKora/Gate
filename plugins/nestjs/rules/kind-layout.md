@@ -58,7 +58,7 @@ other form is an options error that shows the normal form. A folder that holds n
 | `lifecycle-subscriber-prefixes` | array of string | `["on-after-", "on-before-"]` | Prefixes that, followed by a kebab word, name a subscriber by lifecycle. |
 | `unit-root` | string | `"test/unit"` | The root of the unit tests. |
 | `unit-categories` | array of string | `["api", "fixture", "scripts"]` | Folders below the unit root that are categories, not module areas. |
-| `unit-exempt-prefixes` | array of string | `["test/unit/infrastructure/cdk/"]` | Path prefixes below the unit root that are not judged. |
+| `unit-exempt-prefixes` | array of string | `[]` | Path prefixes below the unit root that are not judged. |
 
 The rule reads `layout.source-root`, `layout.modules-root`, `layout.kind-folders`,
 `layout.exclusive-kind-folders`, `layout.role-folders` from

@@ -23,8 +23,8 @@ in a `hidden-folder` below that folder, and is not listed in `private-entrypoint
   other than `optional-child-folders` and private entrypoints. A kind folder's barrel must re-export
   each `.ts` file with a double-quoted specifier. A re-export of no names counts as none. Reported at
   the barrel.
-- `#reexport-only`: a barrel below `layout.source-root`, below `layout.test-root` in a test-support
-  path, or below `layout.cdk-root` holds a directive or a statement other than an export declaration.
+- `#reexport-only`: a barrel below `layout.source-root`, or below `layout.test-root` in a test-support
+  path, holds a directive or a statement other than an export declaration.
   Reported at the first one.
 - `#private-entrypoint`: such a barrel, outside `layout.test-root`, re-exports a module that resolves
   to a listed private entrypoint. Reported at the re-export.
@@ -34,7 +34,7 @@ in a `hidden-folder` below that folder, and is not listed in `private-entrypoint
 
 A finding that two of these checks both make is reported once. Folders and files below
 `[languages.typescript] skip-folders` are skipped, in every walk: the barrels, their entries and the
-child folders a wildcard names. A file below both the source root and `layout.cdk-root` is read once.
+child folders a wildcard names.
 
 A file that cannot be parsed is skipped; `typescript/parse` reports it.
 

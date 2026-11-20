@@ -27,7 +27,7 @@ use gate_typescript::oxc_syntax::node::NodeId;
 use self::logger::Kind;
 use self::options::final_false_logging;
 use self::source::{Seen, Source};
-use crate::layout::{PluginOptions, folder_prefix};
+use crate::layout::PluginOptions;
 use crate::shared::project;
 use crate::shared::report::Findings;
 
@@ -146,16 +146,10 @@ impl Rule<crate::Nest> for ErrorLogging {
             let layout = PluginOptions::read(run)?.layout;
             run.options().check_paths()?;
             let options = run.options();
-            let roots = options.roots.clone().unwrap_or_else(|| {
-                let mut roots = vec![layout.source_root.clone()];
-                roots.extend(
-                    layout
-                        .cdk_code_folders
-                        .iter()
-                        .map(|folder| format!("{}{folder}", folder_prefix(&layout.cdk_root))),
-                );
-                roots
-            });
+            let roots = options
+                .roots
+                .clone()
+                .unwrap_or_else(|| vec![layout.source_root.clone()]);
             let names = Names {
                 nest_package: layout.nest_common_package.clone(),
                 automator_package: layout.automator_package.clone(),

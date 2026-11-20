@@ -43,13 +43,13 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `ledger` | project | none | no | none |
 | `nestjs` | project | TypeScript | no | none |
 | `node` | repository, project | none | no | none |
+| `cdk` | project | TypeScript | no | none |
 | `ci` | repository | none | no | none |
 
 ### `typescript`
 
-The TypeScript language: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`. Its rules check
-that every tracked source parses. The
-parser, module resolution (`tsconfig` paths, package exports) and source tables live in the TypeScript
+The TypeScript language: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, and the rules
+of any TypeScript code: every tracked source parses, and string variants are enums. The parser, module resolution (`tsconfig` paths, package exports) and source tables live in the TypeScript
 language library, which other plugins link; see [writing-a-rule.md](writing-a-rule.md#5-languages).
 
 ```toml
@@ -63,6 +63,7 @@ typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
 | Rule | Checks |
 | --- | --- |
 | [`typescript/parse`](../../plugins/typescript/rules/parse.md) | every tracked TypeScript or JavaScript source parses into a syntax tree |
+| [`typescript/string-enums`](../../plugins/typescript/rules/string-enums.md) | string-literal variant contracts use enums, in every `.ts` file, with `test-roots` for the tests |
 
 ### `git`
 
@@ -309,6 +310,31 @@ node = { source = "ElsiKora/Gate:node@0.3.0", options = { kind = "service" } }
 | [`node/tsconfig`](../../plugins/node/rules/tsconfig.md) | every configuration of a project extends its install root's base, turns no strict flag off, and resolves modules the kind's way |
 | [`node/tsconfig-base`](../../plugins/node/rules/tsconfig-base.md) | each install root that uses TypeScript has its base, with every strict flag on and `NodeNext` resolution |
 
+### `cdk`
+
+AWS CDK apps written in TypeScript, one standard for all of them: the layout, file names and
+declarations, `cdk.json` and `package.json`, accounts, regions and configuration, stack names,
+construct ids, physical names, properties, tags, removal policies, cdk-nag 3, container health checks
+and unit tests. The app is a
+project of its own, its root the directory of `cdk.json`; the rules read the tracked files and never
+run the app. Links the TypeScript language library.
+
+```toml
+# infrastructure/gate.toml
+[project]
+name = "infrastructure"
+extends = ["cdk/recommended"]
+
+[plugins]
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
+cdk = { source = "ElsiKora/Gate:cdk@0.3.0", options = { regions = ["eu-central-1", "us-east-1"] } }
+```
+
+A project extends the standard only through `[plugins.cdk] options`: `extra` directories and
+`extra-tags`, each with its job, `regions` and `nag-packs`. An existing app starts from the
+`adoption` preset, which keeps the renames at `warning`. The standard, the options and each rule's
+page are under [plugins/cdk/rules](../../plugins/cdk/rules/README.md).
+
 ### `ci`
 
 GitHub Actions workflows, generated or written by hand.
@@ -332,8 +358,10 @@ ci = { source = "ElsiKora/Gate:ci@0.2.0" }
 A plugin may ship presets: named sets of rules with levels and options, turned on with
 `extends = ["<plugin>/<preset>"]` in `[project]` or in a profile, which `[rules]` then overrides. Each
 plugin new in 0.3.0 ships two: `<plugin>/recommended`, every rule at error, and `<plugin>/adoption`,
-every rule at warning (`docs/recommended`, `docs/adoption`); `git` ships `git/recommended`. Turn the
-rules of the other plugins on one by one in `[rules]`; `gate list` shows the result.
+every rule at warning (`docs/recommended`, `docs/adoption`); `cdk` ships `cdk/recommended` and
+`cdk/adoption`, which differs: it warns only on the renames and keeps the other rules at error.
+`git` ships `git/recommended`. Turn the rules of the other plugins on one by one in `[rules]`;
+`gate list` shows the result.
 
 ## 🔌 Plugins of Your Own
 

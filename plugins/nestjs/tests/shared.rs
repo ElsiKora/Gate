@@ -80,14 +80,15 @@ fn folders_and_entries_list_what_holds_a_file_outside_the_skipped_folders() {
 
 #[test]
 fn walks_over_nested_roots_read_each_file_once() {
-    let source = source(&["infrastructure/cdk/lib/a.ts", "src/b.ts"]);
+    let source = source(&["tools/lib/a.ts", "src/b.ts"]);
     let settings = Settings::default();
 
     assert_eq!(
-        tree::distinct(tree::typescript_files(&source, "", &settings).chain(
-            tree::typescript_files(&source, "infrastructure/cdk", &settings)
-        )),
-        ["infrastructure/cdk/lib/a.ts", "src/b.ts"]
+        tree::distinct(
+            tree::typescript_files(&source, "", &settings)
+                .chain(tree::typescript_files(&source, "tools", &settings))
+        ),
+        ["src/b.ts", "tools/lib/a.ts"]
     );
 }
 

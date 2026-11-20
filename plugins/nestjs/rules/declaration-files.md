@@ -8,7 +8,7 @@ A file named for one owner is where a reader looks for that owner. A second clas
 enum in it hides from that search; a contract declared inside a function cannot be imported; and a
 contract outside its kind folder is missed by the barrel and the layout rules that read kind folders.
 
-The files read are the `.ts` files below `layout.source-root` and `layout.cdk-root`, and the test-support
+The files read are the `.ts` files below `layout.source-root`, and the test-support
 and scenario files below `layout.test-root`, each once, outside `[languages.typescript] skip-folders`. A
 barrel (`*/index.ts`) is skipped unless it is a scenario. Declaration files are included.
 

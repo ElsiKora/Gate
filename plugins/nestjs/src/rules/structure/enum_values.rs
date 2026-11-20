@@ -10,8 +10,10 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Rule, Run};
 use gate_typescript::oxc_ast::AstKind;
+use gate_typescript::oxc_ast::ast::{TSEnumMember, TSEnumMemberName};
+use gate_typescript::oxc_span::GetSpan;
+use gate_typescript::value::{string_like, unwrap};
 
-use super::string_enums::{member_name, string_expression, unwrap_expression};
 use crate::layout::PluginOptions;
 use crate::shared::{pattern, project, tree};
 
@@ -76,9 +78,11 @@ impl Rule<crate::Nest> for EnumValues {
                     };
 
                     for member in &declaration.body.members {
-                        let Some(value) = member.initializer.as_ref().and_then(|initializer| {
-                            string_expression(unwrap_expression(initializer))
-                        }) else {
+                        let Some(value) = member
+                            .initializer
+                            .as_ref()
+                            .and_then(|initializer| string_like(unwrap(initializer)))
+                        else {
                             continue;
                         };
 
@@ -121,5 +125,22 @@ impl Rule<crate::Nest> for EnumValues {
 
             Ok(())
         })
+    }
+}
+
+/// The member name as the TypeScript compiler prints it; a computed name keeps its brackets.
+fn member_name(source: &str, member: &TSEnumMember<'_>) -> String {
+    match &member.id {
+        TSEnumMemberName::Identifier(identifier) => identifier.name.to_string(),
+        TSEnumMemberName::String(literal) => literal.value.to_string(),
+        TSEnumMemberName::ComputedString(_) | TSEnumMemberName::ComputedTemplateString(_) => {
+            // The member starts at its `[`; the name ends at the first `]` after the key.
+            let start = member.span.start as usize;
+            let key_end = member.id.span().end as usize;
+            let end = source[key_end..]
+                .find(']')
+                .map_or(key_end, |offset| key_end + offset + 1);
+            source[start..end].to_owned()
+        }
     }
 }

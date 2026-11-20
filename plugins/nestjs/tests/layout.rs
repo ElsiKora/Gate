@@ -105,10 +105,10 @@ fn an_unknown_key_is_an_error_that_names_it() {
         .to_string();
     assert!(error.contains("skip-folders"), "{error}");
 
-    let error = options(r#"{ "layout": { "cdk-skip-folders": ["dist"] } }"#)
-        .expect_err("the infrastructure-as-code walk skips the language list too")
+    let error = options(r#"{ "layout": { "cdk-root": "infrastructure/cdk" } }"#)
+        .expect_err("a CDK app is the cdk plugin's project, not a layout key")
         .to_string();
-    assert!(error.contains("cdk-skip-folders"), "{error}");
+    assert!(error.contains("cdk-root"), "{error}");
 
     let error = options(r#"{ "lay-out": {} }"#)
         .expect_err("an unknown key fails")
@@ -118,7 +118,7 @@ fn an_unknown_key_is_an_error_that_names_it() {
 
 #[test]
 fn a_value_of_the_wrong_type_is_an_error() {
-    let error = options(r#"{ "layout": { "cdk-code-folders": "lib" } }"#)
+    let error = options(r#"{ "layout": { "module-planes": "domain" } }"#)
         .expect_err("a string is not a list")
         .to_string();
     assert!(error.contains("sequence"), "{error}");
@@ -177,8 +177,6 @@ fn the_schema_closes_the_layout_table_over_its_keys() {
         [
             "artifact-folders",
             "automator-package",
-            "cdk-code-folders",
-            "cdk-root",
             "domain-folder",
             "exclusive-kind-folders",
             "generated-routes",

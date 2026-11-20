@@ -307,7 +307,7 @@ impl<'r> Barrels<'r, '_> {
         Ok(())
     }
 
-    /// The source, test-support and infrastructure-as-code barrels, each once.
+    /// The source and test-support barrels, each once.
     fn barrels(&self) -> Vec<&'r str> {
         let layout = self.layout;
         let settings = self.typescript.settings();
@@ -318,16 +318,11 @@ impl<'r> Barrels<'r, '_> {
                     tree::typescript_files(self.source, &layout.test_root, settings)
                         .filter(|path| tree::is_test_support(layout, path)),
                 )
-                .chain(tree::typescript_files(
-                    self.source,
-                    &layout.cdk_root,
-                    settings,
-                ))
                 .filter(|path| self.is_barrel(path)),
         )
     }
 
-    /// Every source, test-support and infrastructure-as-code barrel holds only re-exports, exposes
+    /// Every source and test-support barrel holds only re-exports, exposes
     /// no private entrypoint and re-exports with a wildcard only a child folder.
     fn contents(&self, findings: &mut Findings) -> gate_sdk::Result<()> {
         let layout = self.layout;

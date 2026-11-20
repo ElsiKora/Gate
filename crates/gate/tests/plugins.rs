@@ -3073,6 +3073,60 @@ fn bad_option_check(package: &str, library: &str, name: &str, rules: &str) -> Ou
 }
 
 #[test]
+fn the_moved_nestjs_string_enums_id_is_an_unknown_rule() {
+    // 0.3.0 moved the rule to typescript/string-enums and keeps no alias of the old id.
+    let output = bad_option_check(
+        "gate-plugin-nestjs",
+        "nestjs",
+        "nestjs",
+        r#""nestjs/string-enums" = "error""#,
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("plugin nestjs has no rule string-enums"),
+        "{message}"
+    );
+}
+
+#[test]
+fn the_built_cdk_component_reports_a_container_without_a_health_check_and_an_unchosen_destroy() {
+    let (path, _) = component("gate-plugin-cdk", "cdk");
+    let repo = Repo::empty();
+    repo.write(
+        "tsconfig.json",
+        "{ \"compilerOptions\": { \"strict\": true } }\n",
+    );
+    repo.write(
+        "lib/stack/service/service.stack.ts",
+        "import { RemovalPolicy, Stack } from \"aws-cdk-lib\";\nimport { FargateTaskDefinition } from \"aws-cdk-lib/aws-ecs\";\n\nexport class ServiceStack extends Stack {\n  build(task: FargateTaskDefinition): void {\n    task.addContainer(\"Web\", { memoryLimitMiB: 512 });\n    this.node.addMetadata(\"policy\", RemovalPolicy.DESTROY);\n  }\n}\n",
+    );
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"infrastructure\"\n\n[plugins.cdk]\nsource = \"acme/rules:cdk@0.1.0\"\n\n[rules]\n\"cdk/container-health\" = \"error\"\n\"cdk/removal-policy\" = \"error\"\n"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("cdk={}", path.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    let said = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{said}{}",
+        text(&output.stderr)
+    );
+    assert!(
+        said.contains("error[cdk/container-health#missing]")
+            && said.contains("defines the container Web without a healthCheck")
+            && said.contains("error[cdk/removal-policy#destroy]"),
+        "{said}"
+    );
+}
+
+#[test]
 fn a_nestjs_option_its_rule_refuses_is_a_configuration_error() {
     // A pattern that is no regular expression: no schema can refuse it, the rule does.
     let output = bad_option_check(
