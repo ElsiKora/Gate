@@ -1,7 +1,9 @@
 //! The generators of the ledger plugin: counts written into managed blocks of hand-written ledger
-//! documents. Each writes only the document it names, so neither owns a glob.
+//! documents, and the seeds of the ledger's minimum. Each writes only the documents it names, so
+//! none owns a glob.
 
 pub mod decision_counts;
+pub mod layout;
 pub mod review_progress;
 
 use gate_sdk::{Generate, Location};

@@ -483,5 +483,12 @@ fn the_generators_own_no_glob() {
         .iter()
         .map(|generator| (generator.name.as_str(), generator.owns.len()))
         .collect();
-    assert_eq!(generators, [("decision-counts", 0), ("review-progress", 0)]);
+    assert_eq!(
+        generators,
+        [
+            ("decision-counts", 0),
+            ("layout", 0),
+            ("review-progress", 0)
+        ]
+    );
 }

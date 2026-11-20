@@ -20,6 +20,7 @@ The rules of this plugin keep those records consistent with each other.
 | Generator | What it writes |
 | --- | --- |
 | [`ledger/decision-counts`](../generators/decision-counts.md) | The decision and superseded counts in the managed block of the decision index |
+| [`ledger/layout`](../generators/layout.md) | Seeds the ledger manifest and the shared ledger files |
 | [`ledger/review-progress`](../generators/review-progress.md) | The review progress table in the managed block of a roadmap |
 
 ## Shared options
