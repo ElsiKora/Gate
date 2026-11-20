@@ -1,6 +1,7 @@
 //! `repository/tracked-secrets`: no tracked file is an environment file, a key or credential file,
 //! or holds a private key, a token of a published shape or a literal `.npmrc` credential. A
-//! finding names the path, the line and the kind; never the value.
+//! finding names the path, the line and the kind; never the value. Its target and key name the path
+//! and the kind, never the line, so an edit above it keeps both.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -13,18 +14,54 @@ use regex::Regex;
 /// The token shapes their issuers publish, each a capture group in the order of [`TOKEN_KINDS`].
 static TOKENS: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
-        r"\b(?:((?:AKIA|ASIA)[0-9A-Z]{16})|(gh[pousr]_[A-Za-z0-9]{36,})|(npm_[A-Za-z0-9]{36})|(xox[abprs]-[A-Za-z0-9-]{10,}))\b",
+        r"\b(?:((?:AKIA|ASIA)[0-9A-Z]{16})|(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59})|(npm_[A-Za-z0-9]{36})|(xox[abprs]-[A-Za-z0-9-]{10,}))\b",
     )
     .ok()
 });
 
+/// The armor line that opens a private key block, anywhere in a line: `-----BEGIN `, words, then
+/// `PRIVATE KEY-----` or, for OpenPGP, `PRIVATE KEY BLOCK-----`.
+static KEY_HEADER: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----").ok());
+
+/// A kind of secret found in a file's text: its name in targets and keys, and its description.
+#[derive(Clone, Copy)]
+struct Kind {
+    slug: &'static str,
+    description: &'static str,
+}
+
 /// What each capture group of [`TOKENS`] is.
-const TOKEN_KINDS: [&str; 4] = [
-    "an AWS access key id",
-    "a GitHub token",
-    "an npm token",
-    "a Slack token",
+const TOKEN_KINDS: [Kind; 4] = [
+    Kind {
+        slug: "aws-access-key-id",
+        description: "an AWS access key id",
+    },
+    Kind {
+        slug: "github-token",
+        description: "a GitHub token",
+    },
+    Kind {
+        slug: "npm-token",
+        description: "an npm token",
+    },
+    Kind {
+        slug: "slack-token",
+        description: "a Slack token",
+    },
 ];
+
+/// A private key block.
+const PRIVATE_KEY: Kind = Kind {
+    slug: "private-key",
+    description: "a private key",
+};
+
+/// A literal `.npmrc` credential.
+const NPMRC_CREDENTIAL: Kind = Kind {
+    slug: "npmrc-credential",
+    description: "a literal registry credential",
+};
 
 /// The extensions of key and keystore files.
 const KEY_EXTENSIONS: [&str; 7] = ["key", "p12", "pfx", "jks", "keystore", "kdbx", "ppk"];
@@ -84,9 +121,9 @@ impl Rule for TrackedSecrets {
     const SCOPE: Scope = Scope::Repository;
 
     fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let Some(tokens) = TOKENS.as_ref() else {
+        let (Some(tokens), Some(header)) = (TOKENS.as_ref(), KEY_HEADER.as_ref()) else {
             return Err(Error::new(
-                "the token pattern of repository/tracked-secrets does not compile; report this as a bug",
+                "a pattern of repository/tracked-secrets does not compile; report this as a bug",
             ));
         };
         let examples = run.options().env_examples.clone();
@@ -121,7 +158,7 @@ impl Rule for TrackedSecrets {
             }
             let text = String::from_utf8_lossy(&bytes);
             let mut found = Found::new(report, &path);
-            private_keys(&mut found, &text);
+            private_keys(&mut found, header, &text);
             for (index, line) in text.lines().enumerate() {
                 for captures in tokens.captures_iter(line) {
                     let kind = (1..=TOKEN_KINDS.len())
@@ -130,7 +167,7 @@ impl Rule for TrackedSecrets {
                     found.report("token", index + 1, kind);
                 }
                 if name == ".npmrc" && npmrc_credential(line) {
-                    found.report("npmrc", index + 1, "a literal registry credential");
+                    found.report("npmrc", index + 1, NPMRC_CREDENTIAL);
                 }
             }
         }
@@ -169,11 +206,12 @@ fn by_name(report: &mut Report, path: &str, aspect: &str, kind: &str, help: &str
         .key(aspect.to_owned());
 }
 
-/// The findings of one file, each keyed by its kind and its ordinal among that kind's.
+/// The findings of one file, each keyed by its kind and its ordinal among that kind's in the file:
+/// `<kind>` for the first, `<kind>#<n>` for the n-th.
 struct Found<'r> {
     report: &'r mut Report,
     path: &'r str,
-    counts: BTreeMap<String, usize>,
+    counts: BTreeMap<&'static str, usize>,
 }
 
 impl<'r> Found<'r> {
@@ -185,42 +223,54 @@ impl<'r> Found<'r> {
         }
     }
 
-    fn report(&mut self, aspect: &str, line: usize, kind: &str) {
-        let count = self.counts.entry(kind.to_owned()).or_insert(0);
+    fn report(&mut self, aspect: &str, line: usize, kind: Kind) {
+        let count = self.counts.entry(kind.slug).or_insert(0);
         *count += 1;
+        let key = if *count == 1 {
+            kind.slug.to_owned()
+        } else {
+            format!("{}#{count}", kind.slug)
+        };
         let path = self.path;
+        let description = kind.description;
         self.report
             .finding(
                 aspect,
                 Location::line(path, line),
-                format!("{path}:{line} holds {kind}"),
+                format!("{path}:{line} holds {description}"),
             )
-            .target(format!("{path}:{line}"))
+            .target(format!("{path}:{key}"))
             .help("remove it, revoke it with its issuer, and read it from a secret store; a test fixture that holds a fake on purpose takes an exception for this target")
-            .key(format!("{kind}#{count}"));
+            .key(key);
     }
 }
 
-/// The private key blocks of `text`: a `BEGIN ... PRIVATE KEY` line, then at least [`KEY_BODY`]
-/// base64 characters, then an `END` line.
-fn private_keys(found: &mut Found<'_>, text: &str) {
-    let mut open: Option<(usize, usize)> = None;
-    for (index, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.starts_with("-----BEGIN ") && line.ends_with("PRIVATE KEY-----") {
-            open = Some((index + 1, 0));
-        } else if line.starts_with("-----END ") {
-            if let Some((start, body)) = open.take()
-                && body >= KEY_BODY
-            {
-                found.report("private-key", start, "a private key");
-            }
-        } else if let Some((_, body)) = open.as_mut() {
-            *body += line
-                .bytes()
-                .filter(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
-                .count();
+/// The private key blocks of `text`: a [`KEY_HEADER`] anywhere in a line, then at least
+/// [`KEY_BODY`] base64 characters, then `-----END `, on the following lines or, as in a JSON string
+/// with `\n` escapes, on the same one. A block is reported at its header's line.
+fn private_keys(found: &mut Found<'_>, header: &Regex, text: &str) {
+    let mut from = 0;
+    while let Some(start) = header.find_at(text, from) {
+        from = start.end();
+        let rest = &text[start.end()..];
+        let Some(end) = rest.find("-----END ") else {
+            break;
+        };
+        let body = &rest[..end];
+        if body.contains("-----BEGIN ") {
+            continue;
         }
+        let characters = body
+            .replace("\\n", "")
+            .replace("\\r", "")
+            .bytes()
+            .filter(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+            .count();
+        if characters >= KEY_BODY {
+            let line = text[..start.start()].matches('\n').count() + 1;
+            found.report("private-key", line, PRIVATE_KEY);
+        }
+        from = start.end() + end;
     }
 }
 
