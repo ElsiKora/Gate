@@ -792,6 +792,12 @@ impl Loaded {
         self.declarations.get(plugin)?.rule(rule)
     }
 
+    /// Whether the rule `rule` of `plugin` declares that it reads the commit message.
+    fn reads_message(&self, plugin: &PluginName, rule: &str) -> bool {
+        self.rule(plugin, rule)
+            .is_some_and(|info| info.reads_message)
+    }
+
     /// Runs every enabled rule `filter` allows in every scope `selection` runs, one plugin call per
     /// scope and plugin, and pushes the findings with their levels and norms from configuration.
     ///
@@ -845,13 +851,10 @@ impl Loaded {
                     continue;
                 };
                 let mut rules = enabled_rules(plugin.info(), name, settings, workspace, project)?;
-                rules.retain(|rule| filter.allows(&rule.id.to_string()));
-                if message_run {
-                    rules.retain(|rule| {
-                        self.rule(name, &rule.run.name)
-                            .is_some_and(|info| info.reads_message)
-                    });
-                }
+                rules.retain(|rule| {
+                    filter.allows(&rule.id.to_string())
+                        && (!message_run || self.reads_message(name, &rule.run.name))
+                });
                 if rules.is_empty() {
                     continue;
                 }
@@ -860,16 +863,7 @@ impl Loaded {
                     .filter_map(|rule| rule.run.options_file.as_deref())
                     .collect();
                 let grant = grant(root.as_deref(), settings, name, &options_files);
-                let request = gate_sdk::CheckRequest {
-                    project: root.clone().unwrap_or_default(),
-                    norms: norms(settings),
-                    rules: rules.iter().map(|rule| rule.run.clone()).collect(),
-                    plugin_options: settings
-                        .plugin_options(name)
-                        .map(Value::to_string)
-                        .unwrap_or_default(),
-                    languages: languages(settings),
-                };
+                let request = check_request(root.as_deref(), settings, name, &rules);
                 planned.push((project, settings, name, rules, plugin, request, grant));
             }
         }
@@ -1669,6 +1663,25 @@ fn presets(
 
 /// Every norm the configuration of this scope maps, without repeats: of every configured rule,
 /// of every plugin and the core's, whatever its level, as `check-request.norms` promises.
+/// The `check` call of `name` on the project at `root` (the repository when `None`), for `rules`.
+fn check_request(
+    root: Option<&str>,
+    settings: &Settings,
+    name: &PluginName,
+    rules: &[Enabled],
+) -> gate_sdk::CheckRequest {
+    gate_sdk::CheckRequest {
+        project: root.unwrap_or_default().to_owned(),
+        norms: norms(settings),
+        rules: rules.iter().map(|rule| rule.run.clone()).collect(),
+        plugin_options: settings
+            .plugin_options(name)
+            .map(Value::to_string)
+            .unwrap_or_default(),
+        languages: languages(settings),
+    }
+}
+
 fn norms(settings: &Settings) -> Vec<String> {
     let mut norms = BTreeSet::new();
     for entry in settings.rules.values() {

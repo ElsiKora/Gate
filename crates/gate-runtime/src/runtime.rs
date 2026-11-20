@@ -443,71 +443,7 @@ impl Runtime {
             bindings.call_describe(store)
         })?;
         plugin.info = info_from(info);
-        for (kind, names) in [
-            (
-                "rule",
-                plugin
-                    .info
-                    .rules
-                    .iter()
-                    .map(|rule| rule.name.as_str())
-                    .collect::<Vec<_>>(),
-            ),
-            (
-                "generator",
-                plugin
-                    .info
-                    .generators
-                    .iter()
-                    .map(|generator| generator.name.as_str())
-                    .collect(),
-            ),
-        ] {
-            let mut seen = std::collections::BTreeSet::new();
-            if let Some(twice) = names.iter().find(|name| !seen.insert(**name)) {
-                return Err(Error::new(
-                    name,
-                    ErrorKind::Load,
-                    format!("declares the {kind} {twice:?} twice"),
-                ));
-            }
-        }
-        if let Some(rule) = plugin
-            .info
-            .rules
-            .iter()
-            .find(|rule| rule.reads_message && rule.scope == Scope::Project)
-        {
-            return Err(Error::new(
-                name,
-                ErrorKind::Load,
-                format!(
-                    "rule {:?} declares reads-message but is a project-scope rule; the commit message belongs to the repository, so a rule that reads it is repository-scope; report it to the plugin's authors",
-                    rule.name
-                ),
-            ));
-        }
-        for generator in &plugin.info.generators {
-            for glob in &generator.owns {
-                let wrong = if !is_relative_glob(glob) {
-                    "is not relative to the project root (no leading /, no . or .. segment)"
-                } else if has_git_segment(glob) {
-                    "reaches into git's own directory"
-                } else if owns_everything(glob) {
-                    "matches every file of the project"
-                } else {
-                    continue;
-                };
-                return Err(Error::new(
-                    name,
-                    ErrorKind::Load,
-                    format!(
-                        "generator {} owns the glob {glob:?}, which {wrong}; report it to the plugin's authors",
-                        generator.name
-                    ),
-                ));
-            }
-        }
+        check_declaration(name, &plugin.info)?;
         Ok(plugin)
     }
 
@@ -868,6 +804,72 @@ fn trap(plugin: &str, error: &wasmtime::Error) -> Error {
         _ => {}
     }
     Error::new(plugin, ErrorKind::Trap, format!("trapped: {error:#}"))
+}
+
+/// Refuses a declaration the core cannot run: a rule or generator declared twice, a project-scope
+/// rule that reads the commit message, a generator that owns a glob outside its project.
+fn check_declaration(name: &str, info: &PluginInfo) -> Result<()> {
+    for (kind, names) in [
+        (
+            "rule",
+            info.rules
+                .iter()
+                .map(|rule| rule.name.as_str())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "generator",
+            info.generators
+                .iter()
+                .map(|generator| generator.name.as_str())
+                .collect(),
+        ),
+    ] {
+        let mut seen = std::collections::BTreeSet::new();
+        if let Some(twice) = names.iter().find(|name| !seen.insert(**name)) {
+            return Err(Error::new(
+                name,
+                ErrorKind::Load,
+                format!("declares the {kind} {twice:?} twice"),
+            ));
+        }
+    }
+    if let Some(rule) = info
+        .rules
+        .iter()
+        .find(|rule| rule.reads_message && rule.scope == Scope::Project)
+    {
+        return Err(Error::new(
+            name,
+            ErrorKind::Load,
+            format!(
+                "rule {:?} declares reads-message but is a project-scope rule; the commit message belongs to the repository, so a rule that reads it is repository-scope; report it to the plugin's authors",
+                rule.name
+            ),
+        ));
+    }
+    for generator in &info.generators {
+        for glob in &generator.owns {
+            let wrong = if !is_relative_glob(glob) {
+                "is not relative to the project root (no leading /, no . or .. segment)"
+            } else if has_git_segment(glob) {
+                "reaches into git's own directory"
+            } else if owns_everything(glob) {
+                "matches every file of the project"
+            } else {
+                continue;
+            };
+            return Err(Error::new(
+                name,
+                ErrorKind::Load,
+                format!(
+                    "generator {} owns the glob {glob:?}, which {wrong}; report it to the plugin's authors",
+                    generator.name
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn empty_info() -> PluginInfo {
