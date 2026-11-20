@@ -238,6 +238,25 @@ SARIF match the fingerprint, so a finding without a key that is reworded is a ne
 repository that baselined it. Keep messages stable: a message that embeds a count or an iteration order
 changes the fingerprint.
 
+### What a run judged
+
+The core reports an exception that matches no finding as `gate/exceptions`, but only after a run
+that judged what the exception covers. A rule that checks its whole scope every time it runs needs
+to do nothing: every exception of it is due whenever it ran.
+
+Some rules check different subjects from run to run, such as the commits a push adds or the branch
+that is checked out. Such a rule says what it judged:
+
+- `run.judges_only(targets)` lists the targets the run judged, written as its findings write their
+  target. Each call adds to the list; a run that judged nothing calls it with an empty list. Only
+  the exceptions whose target is listed are due.
+- `run.exceptions()` holds the targets of the rule's own exceptions. In every run, the rule judges
+  those it can judge on its own and lists them, so a stale exception is still reported. For example,
+  `git/commit-message` reads each excepted commit by its id.
+
+A baseline entry with a key is due when the key is listed, so such a rule keys its findings by the
+targets it lists. `gate_sdk::check_output` answers what each rule judged, for a native test.
+
 ## 8. Errors
 
 `Err` means the rule could not run, and the run fails with exit code `2`; the message names the

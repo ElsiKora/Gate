@@ -279,6 +279,21 @@ as `gate/exceptions`, so exceptions are removed when they are no longer needed. 
 comments in source files, and data that exempts something is written as an exception, not as a rule
 option.
 
+An exception is reported only by a run that judged what it covers:
+
+- A rule that did not run in the exception's scope (it is off, `--rule` leaves it out, or the change
+  selection skips the project) judged nothing there.
+- Most rules judge their whole scope whenever they run, so each of their exceptions is checked.
+- A rule whose subjects change from run to run judges only those subjects, and says so. Examples
+  are the commits a push adds and the branch that is checked out. Its rule page lists them. An
+  exception for another commit or branch is not checked in that run, so an exception keyed by a
+  shared commit's id holds in every hook. Such a rule also judges the targets of its own exceptions
+  that it can judge alone, in every run: `git/commit-message` reads each excepted commit again. So
+  an exception that no longer accepts anything is still reported.
+
+The baseline follows the same rule. An entry with a key is checked by a run that judged that key,
+and an entry without one by any run of its rule.
+
 ## Decision policy
 
 A repository can make a decision mandatory on every relaxation of a rule:

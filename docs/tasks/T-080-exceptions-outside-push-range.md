@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead |
+| Status | in progress: design approved, code written, first lane round next |
 | Release | 0.3.0 (core, SDK, plugin interface `gate:plugin@0.3.0`, git plugin) |
 | Writer | the T-068 writer |
 | Reviewer | an independent session, then the lead |
@@ -80,53 +80,91 @@ from run to run judges every excepted target it can judge on its own, in every r
 
 ## Design
 
+The lead approved the design in full, the excepted half included, on these conditions:
+
+- build on the Gate 001 stack (`task/T-052-check-time-thresholds`), which changes the same check
+  request;
+- a rule that never calls `judges_only` keeps today's behaviour exactly;
+- the judged list is part of the cached result, and the exceptions are part of the call's key;
+- re-judging excepted commits reads only those commits;
+- the docs and both CHANGELOGs are updated.
+
 ### Plugin interface (`gate:plugin@0.3.0`, not released yet; 0.3.0 already changes it)
 
-- `check-request` gains `excepted: list<excepted-targets>`. An `excepted-targets` is
-  `{ rule: string, targets: list<string> }`: for each rule in the request, the `target` of each of
-  its exceptions in the call's scope, as written. These are the strings exceptions are matched with.
+- The request side was already on the stack: `rule-run.exceptions`, the targets of the rule's
+  exceptions in the call's scope as written, which the SDK hands out as `Run::exceptions()`. Its
+  `Debug` form is part of the result cache's key, so a changed exception list runs the call again.
 - `check` returns `check-result { findings: list<finding>, judged: list<judged-targets> }`. A
   `judged-targets` is `{ rule: string, targets: list<string> }`.
   - A rule listed in `judged` judged exactly those targets in this call.
   - A rule not listed judged its whole scope, as every rule does today.
+- The runtime refuses a `judged` entry for a rule the invocation did not run, as it refuses such a
+  finding.
 
 ### SDK
 
-- `Run::excepted() -> &[String]` returns the targets of the running rule's exceptions.
 - `Run::judges_only(targets)` narrows the rule's view to the targets listed. It may be called more
-  than once; each call adds targets. A rule that calls it with no target judged nothing.
-- A rule that never calls `judges_only` judged its whole scope.
-- `gate_sdk::check` (the native test harness) returns the judged targets with the findings, so a
-  plugin can test them.
+  than once; each call adds targets, and repeats are dropped. A call with no target means the run
+  judged nothing.
+- A rule that never calls `judges_only` judged its whole scope, and the SDK lists nothing for it: a
+  plugin built without the new call answers an empty `judged`.
+- `gate_sdk::check_output` answers the findings and the judged targets. `gate_sdk::check` still
+  answers the findings alone, so no existing caller changes.
 
 ### Core
 
-- In `Findings::finish`, an exception is due when both of these hold:
-  - its rule ran in its scope;
-  - the rule did not narrow there, or it listed the exception's `target` (or its `path`) as judged.
-- A narrowed rule's baseline entries follow the same test. An entry is due when its `key` or `path`
-  is among the judged targets (`Baseline::stale`, and with it `gate baseline prune`).
-- The result cache stores `judged` with the findings. `excepted` is part of the request, so it is
-  already part of the call's key: a changed exception file runs the call again.
-- `--rule` and `--fail-fast` keep their meaning. A rule that did not run has no due exceptions.
+- `RulesRan` records the narrowed rules by scope (`narrow`). `RulesRan::judged(scope, rule, target)`
+  holds when the rule ran there and either did not narrow or listed `target`.
+- In `Findings::finish`, an exception is due when its rule judged the exception's `target` in its
+  scope, or in the repository scope for the root's file. The design's "or its `path`" is dropped:
+  the rule receives the targets as written and lists them as written, so one comparison covers
+  both.
+- A baseline entry is due when its rule judged the entry's `key`. An entry without a key is due
+  whenever its rule ran, as before: the core cannot tell what such an entry is about.
+  `Baseline::stale`, and with it `gate baseline prune`, use the same test.
+- The result cache stores `judged` with the findings (format 5), and a cached call answers it as
+  the call did.
+- `--rule` drops a filtered rule's narrowing with its run. `--fail-fast` keeps its meaning.
 
 ### Plugins
 
 - **`git/commit-message`** narrows in every run. It judges:
   - each pushed commit it checks, by its id;
-  - in commit-msg, the targets its findings on the message would carry: the header, each body line
-    and each trailer;
-  - each excepted target that is a full commit id, in every run:
-    - When the id is an ancestor of the run's head, the rule reads that commit and checks its
-      message as it checks a pushed one, with the current options.
-    - When it is not, it was rewritten or dropped, so the rule judges it with no finding.
+  - in commit-msg, the targets its findings on the message carry: the header, each body line and
+    each trailer;
+  - in every run, each excepted target that is a full commit id (40 or 64 lower-case hex digits):
+    - When the run's head (the range's head, else `HEAD`) holds it, the rule reads that commit
+      alone (`git log <id>^!`) and checks its message as it checks a pushed one, with the current
+      options.
+    - When the head does not hold it, the commit was rewritten or dropped, so the rule judges it
+      with no finding.
   - In a `--rev` run and a plain run, only the excepted commits.
-- **`git/branch-name`** judges the branch it checks, or nothing on a detached HEAD, on a push to a
-  tag, and on main outside a hook. It also judges each excepted name, with the run's hook flag. That
-  verdict depends only on the name, the options and the flag.
-- **`git/no-ci-skip`** judges its whole history, by id, plus the header of the message in commit-msg.
-  An excepted header is judged only when the message carries it.
+- **`git/branch-name`** judges the branch it checks, if any. It finds none on a detached HEAD, on a
+  push to a tag, or in a repository without commits. It also judges each excepted name in every run,
+  by the strictest verdict: the one a hook gives, `prohibited` included, without "main passes
+  outside a hook". This differs from the approved "with the run's hook flag". Under the run's flag,
+  an exception for `main` would accept nothing in CI and be reported there, although every hook
+  needs it. A name that passes the strict verdict passes in every run, so its exception is truly
+  stale. A current branch that an exception names is judged the same way.
+- **`git/no-ci-skip`** judges its whole history by id, each excepted commit id, and the header of
+  the message in commit-msg. An excepted id outside the history (before activation, or rewritten)
+  gets no finding, so its exception is reported.
 - Every other rule is unchanged: it judges its whole scope.
+
+### Cost
+
+A run with N excepted commit ids of `git/commit-message`:
+
+- asks N ancestry questions (`is-ancestor`, which the core answers from its store once known);
+- runs at most N single-commit `git log <id>^!`;
+- never walks the history.
+
+`git/no-ci-skip` reads no more commits than before. `git/branch-name` adds one verdict per excepted
+name, with no git call. The judged list adds N ids per narrowed call to the stored result;
+`git/no-ci-skip` also adds its history's ids.
+
+In a shallow clone, an excepted commit past the cut reads as not held, so its exception is reported
+there. The CI job fetches the whole history for a rule that reads it, unless `fetch-depth` is set.
 
 ### What a run still does not report
 
@@ -149,27 +187,45 @@ whole scope, so a stale path exception is reported there.
 
 ## Tests
 
-- Host, end to end (`crates/gate/tests/plugins.rs`): the three tests above. A test for
-  `git/branch-name`: an exception for another branch name is not due on this branch. And one for a
-  name the policy now accepts: that exception is reported.
-- `findings.rs`: the due test for:
-  - a narrowed rule that listed the target;
-  - a narrowed rule that did not list it;
-  - a rule that did not narrow;
-  - the path form of a target.
-  The same cases for a baseline entry.
-- The result cache: a stored `judged` answers the second run as it did the first, and a changed
-  exception file runs the call again.
-- `plugins/git`: the judged targets of each mode of the three rules, through `gate_sdk::check`.
+- Host, end to end (`crates/gate/tests/plugins.rs`):
+  - `an_exception_for_a_pushed_commit_is_not_due_in_a_run_that_does_not_judge_it`: pre-commit,
+    commit-msg, and a push without the commit. It failed on the stack before the fix.
+  - `an_exception_for_a_commit_the_push_judges_and_accepts_is_reported`: a guard.
+  - `an_exception_for_a_commit_the_history_no_longer_holds_is_reported`: a guard.
+  - `a_changed_exception_list_is_not_answered_from_the_result_cache`. Two `--staged` runs, with
+    HEAD unchanged; the second is cached. Then a staged change of the exception list runs the call
+    again, and reports the newly named good commit's exception.
+- `crates/gate-host/tests/host/findings.rs`:
+  - the due test of an exception: a rule that judged its whole scope, one that judged the target,
+    one that judged nothing, another project's narrowing, and a matched exception;
+  - the same test for baseline entries, with and without a key, in `check` and in `prune`.
+  - Every existing exception and baseline test is unchanged and must stay green: a rule that never
+    narrows behaves as before.
+- `crates/gate-host/src/cache/results.rs`: a stored `judged` reads back as written.
+- `crates/gate-sdk/tests/judged.rs`:
+  - a rule that never calls `judges_only` is not listed;
+  - one that calls it is listed with its targets, without repeats;
+  - one that judged nothing is listed empty.
+- `plugins/git/tests/git`: what each mode judges, through `gate_sdk::check_output`:
+  - `git/commit-message`: a plain run; `--rev`; an excepted commit held and good, held and bad, and
+    not held; a push; and the message's header, body line and trailer;
+  - `git/branch-name`: the current branch; excepted names, by the strict verdict; `main` outside a
+    hook; a detached HEAD;
+  - `git/no-ci-skip`: its history, an excepted id outside it, and the header in commit-msg.
 
 ## Docs
 
-- `docs/guide/configuration.md`: when an exception is reported.
-- The pages of the three rules: what each judges.
-- The SDK page: `judges_only` and `excepted`.
-- `CHANGELOG.md`: a Bug Fixes entry under 0.3.0.
+- `docs/guide/configuration.md` (Exceptions): when an exception is reported, and the same rule for
+  the baseline.
+- `docs/guide/writing-a-rule.md`: "What a run judged", which covers `judges_only`, `exceptions()`
+  and `check_output`.
+- `docs/architecture.md`: the interface's `check-result`.
+- The pages of `git/commit-message`, `git/branch-name` and `git/no-ci-skip`: what a run judges.
+  The commit-message page also gives the cost.
+- `CHANGELOG.md` and `plugins/git/CHANGELOG.md`: Bug Fixes under 0.3.0.
 
 ## Resume point
 
-Design written; the failing test is committed (`dee6440c`) and runs in the lane. Next: the lead's
-answer on the design.
+The code, tests and docs are written on top of the stack tip `0ac71f94`. Next: the first lane round
+(fmt, clippy, the tests, deny, the release build, the leak scan). Then the independent review, and
+the rebase onto main once the stack merges.
