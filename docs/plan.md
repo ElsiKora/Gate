@@ -11,8 +11,8 @@ reference for every ported rule is the reference implementation, outside this re
 | `v0.1.0-rc.1` | 2026-11-18 | core, runtime, SDK, launcher; plugins `typescript`, `nestjs`, `git`, `ci`, `markdown`, `agents`, `ledger`; dry run of the first consumer's move | first consumer, on a private candidate |
 | `v0.1.0` | 2026-11-18 | the same, fixed by the dry run; guides; public repository from a clean root | first consumer in CI |
 | `v0.2.0` | 2026-11-19, released (tag 17:01Z) | plugin interface `gate:plugin@0.2.0` and every plugin at 0.2.0; `git` branch and commit format at parity with the house linters; the result cache hit by a warm run; stable fingerprints and `gate baseline prune`; option errors as configuration errors; a call state shared by the rules of one call; wasmtime 50.0.2 (CHANGELOG.md, 0.2.0) | second and third consumers, at their leads' time |
-| `v0.2.1` | not set | from the `v0.2.0` tag: T-037, T-042, T-043, T-044, T-046, T-047, T-049; documents T-050, T-051, T-054 | the consumers on 0.2.0 |
-| `v0.3.0` | not set | breaking changes: T-048 (a configuration table renamed) and T-052 after it, T-053 (`--sha256` removed), T-062 (the plugin interface `gate:plugin@0.3.0`: a generated file carries `seed`, and `generate` receives the plugin's options; `agents/no-claude-md` is a repository-scope rule, set in the root `[rules]` only) | not set |
+| `v0.2.1` | 2026-11-20, released (tag 08:16Z) | the tag `v0.2.1` is `main`'s merge `e7d5a27` (T-070); the core, `git` and `nestjs` at 0.2.1 (tags `plugin-git-v0.2.1`, `plugin-nestjs-v0.2.1`); merged under the tag after `v0.2.0`: T-037, T-042, T-043, T-046, T-047, T-049, T-056, T-058, T-060, T-060b, T-070; documents T-045, T-032's proof on the released v0.2.0, T-050, T-051, T-054 (CHANGELOG.md, 0.2.1) | the consumers on 0.2.0 |
+| `v0.3.0` | not set | plugin interface `gate:plugin@0.3.0`, breaking (CHANGELOG.md, section 0.3.0, unreleased); merged on `main` after the `v0.2.1` tag: T-044, T-053, T-055, T-062, T-064, T-065, T-066, T-066b, T-067, T-068, T-073, T-074, T-075, T-078, T-079; in progress: T-048, T-052, T-057, T-059, T-061, T-063, T-069, T-071, T-076, T-080, T-081 | not set |
 
 ## Tasks
 
@@ -43,7 +43,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-022 | v0.1.0 | Hook arguments for steps, tools per step, release notes | done (reviewed, one fix round) | none |
 | T-023 | v0.1.0 | The launcher finds a private asset in pretty-printed release JSON | done | none |
 | T-024 | v0.1.0 | Public pass: no old tool, no converter; wording checked against the code at the fresh root | done (second part reviewed; merged before the public root) | none |
-| T-025 | v0.2.0 | A full check is fast cold and the result cache makes a warm run cheap | done for v0.2.0 (merged at `264264f` and `b13c5bd`); the cold bound is open and moves to T-047 | none |
+| T-025 | v0.2.0 | A full check is fast cold and the result cache makes a warm run cheap | done for v0.2.0 (merged at `264264f` and `b13c5bd`); the cold bound moved to T-047 | none |
 | T-026 | v0.2.0 | `typescript/barrel-imports` | done (merged at `60651a1`) | none |
 | T-027 | v0.1.0 | Version 0.1.0 and its changelog | done | T-024 |
 | T-029 | v0.2.0 | `git`: branch names and commit messages as ElsiKora's public linters check them | done (merged at `e66abc8`) | none |
@@ -54,36 +54,61 @@ reference for every ported rule is the reference implementation, outside this re
 | T-034 | v0.2.0 | Stable finding fingerprints and a baseline that only shrinks | done (merged at `1583d85`) | T-029 |
 | T-035 | v0.2.0 | Version 0.2.0 and its changelog | done (merged at `89c42c7`, the `v0.2.0` tag) | T-025, T-030, T-031, T-032, T-034, T-036 |
 | T-036 | v0.2.0 | header-pattern, ignores and default-ignores of `git/commit-message` | done (merged at `62b59fa`) | none |
-| T-037 | v0.2.1 | The `nestjs` rules' own work fits the check's bound on a large tree | done on its branch (`97ca064`), not merged; the rest of the cold bound is T-047 | T-030 |
+| T-037 | v0.2.1 | The `nestjs` rules' own work fits the check's bound on a large tree | done (merged at `73d33e7`); the rest of the cold bound was T-047 | T-030 |
 | T-038 | v0.2.0 | A rule's option error is a configuration error | done (merged at `8aca931`) | T-036 |
 | T-039 | v0.2.0 | The release branch compiles again | done (merged at `ef099bc`) | none |
 | T-040 | v0.2.0 | wasmtime 50.0.2, for eight security advisories | done (merged at `b3b2fe3`) | none |
 | T-041 | v0.2.0 | The error-logging page says what the rule accepts | done (merged at `b6322aa`) | none |
-| T-042 | v0.2.1 | prohibited-trailers of `git/commit-message` | in progress (branch at `2dc41a1`) | none |
-| T-043 | v0.2.1 | A concurrency group in the generated GitHub workflow | in progress (branch at `d35865f`) | none |
-| T-044 | v0.2.1 | `nestjs/wrappers` names own-parameter reads and adapters of interface ports | in progress (branch at `0576b2b`) | none |
+| T-042 | v0.2.1 | prohibited-trailers of `git/commit-message` | done (merged at `8b9208f`) | none |
+| T-043 | v0.2.1 | A concurrency group in the generated GitHub workflow | done (merged at `9b18b32`) | none |
+| T-044 | v0.3.0 | `nestjs/wrappers` names own-parameter reads and adapters of interface ports | done (merged at `4c09a04`, after the `v0.2.1` tag) | none |
 | T-045 | v0.2.0 | The documents show the first commit | done (merged at `2ae4d79`, after the tag; documents only) | none |
-| T-046 | v0.2.1 | A download that stops sending fails within a bound | open (task file on its branch at `104a644`) | none |
-| T-047 | v0.2.1 | The cold compile cost: a cold run compiles every configured plugin, although `--rule` selects one | open (no task file yet; named by T-025 and T-037) | T-025, T-037 |
-| T-048 | v0.3.0 | A rule set below its default names its decision | in progress (design approved; branch at `1129031`) | T-043 |
-| T-049 | v0.2.1 | A release of `git/main-history` that moves a plugin's pin | design approved; code after T-042 merges (branch at `1739c25`) | T-042 |
-| T-050 | v0.2.1 | The plan and the task files say what v0.2.0 merged | in review | none |
-| T-051 | v0.2.1 | Hooks written by hand, in the configuration guide | in progress (branch at `922aed5`) | none |
-| T-052 | v0.3.0 | Two check-time thresholds, a warning and a failure, replace `--budget-fails` | open (no task file yet; writer Gate 001, after T-048) | T-048 |
-| T-053 | v0.3.0 | Pin a local build under its future URL, and check exactly that file | design approved; code after T-044 merges (branch at `5379eed`) | T-044 |
+| T-046 | v0.2.1 | A download that stops sending fails within a bound | done (merged at `389a932`) | none |
+| T-047 | v0.2.1 | A run compiles only the plugins it needs | done (merged at `340cf8b`) | none |
+| T-048 | v0.3.0 | A rule set below its default names its decision | in progress (branch `task/T-048-level-decisions` at `9bb145b`) | T-073 |
+| T-049 | v0.2.1 | A release of `git/main-history` that moves a plugin's pin | done (merged at `ec66737`) | T-042 |
+| T-050 | v0.2.1 | The plan and the task files say what v0.2.0 merged | done (merged at `37f3420`; documents only) | none |
+| T-051 | v0.2.1 | Hooks written by hand, in the configuration guide | done (merged at `f0d7ca4`; documents only) | none |
+| T-052 | v0.3.0 | Two check-time thresholds, a warning and a failure | in progress (branch `task/T-052-check-time-thresholds` at `d52d7a0`) | T-061 |
+| T-053 | v0.3.0 | Pin a local build under its future URL, and check exactly that file | done (merged at `6636e3e`) | none |
 | T-054 | v0.2.1 | The 0.1.0-to-0.2.0 baseline upgrade, written down | done (merged at `4c55ca6`, after the tag; documents only) | none |
-| T-062 | v0.3.0 | One documentation layout for every project, a standard per kind: the `docs` plugin, seeds | code review (the review's fix round in) | none |
-| T-063 | v0.3.0 | The ledger and agents plugins seed their own minimum | design decided (branch `task/T-063-seeds`); code after T-061 and T-062 merge | T-061, T-062 |
+| T-055 | v0.3.0 | `git/commit-message` checks the pushed commits too | done (merged at `7c907b0`) | T-042 |
+| T-056 | v0.2.1 | `gate cache prune` bounds the whole cache | done (merged at `e9e1434`) | none |
+| T-057 | v0.3.0 | A `--commit-message` check checks only the message | in progress (branch `task/T-057-commit-message-only` at `b473d2e`) | T-047 |
+| T-058 | v0.2.1 | Answer `Tree::contains` and prefix listings without scanning the tree | done (merged at `cf97401`) | none |
+| T-059 | v0.3.0 | The decision a rule entry names is an accepted decision of the index | in progress (branch `task/T-059-rule-decisions-ledger` at `b043e18`) | T-048 |
+| T-060 | v0.2.1 | Build each test component once per test binary | done (merged at `08668a8`; tests only) | none |
+| T-060b | v0.2.1 | Polish the test component memo | done (merged at `a3dd8d5`; tests only) | T-060 |
+| T-061 | v0.3.0 | An enabled doc rule fails on a missing ledger or agent docs | in progress (branch `task/T-061-ledger-required` at `6a6194a`) | T-059 |
+| T-062 | v0.3.0 | One documentation layout for every project, a standard per kind: the `docs` plugin, seeds | done (merged at `7b525d6`) | none |
+| T-063 | v0.3.0 | The ledger and agents plugins seed their own minimum | in progress (branch `task/T-063-seeds` at `7bda247`) | T-061, T-062 |
+| T-064 | v0.3.0 | A `cdk` plugin, one standard for every AWS CDK app | done (merged at `0a3d5a8`) | T-062 |
+| T-065 | v0.3.0 | One Node toolchain standard per kind, checked by a `node` plugin | done (merged at `7a5088f`) | T-062 |
+| T-066 | v0.3.0 | Containers and repository hygiene: the `docker` and `repository` plugins, `tree.size` | done (merged at `cee6491`) | the `gate:plugin@0.3.0` bump |
+| T-066b | v0.3.0 | Secret identity, key bodies and filtered sizes | done (merged at `16d9431`) | T-066 |
+| T-067 | v0.3.0 | A standard for CI workflows, checked by the `ci` plugin | done (merged at `de88866`) | none |
+| T-068 | v0.3.0 | A `frontend` plugin, one standard for React apps and libraries | done (merged at `f611036`) | none |
+| T-069 | v0.3.0 | Every shared plugin ships two presets | in progress (branch `task/T-069-presets` at `ca6dba6`) | none |
+| T-070 | v0.2.1 | Version 0.2.1 and its changelog | done (merged at `e7d5a27`, the `v0.2.1` tag) | none |
+| T-071 | v0.3.0 | A workspace root extends presets for its repository-scope rules | in progress (branch `task/T-071-workspace-presets` at `f1c741f`) | none |
+| T-073 | v0.3.0 | wasmtime 50.0.3, for RUSTSEC-2026-0587 | done (merged at `7f62554`) | T-074 |
+| T-074 | v0.3.0 | Gate checks itself | done (merged at `5d7f1b6`) | none |
+| T-075 | v0.3.0 | Prohibited body lines and a body full stop above the trailers | done (merged at `8b9d40c`) | T-074 |
+| T-076 | v0.3.0 | Concurrent `gate lock` runs keep both changes | in progress (branch `task/T-076-lock-set-concurrency` at `09405e3`) | none |
+| T-078 | v0.3.0 | Release documentation for 0.3.0 | done (merged at `18c0bf8`) | none |
+| T-079 | v0.3.0 | The plan says what `main` holds for 0.3.0 | done (merged with this plan) | none |
+| T-080 | v0.3.0 | An exception is no stale error where its rule did not look | in progress | none |
+| T-081 | v0.3.0 | Release cut preparation: one version everywhere | in progress | none |
 
 ## Open after rc.1
 
 From the reviews of T-003 and T-005, kept out of rc.1 on purpose:
 
-- Listing cost: `paths()` scans the snapshot per call and `Tree::contains` lists per probe (open:
-  not in v0.2.0; `Tree::contains` in the SDK still lists per probe).
+- Listing cost: `paths()` scans the snapshot per call and `Tree::contains` lists per probe (done,
+  T-058, v0.2.1: a listing of a prefix is a binary search).
 - The plugin read record as a result-cache key: plugin sha256, rules, options, change set (done:
   the key in CHANGELOG 0.1.0; a warm run hits it since T-025, v0.2.0).
-- `gate cache prune --older-than | --max-size` (T-056, v0.2.1); the changelog in release notes
+- `gate cache prune --older-than | --max-size` (done, T-056, v0.2.1); the changelog in release notes
   (done, v0.1.0).
 - Commit answers other than sync-drift persist in the cache (done, T-025, v0.2.0; the commit message
   and the hook state are asked again each run, T-039).
@@ -119,16 +144,17 @@ From the second consumer's requirements (2026-11-18):
   folder; kind children stay importable within their owner; test roots are outside unless configured
   exempt (done, T-026, v0.2.0).
 - A full `gate check` with every plugin, cold cache, is no slower than the reference tool on the same
-  tree; `--timings` and `--budget` stay (release criterion of each move; T-025, open: the cold
-  bound moves to T-047). Measured on its
+  tree; `--timings` and `--budget` stay (release criterion of each move; T-025, then T-047, merged
+  at `340cf8b`: a check compiles only the plugins it runs; this plan records no measurement of the
+  full cold check after it). Measured on its
   converted tree with rc.1, cold, `gate check --rule '<plugin>/*' --timings`: git over 90 s, nestjs
   38.3 s, ledger 12.0 s, typescript 5.2 s, the others under 2 s; all together 507 s, against 6.99 s.
 - `nestjs`: a table whose owner declares a judge routine is filtered by the judge's columns only through
-  that judge (after v0.2.0).
+  that judge (backlog, after v0.3.0).
 - `nestjs`: a registered interval carries a typed kind and reaches the mechanism the configuration binds
-  to that kind (after v0.2.0).
+  to that kind (backlog, after v0.3.0).
 - Egress follows the transitive package closure; `ledger` closes a record against a counterpart record
-  read through a `reads` grant outside the project (after v0.2.0).
+  read through a `reads` grant outside the project (backlog, after v0.3.0).
 
 ## Decisions
 
@@ -142,16 +168,13 @@ From the second consumer's requirements (2026-11-18):
 
 ## RESUME POINT
 
-2026-11-19T17:55:18+00:00: `v0.2.0` is released: the tag `v0.2.0` is `main`'s merge `89c42c7`
-(T-035), and the seven plugin tags at 0.2.0 point at the same commit. Every task in the table above
-whose status says merged rests on the merge commit it names on `main`; T-001 to T-024 and T-027
-merged before the public root (`59fb163`, `v0.1.0`). After the tag, `main` took documents only:
-T-045 (`2ae4d79`), T-032's proof on the released v0.2.0 (`105ca02`) and T-054 (`4c55ca6`).
+2026-11-20T20:16:34+00:00: `main` is at `de88866` (T-067 merged). `v0.2.1` is released: the tag `v0.2.1` is
+`main`'s merge `e7d5a27` (T-070), with `plugin-git-v0.2.1` and `plugin-nestjs-v0.2.1`. Every task
+the table marks done names its merge commit on `main`, from `git log --merges`; T-001 to T-024 and
+T-027 merged before the public root (`59fb163`, `v0.1.0`).
 
-In flight for `v0.2.1`, from the `v0.2.0` tag: T-037 (done on its branch, not merged), T-042, T-043
-and T-044 (in progress), T-049 (after T-042), T-046 (open), and T-047, the cold cost of compiling
-every configured plugin, which T-025 and T-037 leave open and which has no task file yet; the
-documents T-050, T-051 and T-054 (merged) go with it. For `v0.3.0`: T-048, then T-052 (open, no task
-file yet), and T-053, all breaking. Still open from the lists above: the listing cost of
-`Tree::contains` and the second consumer's cold bound (T-047); `gate cache prune --older-than |
---max-size` is T-056. The task table above is the state.
+For `v0.3.0`, merged after the `v0.2.1` tag: T-044, T-053, T-055, T-062, T-064, T-065, T-066,
+T-066b, T-067, T-068, T-073, T-074, T-075, T-078 and this plan, T-079. In progress, on their
+branches: the batch T-048, T-059, T-061 and T-052 (built on one another, in that order), T-057,
+T-063, T-069, T-071, T-076, T-080 and T-081. The `nestjs` and `ledger` lines of the second consumer's list stay backlog after
+`v0.3.0`. The task table above is the state.
