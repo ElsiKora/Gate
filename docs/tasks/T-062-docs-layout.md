@@ -572,6 +572,40 @@ Lane round on `92b2b6f`, the presets (ticket 278, 2026-11-20, 01:56 to 02:00 UTC
 37 at the start), same target directory: fmt 0, clippy 0, test 0 (1064 passed, 0 failed, the two
 preset tests among them), deny 0, build 0.
 
+Lane rounds of the review's fix round, after the rebase onto `e9e1434`, same target directory:
+
+- ticket 286 on `fa41f8e`: fmt 0, clippy 101 (E0382 in the new delegated native test: `without`
+  takes the fixture); test, deny and build skipped;
+- ticket 292 on `7fb5874`: fmt 0, clippy 101 (E0618 in the rewritten seed host test: a local named
+  `owned` shadowed the function it called again); the rest skipped;
+- ticket 299 on `b316492`: fmt 0, clippy 0, test 101 (1083 passed, 1 failed: an existing CLI test
+  still asserted the generic message for a missing `main`, which fix 5 replaces), deny 0, build 0;
+- ticket 306 on `932c8f5` (2026-11-20, 04:12 to 04:17 UTC, load average about 50 at the start):
+  fmt 0, clippy 0, test 0 (1084 passed, 0 failed), deny 0, build 0.
+
+Kill check, ticket 307 on `932c8f5` (04:17 to 04:23 UTC), `T-062/lane/mutants.sh` in a scratch
+worktree of that commit: three groups of mutations, each removing pieces the new tests guard, then
+only those tests run. Every named test failed with its piece removed:
+
+| Group | Piece removed | Test that failed |
+| --- | --- | --- |
+| A | the cross-generator seed refusal in `plan` | `sync::a_seed_under_a_glob_another_generator_owns_is_refused_before_anything_is_written` |
+| A | the plugin options in the generate key | `a_generators_stored_output_is_keyed_by_the_plugins_options` |
+| A | the missing-option message (it returns nothing) | `a_missing_required_plugin_option_says_where_to_set_it_and_its_values` |
+| A | the clash by stem (back to the exact name) | `layout::a_declared_extension_that_breaks_the_rules_is_a_configuration_error_naming_the_key` |
+| A | the repository scope of `agents/no-claude-md` | `a_nested_project_that_sets_no_claude_md_is_a_configuration_error` |
+| A | the `delegated-missing` aspect and the delegated rows of the seed | `layout::a_listed_delegated_entry_is_linked_by_the_seed_and_must_be_tracked`, `lay_down::the_index_seed_lists_the_delegated_entries_the_options_name_after_the_seeded_ones`, `the_docs_index_seeds_and_requires_the_delegated_entries_of_each_kind` |
+| B | seeds skipped by `gate sync --check` | `sync::a_seed_filled_and_committed_is_never_drift_never_rewritten_and_never_stale` |
+| B | the library's required `releases/` | `standard::only_a_library_requires_an_optional_entry_releases_and_says_why`, `lay_down::an_empty_project_gets_the_required_indexes_of_its_kind_as_seeds` |
+| B | the root's absent `ledger/` | `a_root_listed_as_a_project_checks_its_docs_as_a_monorepo_root_and_a_member_its_own_kind` |
+| C | seeds left out of `produced` | `main_history_judges_an_edit_of_a_seeded_page_as_the_projects_own_change` |
+| C | the `missing` aspect | `layout::each_required_entry_of_each_kind_absent_alone_gives_its_one_missing_finding` |
+
+Fix 2's scenario, as the review wrote it (pages seeded under another generator's glob, filled,
+committed, then the seeding generator removed), cannot arise any more: the first `gate sync` with
+both generators is refused at the seed step, before anything is written or removed, so no page is
+ever deleted. The host test covers that refusal with a person's page in place.
+
 ## Resume point
 
 2026-11-19: design written from `main` at `ec66737`. The lead approved the mechanics at `adec0b1`: the
@@ -598,3 +632,7 @@ rule added: `docs/recommended` and `docs/adoption`, with their tests. Next: one 
 preset commit, then the lead's review.
 
 2026-11-20: ticket 278 on `92b2b6f` green in all five steps. Next: the lead's review and merge.
+
+2026-11-20: the review's fix round is in, rebased onto `main` at `e9e1434`: ten points and the
+`delegated` option. Lane ticket 306 on `932c8f5` is green (1084 passed), and kill check 307 shows
+each new test failing with its piece removed. Waiting for the lead.
