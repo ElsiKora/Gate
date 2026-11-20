@@ -1,14 +1,16 @@
 # `cdk/declarations`
 
-A file below `lib/` declares one top-level entity of its role's kind, named from the file.
+A code file declares one top-level entity; below `lib/` it is of its role's kind, named from the file.
 
 ## What it checks and why
 
 One entity per file keeps names, files and imports one to one, so a rename moves one file and a
 barrel re-exports each entity once. The entities are the top-level classes, interfaces, type aliases
 and enums, exported or not, the exported functions (overloads count once) and constants (one whose
-value is an arrow or function expression counts as a function), and the default export. Barrels
-(`index.ts`) and files whose name has no role are not judged.
+value is an arrow or function expression counts as a function), and the default export. The rule
+reads the code of the whole app: `bin/`, `lib/`, `test/` and `scripts/`. Barrels (`index.ts`) are
+not judged, nor files of `lib/` whose name has no role; `kind` and `name` judge only files of
+`lib/`, the folder where a file's name gives its role.
 
 - `count`: the file declares more than one entity.
 - `kind`: an entity is not of the kind its role wants: a class in a `stack`, `construct`,

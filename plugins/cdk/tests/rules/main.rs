@@ -4,6 +4,7 @@
 
 mod app;
 mod code;
+mod health;
 mod layout;
 mod names;
 mod options;
@@ -11,6 +12,7 @@ mod policy;
 
 use std::collections::BTreeMap;
 
+use gate_sdk::serde_json::{self, Value};
 use gate_sdk::{CheckRequest, Finding, GitHost, Host, Location, RuleRun, TreeHost};
 
 /// A fixture tree: tracked paths and their text, no git.
@@ -101,7 +103,7 @@ impl Host for Files {
 pub(crate) type Seen = (String, String, Option<u32>, String);
 
 /// Every rule of the plugin.
-pub(crate) const RULES: [&str; 14] = [
+pub(crate) const RULES: [&str; 15] = [
     "layout",
     "file-names",
     "app",
@@ -115,6 +117,7 @@ pub(crate) const RULES: [&str; 14] = [
     "tags",
     "removal-policy",
     "nag",
+    "container-health",
     "tests",
 ];
 
@@ -410,4 +413,75 @@ fn the_standard_app_passes_every_rule() {
         .map(|finding| format!("{}#{} {}", finding.rule, finding.aspect, finding.message))
         .collect();
     assert_eq!(findings, Vec::<String>::new());
+}
+
+/// The rules of a preset of the plugin, as JSON.
+fn preset(name: &str) -> Value {
+    let info = gate_sdk::describe(&cdk::PLUGIN);
+    let preset = info
+        .presets
+        .iter()
+        .find(|preset| preset.name == name)
+        .unwrap_or_else(|| panic!("cdk/{name}"));
+    serde_json::from_str(&preset.rules).expect("JSON")
+}
+
+#[test]
+fn both_presets_set_every_rule_and_adoption_warns_only_on_renames() {
+    let info = gate_sdk::describe(&cdk::PLUGIN);
+    for name in ["recommended", "adoption"] {
+        let rules = preset(name);
+        let mut set: Vec<&str> = rules
+            .as_object()
+            .expect("rules")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        set.sort_unstable();
+        let mut every = RULES.to_vec();
+        every.sort_unstable();
+        assert_eq!(set, every, "cdk/{name}");
+        // Every aspect the preset sets is one its rule declares.
+        for (rule, settings) in rules.as_object().expect("rules") {
+            let declared = &info
+                .rules
+                .iter()
+                .find(|info| info.name == *rule)
+                .expect("a rule of the plugin")
+                .aspects;
+            for aspect in settings["levels"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(key, _)| key)
+            {
+                assert!(declared.contains(aspect), "cdk/{name} {rule}#{aspect}");
+            }
+        }
+    }
+    let recommended = preset("recommended");
+    assert!(
+        RULES
+            .iter()
+            .all(|rule| recommended[*rule]["level"] == "error"),
+        "{recommended}"
+    );
+    let adoption = preset("adoption");
+    let warned: Vec<&str> = RULES
+        .iter()
+        .copied()
+        .filter(|rule| adoption[*rule]["level"] == "warning")
+        .collect();
+    assert_eq!(
+        warned,
+        [
+            "file-names",
+            "declarations",
+            "barrels",
+            "properties",
+            "tests"
+        ]
+    );
+    assert_eq!(adoption["stack-names"]["levels"]["topic"], "warning");
+    assert_eq!(adoption["container-health"]["level"], "error");
 }

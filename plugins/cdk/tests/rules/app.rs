@@ -97,6 +97,51 @@ fn environment_account_reports_ids_in_json_and_in_literals() {
 }
 
 #[test]
+fn environment_account_reads_template_literals_and_skips_the_committed_context_file() {
+    let id = account();
+    let files = app()
+        .edit(
+            STACK,
+            "    const destroy",
+            &format!("    const role = `arn:aws:iam::{id}:role/${{id}}`;\n    const destroy"),
+        )
+        .with(
+            "cdk.context.json",
+            &format!(
+                "{{\n  \"availability-zones:account={id}:region=eu-central-1\": [\"eu-central-1a\"]\n}}\n"
+            ),
+        );
+    assert_eq!(
+        check("environment", &files),
+        [seen("account", STACK, Some(11), &id)]
+    );
+}
+
+#[test]
+fn environment_region_knows_the_china_and_govcloud_partitions() {
+    let files = app().edit(
+        STACK,
+        "    const destroy",
+        "    const china = \"cn-north-1\";\n    const government = \"us-gov-west-1\";\n    const destroy",
+    );
+    assert_eq!(
+        check("environment", &files),
+        [
+            seen("region", STACK, Some(11), "cn-north-1"),
+            seen("region", STACK, Some(12), "us-gov-west-1"),
+        ]
+    );
+    assert_eq!(
+        findings(
+            "environment",
+            r#"{ "regions": ["cn-north-1", "us-gov-west-1"] }"#,
+            &files
+        ),
+        []
+    );
+}
+
+#[test]
 fn environment_region_allows_the_listed_regions_only() {
     let files = app().edit(
         STACK,
@@ -136,7 +181,7 @@ fn environment_process_env_is_read_only_in_lib_config_and_scripts_are_not_judged
         .edit(
             ENTRY,
             "const app = new App();",
-            "const app = new App();\nconst stage = process.env.STAGE;",
+            "const app = new App();\nconst stage = process.env.STAGE;\nprocess.exitCode = 1;",
         )
         .edit(
             "lib/config/read-configuration.function.ts",
@@ -150,7 +195,7 @@ fn environment_process_env_is_read_only_in_lib_config_and_scripts_are_not_judged
     assert_eq!(
         check("environment", &files),
         [
-            seen("process-env", ENTRY, Some(8), "process"),
+            seen("process-env", ENTRY, Some(8), "process.env"),
             seen("region", "scripts/synth.ts", Some(1), "eu-central-1"),
         ]
     );

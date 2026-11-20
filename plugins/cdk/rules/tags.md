@@ -9,9 +9,15 @@ function, every stack carries the same set. The rule judges `Tags.of(x).add(key,
 imported from `aws-cdk-lib`, and `x.setTag(key, …)` in `bin/` and `lib/`.
 
 - `place`: a tag is applied outside `lib/naming/`.
-- `key`: a literal key is neither a standard key (`Project`, `Environment`, `ManagedBy`,
-  `Application`, `Name`) nor declared in `extra-tags`.
-- `required`: `lib/naming/` never applies one of the standard keys as a literal.
+- `key`: a key is neither a standard key (`Project`, `Environment`, `ManagedBy`, `Application`,
+  `Name`) nor declared in `extra-tags`.
+- `required`: `lib/naming/` never applies one of the standard keys.
+
+A key is read as a literal, through a `const` of the same file, or, when it is the key of a loop over
+`Object.entries(map)` or `Object.keys(map)` (a `for … of` or a `forEach`), as each key of `map`, an
+object literal of the same file with its spreads. A key that cannot be read this way, such as a key
+of a map built at run time, gives no finding, and while `lib/naming/` applies such a key `required`
+reports nothing: the rule cannot tell which keys it applies.
 
 Scope: project. Reads history: no. Aspects: `place`, `key`, `required`. Language: TypeScript.
 

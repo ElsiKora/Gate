@@ -204,7 +204,8 @@ Every rule reads the shared `layout` block of `[plugins.nestjs] options`
 
 AWS CDK apps written in TypeScript, one standard for all of them: the layout, file names and
 declarations, `cdk.json` and `package.json`, accounts, regions and configuration, stack names,
-construct ids, physical names, properties, tags, removal policies, cdk-nag and unit tests. The app is a
+construct ids, physical names, properties, tags, removal policies, cdk-nag 3, container health checks
+and unit tests. The app is a
 project of its own, its root the directory of `cdk.json`; the rules read the tracked files and never
 run the app. Links the TypeScript language library.
 

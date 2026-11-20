@@ -16,7 +16,9 @@ Each shared plugin keeps its own changelog next to its code.
   old id: a `[rules]` entry or a profile that names `nestjs/string-enums` is a configuration error
   (exit 2, `plugin nestjs has no rule string-enums`). Rename the entry and every profile that sets
   it to `typescript/string-enums` and declare the `typescript` plugin; the option
-  `shim-enum-names` is gone from it.
+  `shim-enum-names` is gone from it. The rule no longer reads `[plugins.nestjs] options`
+  `layout.test-root`: a project whose tests are not in `test` sets the rule's own option,
+  `"typescript/string-enums" = { level = "error", options = { test-roots = ["<test-root>"] } }`.
 - **plugin-nestjs:** the aspect `error-string-shim` of `nestjs/string-enums` is now the rule
   `nestjs/error-string-shim`, its option `enum-names` (was `shim-enum-names`). Add the rule to
   `[rules]` and to every profile that had `nestjs/string-enums` on.
@@ -24,9 +26,25 @@ Each shared plugin keeps its own changelog next to its code.
   longer read a CDK app; list the app as a project of its own with the `cdk` plugin. The
   `asset-storage` aspect `cloudfront-cdk-only` is `cloudfront-infrastructure-only`; rename it in
   `levels` and exceptions.
+- **migration:** an `[[exception]]` entry that names `nestjs/string-enums`, or an aspect of it now in
+  `nestjs/error-string-shim`, is a configuration error like a `[rules]` entry (exit 2,
+  `[[exception]] rule "nestjs/string-enums": plugin nestjs has no rule string-enums`); rename it
+  with the rule. A baseline entry's fingerprint holds the rule id, so an entry of `nestjs/string-enums`
+  matches no finding of the new ids and, as its rule no longer runs, `gate baseline prune` keeps
+  it: remove those entries from `gate/baseline.json` by hand and, in the commit that renames the
+  rule and before any other change, run `bin/gate baseline write` once to accept the same findings
+  under `typescript/string-enums`. Entries of the renamed
+  `asset-storage` aspect are stale and `gate baseline prune` drops them; accept the findings again
+  the same way.
 
 ### Features
 
+- **plugin-cdk:** the `cdk` plugin, one standard for every AWS CDK app written in TypeScript,
+  checked from the tracked files without running the app: fifteen rules (layout, file names,
+  declarations, barrels, `cdk.json` and `package.json`, accounts and regions, stack names, construct
+  ids, physical names, properties, tags, removal policies, cdk-nag 3 registered on the App, ECS
+  container health checks and unit tests) and the presets `recommended` and `adoption`. Its rules
+  are on [plugins/cdk/rules](plugins/cdk/rules/README.md).
 - **host:** the workflow `gate sync` writes from `[ci.github]` has a `concurrency` group per
   workflow file and ref: a newer pull-request run cancels the older one still in progress, and a
   push to main never cancels a running main check. A workflow written by 0.2.0 is drift; run

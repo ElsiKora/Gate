@@ -6,7 +6,9 @@ its files and child folders.
 ## What it checks and why
 
 Code imports a folder through its barrel, so a file can move inside the folder without touching its
-importers, and the barrel is the one list of what the folder offers.
+importers, and the barrel is the one list of what the folder offers. The rule stays on `lib/`: a
+barrel serves importers, and only `lib/` is imported. `bin/application.ts` is the entry the CDK runs,
+the tests are run by the test runner and the scripts by hand; nothing imports them.
 
 - `missing`: a folder holds `.ts` files but no `index.ts`.
 - `reexport-only`: the barrel holds a directive or a statement other than `export * from`,

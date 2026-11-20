@@ -118,6 +118,28 @@ fn declarations_nested_reports_a_declaration_below_the_top_level() {
 }
 
 #[test]
+fn declarations_reads_the_tests_and_the_scripts_for_count_and_nesting() {
+    let test = "test/naming/apply-tags.function.test.ts";
+    let script = "scripts/synth.ts";
+    let files = app()
+        .with(
+            test,
+            "interface ICase {\n  readonly name: string;\n}\n\ninterface IOther {\n  readonly name: string;\n}\n",
+        )
+        .with(
+            script,
+            "export function synth(): void {\n  interface IStep {\n    readonly name: string;\n  }\n}\n",
+        );
+    assert_eq!(
+        check("declarations", &files),
+        [
+            seen("count", test, None, "count"),
+            seen("nested", script, Some(2), "IStep"),
+        ]
+    );
+}
+
+#[test]
 fn barrels_accept_named_and_suffixed_re_exports() {
     let files = app().with(
         CONFIG_BARREL,

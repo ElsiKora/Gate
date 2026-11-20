@@ -24,8 +24,7 @@ impl Rule<Cdk> for Declarations {
     type Options = NoOptions;
 
     const NAME: &'static str = "declarations";
-    const TITLE: &'static str =
-        "A file below lib/ declares one top-level entity of its role's kind, named from the file";
+    const TITLE: &'static str = "A code file declares one top-level entity; below lib/ it is of its role's kind, named from the file";
     const ASPECTS: &'static [&'static str] = &["count", "name", "kind", "nested"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 

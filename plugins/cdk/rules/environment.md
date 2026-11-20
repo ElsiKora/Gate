@@ -10,12 +10,15 @@ reads one configuration file, named by the context key `configuration`, and `lib
 into a typed value.
 
 - `account`: a run of exactly twelve digits, not all zeros, in a tracked JSON file (outside
-  `node_modules` and `package-lock.json`) or in a string or template literal of `bin/`, `lib/` or
-  `scripts/`.
-- `region`: a literal of `bin/`, `lib/` or `scripts/` holds a region not listed in `regions`.
+  `node_modules`, `package-lock.json` and `cdk.context.json`) or in a string literal or a literal
+  part of a template of `bin/`, `lib/` or `scripts/`. `cdk.context.json` holds the CDK's lookups,
+  each key naming the account, and AWS asks that it be committed, so the rule does not read it.
+- `region`: a literal of `bin/`, `lib/` or `scripts/` holds a region not listed in `regions`. The
+  China (`cn-north-1`) and GovCloud (`us-gov-west-1`) regions count.
 - `context-key`: `tryGetContext` or `getContext` in `bin/` or `lib/` reads a key other than
   `configuration`.
-- `process-env`: code of `bin/` or `lib/` outside `lib/config/` reads `process`.
+- `process-env`: code of `bin/` or `lib/` outside `lib/config/` reads `process.env`. Other
+  members of `process`, such as `process.exitCode = 1`, pass.
 - `tracked-configuration`: a JSON file in `deploy/` other than `<environment>.config.example.json`
   is tracked.
 

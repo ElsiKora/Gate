@@ -8,7 +8,7 @@ the package manager.
 | --- | --- |
 | [`cdk/layout`](layout.md) | The app has the standard's files and directories, and below `lib/` only those and the declared ones |
 | [`cdk/file-names`](file-names.md) | Every file below `lib/` is `<name>.<role>.ts` in kebab case, in the place of its role |
-| [`cdk/declarations`](declarations.md) | A file below `lib/` declares one top-level entity of its role's kind, named from the file |
+| [`cdk/declarations`](declarations.md) | A code file declares one top-level entity; below `lib/` it is of its role's kind, named from the file |
 | [`cdk/barrels`](barrels.md) | Each folder below `lib/` with TypeScript files has an `index.ts` that only re-exports each of them |
 | [`cdk/app`](app.md) | `cdk.json` runs the standard command with feature flags only, and `package.json` pins the CDK packages |
 | [`cdk/environment`](environment.md) | Accounts, regions and environment values come from the configuration file, never from the code |
@@ -18,14 +18,15 @@ the package manager.
 | [`cdk/properties`](properties.md) | A construct takes `(scope, id, properties)`, typed `I<Class>Properties` from its `interface/` folder |
 | [`cdk/tags`](tags.md) | Tags are applied in `lib/naming/` only, with the standard's keys, each of them applied |
 | [`cdk/removal-policy`](removal-policy.md) | Data is destroyed only on a branch of a choice whose other branch keeps it |
-| [`cdk/nag`](nag.md) | The app registers each declared cdk-nag pack as a validation plugin, in the cdk-nag 3 form |
+| [`cdk/nag`](nag.md) | The app registers each declared cdk-nag 3 pack as a validation plugin of the App |
+| [`cdk/container-health`](container-health.md) | Every ECS container definition has a health check |
 | [`cdk/tests`](tests.md) | Each stack and each naming and configuration function has a unit test at its mirror path |
 
 ## The standard
 
 ```text
 cdk.json                         app: npx ts-node --prefer-ts-exts bin/application.ts
-package.json                     aws-cdk-lib, aws-cdk, constructs, cdk-nag pinned; synth, test, lint
+package.json                     aws-cdk-lib, aws-cdk, constructs, cdk-nag 3 pinned; synth, test, lint
 tsconfig.json
 guard/naming.guard               the naming rules for CloudFormation Guard
 deploy/<env>.config.example.json the example configuration; deploy/<env>.config.json is not tracked

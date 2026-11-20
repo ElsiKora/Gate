@@ -6,12 +6,15 @@ Resource names and export names come from a `lib/naming/` function, never writte
 
 A name AWS gives a resource is global to an account or a region: built in one place with the project
 and the environment, two environments never claim the same name, and a guard rule can check the
-form. The rule judges the third argument of every `new X(scope, id, { … })` of `bin/` and `lib/`.
+form. The rule judges the props of every construct instantiation of `bin/` and `lib/` (as
+`cdk/construct-ids` defines one): an object literal in place or bound to a `const` of the same file,
+with the object literals it spreads.
 
 - `literal`: a property that names a resource (`bucketName`, `exportName`, `functionName`,
   `tableName`, `roleName`, `queueName`, `topicName` and the other `…Name` properties of the
-  standard's list) is a string literal, a template literal, or a call of a function not imported from
-  `lib/naming/`. Any other value, such as a variable, passes.
+  standard's list) is a string built in place: a string literal, a template literal, a concatenation
+  with one, or a call of a function not imported from `lib/naming/`, written in place or bound to a
+  `const` of the same file. Any other value, such as a parameter, passes.
 
 Scope: project. Reads history: no. Aspects: `literal`. Language: TypeScript.
 
