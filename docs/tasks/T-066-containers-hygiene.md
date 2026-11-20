@@ -459,7 +459,9 @@ lead ruled on each, and accepted rulings 10 to 13, which the fix round proposed.
 8. **A heredoc opens only at `<<` or `<<-`**, then an optional quote and a delimiter word, in an
    instruction that takes heredocs; `$((1<<2))` never opens one.
 9. **Docs**: the WIT says what the read set records, the guide says `repository/recommended` sets
-   `large-files#large` at `warning`, and it shows a monorepo turning `repository/recommended` on.
+   `large-files#large` at `warning`, and it shows a monorepo turning the repository rules on. A
+   workspace root may not hold `[project]` (a configuration error), so it extends no preset; the
+   guide shows the preset's levels in the root `[rules]`, and an integration test runs that form.
 10. **`secret-metadata-words` replaces compose's `reference-suffixes`.** A name whose last word is one of
     them (`FILE`, `PATH`, `DIR`, `URL`, `ENDPOINT`, `NAME`, `TYPE`, `TTL`, `EXPIRY`, `LENGTH`) is about a
     secret, not the secret: `TOKEN_TTL` and `POSTGRES_PASSWORD_FILE` pass, in both docker rules alike.

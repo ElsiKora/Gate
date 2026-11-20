@@ -82,8 +82,8 @@ name = "server"
 | `extends` | presets to turn on, `<plugin>/<preset>`; `[rules]` then overrides any of their rules |
 
 A project file, or the root file when the root is the only project; a profile takes `extends` for a set
-of projects. In a monorepo the root file's `[project] extends` is part of the repository defaults: it
-is where a preset of repository-scope rules goes (`extends = ["repository/recommended"]`). A preset is
+of projects. A monorepo root has no `[project]`, so it extends no preset: its repository-scope rules
+are set one by one in the root `[rules]`, as [plugins.md](plugins.md#repository) shows. A preset is
 a named set of rules with levels, levels of single aspects and options that a plugin may ship, such as
 `git/recommended`. The project's own configuration wins over a preset. A rule's level for one aspect
 comes, first found, from `[rules]` for that aspect, from `[rules]` for the whole rule, from the rule's

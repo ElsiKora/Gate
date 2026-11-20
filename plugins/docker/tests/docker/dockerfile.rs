@@ -274,8 +274,8 @@ fn an_image_copied_or_mounted_from_needs_a_digest_and_a_stage_name_passes() {
     let text = format!(
         "FROM node@sha256:{digest} AS build\n\
          RUN --mount=type=cache,target=/cache,from=busybox:1 true\n\
-         RUN --mount=type=bind,from=build,target=/b true\n\
          FROM node@sha256:{digest} AS runtime\n\
+         RUN --mount=type=bind,from=build,target=/b true\n\
          COPY --from=nginx:1.27 /etc/nginx /etc/nginx\n\
          COPY --from=nginx:1.27 /usr/share/nginx /usr/share/nginx\n\
          COPY --from=build /app /app\n\

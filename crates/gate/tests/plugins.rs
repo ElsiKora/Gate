@@ -4924,14 +4924,14 @@ fn the_docker_and_repository_rules_report_exactly_the_planted_files_and_pass_wit
 }
 
 #[test]
-fn a_monorepo_turns_the_repository_preset_on_in_the_root_project_section_with_large_at_warning() {
+fn a_monorepo_sets_the_repository_rules_in_the_root_rules_with_large_at_warning() {
     let repo = Repo::empty();
     let docker = "acme/rules:docker@0.3.0";
     let repository = "acme/rules:repository@0.3.0";
     repo.write(
         "gate.toml",
         &format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[project]\nextends = [\"repository/recommended\"]\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n"
+            "[gate]\nversion = \"{VERSION}\"\n\n[workspace]\nprojects = [\"apps/*\"]\n\n[plugins]\ndocker = {{ source = \"{docker}\" }}\nrepository = {{ source = \"{repository}\" }}\n\n[rules]\n\"repository/tracked-secrets\" = \"error\"\n\"repository/large-files\" = {{ level = \"error\", levels = {{ large = \"warning\" }} }}\n"
         ),
     );
     repo.write(

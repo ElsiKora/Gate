@@ -246,7 +246,7 @@ Both docker rules are project-scope: in a monorepo, put `extends = ["docker/reco
 What no repository should track, whatever its languages.
 
 ```toml
-# the root gate.toml, in a single project or a monorepo alike
+# the root gate.toml of a single project
 [plugins]
 repository = { source = "ElsiKora/Gate:repository@0.3.0" }
 
@@ -254,11 +254,24 @@ repository = { source = "ElsiKora/Gate:repository@0.3.0" }
 extends = ["repository/recommended"]
 ```
 
-Both rules are repository-scope: they run once over the whole repository, so they are configured in the
-root file only, even in a monorepo, where the root's `[project] extends` is part of the repository
-defaults ([configuration.md](configuration.md#project)). A profile or a project file cannot turn them
-on. `repository/recommended` sets both rules to `error` and `large-files#large` to `warning`: a file
-over 1 MiB is a warning, one over 5 MiB (`huge`) an error.
+`repository/recommended` sets both rules to `error` and `large-files#large` to `warning`: a file over
+1 MiB is a warning, one over 5 MiB (`huge`) an error. Both rules are repository-scope: they run once
+over the whole repository and are configured in the root file only; a profile or a project file
+cannot turn them on. A monorepo root has no `[project]` and so extends no preset
+([configuration.md](configuration.md#project)); it sets what the preset sets in its `[rules]`:
+
+```toml
+# the root gate.toml of a monorepo
+[workspace]
+projects = ["apps/*"]
+
+[plugins]
+repository = { source = "ElsiKora/Gate:repository@0.3.0" }
+
+[rules]
+"repository/tracked-secrets" = "error"
+"repository/large-files" = { level = "error", levels = { large = "warning" } }
+```
 
 | Rule | Checks |
 | --- | --- |
