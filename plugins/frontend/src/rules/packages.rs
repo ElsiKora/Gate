@@ -40,8 +40,14 @@ pub struct Options {
 const ROUTER: &str = "router";
 const TRANSLATION: &str = "translation";
 
-/// The default jobs: each a name and its tools, each tool a name and its packages.
-const JOBS: &[(&str, &[(&str, &[&str])])] = &[
+/// A default tool: its name and its packages.
+type Tool = (&'static str, &'static [&'static str]);
+
+/// A default job: its name and its tools.
+type Job = (&'static str, &'static [Tool]);
+
+/// The default jobs.
+const JOBS: &[Job] = &[
     (
         "http-client",
         &[

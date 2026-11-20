@@ -64,7 +64,6 @@ impl Rule<TypeScriptCall> for AssetPlacement {
     fn check(&self, run: &mut Run<'_, Options, TypeScriptCall>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
             let project = Project::new(run, shared)?;
-            let pack = project.pack;
             let extensions = &run.options().extensions;
             let found: Vec<Found> = project
                 .paths
