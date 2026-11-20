@@ -40,7 +40,7 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `markdown` | project | Markdown | no | none | `markdown/recommended`, `markdown/adoption` |
 | `docs` | project | none | no | `docs/layout` | `docs/recommended`, `docs/adoption` |
 | `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` | `agents/recommended`, `agents/adoption` |
-| `ledger` | project | none | no | `ledger/decision-counts`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
+| `ledger` | project | none | no | `ledger/decision-counts`, `ledger/layout`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
 | `nestjs` | project | TypeScript | no | none | `nestjs/recommended`, `nestjs/adoption` |
 | `node` | repository, project | none | no | none | `node/recommended`, `node/adoption` |
 | `cdk` | project | TypeScript | no | none | `cdk/recommended`, `cdk/adoption` |
@@ -159,6 +159,13 @@ rule on in place of the `[rules]` line. `gate sync` seeds every required index p
 deleted. A monorepo root's `docs/` is checked when the workspace lists `"."` as a project with
 `kind = "monorepo-root"`.
 
+With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]` and
+`delegated = ["agents", "ledger"]`, one `gate sync` lays down the whole standard: the indexes, the
+ledger's manifest and shared files, and `AGENTS.md`. `gate check` then reports only what a person
+must write: each index's `#unfilled`, the rule files' `#input`, the ledger files only the project
+can write (the ADR coverage, the catalog of `ledger/reuses`), and its first implementation and
+production blocker records.
+
 | Rule or generator | Checks or writes |
 | --- | --- |
 | [`docs/layout`](../../plugins/docs/rules/layout.md) (rule) | the entries of the kind, unknown and reserved names, declared extensions, the index's entry table and each index's sections |
@@ -171,7 +178,8 @@ Rule files and skills written for coding agents, kept in `<root>/rules/*.md` and
 project. `agents/adapters` writes one Claude Code adapter per rule file to `.claude/rules/<stem>.md` and
 copies the skills to `.claude/skills/`; it owns `.claude/rules/**` and `.claude/skills/**`.
 `agents/agents-block` writes the table of rule files between the `gate:begin agents` and
-`gate:end agents` markers of `AGENTS.md` (`entry`).
+`gate:end agents` markers of `AGENTS.md` (`entry`), and seeds the entry, markers and table included,
+when it is not tracked.
 
 ```toml
 # apps/server/gate.toml
@@ -192,8 +200,8 @@ it.
 
 `gate sync` writes the generated files; `gate sync --check` reports drift. An enabled rule or generator
 whose input is missing fails: a rule that reads the rule files reports an empty `<root>/rules` as
-`#input`, `instruction-references` reports a missing `entry`, and `agents-block` reports both as
-`gate/sync#agents/agents-block`. The rules: `instruction-references`,
+`#input`, `instruction-references` reports a missing `entry`, and `agents-block` reports an empty
+`<root>/rules` as `gate/sync#agents/agents-block`. The rules: `instruction-references`,
 `no-claude-md`, `rule-enforcement`, `rule-file-size`, `rule-ids`, `rule-owner`, `rule-references`,
 `rule-registry`, `skills` ([pages](../../plugins/agents/rules)).
 
@@ -209,7 +217,10 @@ ledger's file paths, the closing statuses, the paired plan); see
 that is not tracked as `#input`, so a project without its ledger fails rather than passes; the ledger
 manifest is the one list of what a complete ledger holds. `ledger/closing-notes` needs its `field`,
 `ledger/reuses` its `catalog`, and `ledger/record-status` the shared `parity`: without them the run
-stops with exit 2.
+stops with exit 2. The generator [`ledger/layout`](../../plugins/ledger/generators/layout.md) seeds
+an empty ledger at the configured paths: the manifest and the five shared files. The rules then ask
+only for content: the files the project writes (`#input`) and its first implementation and
+production blocker records (`ledger/records`, keyed `#none`).
 
 ```toml
 # docs/gate.toml, the project that holds the ledger

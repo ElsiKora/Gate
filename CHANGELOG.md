@@ -115,8 +115,9 @@ Each shared plugin keeps its own changelog next to its code.
 - **plugin-agents:** an enabled agents rule fails when its input is missing: the rules that read the
   rule files (`rule-registry`, `rule-ids`, `rule-file-size`, `rule-enforcement`, `rule-owner`,
   `rule-references`) report an empty `<root>/rules` as `#input`, and `instruction-references`
-  reports a missing `entry`. The `agents-block` generator reports both as
-  `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`.
+  reports a missing `entry`. The `agents-block` generator reports an empty `<root>/rules` as
+  `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`, and seeds a missing
+  `entry`.
 - **check:** a run has two time thresholds, `--warn-after <seconds>` (a `gate/budget` warning) and
   `--fail-after <seconds>` (a `gate/budget` error), replacing `--budget` and `--budget-fails`, which
   are now unknown options. `budget` in `[hooks]` and in a CI job is a table,
@@ -185,6 +186,17 @@ Each shared plugin keeps its own changelog next to its code.
 - **plugin-ledger:** `ledger/rule-decisions` reports a decision a rule entry names that the decision
   index does not list as accepted, as `ledger/exception-decisions` does for exceptions. It reads the
   decisions the core hands it, never `gate.toml`.
+- **plugin-ledger:** the generator `ledger/layout` seeds an empty ledger at the project's paths: the
+  manifest (the five shared files under their common root, no identifier family, no forbidden
+  reference) and the five shared files, each with a title, the decision index with its table
+  header; with a tracked manifest, also each canonical file it lists. The seeded ledger is
+  structurally complete: the rules report only the files the project alone can write (`#input`) and
+  its first implementation and production blocker records (`ledger/records`, keyed `#none`).
+- **plugin-agents:** `agents/agents-block` seeds `AGENTS.md` when it is not tracked: a title, one
+  line, and the managed block filled from the rule files. With the docs, ledger and agents
+  generators, one `gate sync` lays down a project's whole documentation standard, and `gate check`
+  then asks only for content: each index's `#unfilled`, the rule files' `#input`, the ledger files
+  only the project can write, and its first records.
 
 - **plugins:** every shared plugin ships two presets: `<plugin>/recommended` turns on its rules at
   `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the
