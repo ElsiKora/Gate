@@ -72,7 +72,7 @@ With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]`, o
 
 | Plugin | Seeds | What `gate check` reports afterwards |
 | --- | --- | --- |
-| `docs` | the 9 indexes (T-062) | `docs/layout#unfilled` per index until its marker line is deleted; `docs/layout#index` for `docs/agents/` and `docs/ledger/`, now present and not in the seeded table (until T-062's `delegated` option; see Decided, 3) |
+| `docs` | the 9 indexes (T-062) | `docs/layout#unfilled` per index until its marker line is deleted; no `#index` finding, because the seeded table lists the `delegated` areas (Decided, 3) |
 | `ledger` | `manifest.json` and the five shared files | nothing from the ledger rules |
 | `agents` | `AGENTS.md` with its block | `#input` at `docs/agents/rules` from each rule-file rule (T-061) |
 
@@ -87,10 +87,12 @@ With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]`, o
 - `agents/agents-block`, native:
   - with no `AGENTS.md` it returns one seed holding the markers and the block, and no finding;
   - with `AGENTS.md` tracked, its output is as today.
-- End to end, once: an empty service with the three generators and the docs, ledger and agents
-  rules on.
+- End to end, once: an empty service with the three generators, the docs, ledger and agents rules
+  on, and `delegated = ["agents", "ledger"]`.
   - `gate sync` writes 9 + 6 + 1 files.
-  - `gate check` gives exactly the findings in the table above.
+  - `gate check` gives exactly the content findings the test lists (`#unfilled` per index, the
+    rule-file `#input`, the ledger `#input` for the options T-061 makes required), so a new
+    structural finding fails the test.
   - A second `gate sync` writes nothing.
   - `gate sync --check` exits 0.
 
@@ -106,8 +108,12 @@ With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]`, o
    options only, not plugin options, so the option is documented on the `docs/layout` page. This
    goes into T-062's review fix round. T-063 only sets it in its end-to-end test.
 
-The bar: on an empty project with the docs, ledger and agents plugins enabled and `delegated` set,
-`gate sync` followed by `gate check` exits 0.
+The bar (lead, corrected): after `gate sync` on an empty project with the docs, ledger and agents
+plugins enabled and `delegated` set, `gate check` reports no structural finding: nothing from
+`docs/layout#index`, the missing-area finding, or any layout or placement aspect. It reports only
+content findings, which ask the person to write something: `docs/layout#unfilled`, and the rule-file
+and ledger `#input` findings. A seeded project nobody has written into fails, and only for missing
+content: under `docs/recommended` it exits 1 by design; under `docs/adoption` it exits 0.
 
 ## Done when
 
@@ -125,3 +131,4 @@ both. Waiting for the lead's decision on the open items.
 
 2026-11-20: the lead decided the three items (see Decided). The `delegated` option goes into T-062's
 review fix round.
+2026-11-20: the lead corrected the bar: no structural finding after sync; only content findings.
