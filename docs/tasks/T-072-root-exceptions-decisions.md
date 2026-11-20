@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, for the lead; no code until the design is approved and the stack (T-048, T-059, T-061, T-052) is on `main` |
+| Status | Option 1 approved by the lead; code written on the stack tip, waiting for the stack, T-080 and T-069 on `main` |
 | Release | v0.3.0 (the request's meaning for the repository call, on `gate:plugin@0.3.0`, unreleased) |
 | Writer | "Gate 006" |
 | Reviewer | a separate review session |
@@ -76,7 +76,24 @@ member project's call, and those calls carry only that project's own decisions. 
 the root `[rules]` is the configuration error of point 4. The first end-to-end test below fails
 today on exactly this tree: it expects exit 1 and the finding at `gate.toml:<line>`.
 
-## Option 1 (recommended): the repository call owns the root file when the root is not a project
+## Approval
+
+The lead approved Option 1 with these conditions:
+
+- The three root rules share the judgement code of their project-scope counterparts: one function
+  each, called from both scopes, no copied logic.
+- `config-file` in `check-request` is documented in `wit/gate.wit` and the SDK; a rule that ignores
+  it is unaffected.
+- Order: the stack, then T-080 (which adds `excepted` to `check-request` and `judged` to
+  `check-result`), then T-072. Code starts on the stack tip; T-072 rebases onto `main` after T-080
+  merges and takes its WIT fields as they are.
+- `ledger/recommended` and `ledger/adoption` (T-069) take the three rules; the preset tests still
+  pass for a single-project repository, with nothing reported twice.
+- Docs: the configuration guide (where a monorepo root writes its decisions and exceptions), the
+  three rule pages, and the changelogs under 0.3.0.
+- One lane round on the final base, then an independent review.
+
+## Option 1 (approved): the repository call owns the root file when the root is not a project
 
 The repository scope's own configuration file is the root `gate.toml` whenever the root is not a
 project. Today that holds for everything the root writes except its decisions. So the request
@@ -196,5 +213,12 @@ Each new rule's page, with its example finding run against a synthetic tree.
 
 ## Resume point
 
-2026-11-20T20:54:28+00:00: design written on `task/T-072-root-exceptions-decisions`, off the stack
-tip `0ac71f9`; no code. Next: the lead chooses an option.
+2026-11-20T21:09:19+00:00: Option 1 written on the stack tip `0ac71f9`, not yet built (no lane
+round): `config-file` in `check-request` (WIT, SDK `Call::config_file`/`Run::config_file`, runtime,
+host `own_config`); the repository call carries the root file's decisions when the root is not a
+project; `ledger/root-rule-decisions`, `ledger/root-exception-decisions` and
+`ledger/root-exception-owners` share `judge`, `judge_decisions` and `judge_owners` with their project
+rules; the probe's `root-decisions` and `config-file` rules; ledger, host and end-to-end tests; the
+pages, guides and changelogs. Next: once the stack, T-080 and T-069 are on `main`, rebase, take
+T-080's fields, add the three rules to `ledger/recommended` and `ledger/adoption`, then one lane
+round and the review.
