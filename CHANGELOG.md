@@ -69,6 +69,10 @@ Each shared plugin keeps its own changelog next to its code.
   `Check out the repository`, the `changes` job has a 15-minute timeout, and the aggregate job is
   named by its id, so its check name is unchanged, with a 5-minute timeout. A workflow written by
   0.2.x is drift; run `gate sync`.
+- **ci:** `ci/actions-pinned` reports a commit pin whose comment is not the full release, as the
+  aspect `version-comment` at the rule's level: a pin with `# v4` that passed under ci 0.2.0 fails
+  at `error` under 0.3.0. Write the release the commit is (`# v4.2.2`), or set
+  `"ci/actions-pinned" = { levels = { version-comment = "warning" } }` while the pins are updated.
 
 ### Features
 

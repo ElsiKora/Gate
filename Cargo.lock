@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-ci"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gate-sdk",
  "globset",

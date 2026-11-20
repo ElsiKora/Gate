@@ -2,9 +2,20 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:ci@<version>`.
 
-## Unreleased
+# 0.3.0 (unreleased)
 
-### Added
+Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
+
+### Breaking Changes
+
+- `ci/actions-pinned` reports a commit pin without its full release in a comment (`# v4.2.2`), as
+  the new aspect `version-comment` with the option of the same name, at the rule's level. A pin
+  commented `# v4`, or not commented, that passed under 0.2.0 now fails at `error`. Write the
+  release the commit is after the pin, or set
+  `"ci/actions-pinned" = { levels = { version-comment = "warning" } }` while the pins are updated.
+  The pin finding keeps the empty aspect, so its fingerprint is unchanged.
+
+### Features
 
 - The preset `ci/recommended`: every rule of the plugin at `error`, one standard taken the same way
   in every repository. The workflow `gate sync` writes meets it.
@@ -21,9 +32,6 @@ The plugin is versioned on its own; its source is `ElsiKora/Gate:ci@<version>`.
 - `ci/node-setup`: `actions/setup-node` with `node-version-file` and `cache`, once per job.
 - `ci/names`: every workflow, job and step named; a workflow's file is its name in kebab case; job
   ids in kebab case; no duplicate job or workflow names.
-- `ci/actions-pinned` reports a commit pin without its full release in a comment
-  (`# v4.2.2`), as the new aspect `version-comment` with the option of the same name. The pin
-  finding keeps the empty aspect, so its fingerprint is unchanged.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ci-v0.1.0...plugin-ci-v0.2.0) (2026-11-19)
 
