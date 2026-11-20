@@ -3181,6 +3181,116 @@ fn a_nestjs_option_its_rule_refuses_is_a_configuration_error() {
     );
 }
 
+/// The frontend plugin's component, built once.
+fn frontend() -> &'static (PathBuf, Vec<u8>) {
+    static WASM: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    WASM.get_or_init(|| component("gate-plugin-frontend", "frontend"))
+}
+
+/// `gate check` with the built frontend component and its `recommended` preset over `files`, the
+/// pack `pack` (none when `None`) and a tsconfig with the one alias.
+fn frontend_check(pack: Option<&str>, files: &[(&str, &str)]) -> Output {
+    let (path, _) = frontend();
+    let repo = Repo::empty();
+    repo.write(
+        "tsconfig.json",
+        r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#,
+    );
+    for (file, contents) in files {
+        repo.write(file, contents);
+    }
+    let options = pack.map_or_else(String::new, |pack| {
+        format!("options = {{ pack = \"{pack}\" }}\n")
+    });
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nextends = [\"frontend/recommended\"]\n\n[plugins.frontend]\nsource = \"acme/rules:frontend@0.3.0\"\n{options}"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("frontend={}", path.display());
+    repo.gate(&["check", "--plugin", &plugin])
+}
+
+#[test]
+fn a_frontend_project_without_a_pack_is_a_configuration_error_that_names_the_packs() {
+    let output = frontend_check(None, &[("src/main.tsx", "export {};\n")]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains("has no pack")
+            && message.contains("\"react-vite\", \"nextjs\" or \"react-library\""),
+        "{message}"
+    );
+}
+
+#[test]
+fn the_frontend_component_passes_each_standard_tree_and_reports_a_departure() {
+    let trees: [(&str, &[(&str, &str)]); 3] = [
+        (
+            "react-vite",
+            &[
+                ("src/main.tsx", "export {};\n"),
+                ("src/app/routes/__root.tsx", "export const Route = 1;\n"),
+            ],
+        ),
+        (
+            "nextjs",
+            &[
+                (
+                    "src/app/layout.tsx",
+                    "export default function Layout() { return null; }\n",
+                ),
+                (
+                    "src/app/page.tsx",
+                    "export default function Page() { return null; }\n",
+                ),
+            ],
+        ),
+        (
+            "react-library",
+            &[
+                ("src/index.ts", "export {};\n"),
+                (
+                    "src/ui/button/button.tsx",
+                    "export function Button() { return null; }\n",
+                ),
+            ],
+        ),
+    ];
+
+    for (pack, files) in trees {
+        let output = frontend_check(Some(pack), files);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{pack}: {}{}",
+            text(&output.stdout),
+            text(&output.stderr)
+        );
+
+        let mut departed = files.to_vec();
+        departed.push((
+            "src/components/card.tsx",
+            "export function Card() { return null; }\n",
+        ));
+        let output = frontend_check(Some(pack), &departed);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{pack}: {}",
+            text(&output.stderr)
+        );
+        let stdout = text(&output.stdout);
+        assert!(
+            stdout.contains("error[frontend/layout] src/components"),
+            "{pack}: {stdout}"
+        );
+    }
+}
+
 #[test]
 fn a_ledger_option_its_rule_refuses_is_a_configuration_error() {
     // A pattern that is no regular expression: no schema can refuse it, the rule does.
