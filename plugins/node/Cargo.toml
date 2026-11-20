@@ -1,0 +1,24 @@
+[package]
+name = "gate-plugin-node"
+description = "The node plugin of Gate: one Node toolchain per kind (package manager, Node version, dependency versions, formatter, linter, package fields, scripts, tsconfig)"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+# The component is `node.wasm`; the rlib lets the native tests call the plugin.
+name = "node"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gate-sdk.workspace = true
+globset.workspace = true
+yaml-rust2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

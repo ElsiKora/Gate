@@ -922,6 +922,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gate-plugin-node"
+version = "0.2.1"
+dependencies = [
+ "gate-sdk",
+ "globset",
+ "serde_json",
+ "yaml-rust2",
+]
+
+[[package]]
 name = "gate-plugin-typescript"
 version = "0.2.0"
 dependencies = [
