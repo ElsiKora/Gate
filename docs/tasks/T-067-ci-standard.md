@@ -323,4 +323,11 @@ Found by the review of `73d652a`; each errs the way named, and none is fixed in 
   still reports on a generated workflow; `version-comment` is a breaking change of ci 0.3.0, the
   version of `plugins/ci/Cargo.toml`; the remaining edges are under "Known limits". Not yet run in
   the lane on this tip.
-- Next: one round on this tip, reported by log; then the lead merges.
+- 2026-11-20T20:10:46+00:00: ticket 370 on `0d3a25c`, target `T-067/target`: fmt, clippy, the ci plugin tests
+  (34), the host yaml test, the cli test and the two `gate` plugins tests by name, `cargo test
+  --workspace --no-fail-fast` (1374 passed, 0 failed, 7 ignored), deny, the release build,
+  actionlint on Gate's own workflows and on a workflow the release build's `gate sync` wrote exit
+  0; `done in 618s with exit code 0`. Its logs show `gate`, `gate-host`, `gate-sdk` and
+  `gate-plugin-ci` (v0.3.0) compiled from this worktree, none from another, and all 31 new tests
+  listed by name. The reviewer accepted `0d3a25c`.
+- Next: the lead merges.
