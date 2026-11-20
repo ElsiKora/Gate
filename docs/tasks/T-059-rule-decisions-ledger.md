@@ -161,8 +161,12 @@ worktrees and are not counted.
 
 ## Resume point
 
-2026-11-20T17:58:09+00:00: rebased onto T-048 at `27df7d4`, on `main` at `7f62554`. Main already
-has `gate:plugin@0.3.0` (seed, plugin-options, tree.size), and `rule-decisions` joins that
-interface; the fixtures of the plugins main added build their `CheckRequest` with
-`rule_decisions`. Round 317's Proof is for the earlier base. T-061 and T-052 are stacked on this
-branch, and one lane round on T-052's tip counts for all four; next: that round.
+2026-11-20T20:40:47+00:00: stack round 375 (ticket 000000000375) on T-052's tip `d52d7a0`, on `main`
+at `4c09a04`, was green in every step, with every changed crate compiled from the round's own
+checkout; the 10 tests this branch adds passed by name. Round 367 before it had stopped at clippy
+`too_many_lines` (102/100) in `Plugins::run`, since main's `tree.size` and this branch's
+`rule_decisions` together crossed the limit; the check request is now built in `check_request`, and
+`run` is 93 lines. Rebased onto T-048 on `main` at `d0c6cda`: the runtime probe keeps main's `Whole`
+rule beside `Decisions`, the plan keeps main's rows, and the test support of the `frontend` plugin,
+new on main, builds its `CheckRequest` with `rule_decisions`. T-061 and T-052 are stacked on this
+branch; next: one lane round on T-052's tip for all four.
