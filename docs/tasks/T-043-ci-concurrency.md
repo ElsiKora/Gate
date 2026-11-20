@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done (merged at `9b18b32`) |
 | Release | v0.2.1 |
 | Writer | "Gate 001: the gate as a standalone tool" |
 | Reviewer | the lead |

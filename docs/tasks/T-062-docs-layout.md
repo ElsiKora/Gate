@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | code review: the review's one fix round is in (see "Review fix round") |
+| Status | done (merged at `7b525d6`) |
 | Release | v0.3.0 (it changes the plugin interface, which v0.3.0 moves to `gate:plugin@0.3.0`) |
 | Writer | "Gate 005" |
 | Reviewer | a separate review session |

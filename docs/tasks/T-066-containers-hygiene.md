@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead at `c557d16` with the decisions below (2026-11-19); code after T-056 is green |
+| Status | done (merged at `cee6491`) |
 | Release | v0.3.0 (it adds `tree.size` to the plugin interface, which v0.3.0 moves to `gate:plugin@0.3.0`, and gives `nestjs/raw-config-access` aspects, which re-keys its findings) |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | a separate review session |

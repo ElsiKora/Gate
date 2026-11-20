@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done (merged at `7f62554`) |
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead (pins, lockfile and changelog only) |

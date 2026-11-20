@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | done; ready for the lead |
+| Status | done (merged at `5d7f1b6`) |
 | Release | 0.3.0 timeframe, built on the released 0.2.1 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |

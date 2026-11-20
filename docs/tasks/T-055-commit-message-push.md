@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done (merged at `7c907b0`) |
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | the lead |

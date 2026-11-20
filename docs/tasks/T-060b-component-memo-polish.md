@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | proven; ready for the lead |
+| Status | done (merged at `a3dd8d5`) |
 | Release | v0.2.1 (tests only) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | the lead |

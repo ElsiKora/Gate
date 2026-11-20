@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | the verification's small round green in lane round 310 on `86d28f0`, a tree with `main` at `e9e1434` merged in; ready to merge |
+| Status | done (merged at `7a5088f`) |
 | Release | v0.3.0 (a new plugin on `gate:plugin@0.3.0`; no interface change of its own) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |

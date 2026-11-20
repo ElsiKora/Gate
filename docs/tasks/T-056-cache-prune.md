@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review (the review's fix round green; design approved by the lead, 2026-11-19) |
+| Status | done (merged at `e9e1434`) |
 | Release | v0.2.1 |
 | Writer | "Gate 004: public presentation" |
 | Reviewer | a session that did not write it |

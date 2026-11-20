@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | approved for code by the lead (2026-11-19); in progress |
+| Status | done (merged at `0a3d5a8`) |
 | Release | v0.3.0, the final release; the plugin must be in it |
 | Writer | "Gate 002" |
 | Reviewer | a separate review session |
