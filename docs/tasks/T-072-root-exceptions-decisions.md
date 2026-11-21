@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Option 1 approved by the lead; code rebased onto `main` `6b36eeac` (the stack and T-069); one lane round, then review |
+| Status | Option 1 approved; lane ticket 411 green on `8ed4f919` (on `main` `6b36eeac`); for review |
 | Release | v0.3.0 (the request's meaning for the repository call, on `gate:plugin@0.3.0`, unreleased) |
 | Writer | "Gate 006" |
 | Reviewer | a separate review session |
@@ -215,7 +215,9 @@ Each new rule's page, with its example finding run against a synthetic tree.
 
 ## Resume point
 
-2026-11-21T02:28:10+00:00: rebased onto `main` `6b36eeac`, which holds the stack and T-069; T-080 adds no
-`check-request` field, so nothing waits for it. The three `root-` rules joined `ledger/recommended`
-and `ledger/adoption`, with end-to-end tests for a root that extends the preset and for a
-single-project repository on it. Next: one lane round on the pushed tip, then the review.
+2026-11-21T03:32:42+00:00: lane ticket 411 (`round1.sh`, one round on `8ed4f919`, on `main`
+`6b36eeac`) exited 0: fmt, clippy with `-D warnings`, the ten new or changed `gate` end-to-end tests
+and the ledger root, presets and presence tests by name, then `cargo test --workspace` (1515 passed,
+0 failed, 7 ignored), `cargo deny check` and the release build. `gate-sdk`, `gate-runtime`,
+`gate-host`, `gate` and `gate-plugin-ledger` compiled from this worktree only. Next: the independent
+review; T-072 merges after T-080.
