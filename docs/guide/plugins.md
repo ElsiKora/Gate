@@ -161,10 +161,10 @@ deleted. A monorepo root's `docs/` is checked when the workspace lists `"."` as 
 
 With `docs/layout`, `ledger/layout` and `agents/agents-block` in `[generate]` and
 `delegated = ["agents", "ledger"]`, one `gate sync` lays down the whole standard: the indexes, the
-ledger's manifest and shared files, `AGENTS.md` and the agents' reading map. `gate check` then reports only what a person
-must write: each index's `#unfilled`, the rule files' `#input`, the ledger files only the project
-can write (the ADR coverage, the catalog of `ledger/reuses`), and its first implementation and
-production blocker records.
+ledger's manifest and shared files, `AGENTS.md` and the agents' reading map. `gate check` then
+reports only what a person must write: each index's `#unfilled`, the rule files' `#input`, the
+ledger files only the project can write (the ADR coverage, the catalog of `ledger/reuses`), and its
+first implementation and production blocker records.
 
 | Rule or generator | Checks or writes |
 | --- | --- |

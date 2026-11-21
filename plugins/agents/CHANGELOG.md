@@ -31,8 +31,8 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 - `agents/agents-block` seeds the entry (`AGENTS.md`) when it is not tracked: a title, one line, and
   the managed block filled from the rule files. `gate sync` writes the seed only where nothing
   exists. With nothing tracked under `root`, it also seeds `<root>/context-map.md`, the agents'
-  reading map, so a delegated `agents/` entry of the docs book exists. An empty `<root>/rules` stays a finding of `gate/sync#agents/agents-block`; rule files are not
-  seeded.
+  reading map, so a delegated `agents/` entry of the docs book exists. An empty `<root>/rules` stays
+  a finding of `gate/sync#agents/agents-block`; rule files are not seeded.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-agents-v0.1.0...plugin-agents-v0.2.0) (2026-11-19)
 
