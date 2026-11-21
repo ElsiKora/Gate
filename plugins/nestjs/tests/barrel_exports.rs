@@ -74,6 +74,35 @@ fn the_source_roots_main_ts_is_approved_when_the_option_is_unset() {
     )
     .expect("the rule runs");
     assert_eq!(support::rows(&findings), []);
+    // And entrypoint-suffix: the source root's file with that ending is the one approved.
+    let server = with(&[
+        ("src/runtime/api/main.ts", ""),
+        ("src/server.ts", "void 0;\n"),
+        ("src/runtime/worker/server.ts", "void 0;\n"),
+    ]);
+    assert_eq!(
+        check(RULE, r#"{ "entrypoint-suffix": "/server.ts" }"#, &server),
+        [
+            row(
+                "runtime-entrypoint",
+                "src/runtime/worker/server.ts",
+                None,
+                "src/runtime/worker/server.ts is not an approved private runtime entrypoint"
+            ),
+            row(
+                "missing",
+                "src/runtime/index.ts",
+                None,
+                "src/runtime must expose an index.ts barrel"
+            ),
+            row(
+                "missing",
+                "src/runtime/worker/index.ts",
+                None,
+                "src/runtime/worker must expose an index.ts barrel"
+            ),
+        ]
+    );
 }
 
 #[test]

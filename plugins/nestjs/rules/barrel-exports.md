@@ -15,8 +15,9 @@ in a `hidden-folder` below that folder, and is not listed in `private-entrypoint
 
 - `#runtime-entrypoint`: a `.ts` file below `layout.source-root` whose path ends with
   `entrypoint-suffix` and that `private-entrypoints` does not approve. Unset, `private-entrypoints`
-  approves the one entry point NestJS starts from, `<layout.source-root>/main.ts` (`src/main.ts`
-  by default). Reported at the file.
+  approves the one entry point NestJS starts from: the source root's file named by
+  `entrypoint-suffix`, `<layout.source-root>/main.ts` by default (`src/main.ts`). Reported at the
+  file.
 - `#missing`: a folder below `layout.source-root` with an exportable entry has no `barrel-name` file;
   and a folder named in `layout.kind-folders` that holds a `.ts` file other than a barrel has none.
   Reported at the barrel's path.
@@ -47,7 +48,7 @@ Scope: project. Language: `typescript`. Reads history: no. Aspects: `explicit-ex
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `private-entrypoints` | list of paths | unset: `["<layout.source-root>/main.ts"]` | The runtime start files: never exported, never an entry of their folder. A list replaces the default, so list the source root's `main.ts` too; `[]` approves none. |
+| `private-entrypoints` | list of paths | unset: the source root's file named by `entrypoint-suffix`, `["<layout.source-root>/main.ts"]` | The runtime start files: never exported, never an entry of their folder. A list replaces the default, so list the source root's `main.ts` too; `[]` approves none. |
 | `barrel-name` | string | `"index.ts"` | The barrel's file name. |
 | `optional-child-folders` | list of names | `["function", "internal", "type", "utility"]` | Child folders a barrel may leave out. |
 | `hidden-folder` | string | `"internal"` | The folder whose files are no entry of an enclosing folder. |

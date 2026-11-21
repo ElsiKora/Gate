@@ -195,6 +195,7 @@ fn the_port_help_keeps_the_host_and_container_ports() {
             "\"[::]:6379:6379\"",
             "\"53:53/udp\"",
             "\"${DB_PORT:-5432}:5432\"",
+            "\"::1:5432:5432\"",
         ]),
         [
             suggest("127.0.0.1:5432:5432"),
@@ -206,12 +207,22 @@ fn the_port_help_keeps_the_host_and_container_ports() {
             suggest("127.0.0.1:6379:6379"),
             suggest("127.0.0.1:53:53/udp"),
             suggest("127.0.0.1:${DB_PORT:-5432}:5432"),
+            // An IPv6 address without brackets is read no other way: the forms themselves.
+            Some(
+                "publish on 127.0.0.1 (or [::1]) with the same ports: `\"127.0.0.1:<host>:<container>\"`, or `\"127.0.0.1::<container>\"` for a random host port"
+                    .to_owned()
+            ),
         ]
     );
     // The suggestions themselves pass, and the long form is told to set host_ip.
     assert_eq!(
-        port_helps(&["\"127.0.0.1:5432:5432\"", "\"127.0.0.1::9000-9010\""]),
-        [None, None]
+        port_helps(&[
+            "\"127.0.0.1:5432:5432\"",
+            "\"127.0.0.1::9000-9010\"",
+            "\"127.0.0.1:${DB_PORT:-5432}:5432\"",
+            "\"127.0.0.1::${DB_PORT:-5432}\"",
+        ]),
+        [None, None, None, None]
     );
     let long = port_helps(&["target: 5432\n        published: \"5432\""]);
     assert!(

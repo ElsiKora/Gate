@@ -370,7 +370,7 @@ fn loopback(port: &Node) -> bool {
             .split_once(']')
             .is_some_and(|(address, _)| local(address));
     }
-    let parts: Vec<&str> = text.split(':').collect();
+    let parts = outside_braces(text);
     parts.len() == 3 && local(parts[0])
 }
 
@@ -383,17 +383,21 @@ fn loopback_help(port: &Node) -> String {
     let text = port.scalar().unwrap_or("");
     // The part after an address, if the entry names one: `[<ipv6>]:` or the first of three parts.
     let ports = match text.strip_prefix('[') {
-        Some(rest) => rest.split_once("]:").map_or(text, |(_, ports)| ports),
+        Some(rest) => rest.split_once("]:").map(|(_, ports)| ports),
         None => match outside_braces(text).as_slice() {
-            [address, _, _] => &text[address.len() + 1..],
-            _ => text,
+            [address, _, _] => Some(&text[address.len() + 1..]),
+            [_] | [_, _] => Some(text),
+            _ => None,
         },
     };
-    // `<host>:<container>` keeps both; a container port alone keeps its random host port.
-    let published = if outside_braces(ports).len() > 1 {
-        format!("127.0.0.1:{ports}")
-    } else {
-        format!("127.0.0.1::{ports}")
+    // `<host>:<container>` keeps both; a container port alone keeps its random host port. An entry
+    // read no other way, such as an IPv6 address without brackets, gets the forms themselves.
+    let published = match ports.map(|ports| (ports, outside_braces(ports).len())) {
+        Some((ports, 2)) => format!("127.0.0.1:{ports}"),
+        Some((ports, 1)) => format!("127.0.0.1::{ports}"),
+        _ => {
+            return "publish on 127.0.0.1 (or [::1]) with the same ports: `\"127.0.0.1:<host>:<container>\"`, or `\"127.0.0.1::<container>\"` for a random host port".to_owned();
+        }
     };
     format!("publish on 127.0.0.1 (or [::1]) with the same ports: `\"{published}\"`")
 }
