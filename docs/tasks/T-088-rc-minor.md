@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | round queued |
 | Release | v0.3.0 (core and the `node` plugin) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -54,4 +54,4 @@ Not taken:
 
 ## Resume point
 
-Findings 10 and 18 committed; 14 in progress.
+Findings 10, 14 and 18 committed; round queued.

@@ -1841,14 +1841,6 @@ fn doctor_names_each_failing_check_and_what_to_do() {
             Box::new(|_: &Repo| {}),
             "fix  hooks: gate.toml has [hooks], and gate sync has not written them yet; run gate sync to write .githooks and set core.hooksPath\n",
         ),
-        (
-            "\n[hooks]\npre-commit = [\"check --staged\"]\n",
-            Box::new(|repo: &Repo| {
-                repo.write(".githooks/pre-commit", "#!/bin/sh\n");
-                repo.commit("hooks written");
-            }),
-            "fix  hooks: core.hooksPath is not set, so the hooks in .githooks do not run; run gate sync\n",
-        ),
     ];
     for (extra, break_it, expected) in cases {
         let (repo, cache) = ready(extra);
@@ -1875,6 +1867,27 @@ fn doctor_names_each_failing_check_and_what_to_do() {
     assert_eq!(code, Some(1), "{text}");
     assert!(
         text.contains("fix  plugins: not in the cache: ElsiKora/Gate:git@0.1.0, ElsiKora/Gate:layers@0.1.0, ElsiKora/Gate:ledger@0.1.0; run gate check once with network access\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn doctor_says_the_hooks_are_not_written_before_the_first_sync_and_do_not_run_once_written() {
+    let (repo, directory) = ready("\n[hooks]\npre-commit = [\"check --staged\"]\n");
+    let cache = directory.path().to_string_lossy().into_owned();
+    let (code, text) = doctor(&repo, &cache);
+    assert_eq!(code, Some(1), "{text}");
+    assert!(
+        text.contains("fix  hooks: gate.toml has [hooks], and gate sync has not written them yet; run gate sync to write .githooks and set core.hooksPath\n"),
+        "{text}"
+    );
+
+    repo.write(".githooks/pre-commit", "#!/bin/sh\n");
+    repo.commit("hooks written");
+    let (code, text) = doctor(&repo, &cache);
+    assert_eq!(code, Some(1), "{text}");
+    assert!(
+        text.contains("fix  hooks: core.hooksPath is not set, so the hooks in .githooks do not run; run gate sync\n"),
         "{text}"
     );
 }

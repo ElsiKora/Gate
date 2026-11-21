@@ -20,8 +20,11 @@ deeper install root) does not use TypeScript, and the rule reports nothing for i
 
 - **`#missing`**: the base is tracked at the install root.
 - **`#flags`**: the base sets every standard flag to `true` in `compilerOptions`, and sets `module`
-  and `moduleResolution` to `NodeNext`, compared without regard to case. A flag that is absent is
-  reported at the file; a flag with another value at its line.
+  and `moduleResolution` to `NodeNext`, compared without regard to case. The settings the base
+  leaves out are one finding at the file, keyed `compilerOptions`, whose help lists every line to
+  add. A setting with another value is a finding of its own at its line, keyed by the setting, so
+  a base that turns one flag off on purpose writes it as `false` and holds an exception for that
+  flag alone.
 
 The standard flags are `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
 `noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`,
@@ -53,16 +56,17 @@ separate = [{ path = "spikes/load", job = "a load test that pins its own depende
 
 ## Example finding
 
-`tsconfig.base.json` without `verbatimModuleSyntax`, and with `"module": "ESNext"` on its line 13:
+`tsconfig.base.json` without `strict` and `verbatimModuleSyntax`, and with `"module": "ESNext"` on
+its line 11:
 
 ```text
 error node/tsconfig-base#flags tsconfig.base.json
-  the base tsconfig.base.json does not set verbatimModuleSyntax to true
-  help: set it to true; the base carries every standard flag
+  the base tsconfig.base.json leaves out 2 standard settings: strict, verbatimModuleSyntax
+  help: add to its compilerOptions: "strict": true, "verbatimModuleSyntax": true; the base carries every standard flag and the common resolution
 ```
 
 ```text
-error node/tsconfig-base#flags tsconfig.base.json:13
+error node/tsconfig-base#flags tsconfig.base.json:11
   the base tsconfig.base.json does not set module to NodeNext
   help: set it to NodeNext; a frontend overrides it with Bundler in its own tsconfig.json
 ```

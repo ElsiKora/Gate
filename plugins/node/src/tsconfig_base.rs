@@ -65,16 +65,24 @@ fn configurations(tree: &Tree<'_>) -> Vec<String> {
         .collect()
 }
 
-/// `flags`: the base sets every standard flag and the common resolution.
+/// `flags`: the base sets every standard flag and the common resolution. A flag written with another
+/// value is reported at its line, one finding each, so a base that turns one flag off on purpose
+/// can hold an exception for that flag alone. The flags it leaves out are reported together in one
+/// finding at the file, which lists every line to add.
 fn flags(run: &mut Run<'_, NoOptions>, path: &str, base: &Node) {
     let set = options(base);
     let value = |flag: &str| set.iter().find(|member| member.key == flag);
+    let mut absent: Vec<(&str, &str)> = Vec::new();
     for flag in STRICT_FLAGS {
-        if value(flag).and_then(|member| member.value.as_bool()) != Some(true) {
+        let Some(member) = value(flag) else {
+            absent.push((flag, "true"));
+            continue;
+        };
+        if member.value.as_bool() != Some(true) {
             crate::report(
                 run.report(),
                 "flags",
-                (path, value(flag).map(|member| member.line)),
+                (path, Some(member.line)),
                 flag,
                 format!("the base {path} does not set {flag} to true"),
                 "set it to true; the base carries every standard flag",
@@ -82,19 +90,50 @@ fn flags(run: &mut Run<'_, NoOptions>, path: &str, base: &Node) {
         }
     }
     for flag in ["module", "moduleResolution"] {
-        let found = value(flag);
-        if !found
-            .and_then(|member| member.value.as_str())
+        let Some(member) = value(flag) else {
+            absent.push((flag, "\"NodeNext\""));
+            continue;
+        };
+        if !member
+            .value
+            .as_str()
             .is_some_and(|text| text.eq_ignore_ascii_case("NodeNext"))
         {
             crate::report(
                 run.report(),
                 "flags",
-                (path, found.map(|member| member.line)),
+                (path, Some(member.line)),
                 flag,
                 format!("the base {path} does not set {flag} to NodeNext"),
                 "set it to NodeNext; a frontend overrides it with Bundler in its own tsconfig.json",
             );
         }
     }
+    if absent.is_empty() {
+        return;
+    }
+    let names: Vec<&str> = absent.iter().map(|(flag, _)| *flag).collect();
+    let lines: Vec<String> = absent
+        .iter()
+        .map(|(flag, wanted)| format!("\"{flag}\": {wanted}"))
+        .collect();
+    let message = match names.as_slice() {
+        [only] => format!("the base {path} leaves out the standard setting {only}"),
+        all => format!(
+            "the base {path} leaves out {} standard settings: {}",
+            all.len(),
+            all.join(", ")
+        ),
+    };
+    crate::report(
+        run.report(),
+        "flags",
+        (path, None),
+        "compilerOptions",
+        message,
+        &format!(
+            "add to its compilerOptions: {}; the base carries every standard flag and the common resolution",
+            lines.join(", ")
+        ),
+    );
 }
