@@ -1149,3 +1149,141 @@ fn the_message_being_written_and_a_push_are_checked_in_one_run() {
         ]
     );
 }
+
+/// What `git/commit-message` judges in `repo` with the exceptions `excepted`: the targets it
+/// judged in full, those it re-judged for its exceptions only, and the targets of its findings.
+fn judged(repo: &Repo, excepted: &[&str]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let output = repo
+        .check_excepted("commit-message", MAIN, "{}", excepted)
+        .expect("runs");
+    let [judged] = output.judged.as_slice() else {
+        panic!(
+            "the rule narrows its view in every run: {:?}",
+            output.judged
+        );
+    };
+    assert_eq!(judged.rule, "commit-message");
+    let targets = output
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone().unwrap_or_default())
+        .collect();
+    (judged.targets.clone(), judged.rejudged.clone(), targets)
+}
+
+#[test]
+fn a_run_without_range_or_message_re_judges_the_excepted_commits_only() {
+    let (mut repo, _, [first, second, head]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    let gone = format!("d{}", "0".repeat(39));
+    // The exception of a commit the history holds is checked again, read alone: the bad one keeps
+    // its finding, which the exception accepts; the good one has none, so its exception is stale.
+    // A commit the history no longer holds has no finding. A header text is not judged here.
+    let excepted = [
+        first.as_str(),
+        second.as_str(),
+        gone.as_str(),
+        "fix(core): mend it",
+    ];
+    assert_eq!(
+        judged(&repo, &excepted),
+        (
+            Vec::new(),
+            vec![first.clone(), second.clone(), gone.clone()],
+            vec![first.clone()]
+        )
+    );
+    // Without exceptions it judges nothing: the exceptions of other subjects are not due.
+    assert_eq!(judged(&repo, &[]), (Vec::new(), Vec::new(), Vec::new()));
+    // A `--rev` run judges from its head, as a plain run judges from HEAD.
+    repo.set_range(&head, None);
+    assert_eq!(judged(&repo, &[first.as_str()]).1, [first]);
+}
+
+#[test]
+fn an_excepted_commit_outside_the_head_s_history_has_no_finding() {
+    let (mut repo, base, [first, ..]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    // HEAD is main: the branch's bad commit is not in its history.
+    repo.set_head(&base);
+    assert_eq!(
+        judged(&repo, &[first.as_str()]),
+        (Vec::new(), vec![first], Vec::new())
+    );
+}
+
+#[test]
+fn a_push_judges_its_commits_with_their_line_keys_and_a_message_its_header_body_and_trailers() {
+    let (mut repo, base, [first, second, third]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing\n\nThe body says why.\n\nSigned-off-by: A Person\n",
+        "fix(core): mend it again",
+    ]);
+    repo.set_push(Some(&first), &third, "refs/heads/feat/the-thing");
+    repo.set_ref("refs/heads/main", &base);
+    // A pushed commit's body line and trailer are judged by the key a finding on them carries,
+    // which a baseline entry records.
+    let pushed = vec![
+        second.clone(),
+        format!("{second} The body says why."),
+        format!("{second} Signed-off-by: A Person"),
+        third.clone(),
+    ];
+    assert_eq!(
+        judged(&repo, &[]).0,
+        pushed,
+        "the commits already on the remote are not judged"
+    );
+    // An excepted commit the push holds is judged in full, once; another is re-judged.
+    let (targets, rejudged, _) = judged(&repo, &[third.as_str(), first.as_str()]);
+    assert_eq!((targets, rejudged), (pushed, vec![first]));
+
+    repo.set_message(Some(
+        "feat(core): add the next thing\n\nThe body says why.\n\nSigned-off-by: A Person\n",
+    ));
+    let (targets, _, _) = judged(&repo, &[]);
+    assert_eq!(
+        targets[..3],
+        [
+            "feat(core): add the next thing".to_owned(),
+            "The body says why.".to_owned(),
+            "Signed-off-by: A Person".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn an_exception_with_a_short_or_upper_case_commit_id_is_a_configuration_error() {
+    let (repo, _, [first, ..]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    let upper = first.to_uppercase();
+    for target in [&first[..7], &first[..12], upper.as_str()] {
+        let error = repo
+            .check_excepted("commit-message", MAIN, "{}", &[target])
+            .expect_err("a short or upper-case id is refused");
+        let message = error.to_string();
+        assert!(
+            message.contains(&format!("{target:?}")) && message.contains("full lower-case id"),
+            "{message}"
+        );
+    }
+    // A full lower-case id and a header text are taken as they are.
+    assert!(
+        repo.check_excepted(
+            "commit-message",
+            MAIN,
+            "{}",
+            &[first.as_str(), "fix(core): mend it"]
+        )
+        .is_ok()
+    );
+}

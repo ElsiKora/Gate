@@ -314,3 +314,39 @@ Reword the message and commit again; a commit that already exists is reworded wi
 `git commit --amend` (the last one) or `git rebase -i` (an older one) before it is pushed. A commit
 already shared, which cannot be reworded, gets an exception by its commit id. A message with a type
 the project uses beyond the reference's twelve gets it in `types`.
+
+```toml
+[[exception]]
+rule = "git/commit-message"
+target = "<the commit's full id>"
+reason = "pushed before the hooks were on"
+```
+
+## What a run judges
+
+The exceptions of the rule are due (reported as `gate/exceptions` when they match no finding) only
+for what a run judged:
+
+- the message being written, in the `commit-msg` hook: its header, each body line and each trailer,
+  the targets of its findings;
+- the commits a push adds, by id;
+- in every run, each commit id an exception names, re-judged for its exceptions only. One the
+  head's history holds is read alone, one ancestry question and one single-commit `git log` per id,
+  never a walk of the history, and checked with the current options; one it no longer holds
+  (reworded, dropped, or squashed into main) has no finding. A re-judged commit's findings stay only
+  where an exception accepts them. A failure the exceptions do not cover, such as a trailer that a
+  pattern added later refuses, is reported by the push that brings the commit, not by every hook
+  on every branch that holds it.
+
+A pushed commit's body line and trailer are judged by the key a finding on them carries, the
+commit's id and the line (`<id> <line>`), so a baseline entry of one is due where the commit is
+judged in full.
+
+An exception names the commit's full lower-case id, 40 or 64 hex digits, as the findings do. A short
+or upper-case id is a configuration error that says to write the full id (`git rev-parse <id>`).
+
+So an exception for a shared commit holds in the `pre-commit` and `commit-msg` hooks and in later
+pushes, and it is reported once it accepts nothing: after a rewrite, or when new options pass the
+commit. A run with N excepted ids asks N ancestry questions and reads at most N commits. A history
+cut short by a shallow clone hides an older commit, so its exception is reported there: the CI job
+fetches the whole history for a rule that reads it unless `fetch-depth` says otherwise.

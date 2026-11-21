@@ -102,49 +102,76 @@ impl Rule for BranchName {
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
 
+    /// Judges the branch the run is on, and re-judges in every run each branch name an exception
+    /// names, by the strictest verdict, the one a hook gives: an excepted name that passes it
+    /// passes in every run, so its exception accepts nothing. The run judges only these names.
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let settings = Settings::read(run)?;
         let options = run.options();
         let policy = Policy::new(options)?;
 
         let git = run.git()?;
-        // Under `--push` the branch is the one the push updates, and the finding points at the
-        // pushed tip; a push to a tag or another ref updates no branch. Otherwise it is the
-        // checked-out branch at HEAD; a detached HEAD is on no branch.
-        let pushed = git
-            .range()
-            .and_then(|range| range.target_ref.map(|target| (target, range.head)));
-        let (name, commit) = match pushed {
-            Some((target, head)) => {
-                let Some(name) = target.strip_prefix("refs/heads/") else {
-                    return Ok(());
-                };
-                (name.to_owned(), Some(head))
-            }
-            None => match git.branch() {
-                Some(name) => (name, git.head()),
-                None => return Ok(()),
-            },
-        };
-        // A repository without commits has nothing a finding could point at.
-        let Some(commit) = commit else {
-            return Ok(());
-        };
         let hook = git.hook();
-        // Outside a hook, main passes: a plain or CI run checks main out.
-        if !hook && settings.is_main(&name) {
-            return Ok(());
+        let current = checked_branch(&git);
+        let excepted = excepted_names(run.exceptions());
+        let mut found = Vec::new();
+        let mut judged = Vec::new();
+        let mut rechecked = Vec::new();
+        if let Some((name, commit)) = &current {
+            judged.push(name.clone());
+            // Outside a hook, main passes: a plain or CI run checks main out.
+            if !excepted.contains(name) && (hook || !settings.is_main(name)) {
+                found.extend(
+                    policy
+                        .verdict(name, hook)
+                        .map(|verdict| (name.clone(), Some(commit.clone()), verdict)),
+                );
+            }
+        }
+        let at = current.as_ref().map(|(_, commit)| commit.clone());
+        for name in excepted {
+            if let Some(verdict) = policy.verdict(&name, true) {
+                found.push((name.clone(), at.clone(), verdict));
+            }
+            rechecked.push(name);
         }
 
-        if let Some((message, help)) = policy.verdict(&name, hook) {
+        for (name, commit, (message, help)) in found {
             run.report()
-                .finding("", Location::commit(commit), message)
+                .finding("", commit.map(Location::commit), message)
                 .key(name.as_str())
                 .target(name)
                 .help(help);
         }
+        run.judges_only(judged);
+        run.rejudges(rechecked);
         Ok(())
     }
+}
+
+/// The branch a run checks, with the commit a finding points at: under `--push` the branch the
+/// push updates and the pushed tip, else the checked-out branch at HEAD. `None` for a push to a
+/// tag or another ref, which updates no branch, a detached HEAD, and a repository without commits,
+/// which has nothing a finding could point at.
+fn checked_branch(git: &gate_sdk::Git<'_>) -> Option<(String, String)> {
+    match git
+        .range()
+        .and_then(|range| range.target_ref.map(|target| (target, range.head)))
+    {
+        Some((target, head)) => Some((target.strip_prefix("refs/heads/")?.to_owned(), head)),
+        None => Some((git.branch()?, git.head()?)),
+    }
+}
+
+/// The branch names exceptions of the rule name, in order, without repeats.
+fn excepted_names(exceptions: &[String]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for name in exceptions {
+        if !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    names
 }
 
 /// The options, checked and compiled.

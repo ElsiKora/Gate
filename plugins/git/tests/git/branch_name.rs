@@ -430,3 +430,65 @@ fn dot_and_space_are_javascripts() {
     assert!(passes(r"^feat/\s$", "feat/\u{feff}"));
     assert!(!passes(r"^feat/\s$", "feat/\u{85}"));
 }
+
+/// What `git/branch-name` judges in `repo` with the exceptions `excepted`: the names it judged in
+/// full, those it re-judged for its exceptions only, and the targets of its findings.
+fn judged(repo: &Repo, excepted: &[&str]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let output = repo
+        .check_excepted("branch-name", SETTINGS, OPTIONS, excepted)
+        .expect("runs");
+    let [judged] = output.judged.as_slice() else {
+        panic!(
+            "the rule narrows its view in every run: {:?}",
+            output.judged
+        );
+    };
+    let targets = output
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone().unwrap_or_default())
+        .collect();
+    (judged.targets.clone(), judged.rejudged.clone(), targets)
+}
+
+#[test]
+fn a_run_judges_its_branch_and_re_judges_every_excepted_name_by_a_hook_s_verdict() {
+    let owned =
+        |names: &[&str]| -> Vec<String> { names.iter().map(|name| (*name).to_owned()).collect() };
+    let (repo, _) = on(Some("feat/new-work"));
+    // Outside a hook too, `main` is judged as a hook judges it: prohibited, so its exception
+    // accepts a finding in every run; `wip` is too short; `feat/ok-name` passes everywhere, so
+    // its exception is stale.
+    assert_eq!(
+        judged(&repo, &["main", "wip", "feat/ok-name"]),
+        (
+            owned(&["feat/new-work"]),
+            owned(&["main", "wip", "feat/ok-name"]),
+            owned(&["main", "wip"])
+        )
+    );
+    // The exceptions of other branches are not due on this one.
+    assert_eq!(
+        judged(&repo, &[]),
+        (owned(&["feat/new-work"]), Vec::new(), Vec::new())
+    );
+
+    // On main outside a hook: main passes, unless an exception names it.
+    let (main, _) = on(Some("main"));
+    assert_eq!(
+        judged(&main, &[]),
+        (owned(&["main"]), Vec::new(), Vec::new())
+    );
+    // The branch the run is on is judged in full, even when an exception names it.
+    assert_eq!(
+        judged(&main, &["main"]),
+        (owned(&["main"]), Vec::new(), owned(&["main"]))
+    );
+
+    // A detached HEAD judges the excepted names only.
+    let (detached, _) = on(None);
+    assert_eq!(
+        judged(&detached, &["wip"]),
+        (Vec::new(), owned(&["wip"]), owned(&["wip"]))
+    );
+}

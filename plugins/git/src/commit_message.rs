@@ -17,7 +17,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Git, Result, Rule, Run, Scope};
 use regex::Regex;
 
-use crate::history::{Commit, ahead, main_reference};
+use crate::history::{Commit, ahead, excepted_commits, held_commit, main_reference};
 use crate::javascript::{ANY, translate};
 use crate::settings::Settings;
 
@@ -136,15 +136,35 @@ impl Rule for CommitMessage {
     const READS_HISTORY: bool = true;
     const READS_MESSAGE: bool = true;
 
+    /// Judges the message being written and the pushed commits, and re-judges in every run each
+    /// commit an exception names: one the head's history holds is checked again with the current
+    /// options, read alone; one it does not hold was rewritten or dropped and has no finding. The
+    /// run judges only these, so an exception for anything else is not due in it.
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let patterns = Patterns::new(run.options())?;
+        let mut judged = Vec::new();
         if let Some(message) = run.message()? {
-            report(run, &patterns, &message, None);
+            judged.extend(report(run, &patterns, &message, None));
         }
         let git = run.git()?;
         for commit in pushed(run, &git)? {
-            report(run, &patterns, &commit.message, Some(&commit));
+            judged.extend(report(run, &patterns, &commit.message, Some(&commit)));
         }
+        let head = git.range().map(|range| range.head).or_else(|| git.head());
+        // An excepted commit outside the run's own targets is re-judged for its exceptions only:
+        // the core keeps no finding on it that an exception does not accept.
+        let excepted: Vec<String> = excepted_commits("git/commit-message", run.exceptions())?
+            .into_iter()
+            .filter(|id| !judged.iter().any(|target| target == id))
+            .map(str::to_owned)
+            .collect();
+        for id in &excepted {
+            if let Some(commit) = held_commit(&git, id, head.as_deref()) {
+                report(run, &patterns, &commit.message, Some(&commit));
+            }
+        }
+        run.judges_only(judged);
+        run.rejudges(excepted);
         Ok(())
     }
 }
@@ -182,8 +202,15 @@ fn pushed(run: &Run<'_, Options>, git: &Git<'_>) -> Result<Vec<Commit>> {
 
 /// Reports what `message` fails: the message being written when `commit` is `None`, else the
 /// message of the pushed commit `commit`, whose findings are on that commit, name it as their
-/// target, are keyed by it and start with its short id.
-fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit: Option<&Commit>) {
+/// target, are keyed by it and start with its short id. Answers the targets and keys judged: the
+/// commit's id and the keys of its body lines and trailers (`<id> <line>`), or the header, body
+/// lines and trailers of the message being written.
+fn report(
+    run: &mut Run<'_, Options>,
+    patterns: &Patterns,
+    message: &str,
+    commit: Option<&Commit>,
+) -> Vec<String> {
     let location = commit.map(Commit::location);
     let text = |text: String| match commit {
         Some(commit) => format!("{}: {text}", commit.short()),
@@ -198,7 +225,14 @@ fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit
         ),
         None => help.to_owned(),
     };
+    let mut judged = match commit {
+        Some(commit) => vec![commit.id.clone()],
+        None => Vec::new(),
+    };
     if let Some((header, found)) = verdicts(message, run.options(), patterns) {
+        if let (None, Some(header)) = (commit, &header) {
+            judged.push(header.clone());
+        }
         for (aspect, failure, help) in found {
             let finding = run
                 .report()
@@ -217,6 +251,18 @@ fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit
     }
     // A body line and a trailer stay in history whatever the header says, so an ignored message is
     // checked too.
+    match commit {
+        None => {
+            judged.extend(body_lines(message).into_iter().map(str::to_owned));
+            judged.extend(trailers(message));
+        }
+        // A baseline entry of a pushed commit's body line or trailer is keyed by both.
+        Some(commit) => {
+            let keyed = |part: &str| format!("{} {part}", commit.id);
+            judged.extend(body_lines(message).into_iter().map(keyed));
+            judged.extend(trailers(message).iter().map(|trailer| keyed(trailer)));
+        }
+    }
     for line in body_lines(message) {
         let Some(pattern) = patterns
             .prohibited_lines
@@ -265,6 +311,7 @@ fn report(run: &mut Run<'_, Options>, patterns: &Patterns, message: &str, commit
         };
         finding.help(advice("remove the trailer from the message"));
     }
+    judged
 }
 
 /// The header of `message` and the checks it fails, as aspect, message and help, in [`ASPECTS`]

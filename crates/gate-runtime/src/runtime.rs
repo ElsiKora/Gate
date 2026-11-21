@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use gate_sdk::{
-    CheckRequest, FileLocation, Finding, GenerateOutput, GeneratedFile, GeneratorInfo, Location,
-    PluginInfo, PresetInfo, RuleInfo, Scope, Span,
+    CheckRequest, FileLocation, Finding, GenerateOutput, GeneratedFile, GeneratorInfo, Judged,
+    Location, PluginInfo, PresetInfo, RuleInfo, Scope, Span,
 };
 use sha2::{Digest, Sha256};
 use wasmtime::component::Component;
@@ -227,6 +227,9 @@ impl std::fmt::Debug for Call<'_> {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CallOutcome {
     pub findings: Vec<Finding>,
+    /// The rules of the call that judged less than their whole scope, with the targets they
+    /// judged; a rule not listed judged its whole scope.
+    pub judged: Vec<Judged>,
     pub read_set: ReadSet,
     /// `log` lines, then stdout and stderr lines prefixed `stdout: ` and `stderr: `.
     pub log: Vec<String>,
@@ -532,11 +535,16 @@ impl Runtime {
                 self.invoke(plugin, &label, access, |bindings, store| {
                     bindings.call_check(store, &request)
                 })?;
-            let findings = answer.map_err(|error| answered(&plugin.name, error))?;
-            for finding in findings {
+            let answer = answer.map_err(|error| answered(&plugin.name, error))?;
+            for finding in answer.findings {
                 let finding = finding_from(&plugin.name, &call.grant, finding)?;
                 ran_rule(&plugin.name, &ran, &finding)?;
                 outcome.findings.push(finding);
+            }
+            for judged in answer.judged {
+                outcome
+                    .judged
+                    .push(judged_from(&plugin.name, &ran, judged)?);
             }
             outcome.read_set.merge(read_set);
             outcome.log.extend(log);
@@ -967,7 +975,27 @@ fn request_to_wit(request: &CheckRequest, grant: &Grant) -> wit::CheckRequest {
     }
 }
 
-/// Fails unless `finding` is of a rule the call ran (`ran`), with no aspect or one the rule declares.
+/// What a rule of the call judged, checked: the rule ran in this invocation.
+fn judged_from(plugin: &str, ran: &[&RuleInfo], judged: wit::JudgedTargets) -> Result<Judged> {
+    if !ran.iter().any(|rule| rule.name == judged.rule) {
+        return Err(Error::new(
+            plugin,
+            ErrorKind::Plugin,
+            format!(
+                "listed what rule {:?} judged, which this call did not run; report it to the plugin's authors",
+                judged.rule
+            ),
+        ));
+    }
+    Ok(Judged {
+        rule: judged.rule,
+        targets: judged.targets,
+        rejudged: judged.rejudged,
+    })
+}
+
+/// Fails unless `finding` is of a rule the call ran (`ran`), with no aspect or one the rule
+/// declares.
 fn ran_rule(plugin: &str, ran: &[&RuleInfo], finding: &Finding) -> Result<()> {
     let Some(rule) = ran.iter().find(|rule| rule.name == finding.rule) else {
         return Err(Error::new(

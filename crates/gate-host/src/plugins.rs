@@ -17,7 +17,7 @@ use gate_runtime::{
     Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
     Runtime, Size, Tree,
 };
-use gate_sdk::{Commit, CommitRange, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
+use gate_sdk::{Commit, CommitRange, Judged, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -1026,6 +1026,7 @@ impl Loaded {
             for rule in rules {
                 ran.per_scope.insert(*project, &rule.id.to_string());
             }
+            record_judged(&mut ran.per_scope, *project, name, outcome.judged);
             ran.rules += rules.len();
             ran.reads.push(PluginReads {
                 project: project.map(str::to_owned),
@@ -1075,6 +1076,7 @@ impl Loaded {
                 let checked = started.elapsed();
                 let outcome = CallOutcome {
                     findings: stored.findings,
+                    judged: stored.judged,
                     read_set: stored.read_set,
                     log: Vec::new(),
                     time: CallTime {
@@ -1113,7 +1115,8 @@ impl Loaded {
                     outcome.findings.clone(),
                     outcome.read_set.clone(),
                     inputs,
-                );
+                )
+                .with_judged(outcome.judged.clone());
                 let plugin = calls[*index].0.sha256();
                 writes.note(results::store(cache, plugin, &keys[*index], &stored));
             }
@@ -1616,6 +1619,21 @@ fn level(
         .or_else(|| preset.and_then(|preset| preset.levels.get(aspect).copied().or(preset.level)))
 }
 
+/// Records in `ran` what each rule of `plugin`'s call for `project` narrowed its view to: the
+/// targets it judged in full and those it re-judged for its exceptions only.
+fn record_judged(
+    ran: &mut RulesRan,
+    project: Option<&str>,
+    plugin: &impl std::fmt::Display,
+    judged: Vec<Judged>,
+) {
+    for judged in judged {
+        let rule = format!("{plugin}/{}", judged.rule);
+        ran.narrow(project, &rule, judged.targets);
+        ran.rejudge(project, &rule, judged.rejudged);
+    }
+}
+
 /// The rules of `plugin` that run in this scope, with what their call carries: those whose scope
 /// matches and that configuration enables (a `[rules]` entry, a family level or a preset), unless
 /// everything about them is `off`.
@@ -1662,11 +1680,15 @@ fn enabled_rules(
         let options = settings
             .options(&id)
             .or_else(|| preset.and_then(|preset| preset.options.as_ref()));
+        // The root's file also accepts repository-scope findings (as `Findings::finish` applies
+        // it), so a repository-scope call gets its exceptions too when the top is a project.
         let exceptions = workspace
             .exceptions()
             .iter()
             .filter(|exception| {
-                exception.project.as_deref() == project && exception.rule.rule == id
+                (exception.project.as_deref() == project
+                    || (project.is_none() && exception.is_root()))
+                    && exception.rule.rule == id
             })
             .map(|exception| exception.target.clone())
             .collect();

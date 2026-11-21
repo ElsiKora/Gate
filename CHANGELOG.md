@@ -104,6 +104,10 @@ Each shared plugin keeps its own changelog next to its code.
   file in its project's call, the root file in the root project's call). It is part of the
   `gate:plugin@0.3.0` interface, against which every plugin is rebuilt; a rule reads it with
   `run.rule_decisions()`.
+- **sdk:** the plugin interface's `check` export returns a `check-result` instead of a list of
+  findings: the findings and `judged`, the targets the call's rules judged in full. It is part of
+  the `gate:plugin@0.3.0` interface; a plugin built with `gate-sdk` 0.3.0 returns it without a
+  change to its rules.
 - **plugin-ledger:** an enabled ledger rule fails when a file it reads is not tracked, instead of
   reporting nothing: each such file is a finding of the new aspect `input` of every rule that reads
   it, at the file's path and keyed by it, naming the option that points there. The manifest itself
@@ -215,6 +219,19 @@ Each shared plugin keeps its own changelog next to its code.
   run used the preset's. This held in a project's file, a profile and the root `[rules]`. Options a
   preset gives that break the rule's schema are reported as the plugin's error, naming the preset
   and its `extends` entry.
+- **host:** an exception is reported as matching no finding (`gate/exceptions`) only where its rule
+  judged what it covers. An exception keyed by a commit id, as `git/commit-message`'s help advises
+  for a pushed commit others already have, failed every pre-commit, commit-msg and later push run,
+  in which the rule ran without judging that commit; an exception for one branch name failed every
+  run on another branch. A rule whose subjects change from run to run now says what it judged
+  (`Run::judges_only`, and `judged` in the plugin interface's new `check-result`), and re-judges
+  the targets of its own exceptions it can judge alone in every run (`Run::rejudges`), so a truly
+  stale exception is still reported: `git/commit-message` reads each excepted commit again, alone,
+  and `git/branch-name` judges each excepted name. A re-judged target keeps only the findings an
+  exception accepts, so a failure the exceptions do not cover is reported by the run that judges
+  the target in full, not by every hook. A rule that never says keeps today's behaviour: all its
+  exceptions are due whenever it ran. Baseline entries follow the same rule by their key, and a
+  target only re-judged does not make them due.
 - **runtime:** `wasmtime` and `wasmtime-wasi` 50.0.3, for RUSTSEC-2026-0587, a WASI filesystem
   sandbox escape on Windows through a drive-prefixed path component, which 50.0.2 had. The
   released binaries, macOS arm64 (`aarch64-apple-darwin`) and Linux musl

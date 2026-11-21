@@ -3366,6 +3366,277 @@ fn a_rebase_and_force_push_judges_only_the_branch_s_rewritten_commits() {
     assert_eq!(targets, BTreeSet::from([rebased]));
 }
 
+/// `diverged()` with the pushed commit, which others already have, accepted by an exception keyed
+/// by its id, as the rule's page says, committed on the branch: the repository, the `--plugin`
+/// argument, the pushed commit and the commit that adds the exception.
+fn accepted_pushed_commit() -> (Repo, String, String, String) {
+    let (repo, plugin, pushed, _) = diverged();
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message\"\ntarget = \"{pushed}\"\nreason = \"pushed before the hooks were on\"\n"
+        ),
+    );
+    let accepted = repo.commit("chore(repo): accept the pushed commit");
+    (repo, plugin, pushed, accepted)
+}
+
+/// The `gate/exceptions` findings of `gate check` with `arguments`, and its exit code.
+fn unmatched_exceptions(repo: &Repo, plugin: &str, arguments: &[&str]) -> (Vec<String>, i32) {
+    let mut all = vec!["check", "--plugin", plugin, "--format", "json"];
+    all.extend_from_slice(arguments);
+    let output = repo.gate(&all);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("a JSON report: {}", text(&output.stderr)));
+    let unmatched = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|finding| finding["rule"] == "gate/exceptions")
+        .map(|finding| finding["message"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    (unmatched, output.status.code().unwrap_or(-1))
+}
+
+#[test]
+fn an_exception_for_a_pushed_commit_is_not_due_in_a_run_that_does_not_judge_it() {
+    let (repo, plugin, _, accepted) = accepted_pushed_commit();
+
+    // pre-commit: no commit is judged.
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    assert_eq!(
+        unmatched_exceptions(&repo, &plugin, &["--staged"]),
+        (Vec::new(), 0),
+        "pre-commit"
+    );
+
+    // commit-msg: the new message is judged, not the pushed commit.
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let message = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&message, "feat(core): add c\n").expect("message");
+    let at = message.display().to_string();
+    assert_eq!(
+        unmatched_exceptions(&repo, &plugin, &["--commit-message", &at]),
+        (Vec::new(), 0),
+        "commit-msg"
+    );
+
+    // pre-push of the exception's commit alone: the pushed commit is already on the remote.
+    let parent = revision(&repo, &format!("{accepted}^"));
+    let range = format!("{parent}..{accepted}");
+    let push = [
+        "--push",
+        range.as_str(),
+        "--target-ref",
+        "refs/heads/feat/the-thing",
+    ];
+    assert_eq!(
+        unmatched_exceptions(&repo, &plugin, &push),
+        (Vec::new(), 0),
+        "a push that does not hold the commit"
+    );
+}
+
+#[test]
+fn an_exception_for_a_commit_the_push_judges_and_accepts_is_reported() {
+    let (repo, plugin, _, _) = diverged();
+    repo.write("c.txt", "c\n");
+    let good = repo.commit("feat(core): add c");
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message\"\ntarget = \"{good}\"\nreason = \"never needed\"\n"
+        ),
+    );
+    let accepted = repo.commit("chore(repo): accept c");
+    let range = format!("{}..{accepted}", revision(&repo, "main"));
+    let push = [
+        "--push",
+        range.as_str(),
+        "--target-ref",
+        "refs/heads/feat/the-thing",
+    ];
+    let (unmatched, code) = unmatched_exceptions(&repo, &plugin, &push);
+    assert_eq!(code, 1, "{unmatched:?}");
+    assert_eq!(
+        unmatched,
+        [format!(
+            "the exception for git/commit-message at {good} matches no finding"
+        )]
+    );
+}
+
+/// `gate check --staged --timings` of the git plugin: the finding messages, sorted, and whether
+/// each git call came from the result cache.
+fn timed_git(repo: &Repo, plugin: &str) -> (Vec<String>, Vec<bool>) {
+    let output = repo.gate(&[
+        "check",
+        "--staged",
+        "--plugin",
+        plugin,
+        "--format",
+        "json",
+        "--timings",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+        .unwrap_or_else(|_| panic!("a JSON report: {}", text(&output.stderr)));
+    let mut messages: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str().map(str::to_owned))
+        .collect();
+    messages.sort();
+    let stderr = text(&output.stderr);
+    let cached: Vec<bool> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("timings: call git "))
+        .map(|call| call.contains(": cached, "))
+        .collect();
+    assert!(!cached.is_empty(), "--timings names each call: {stderr}");
+    (messages, cached)
+}
+
+#[test]
+fn a_changed_exception_list_is_not_answered_from_the_result_cache() {
+    let (repo, plugin, pushed, _) = accepted_pushed_commit();
+    let configured = revision(&repo, &format!("{pushed}^"));
+    // Only the index changes from run to run, never HEAD, which the call's read set records: a
+    // stored result is told apart by its key alone.
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    // The run judges the excepted commit: its finding is accepted.
+    assert_eq!(timed_git(&repo, &plugin), (Vec::new(), vec![false]));
+    assert_eq!(
+        timed_git(&repo, &plugin),
+        (Vec::new(), vec![true]),
+        "an unchanged run is answered from the result cache"
+    );
+    // The exception now names a good commit: the call runs again, judges that commit and no
+    // longer the pushed one, so the exception is stale and the pushed commit has no finding.
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message\"\ntarget = \"{configured}\"\nreason = \"never needed\"\n"
+        ),
+    );
+    repo.git(&["add", "gate.exceptions.toml"]);
+    assert_eq!(
+        timed_git(&repo, &plugin),
+        (
+            vec![format!(
+                "the exception for git/commit-message at {configured} matches no finding"
+            )],
+            vec![false]
+        )
+    );
+}
+
+#[test]
+fn an_exception_for_a_commit_the_history_no_longer_holds_is_reported() {
+    let (repo, plugin, pushed, _) = accepted_pushed_commit();
+    // The branch is rebased onto main: the exception names a commit the history no longer holds,
+    // which no run judges again.
+    repo.git(&["rebase", "-q", "main"]);
+    let rewritten = revision(&repo, "HEAD~1");
+    assert_ne!(rewritten, pushed, "the rebase rewrote the commit");
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    let (unmatched, code) = unmatched_exceptions(&repo, &plugin, &["--staged"]);
+    assert_eq!(code, 1, "{unmatched:?}");
+    assert_eq!(
+        unmatched,
+        [format!(
+            "the exception for git/commit-message at {pushed} matches no finding"
+        )]
+    );
+}
+
+#[test]
+fn an_excepted_commit_re_judged_outside_its_push_brings_no_finding_its_exception_does_not_cover() {
+    let rules = |trailers: &str| {
+        format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n\"git/commit-message\" = {{ level = \"error\", options = {{ header-max-length = 40{trailers} }} }}\n"
+        )
+    };
+    let repo = Repo::empty();
+    repo.write("gate.toml", &rules(""));
+    repo.commit("chore(repo): configure");
+    repo.git(&["checkout", "-q", "-b", "feat/the-thing"]);
+    repo.write("a.txt", "a\n");
+    // Pushed before the hooks were on: its header is too long, and it carries a trailer.
+    let pushed = repo.commit(
+        "feat(core): add the thing with a long header\n\nThe body says why.\n\nProhibited: yes",
+    );
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message#header-max-length\"\ntarget = \"{pushed}\"\nreason = \"pushed before the hooks were on\"\n"
+        ),
+    );
+    repo.commit("chore(repo): accept it");
+    // Later, a pattern the pushed commit's trailer matches.
+    repo.write(
+        "gate.toml",
+        &rules(", prohibited-trailers = [\"^Prohibited\"]"),
+    );
+    let configured = repo.commit("chore(repo): prohibit a trailer");
+    let plugin = format!("git={}", git_component().0.display());
+    let commit_messages = |arguments: &[&str]| -> (Vec<String>, i32) {
+        let mut all = vec!["check", "--plugin", plugin.as_str(), "--format", "json"];
+        all.extend_from_slice(arguments);
+        let output = repo.gate(&all);
+        let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+            .unwrap_or_else(|_| panic!("a JSON report: {}", text(&output.stderr)));
+        let found = report["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .map(|finding| {
+                format!(
+                    "{}#{}",
+                    finding["rule"].as_str().unwrap_or_default(),
+                    finding["aspect"].as_str().unwrap_or_default()
+                )
+            })
+            .collect();
+        (found, output.status.code().unwrap_or(-1))
+    };
+
+    // pre-commit and commit-msg re-judge the excepted commit: its header finding is accepted, and
+    // the trailer, which no exception covers, is not this run's to report.
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    assert_eq!(
+        commit_messages(&["--staged"]),
+        (Vec::new(), 0),
+        "pre-commit"
+    );
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let message = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&message, "feat(core): add c\n").expect("message");
+    let at = message.display().to_string();
+    assert_eq!(
+        commit_messages(&["--commit-message", &at]),
+        (Vec::new(), 0),
+        "commit-msg"
+    );
+
+    // The push that brings the commit judges it in full and reports the trailer.
+    let range = format!("{}..{configured}", revision(&repo, "main"));
+    assert_eq!(
+        commit_messages(&[
+            "--push",
+            &range,
+            "--target-ref",
+            "refs/heads/feat/the-thing"
+        ]),
+        (vec!["git/commit-message#prohibited-trailers".to_owned()], 1),
+        "the push"
+    );
+}
+
 impl GitOptions {
     fn new() -> Self {
         let git = git_component();

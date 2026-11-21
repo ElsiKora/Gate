@@ -232,6 +232,157 @@ fn an_unmatched_exception_is_reported_when_its_rule_ran() {
 }
 
 #[test]
+fn an_exception_of_a_rule_that_narrowed_its_view_is_due_only_where_it_judged_the_target() {
+    let id = "c".repeat(40);
+    let unmatched = |target: &str| {
+        let mut exception = exception("a/rule", target);
+        exception.path = None;
+        exception
+    };
+    let messages = |exceptions: &[ScopedException], ran: &RulesRan| -> Vec<String> {
+        Findings::new()
+            .finish(exceptions, &Baseline::default(), ran)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    };
+    let exceptions = [unmatched(&id), unmatched("feat/old")];
+
+    // A rule that judged its whole scope: every exception is due, as before.
+    assert_eq!(
+        messages(&exceptions, &ran_all()),
+        [
+            format!("the exception for a/rule at {id} matches no finding"),
+            "the exception for a/rule at feat/old matches no finding".to_owned(),
+        ]
+    );
+
+    // It judged the commit only: the other exception is not due.
+    let mut ran = ran_all();
+    ran.narrow(
+        Some("server"),
+        "a/rule",
+        vec![id.clone(), "feat/new".to_owned()],
+    );
+    assert_eq!(
+        messages(&exceptions, &ran),
+        [format!(
+            "the exception for a/rule at {id} matches no finding"
+        )]
+    );
+
+    // It judged nothing: none is due.
+    let mut nothing = ran_all();
+    nothing.narrow(Some("server"), "a/rule", Vec::new());
+    assert_eq!(messages(&exceptions, &nothing), [] as [String; 0]);
+
+    // Another project's narrowing leaves this one's view whole.
+    let mut elsewhere = ran_all();
+    elsewhere.narrow(Some("client"), "a/rule", Vec::new());
+    assert_eq!(messages(&exceptions, &elsewhere).len(), 2);
+
+    // An exception that matches a finding is used, judged or not.
+    let mut found = finding("a/rule", "", Level::Error, "apps/server/x.ts", 1, "m");
+    found.target = Some("feat/old".to_owned());
+    let mut sink = Findings::new();
+    sink.push(found);
+    let kept = sink.finish(&exceptions[1..], &Baseline::default(), &nothing);
+    assert!(kept.is_empty(), "{kept:?}");
+}
+
+#[test]
+fn a_finding_on_a_target_re_judged_for_its_exceptions_stays_only_when_an_exception_accepts_it() {
+    let id = "c".repeat(40);
+    let mut excepted = exception("a/rule#header-max-length", &id);
+    excepted.path = None;
+    let on = |aspect: &str, message: &str| {
+        let mut found = finding(
+            "a/rule",
+            aspect,
+            Level::Error,
+            "apps/server/x.ts",
+            1,
+            message,
+        );
+        found.target = Some(id.clone());
+        found
+    };
+    let messages = |found: Vec<Finding>, baseline: &Baseline, ran: &RulesRan| -> Vec<String> {
+        let mut sink = Findings::new();
+        sink.extend(found);
+        sink.finish(std::slice::from_ref(&excepted), baseline, ran)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    };
+    // The run judged nothing in full and re-judged the excepted commit.
+    let mut ran = ran_all();
+    ran.narrow(Some("server"), "a/rule", Vec::new());
+    ran.rejudge(Some("server"), "a/rule", vec![id.clone()]);
+
+    // The excepted aspect is accepted; the aspect the exception does not cover, failing since an
+    // option changed, is dropped: the run does not judge the commit otherwise.
+    let both = || {
+        vec![
+            on("header-max-length", "long"),
+            on("prohibited-trailers", "trailer"),
+        ]
+    };
+    assert_eq!(
+        messages(both(), &Baseline::default(), &ran),
+        [] as [String; 0]
+    );
+    // Once the excepted aspect passes, the exception is due and reported.
+    assert_eq!(
+        messages(
+            vec![on("prohibited-trailers", "trailer")],
+            &Baseline::default(),
+            &ran
+        ),
+        [format!(
+            "the exception for a/rule#header-max-length at {id} matches no finding"
+        )]
+    );
+    // A baseline entry keyed by a target only re-judged is not due.
+    let mut keyed = on("prohibited-trailers", "trailer");
+    keyed.key = Some(id.clone());
+    let baseline = Baseline::from_findings(&[keyed]);
+    assert_eq!(
+        messages(vec![on("header-max-length", "long")], &baseline, &ran),
+        [] as [String; 0]
+    );
+
+    // A run that judges the commit in full, a push of it, reports the other aspect.
+    ran.narrow(Some("server"), "a/rule", vec![id.clone()]);
+    assert_eq!(messages(both(), &Baseline::default(), &ran), ["trailer"]);
+}
+
+#[test]
+fn a_baseline_entry_of_a_rule_that_narrowed_its_view_is_due_only_where_it_judged_its_key() {
+    let mut keyed = finding("a/rule", "", Level::Error, "apps/x.ts", 1, "keyed");
+    keyed.key = Some("feat/old".to_owned());
+    let keyless = finding("a/rule", "", Level::Error, "apps/y.ts", 1, "keyless");
+    let baseline = Baseline::from_findings(&[keyed, keyless]);
+    let stale = |ran: &RulesRan| -> Vec<String> {
+        Findings::new()
+            .finish(&[], &baseline, ran)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    };
+    let mut ran = ran_all();
+    ran.narrow(Some("server"), "a/rule", vec!["feat/new".to_owned()]);
+    assert_eq!(
+        stale(&ran),
+        ["the baseline entry for a/rule at apps/y.ts matches no finding"],
+        "a keyed entry outside the judged targets is not due; one without a key is"
+    );
+    ran.narrow(Some("server"), "a/rule", vec!["feat/old".to_owned()]);
+    assert_eq!(stale(&ran).len(), 2);
+    assert_eq!(baseline.pruned(&[], &ran).removed.len(), 2);
+}
+
+#[test]
 fn exit_code_is_one_only_with_an_error() {
     assert_eq!(report(Vec::new()).exit_code(), 0);
     assert_eq!(

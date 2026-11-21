@@ -17,7 +17,16 @@ use crate::rule::{
 use crate::{Error, Result};
 
 /// How the call runs one rule: the host, the rule's run and the call's shared state.
-type RunRule<S> = fn(&dyn Host, &RuleRun, &Shared<'_, S>) -> Result<Vec<Finding>>;
+type RunRule<S> = fn(&dyn Host, &RuleRun, &Shared<'_, S>) -> Result<Ruled>;
+
+/// What one rule run answers: its findings, the targets it judged when it narrowed its view
+/// ([`Run::judges_only`]; `None` when it judged its whole scope), and those it judged only to
+/// re-check its own exceptions ([`Run::rejudges`]).
+pub(crate) struct Ruled {
+    findings: Vec<Finding>,
+    judged: Option<Vec<String>>,
+    rejudged: Vec<String>,
+}
 
 /// One rule of a plugin, erased to what the host calls. `S` is the plugin's [`CallState`].
 pub struct RuleEntry<S: CallState = ()> {
@@ -197,6 +206,31 @@ pub struct CheckRequest {
     pub rule_decisions: Vec<RuleDecision>,
 }
 
+/// The targets one rule judged in a `check` call, when it judged less than its whole scope
+/// ([`Run::judges_only`], [`Run::rejudges`]). An exception of the rule is due only when its target
+/// is one of them.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Judged {
+    /// The rule's name inside the plugin.
+    pub rule: String,
+    /// The targets it judged, in the order given, without repeats.
+    pub targets: Vec<String>,
+    /// The targets it judged only to re-check its own exceptions, in the order given, without
+    /// repeats and without those in `targets`. The host keeps a finding on one of them only when
+    /// an exception accepts it.
+    pub rejudged: Vec<String>,
+}
+
+/// What `check` answers.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CheckOutput {
+    /// The findings, in rule order.
+    pub findings: Vec<Finding>,
+    /// The rules that judged less than their whole scope, with what they judged; a rule not
+    /// listed judged its whole scope.
+    pub judged: Vec<Judged>,
+}
+
 /// What `generate` answers.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GenerateOutput {
@@ -239,7 +273,7 @@ pub fn describe<S: CallState>(spec: &PluginSpec<S>) -> PluginInfo {
 
 /// Runs every rule `request` names over `host` and returns their findings in rule order.
 /// The call's state ([`CallState`]) is built once, before the first rule, and dropped after the
-/// last.
+/// last. [`check_output`] also answers what each rule judged.
 ///
 /// # Errors
 /// A rule the plugin does not declare, options that do not match a rule's type, or a rule's own
@@ -249,6 +283,19 @@ pub fn check<S: CallState>(
     host: &dyn Host,
     request: &CheckRequest,
 ) -> Result<Vec<Finding>> {
+    check_output(spec, host, request).map(|output| output.findings)
+}
+
+/// [`check`], with the targets each rule that narrowed its view judged ([`Run::judges_only`]):
+/// what the component's `check` export answers.
+///
+/// # Errors
+/// As [`check`].
+pub fn check_output<S: CallState>(
+    spec: &PluginSpec<S>,
+    host: &dyn Host,
+    request: &CheckRequest,
+) -> Result<CheckOutput> {
     let plugin_options = json(&request.plugin_options, "the [plugins] options")?;
     let languages = json(&request.languages, "the [languages] settings")?;
     let call = Call {
@@ -265,7 +312,7 @@ pub fn check<S: CallState>(
         call,
         state: &state,
     };
-    let mut findings = Vec::new();
+    let mut output = CheckOutput::default();
 
     for rule in &request.rules {
         let entry = spec
@@ -284,10 +331,20 @@ pub fn check<S: CallState>(
                         .join(", ")
                 ))
             })?;
-        findings.extend((entry.run)(host, rule, &shared)?);
+        let ruled = (entry.run)(host, rule, &shared)?;
+        output.findings.extend(ruled.findings);
+        if let Some(targets) = ruled.judged {
+            let mut rejudged = ruled.rejudged;
+            rejudged.retain(|target| !targets.contains(target));
+            output.judged.push(Judged {
+                rule: rule.name.clone(),
+                targets,
+                rejudged,
+            });
+        }
     }
 
-    Ok(findings)
+    Ok(output)
 }
 
 /// Runs generator `name` with `options` (JSON; empty means `{}`) for `project`; `plugin_options`
@@ -342,7 +399,7 @@ fn run_rule<R: Rule<S>, S: CallState>(
     host: &dyn Host,
     rule: &RuleRun,
     shared: &Shared<'_, S>,
-) -> Result<Vec<Finding>> {
+) -> Result<Ruled> {
     let what = format!("rule {}", R::NAME);
     let mut run = Run {
         call: shared.call,
@@ -357,12 +414,18 @@ fn run_rule<R: Rule<S>, S: CallState>(
         options: options::<R::Options>(&rule.options, &what)?,
         options_file: rule.options_file.clone(),
         exceptions: rule.exceptions.clone(),
+        judged: None,
+        rejudged: Vec::new(),
         state: shared.state,
     };
     R::default()
         .check(&mut run)
         .map_err(|error| named(&what, error))?;
-    Ok(run.report.into_findings())
+    Ok(Ruled {
+        findings: run.report.into_findings(),
+        judged: run.judged,
+        rejudged: run.rejudged,
+    })
 }
 
 fn run_generator<G: Generator>(
