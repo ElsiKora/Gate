@@ -181,3 +181,26 @@ fn the_root_rule_judges_the_decisions_of_its_call_as_the_project_rule_does() {
         []
     );
 }
+
+#[test]
+fn the_root_rule_without_a_ledger_names_the_index_it_read() {
+    // The repository call carries a root decision, and the index is not tracked: the decision is
+    // unlisted, and the finding names the index the rule read, as the project rule's does.
+    let decisions = vec![decision("demo/rule", "D-ONE-001", 4)];
+    let found = reported_by(
+        "root-rule-decisions",
+        decisions.clone(),
+        "",
+        &Files::default(),
+    );
+    assert_eq!(found, reported(decisions, "", &Files::default()));
+    assert_eq!(found.len(), 1, "{found:?}");
+    let (path, line, message, _) = &found[0];
+    assert_eq!((path.as_str(), *line), ("gate.toml", Some(4)));
+    assert_eq!(
+        message,
+        &format!(
+            "the rule entry \"demo/rule\" names the decision D-ONE-001, which {INDEX} does not list; name an accepted decision of the index"
+        )
+    );
+}
