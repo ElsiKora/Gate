@@ -17,8 +17,9 @@ its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
 1. **Presets in `gate list` and `gate explain` (3).**
    - Both show each rule a preset turns on. The row is marked `(preset <plugin>/<preset>)`, and its
      origin is the `extends` entry.
-   - The presets are read from what each declared plugin declares: from the cache when it holds
-     the declaration, else from the plugin, loaded without running.
+   - The presets are read from what each declared plugin declares: its stored declaration, else
+     the plugin from the cache, loaded without running. Nothing is downloaded: a plugin the cache
+     does not hold is named, with `gate sync` as the way to fetch it.
    - Both commands take `--plugin <name>=<file.wasm>`.
    - When the declarations cannot be read, for example with no `gate.lock`, the output says why on
      its last line, and JSON gives the reason as `presets-error`.
@@ -77,6 +78,16 @@ its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
   leak scan prints nothing.
 
 ## Resume point
+
+2026-11-21T01:39:44+00:00: ticket 400 ran on `a7e8440`. fmt, clippy and deny exited 0. The tests
+ran 1489, 4 failed:
+- three list and explain tests: the fixture's `gate.lock` pins at `example.invalid`, and `gate
+  list` tried to download a plugin to read its presets. The presets are now read from the cache
+  only, never downloaded, and a plugin the cache does not hold is named, with `gate sync` as the
+  way to fetch it;
+- one docs test that still expected the per-section key.
+
+Next: one more lane round.
 
 2026-11-21T00:08:12+00:00: the changes and tests are written, and rustfmt is clean. Next: commit,
 then one lane round.

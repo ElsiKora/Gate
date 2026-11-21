@@ -325,7 +325,7 @@ fn list_prints_projects_and_the_settings_of_each_scope() {
             "  plugin  git       ElsiKora/Gate:git@0.1.0 (options)\n",
             "  plugin  ledger    ElsiKora/Gate:ledger@0.1.0\n",
             "  rule    ledger/*  level off\n",
-            "the rules the presets turn on are not shown: plugins are declared and there is no gate.lock to pin them; run gate lock to resolve and pin them, then commit gate.lock\n",
+            "the rules the presets turn on are not shown: plugin git = ElsiKora/Gate:git@0.1.0 is not in the cache; run gate sync once to fetch it, or pass --plugin git=<file.wasm>\n",
         )
     );
 }
@@ -368,7 +368,7 @@ fn list_origin_prints_where_each_setting_came_from() {
             "  plugin  git       ElsiKora/Gate:git@0.1.0 (options)  gate.toml:8 [plugins]\n",
             "  plugin  ledger    ElsiKora/Gate:ledger@0.1.0         gate.toml:19 [[profiles]] plugins\n",
             "  rule    ledger/*  level off                          gate.toml:22 [[profiles]] rules\n",
-            "the rules the presets turn on are not shown: plugins are declared and there is no gate.lock to pin them; run gate lock to resolve and pin them, then commit gate.lock\n",
+            "the rules the presets turn on are not shown: plugin git = ElsiKora/Gate:git@0.1.0 is not in the cache; run gate sync once to fetch it, or pass --plugin git=<file.wasm>\n",
         )
     );
 }
@@ -389,7 +389,7 @@ fn explain_prints_what_each_scope_says_about_a_rule_and_where() {
             "    rule    layers/import-direction  options                               apps/server/gate.toml:12 [rules]\n",
             "  exceptions:\n",
             "    layers/import-direction at src/main.ts:main: historic import, removed with the next module split (owner T-9)  apps/server/gate.exceptions.toml:1\n",
-            "  the rules the presets turn on are not shown: plugins are declared and there is no gate.lock to pin them; run gate lock to resolve and pin them, then commit gate.lock\n",
+            "  the rules the presets turn on are not shown: plugin git = ElsiKora/Gate:git@0.1.0 is not in the cache; run gate sync once to fetch it, or pass --plugin git=<file.wasm>\n",
         )
     );
 }

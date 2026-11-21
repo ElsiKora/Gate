@@ -1529,14 +1529,14 @@ pub struct PresetSetting {
 /// family level of the scope wins over them, as in a run.
 pub type PresetSettings = BTreeMap<Option<String>, Vec<PresetSetting>>;
 
-/// What the presets every scope extends set, read from what each declared plugin declares: from
-/// the cache, else from the plugin, loaded (fetched when the cache lacks it) without running.
-/// `overrides` are the `--plugin` builds to read instead of their pins.
+/// What the presets every scope extends set, read from what each declared plugin declares: its
+/// stored declaration, else the plugin from the cache, loaded without running. Nothing is
+/// downloaded. `overrides` are the `--plugin` builds to read instead of their pins.
 ///
 /// # Errors
-/// Fails like `gate check` loading its plugins: no or a stale `gate.lock`, a pin that cannot be
-/// fetched, an override that cannot be read, or an `extends` entry naming a preset its plugin
-/// does not declare.
+/// Fails on no or a stale `gate.lock`, a pinned plugin the cache holds nothing for (run `gate
+/// sync` once), an override that cannot be read, a plugin that does not load, or an `extends`
+/// entry naming a preset its plugin does not declare.
 pub fn preset_settings(
     workspace: &Workspace,
     overrides: &[crate::PluginOverride],
@@ -1547,6 +1547,19 @@ pub fn preset_settings(
     }
     let (_, files) = crate::resolve_overrides(workspace, overrides)?;
     let lock = crate::lock::verify_with(workspace, &files.keys().cloned().collect())?;
+    // Never a download: a command that only prints the configuration works offline.
+    let cache = Cache::from_env()?;
+    for plugin in declared(workspace, lock.as_ref(), &files)?.unwrap_or_default() {
+        let held = files.contains_key(&plugin.name)
+            || declarations::read(&cache, &plugin.sha256).is_some()
+            || cache.get(&plugin.sha256)?.is_some();
+        if !held {
+            return Err(Error::environment(format!(
+                "plugin {} = {} is not in the cache; run gate sync once to fetch it, or pass --plugin {}=<file.wasm>",
+                plugin.name, plugin.source, plugin.name
+            )));
+        }
+    }
     let Some(loaded) = load(
         workspace,
         lock.as_ref(),

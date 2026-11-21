@@ -222,9 +222,10 @@ rule. A rule's page lists its options and its aspects.
 The root `[rules]` holds repository-scope rules only (for example `git/no-ci-skip`). Project-scope
 rules go in a project's own file or in a profile. `gate list` prints every rule that is on, every rule
 or family that is off, and the file that turned it off. A rule a preset turns on is printed with
-`(preset <plugin>/<preset>)` and, with `--origin`, the line of its `extends` entry; the presets are
-read from what each pinned plugin declares, and when that cannot be read (no `gate.lock` yet, for
-example) the last line says why.
+`(preset <plugin>/<preset>)` and, with `--origin`, the line of its `extends` entry. The presets are
+read from what each pinned plugin declares, from the cache only, never downloaded; when that cannot
+be read (no `gate.lock` yet, or a plugin no `gate sync` has fetched on this machine) the last line
+says why.
 
 ## `[[profiles]]`
 

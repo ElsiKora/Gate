@@ -190,8 +190,9 @@ Each shared plugin keeps its own changelog next to its code.
   `gate.lock` is written.
 - **gate:** `gate list` and `gate explain` show the rules a preset turns on, each marked
   `(preset <plugin>/<preset>)` with its `extends` entry as its origin, read from what each pinned
-  plugin declares; both take `--plugin <name>=<file.wasm>`. When the declarations cannot be read,
-  for example before the first `gate lock`, the output says why.
+  plugin declares, from the cache only; both take `--plugin <name>=<file.wasm>`. When the
+  declarations cannot be read, for example before the first `gate lock` or `gate sync`, the output
+  says why.
 
 - **plugins:** every shared plugin ships two presets: `<plugin>/recommended` turns on its rules at
   `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the

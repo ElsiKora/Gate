@@ -377,7 +377,7 @@ fn an_index_has_its_kinds_sections_in_order_and_may_add_more_after() {
     let no_members = book("monorepo-root").replaced("## Members\n", "## Others\n");
     assert_eq!(
         check(&no_members, &root),
-        ["sections docs/README.md docs/README.md#Members"]
+        ["sections docs/README.md docs/README.md#missing"]
     );
 }
 
