@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | parts one and two reviewed, with one fix round; its lane round waits for T-085 |
+| Status | reviewed (one fix round); lane round 435 green; ready to merge |
 | Release | v0.3.0 |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
@@ -225,3 +225,8 @@ T-085 has merged, the rebase and one lane round for both parts.
 2026-11-21T06:03:37+00:00: the lead added the git floor: an older git gets `gate cache prune needs git 2.36 or
 later (found <version>)` instead of git's usage, with a test on a fake git 2.30, and the README's
 prerequisites say `git` 2.36 or later. Next: once T-085 has merged, the rebase and one lane round.
+2026-11-21T08:25:35+00:00: rebased onto `f319843b` (T-085 merged); lane round 435 on `7300e5b9`: fmt, clippy,
+test (1588 passed, 0 failed), deny and release exit 0; `gate-host` and `gate` compiled from this
+task's round checkout; the seven prune tests, the key unit test and part two's test pass; the
+guards mutation fails both waiting tests (exit 101), the part two mutation fails its test (exit
+101); the leak scan prints nothing. Next: the merge.
