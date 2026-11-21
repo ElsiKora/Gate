@@ -43,6 +43,7 @@ use oxc_span::SourceType;
 
 pub use self::lines::LineIndex;
 use self::resolver::Resolver;
+pub use self::resolver::UnreadableBase;
 pub use self::source::{
     Error, MemorySource, ReadSource, Result, Settings, Source, sorted_with_prefix,
 };
@@ -58,6 +59,8 @@ pub const SOURCE_EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx"
 pub struct TypeScript<'a> {
     source: &'a dyn Source,
     settings: Settings,
+    /// The project's root relative to the repository; empty for the repository.
+    project: String,
     allocator: &'a Allocator,
     files: Vec<&'a str>,
     parsed: RefCell<HashMap<String, Option<Rc<SourceFile<'a>>>>>,
@@ -85,6 +88,7 @@ impl<'a> TypeScript<'a> {
         Self {
             source,
             settings,
+            project: String::new(),
             allocator,
             files: source
                 .paths()
@@ -99,6 +103,17 @@ impl<'a> TypeScript<'a> {
             resolver: OnceCell::new(),
             resolved: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// The view with the source's files as the files of the project at `project`, relative to the
+    /// repository (empty for the repository, the default). The module resolver reads a tsconfig
+    /// base above the project root by its path relative to the project root, and maps it to the
+    /// repository path the compiler reads, so a base's `paths` that lead back into the project
+    /// resolve.
+    #[must_use]
+    pub fn in_project(mut self, project: &str) -> Self {
+        project.clone_into(&mut self.project);
+        self
     }
 
     /// The source the files are read from.
@@ -188,7 +203,8 @@ impl<'a> TypeScript<'a> {
     /// The tracked file `specifier` names when imported from `importer`, resolved with the
     /// `paths` of the tracked tsconfig of [`Settings::tsconfig`]. Without that tsconfig the
     /// resolver has no `paths`, which is allowed only for the default name: a tsconfig the
-    /// settings name explicitly must be tracked.
+    /// settings name explicitly must be tracked. A base of its `extends` chain that cannot be read
+    /// stands as an empty tsconfig and is listed by [`TypeScript::unreadable_bases`].
     ///
     /// # Errors
     /// Fails when the tsconfig or a `package.json` on the way cannot be read, or when a
@@ -212,7 +228,9 @@ impl<'a> TypeScript<'a> {
                 .source
                 .contains(&self.settings.tsconfig)
                 .then_some(self.settings.tsconfig.as_str());
-            let _ = self.resolver.set(Resolver::new(self.source, tsconfig)?);
+            let _ = self
+                .resolver
+                .set(Resolver::new(self.source, &self.project, tsconfig)?);
         }
 
         let resolved = self
@@ -222,6 +240,15 @@ impl<'a> TypeScript<'a> {
             .resolve(importer, specifier)?;
         self.resolved.borrow_mut().insert(key, resolved.clone());
         Ok(resolved)
+    }
+
+    /// The tsconfig bases of the configured tsconfig's `extends` chain that the source could not
+    /// read: not tracked, not granted, outside the repository, or named by an absolute path. Each
+    /// stood as an empty tsconfig, so the `paths` and `baseUrl` it sets were not applied. Empty
+    /// until the first [`TypeScript::resolve`].
+    #[must_use]
+    pub fn unreadable_bases(&self) -> &[UnreadableBase] {
+        self.resolver.get().map_or(&[][..], Resolver::unreadable)
     }
 }
 

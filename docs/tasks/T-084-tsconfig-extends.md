@@ -7,7 +7,7 @@
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `30a1da26` |
-| Touches | `languages/typescript/src/{resolver,call,lib}.rs`, `crates/gate-sdk/src/rule.rs`, tests of `languages/typescript`, `nestjs`, `cdk` and `frontend`, `CHANGELOG.md` |
+| Touches | `languages/typescript/src/{resolver,call,lib}.rs`, `crates/gate-sdk/src/rule.rs`, `plugins/cdk/src/sources.rs`, `plugins/typescript/src/{barrel_imports.rs,string_enums/mod.rs}`, tests of `languages/typescript`, `nestjs`, `cdk` and `frontend`, `docs/guide/configuration.md`, `CHANGELOG.md`, the `nestjs` and `typescript` changelogs |
 
 ## Goal
 
@@ -32,8 +32,30 @@ resolver never asks the tree for it.
   names the base, with the `reads` grant to add. A base from a package (`@tsconfig/node22`) stands
   as an empty tsconfig without a finding, as an import of an untracked package resolves to
   nothing.
+- The resolver mounts the repository and the project at its real root, so a base's `paths`
+  written from the repository root (`apps/api/src/*`) lead back into the project; the view learns
+  the project from the call (`TypeScript::in_project`).
 - The SDK's `CallState` gains `report`, which a call state uses to report what it found while a
-  rule used it; the default reports nothing.
+  rule used it; the default reports nothing. `TypeScriptCall` (nestjs, frontend) and the `cdk`
+  call state report through `report_unreadable_bases`; the two resolving rules of the `typescript`
+  plugin, which build their own view, report it themselves.
+
+## Tests
+
+- `languages/typescript/tests/typescript.rs`:
+  `a_tsconfig_base_above_the_project_is_read_through_the_source_and_its_paths_apply`,
+  `a_tsconfig_base_the_source_cannot_read_stands_empty_and_is_listed`,
+  `every_kind_of_unreadable_base_stands_empty_and_only_files_are_listed`,
+  `a_resolution_error_names_a_base_above_the_project_relative_to_the_project_root`.
+- `plugins/nestjs/tests/tsconfig_base.rs`:
+  `a_service_whose_tsconfig_extends_a_granted_base_above_the_project_passes`,
+  `a_base_the_plugin_cannot_read_is_a_finding_with_the_grant_to_add`.
+- `plugins/cdk/tests/rules/tsconfig_base.rs`:
+  `an_app_whose_tsconfig_extends_a_granted_base_above_it_passes_every_rule`,
+  `a_base_the_plugin_cannot_read_is_one_finding_of_the_call_with_the_grant_to_add`.
+- `plugins/frontend/tests/tsconfig_base.rs`:
+  `an_app_whose_alias_is_in_a_granted_base_above_the_project_resolves_it`,
+  `a_base_the_plugin_cannot_read_is_a_finding_with_the_grant_to_add`.
 
 ## Done when
 
@@ -45,5 +67,5 @@ resolver never asks the tree for it.
 
 ## Resume point
 
-2026-11-21T00:01:19+00:00: task file written on `task/T-084-tsconfig-extends` off `30a1da26`.
-Next: the resolver change and its tests.
+2026-11-21T00:13:58+00:00: the change, its tests and the documents are committed. Next: one
+lane round on the tip, then review.

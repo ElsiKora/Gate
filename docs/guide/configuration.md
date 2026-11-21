@@ -194,6 +194,21 @@ leading or inner, names that folder from the project root: `/build` skips `build
 `/` changes nothing. So with the default, a source folder named `build` below `src` is read. Setting
 the key replaces the whole list. A rule page says when one of its walks skips no folder.
 
+The module resolver reads the `extends` chain of `tsconfig` through the plugin's own files, each base
+by its path from the project root. A base outside the project, such as `../../tsconfig.base.json`
+in a monorepo, is read only when it is tracked and granted to each plugin that resolves imports
+(`nestjs`, `cdk`, `frontend`, `typescript`), with `reads` written from the repository root:
+
+```toml
+[plugins]
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", reads = ["tsconfig.base.json"] }
+```
+
+A base the plugin cannot read is reported once per run of the plugin, as a finding at the tsconfig
+that names it, and resolution goes on without the `paths` and `baseUrl` the base sets. A base from a
+package that is not tracked, such as `@tsconfig/node22`, is skipped without a finding, as an import
+of such a package resolves to nothing.
+
 ## `[rules]`
 
 ```toml

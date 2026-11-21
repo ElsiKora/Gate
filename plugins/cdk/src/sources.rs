@@ -2,9 +2,11 @@
 //! with the `[languages.typescript]` settings, so each file is parsed once whichever rule asks
 //! first.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
-use gate_sdk::{Call, CallState};
+use gate_sdk::{Call, CallState, Report};
+use gate_typescript::call::report_unreadable_bases;
 use gate_typescript::{Allocator, ReadSource, Settings, Source, SourceFile, TypeScript};
 
 /// Reads one tracked file for the view.
@@ -23,6 +25,7 @@ impl CallState for Cdk {
         Owned {
             allocator: Allocator::default(),
             source: ReadSource::new(tree.paths(), Box::new(move |path: &str| tree.bytes(path))),
+            project: call.project(),
             settings: call
                 .language::<Settings>("typescript")
                 .map(Option::unwrap_or_default),
@@ -32,21 +35,32 @@ impl CallState for Cdk {
     fn state<'o>(owner: &'o Owned<'_>) -> Sources<'o> {
         Sources {
             typescript: match &owner.settings {
-                Ok(settings) => Ok(TypeScript::new(
-                    &owner.source,
-                    settings.clone(),
-                    &owner.allocator,
-                )),
+                Ok(settings) => {
+                    Ok(
+                        TypeScript::new(&owner.source, settings.clone(), &owner.allocator)
+                            .in_project(owner.project),
+                    )
+                }
                 Err(error) => Err(error.clone()),
             },
+            reported: Cell::new(false),
+        }
+    }
+
+    /// Reports each tsconfig base the module resolver could not read, once per call.
+    fn report(state: &Sources<'_>, report: &mut Report) {
+        if let Ok(typescript) = &state.typescript {
+            report_unreadable_bases(typescript, &state.reported, report);
         }
     }
 }
 
-/// What one call owns: the arena every parse allocates into, the tracked files and the settings.
+/// What one call owns: the arena every parse allocates into, the tracked files, the project's root
+/// and the settings.
 pub struct Owned<'h> {
     allocator: Allocator,
     source: ReadSource<Reader<'h>>,
+    project: &'h str,
     settings: gate_sdk::Result<Settings>,
 }
 
@@ -62,6 +76,8 @@ impl std::fmt::Debug for Owned<'_> {
 /// What the rules of one call share: the TypeScript view.
 pub struct Sources<'o> {
     typescript: gate_sdk::Result<TypeScript<'o>>,
+    /// Whether a rule of the call reported the tsconfig bases the resolver could not read.
+    reported: Cell<bool>,
 }
 
 impl std::fmt::Debug for Sources<'_> {

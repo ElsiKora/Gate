@@ -10,12 +10,13 @@
 //! owner directly, and importers that `exempt` matches are not checked. Type-only imports follow the
 //! same rule.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run};
+use gate_typescript::call::report_unreadable_bases;
 use gate_typescript::owners::export_name;
 use gate_typescript::oxc_ast::ast::{
     Declaration, ImportDeclarationSpecifier, Statement, TSModuleReference,
@@ -86,7 +87,7 @@ impl Rule for BarrelImports {
         let source = ReadSource::new(tree.paths(), move |path| tree.bytes(path));
         let settings = run.language::<Settings>("typescript")?.unwrap_or_default();
         let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, settings, &allocator);
+        let typescript = TypeScript::new(&source, settings, &allocator).in_project(run.project());
         let checker = Checker {
             typescript: &typescript,
             files: typescript.files().iter().copied().collect(),
@@ -131,6 +132,7 @@ impl Rule for BarrelImports {
                 .key(finding.key)
                 .help(help);
         }
+        report_unreadable_bases(&typescript, &Cell::new(false), run.report());
         Ok(())
     }
 }

@@ -10,6 +10,7 @@ mod names;
 mod options;
 mod policy;
 mod presets;
+mod tsconfig_base;
 
 use std::collections::BTreeMap;
 

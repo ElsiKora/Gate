@@ -8,6 +8,7 @@
 
 mod namespace;
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
@@ -15,6 +16,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run};
 use gate_typescript::binder::{Binder, Meaning};
+use gate_typescript::call::report_unreadable_bases;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
     Expression, IdentifierReference, PropertyKey, TSEnumDeclaration, TSEnumMember,
@@ -122,7 +124,7 @@ impl Rule for StringEnums {
         let source = ReadSource::new(tree.paths(), move |path| tree.bytes(path));
         let settings = run.language::<Settings>("typescript")?.unwrap_or_default();
         let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, settings, &allocator);
+        let typescript = TypeScript::new(&source, settings, &allocator).in_project(run.project());
         let mut findings = Findings::default();
 
         for path in tree.paths() {
@@ -144,6 +146,7 @@ impl Rule for StringEnums {
         }
 
         findings.report(run, help);
+        report_unreadable_bases(&typescript, &Cell::new(false), run.report());
         Ok(())
     }
 }

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use gate_typescript::oxc_ast::ast::Statement;
 use gate_typescript::oxc_span::GetSpan;
-use gate_typescript::{Allocator, MemorySource, Settings, Source, TypeScript};
+use gate_typescript::{Allocator, MemorySource, Settings, Source, TypeScript, UnreadableBase};
 
 const TSCONFIG: &str = r#"{
  // comments and trailing commas are allowed, as in the TypeScript compiler
@@ -564,4 +564,169 @@ fn the_paths_with_a_prefix_are_the_paths_that_start_with_it_in_every_source() {
             "sorted, {prefix:?}"
         );
     }
+}
+
+/// A monorepo project at `apps/api` whose tsconfig extends the install root's base, which extends
+/// a second base beside it; the second sets the `paths`, written from the repository root, that
+/// lead back into the project. The bases are listed and read with `..`, as a source lists and
+/// reads a path its grant allows outside the project.
+const MONOREPO: &[(&str, &str)] = &[
+    (
+        "../../tsconfig.base.json",
+        "{\n // the base every project extends\n \"extends\": \"./tsconfig.paths.json\",\n}\n",
+    ),
+    (
+        "../../tsconfig.paths.json",
+        r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@api/*": ["apps/api/src/*"], "@web/*": ["apps/web/src/*"] } } }"#,
+    ),
+    (
+        "tsconfig.json",
+        r#"{ "extends": "../../tsconfig.base.json", "compilerOptions": { "strict": true } }"#,
+    ),
+    ("src/main.ts", "export {};\n"),
+    (
+        "src/orders/order.module.ts",
+        "export class OrderModule {}\n",
+    ),
+];
+
+#[test]
+fn a_tsconfig_base_above_the_project_is_read_through_the_source_and_its_paths_apply() {
+    let source = MemorySource::new(MONOREPO.iter().copied());
+    let allocator = Allocator::default();
+    let typescript =
+        TypeScript::new(&source, Settings::default(), &allocator).in_project("apps/api");
+    let resolve = |specifier: &str| {
+        typescript
+            .resolve("src/main.ts", specifier)
+            .expect("resolves")
+    };
+
+    assert_eq!(
+        resolve("@api/orders/order.module").as_deref(),
+        Some("src/orders/order.module.ts")
+    );
+    assert_eq!(
+        resolve("./orders/order.module").as_deref(),
+        Some("src/orders/order.module.ts")
+    );
+    // A target in another project reaches no file of this one.
+    assert_eq!(resolve("@web/page"), None);
+    assert_eq!(typescript.unreadable_bases(), []);
+}
+
+#[test]
+fn a_tsconfig_base_the_source_cannot_read_stands_empty_and_is_listed() {
+    let source = MemorySource::new(
+        MONOREPO
+            .iter()
+            .copied()
+            .filter(|(path, _)| !path.starts_with("../")),
+    );
+    let allocator = Allocator::default();
+    let typescript =
+        TypeScript::new(&source, Settings::default(), &allocator).in_project("apps/api");
+
+    assert_eq!(typescript.unreadable_bases(), [], "before resolving");
+    assert_eq!(
+        typescript
+            .resolve("src/main.ts", "./orders/order.module")
+            .expect("resolves without the base")
+            .as_deref(),
+        Some("src/orders/order.module.ts")
+    );
+    assert_eq!(
+        typescript
+            .resolve("src/main.ts", "@api/orders/order.module")
+            .expect("resolves without the base"),
+        None
+    );
+    assert_eq!(
+        typescript.unreadable_bases(),
+        [UnreadableBase {
+            tsconfig: "tsconfig.json".to_owned(),
+            extends: "../../tsconfig.base.json".to_owned(),
+            path: Some("../../tsconfig.base.json".to_owned()),
+            repository: Some("tsconfig.base.json".to_owned()),
+        }]
+    );
+}
+
+#[test]
+fn every_kind_of_unreadable_base_stands_empty_and_only_files_are_listed() {
+    let tsconfig = r#"{
+ "extends": [
+  "@tsconfig/strictest",
+  "@tsconfig/node22/tsconfig.json",
+  "../tsconfig.base.json",
+  "../../outside.json",
+  "/etc/base.json",
+  "./tsconfig.local"
+ ],
+ "compilerOptions": { "paths": { "@/*": ["./src/*"] } }
+}"#;
+    let source = MemorySource::new([
+        ("tsconfig.json", tsconfig),
+        ("src/app.ts", "export {};\n"),
+        ("src/stack.ts", "export {};\n"),
+    ]);
+    let allocator = Allocator::default();
+    let typescript = TypeScript::new(&source, Settings::default(), &allocator).in_project("infra");
+
+    assert_eq!(
+        typescript
+            .resolve("src/app.ts", "@/stack")
+            .expect("resolves")
+            .as_deref(),
+        Some("src/stack.ts")
+    );
+    let listed: Vec<_> = typescript
+        .unreadable_bases()
+        .iter()
+        .map(|base| {
+            (
+                base.extends.as_str(),
+                base.path.as_deref(),
+                base.repository.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (
+                "../tsconfig.base.json",
+                Some("../tsconfig.base.json"),
+                Some("tsconfig.base.json")
+            ),
+            ("../../outside.json", Some("../../outside.json"), None),
+            ("/etc/base.json", None, None),
+            (
+                "./tsconfig.local",
+                Some("tsconfig.local"),
+                Some("infra/tsconfig.local")
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_resolution_error_names_a_base_above_the_project_relative_to_the_project_root() {
+    let source = MemorySource::new([
+        ("../tsconfig.base.json", "{ \"compilerOptions\": "),
+        (
+            "tsconfig.json",
+            "{ \"extends\": \"../tsconfig.base.json\" }",
+        ),
+        ("bin/app.ts", "export {};\n"),
+    ]);
+    let allocator = Allocator::default();
+    let typescript = TypeScript::new(&source, Settings::default(), &allocator).in_project("infra");
+
+    let error = typescript
+        .resolve("bin/app.ts", "./stack")
+        .expect_err("the base is not JSON")
+        .to_string();
+    assert!(error.contains("../tsconfig.base.json"), "{error}");
+    assert!(!error.contains("/gate/"), "{error}");
 }
