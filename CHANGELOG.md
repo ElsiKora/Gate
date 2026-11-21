@@ -199,6 +199,17 @@ Each shared plugin keeps its own changelog next to its code.
   sandbox escape on Windows through a drive-prefixed path component, which 50.0.2 had. The
   released binaries, macOS arm64 (`aarch64-apple-darwin`) and Linux musl
   (`x86_64-unknown-linux-musl`), were not affected: the advisory is Windows-only.
+- **lock:** two runs that write `gate.lock` at once in one worktree (`gate lock`, `gate lock --set`,
+  `gate init`) keep both changes: the second waits for the first, says so, and reads `gate.lock`
+  after the first wrote it. Before, the run that wrote last removed the other's pin, and both
+  reported success. The wait is an advisory lock on `gate.lock.guard` in the worktree's git
+  directory, released when a run ends or dies; where it cannot be taken, the error names the path
+  and what to do.
+- **host:** `gate.lock`, the files `gate sync` writes, and `gate init`'s `gate.toml` and `bin/gate`
+  are written to a temporary file, synced to disk and renamed over the old file, and on Unix the
+  directory is synced after the rename; a failed write leaves the old file and no temporary file.
+  Before, a crash could leave an empty `gate.lock`, and `gate sync` and `gate init` wrote in place,
+  so a `bin/gate` that ran meanwhile could read half a launcher.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

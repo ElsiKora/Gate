@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use gate_host::cache::{Bounds, Cache, Entry, Reason};
 use gate_host::config::PluginName;
-use gate_host::lock::{self, LOCK_FILE, Lock, Pin, Wanted};
-use gate_host::{Error, Fetcher, Git, Source, Workspace};
+use gate_host::lock::{self, Guard, LOCK_FILE, Lock, Pin, Wanted};
+use gate_host::{Error, Fetcher, Git, Source, Workspace, files};
 
 /// The launcher `gate init` writes to `bin/gate`.
 pub const LAUNCHER: &str = include_str!("launcher.sh");
@@ -67,7 +67,10 @@ pub fn lock(request: &LockRequest) -> Result<String, Error> {
             pin.sha256,
             file.display()
         );
-        // Every check first: nothing enters the cache or gate.lock for a pin that is refused.
+        // The file is hashed before the guard is taken, so a build that changes while this run
+        // waits fails the check below. Every check first: nothing enters the cache or gate.lock for
+        // a pin that is refused.
+        let _guard = Guard::take(workspace.snapshot().git())?;
         let locked = lock::set(&wanted, Lock::read(&root)?, &name, pin)?;
         let admitted = Cache::from_env()?.admit(file)?;
         if admitted != sha256 {
@@ -81,6 +84,7 @@ pub fn lock(request: &LockRequest) -> Result<String, Error> {
     }
 
     let mut text = String::new();
+    let _guard = Guard::take(workspace.snapshot().git())?;
     let existing = match Lock::read(&root) {
         Ok(existing) => existing,
         Err(error) => {
@@ -131,7 +135,7 @@ pub fn init() -> Result<String, Error> {
     let config = root.join("gate.toml");
     let fresh = !config.exists();
     if fresh {
-        write(&config, &starting_config())?;
+        files::replace(&config, starting_config().as_bytes())?;
         text.push_str("wrote gate.toml\n");
     }
 
@@ -144,8 +148,9 @@ pub fn init() -> Result<String, Error> {
                 Error::environment(format!("cannot create {}: {error}", directory.display()))
             })?;
         }
-        write(&launcher, LAUNCHER)?;
-        executable(&launcher)?;
+        // Replaced, never written in place: a launcher that runs meanwhile reads the old file
+        // or the new one, and the new one is executable before it appears.
+        files::replace_executable(&launcher, LAUNCHER.as_bytes())?;
         text.push_str("wrote bin/gate\n");
     }
 
@@ -155,6 +160,7 @@ pub fn init() -> Result<String, Error> {
     } else {
         Wanted::of(&Workspace::open(&root, Source::WorkTree)?)
     };
+    let _guard = Guard::take(&git)?;
     let existing = Lock::read(&root).ok().flatten();
     let resolution = lock::resolve(&wanted, existing.as_ref(), &Fetcher::from_env()?)?;
     resolution.lock.write(&root)?;
@@ -181,27 +187,6 @@ version = "{VERSION}"
 # "git/commit-message" = "error"
 "#
     )
-}
-
-fn write(path: &Path, contents: &str) -> Result<(), Error> {
-    std::fs::write(path, contents)
-        .map_err(|error| Error::environment(format!("cannot write {}: {error}", path.display())))
-}
-
-#[cfg(unix)]
-fn executable(path: &Path) -> Result<(), Error> {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).map_err(|error| {
-        Error::environment(format!(
-            "cannot make {} executable: {error}",
-            path.display()
-        ))
-    })
-}
-
-#[cfg(not(unix))]
-fn executable(_path: &Path) -> Result<(), Error> {
-    Ok(())
 }
 
 /// `gate cache prune`: lists, or with `yes` removes, the cache entries no `gate.lock` of the given
