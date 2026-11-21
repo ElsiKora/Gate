@@ -32,8 +32,10 @@ pub struct BarrelExports;
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct Options {
     /// The source files that are private runtime entrypoints: no barrel exports them and they are
-    /// no exportable entry of their folder. With none, every entrypoint is reported.
-    pub private_entrypoints: Vec<String>,
+    /// no exportable entry of their folder. Unset, the one entry point the application starts from:
+    /// `<layout.source-root>/main.ts` (the source root's file that ends with `entrypoint-suffix`).
+    /// An empty list approves none, so every entrypoint is reported.
+    pub private_entrypoints: Option<Vec<String>>,
     /// The barrel's file name.
     pub barrel_name: String,
     /// Child folders a source barrel may leave out.
@@ -50,7 +52,11 @@ impl Options {
     /// Checks that every path is a normalized path relative to the project root and every name a
     /// plain name.
     fn check_paths(&self) -> gate_sdk::Result<()> {
-        paths::check_all("private-entrypoints", &self.private_entrypoints, Form::File)?;
+        paths::check_all(
+            "private-entrypoints",
+            self.private_entrypoints.iter().flatten(),
+            Form::File,
+        )?;
         paths::check("barrel-name", &self.barrel_name, Form::Name)?;
         paths::check_all(
             "optional-child-folders",
@@ -64,7 +70,7 @@ impl Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            private_entrypoints: Vec::new(),
+            private_entrypoints: None,
             barrel_name: "index.ts".to_owned(),
             optional_child_folders: ["function", "internal", "type", "utility"]
                 .map(str::to_owned)
@@ -99,7 +105,14 @@ impl Rule<crate::Nest> for BarrelExports {
             let layout = PluginOptions::read(run)?.layout;
             let options = run.options();
             options.check_paths()?;
-            let private: BTreeSet<String> = options.private_entrypoints.iter().cloned().collect();
+            let private: BTreeSet<String> = match &options.private_entrypoints {
+                Some(listed) => listed.iter().cloned().collect(),
+                None => BTreeSet::from([format!(
+                    "{}{}",
+                    folder_prefix(&layout.source_root),
+                    options.entrypoint_suffix.trim_start_matches('/')
+                )]),
+            };
             let source = shared.source();
             let typescript = shared.typescript()?;
             let barrels = Barrels {
@@ -136,7 +149,9 @@ impl Rule<crate::Nest> for BarrelExports {
 fn help(aspect: &str) -> &'static str {
     match aspect {
         "runtime-entrypoint" => {
-            "list the file in private-entrypoints if it starts a runtime, or rename it"
+            "if the file starts a runtime, list it in the rule's option private-entrypoints: \
+             \"nestjs/barrel-exports\" = { options = { private-entrypoints = [\"<path>\"] } } in \
+             [rules]; otherwise rename it"
         }
         "missing" | "explicit-export" => "re-export each exportable entry from the folder's barrel",
         "reexport-only" => "move the code to its own file and re-export it from the barrel",
