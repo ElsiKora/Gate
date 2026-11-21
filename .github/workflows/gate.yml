@@ -7,8 +7,7 @@ on:
   pull_request:
     branches:
       - main
-permissions:
-  contents: read
+permissions: {}
 concurrency:
   group: .github/workflows/gate.yml@${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -16,12 +15,14 @@ jobs:
   changes:
     name: Changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
       projects: ${{ steps.changes.outputs.projects }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -41,10 +42,12 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -56,7 +59,9 @@ jobs:
           GATE_RANGE: ${{ github.event.pull_request.base.sha || github.event.before || '0000000000000000000000000000000000000000' }}..${{ github.sha }}
           GATE_TARGET_REF: ${{ github.base_ref && format('refs/heads/{0}', github.base_ref) || github.ref }}
   gate-passed:
+    name: gate-passed
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     needs:
       - changes
       - gate

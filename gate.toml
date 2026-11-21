@@ -1,16 +1,16 @@
 [gate]
-version = "0.2.1"
+version = "0.3.0"
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.1"
+source = "ElsiKora/Gate:git@0.3.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
 
 [plugins]
-agents = { source = "ElsiKora/Gate:agents@0.2.0" }
-markdown = { source = "ElsiKora/Gate:markdown@0.2.0" }
-ci = { source = "ElsiKora/Gate:ci@0.2.0" }
+agents = { source = "ElsiKora/Gate:agents@0.3.0" }
+markdown = { source = "ElsiKora/Gate:markdown@0.3.0" }
+ci = { source = "ElsiKora/Gate:ci@0.3.0" }
 
 [rules]
 "git/commit-message" = { level = "error", levels = { header-min-length = "warning", scope-max-length = "warning", header-case = "off", subject-case = "off", body-full-stop = "off" }, options = { types = ["feat", "fix", "test", "docs", "ci", "chore", "refactor", "perf", "style", "revert"], subject-max-length = 0, ignores = ['^Merge (task|lead)/'], prohibited-trailers = [
@@ -31,10 +31,11 @@ pre-push = ["check --push"]
 
 [ci.github]
 workflow = ".github/workflows/gate.yml"
-checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"   # v7.0.1
+checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
 branches = ["main"]
 aggregate = "gate-passed"
 
 [ci.github.jobs.gate]
 name = "Gate"
+timeout-minutes = 15
 run = ["check --push"]
