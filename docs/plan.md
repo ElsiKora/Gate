@@ -115,7 +115,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-088b | v0.3.0 | The report counts the findings the baseline holds back (trial finding 19) | done (merged at `0474c15`; its test fix at `d2cd512`, the `v0.3.0` tag) | T-080, T-088 |
 | T-089 | v0.3.0 | The plan says what `main` holds after T-063 | done (merged at `cf84f39`) | none |
 | T-090 | v0.3.0 | Version 0.3.0 for the core and every plugin, and its changelog headings | done (merged at `3e285e1`) | T-089 |
-| T-091 | - | Gate checks itself with the released 0.3.0; the plan says what `v0.3.0` holds | in progress (branch `task/T-091-after-0.3.0` off `d2cd512`) | T-090 |
+| T-091 | - | Gate checks itself with the released 0.3.0; the plan says what `v0.3.0` holds | done (merged at `9b7bdfd`) | T-090 |
 | T-092 | - | A rule option that fails a `oneOf` prints the validator's raw text (`... is not valid under any of the schemas listed in the 'oneOf' keyword`, seen on `"git/branch-name"` with `options = {}`); the same class as trial finding 5, which T-085 fixed for enums | open | none |
 
 ## Open after rc.1
@@ -193,5 +193,5 @@ marks done names its merge commit on `main`, from `git log --merges`; T-001 to T
 merged before the public root (`59fb163`, `v0.1.0`).
 
 Under the `v0.3.0` tag, merged after `v0.2.1`: T-044, T-048, T-052, T-053, T-055, T-057, T-059, T-061, T-062, T-063, T-064, T-065, T-066, T-066b, T-067, T-068, T-069, T-071, T-071b, T-072, T-073, T-074, T-075, T-076, T-077, T-077b, T-078, T-079, T-079b, T-080, T-080b, T-081, T-082, T-083, T-084, T-085, T-086, T-087, T-088, T-088b, T-089 and T-090. After
-it: T-091 in progress on its branch; T-092 open. The `nestjs` and `ledger` lines of the second
+it: T-091 done (merged at `9b7bdfd`); T-092 open. The `nestjs` and `ledger` lines of the second
 consumer's list stay backlog after `v0.3.0`. The task table above is the state.
