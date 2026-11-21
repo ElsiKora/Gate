@@ -109,6 +109,7 @@ pub fn run_on(
             languages: or_empty(request.languages),
             norms: request.norms.clone(),
             rule_decisions: Vec::new(),
+            config_file: String::new(),
         },
     )
 }

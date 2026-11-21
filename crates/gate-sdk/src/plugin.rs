@@ -202,8 +202,15 @@ pub struct CheckRequest {
     pub languages: String,
     pub norms: Vec<String>,
     /// The decisions the rule entries of the scope's own `gate.toml` name: a project's file in its
-    /// project's call, the root file in the root project's call.
+    /// project's call; the root file in the root project's call, or in the repository call when the
+    /// root is not a project.
     pub rule_decisions: Vec<RuleDecision>,
+    /// The scope's own `gate.toml`, relative to the scope's root, whose entries `rule_decisions`
+    /// lists; empty in the repository call under a root project, whose root file is that
+    /// project's, and for a project without a `gate.toml` of its own. Under a root project the
+    /// repository call still gets the root exceptions of its repository-scope rules, in each
+    /// [`RuleRun::exceptions`]. See [`Call::config_file`](crate::Call::config_file).
+    pub config_file: String,
 }
 
 /// The targets one rule judged in a `check` call, when it judged less than its whole scope
@@ -305,6 +312,7 @@ pub fn check_output<S: CallState>(
         languages: &languages,
         norms: &request.norms,
         rule_decisions: &request.rule_decisions,
+        config_file: &request.config_file,
     };
     let owner = S::own(&call);
     let state = Entered::<S>(S::state(&owner));

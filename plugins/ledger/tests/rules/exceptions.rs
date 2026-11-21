@@ -1,6 +1,7 @@
-//! `ledger/exception-owners` and `ledger/exception-decisions`.
+//! `ledger/exception-owners` and `ledger/exception-decisions`, and their root counterparts
+//! `ledger/root-exception-owners` and `ledger/root-exception-decisions`.
 
-use crate::{Files, error, findings, ledger, seen};
+use crate::{Files, error, findings, findings_in, ledger, seen};
 
 const EXCEPTIONS: &str = "gate.exceptions.toml";
 const INDEX: &str = "docs/ledger/decision-index.md";
@@ -158,4 +159,67 @@ fn an_unreadable_exceptions_file_is_an_error() {
         message.contains("gate.exceptions.toml is not a valid exceptions file"),
         "{message}"
     );
+}
+
+/// An exception of each kind the rules judge: an unknown owner, a proposed decision, and an open
+/// owner with an accepted decision.
+fn mixed() -> Files {
+    tree(&format!(
+        "{}\n{}\n{}",
+        exception("demo/rule", "owner = \"I-NOPE-001\""),
+        exception("demo/rule", "decision = \"D-TWO-001\""),
+        exception(
+            "demo/rule",
+            "owner = \"I-BASE-002\"\ndecision = \"D-ONE-001\""
+        ),
+    ))
+}
+
+#[test]
+fn the_root_rules_judge_the_root_exceptions_as_the_project_rules_do() {
+    // The repository call of a root that is not a project: its own file is the root gate.toml.
+    let files = mixed();
+    for (project, root) in [
+        ("exception-owners", "root-exception-owners"),
+        ("exception-decisions", "root-exception-decisions"),
+    ] {
+        let expected = findings(project, "", "", &files);
+        assert_eq!(expected.len(), 1, "{project}: {expected:?}");
+        assert_eq!(
+            findings_in(root, "", "", "gate.toml", &files),
+            expected,
+            "{root}"
+        );
+    }
+}
+
+#[test]
+fn the_root_rules_read_no_exceptions_without_a_file_of_their_own() {
+    // Under a root project the repository call has no file of its own: the root exceptions belong
+    // to the root project, whose project rules judge them, so the root rules report nothing.
+    let files = mixed();
+    for root in ["root-exception-owners", "root-exception-decisions"] {
+        assert_eq!(findings_in(root, "", "", "", &files), [], "{root}");
+    }
+}
+
+#[test]
+fn the_root_exceptions_option_is_relative_to_the_root_file() {
+    let files = ledger().with(
+        "policy/gate.exceptions.toml",
+        &exception("demo/rule", "owner = \"I-NOPE-001\""),
+    );
+    assert_eq!(
+        findings_in("root-exception-owners", "", "", "gate.toml", &files),
+        []
+    );
+    let found = findings_in(
+        "root-exception-owners",
+        r#"{"exceptions":"policy/gate.exceptions.toml"}"#,
+        "",
+        "gate.toml",
+        &files,
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].1, "policy/gate.exceptions.toml");
 }

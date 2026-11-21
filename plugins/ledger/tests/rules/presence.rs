@@ -2,7 +2,9 @@
 //! reads, a partial one reports what is missing, and a complete one at the plugin's defaults
 //! passes every rule.
 
-use crate::{Files, IMPLEMENTATION, PARITY, PLAN, Seen, findings, input, ledger, seen};
+use crate::{
+    Files, IMPLEMENTATION, PARITY, PLAN, Seen, findings, findings_in, input, ledger, seen,
+};
 
 const MANIFEST: &str = "docs/ledger/manifest.json";
 const INDEX: &str = "docs/ledger/decision-index.md";
@@ -23,7 +25,7 @@ const SYNTHETIC: &str = r#"{
 }"#;
 
 /// Every rule of the plugin, with the options it requires.
-const RULES: [(&str, &str); 10] = [
+const RULES: [(&str, &str); 13] = [
     ("blockers", ""),
     ("closing-notes", r#"{"field":"`TEMPORARY_DELTA` records"}"#),
     ("decisions", ""),
@@ -33,6 +35,9 @@ const RULES: [(&str, &str); 10] = [
     ("record-status", ""),
     ("records", ""),
     ("reuses", r#"{"catalog":"docs/reference/mechanisms.md"}"#),
+    ("root-exception-decisions", ""),
+    ("root-exception-owners", ""),
+    ("root-rule-decisions", ""),
     ("rule-decisions", ""),
 ];
 
@@ -133,6 +138,9 @@ fn an_absent_ledger_fails_every_rule_that_reads_a_file_naming_it() {
                     input("reuses", INDEX, "[plugins.ledger] options decisions"),
                 ]
             ),
+            ("root-exception-decisions", vec![]),
+            ("root-exception-owners", vec![]),
+            ("root-rule-decisions", vec![]),
             ("rule-decisions", vec![]),
         ]
     );
@@ -199,5 +207,29 @@ fn a_partial_ledger_reports_what_is_missing() {
             vec![]
         };
         assert_eq!(found, expected, "{rule}");
+    }
+}
+
+#[test]
+fn the_root_rules_in_their_own_call_name_the_files_they_read() {
+    // The repository call of a root that is not a project, with no ledger but a root exception
+    // that names an owner and a decision: each root rule reports what its project rule reports,
+    // naming the implementation file or the decision index it read.
+    let files = Files::default().with(
+        "gate.exceptions.toml",
+        "[[exception]]\nrule = \"demo/rule\"\ntarget = \"README.md\"\nreason = \"kept for now\"\nowner = \"I-NOPE-001\"\ndecision = \"D-NOPE-001\"\n",
+    );
+    for (project, root, read) in [
+        ("exception-owners", "root-exception-owners", IMPLEMENTATION),
+        ("exception-decisions", "root-exception-decisions", INDEX),
+    ] {
+        let found = findings_in(root, "", PARITY, "gate.toml", &files);
+        assert_eq!(found, findings(project, "", PARITY, &files), "{root}");
+        assert_eq!(found.len(), 1, "{root}: {found:?}");
+        assert_eq!(found[0].1, "gate.exceptions.toml", "{root}");
+        assert!(
+            found[0].3.contains(&format!("which {read} does not list")),
+            "{root}: {found:?}"
+        );
     }
 }

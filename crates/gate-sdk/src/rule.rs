@@ -149,6 +149,7 @@ pub struct Call<'h> {
     pub(crate) languages: &'h serde_json::Value,
     pub(crate) norms: &'h [String],
     pub(crate) rule_decisions: &'h [RuleDecision],
+    pub(crate) config_file: &'h str,
 }
 
 impl std::fmt::Debug for Call<'_> {
@@ -208,12 +209,25 @@ impl<'h> Call<'h> {
     }
 
     /// Every decision the rule entries of the scope's own `gate.toml` name, for rules that check
-    /// decisions: a project's file in its project's call, the root file in the root project's
-    /// call, each whether or not a later layer overrides the entry. Paths are relative to the
-    /// scope's root.
+    /// decisions: a project's file in its project's call; the root file in the root project's
+    /// call, or in the repository call when the root is not a project; each whether or not a later
+    /// layer overrides the entry. Paths are relative to the scope's root.
     #[must_use]
     pub fn rule_decisions(&self) -> &'h [RuleDecision] {
         self.rule_decisions
+    }
+
+    /// The scope's own `gate.toml`, relative to the scope's root, whose entries
+    /// [`Call::rule_decisions`] lists: `gate.toml` in a project's call, and in the repository call
+    /// when the root is not a project. `None` in the repository call under a root project, whose
+    /// root file belongs to that project's call, and for a project without a `gate.toml` of its
+    /// own. Under a root project the repository call still gets the root exceptions of its
+    /// repository-scope rules, in each rule's [`Run::exceptions`]; only the root file's entries go
+    /// to the project's call. A rule that reads a file kept beside the scope's configuration, such
+    /// as its exceptions, reads it beside this one; a rule that never asks is unaffected.
+    #[must_use]
+    pub fn config_file(&self) -> Option<&'h str> {
+        (!self.config_file.is_empty()).then_some(self.config_file)
     }
 
     /// A diagnostic line for `--verbose`; never part of a finding.
@@ -536,6 +550,13 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
     #[must_use]
     pub fn rule_decisions(&self) -> &[RuleDecision] {
         self.call.rule_decisions
+    }
+
+    /// The scope's own `gate.toml`, relative to the scope's root; `None` in the repository call
+    /// under a root project. See [`Call::config_file`].
+    #[must_use]
+    pub fn config_file(&self) -> Option<&str> {
+        self.call.config_file()
     }
 
     /// A diagnostic line for `--verbose`; never part of a finding.

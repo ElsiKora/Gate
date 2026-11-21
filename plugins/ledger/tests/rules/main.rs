@@ -117,6 +117,18 @@ pub(crate) fn run(
     plugin_options: &str,
     files: &Files,
 ) -> gate_sdk::Result<Vec<Seen>> {
+    run_in(rule, options, plugin_options, "", files)
+}
+
+/// Runs `rule` as [`run`] does, in a call whose own `gate.toml` is `config_file` (empty: none, as
+/// in the repository call under a root project).
+pub(crate) fn run_in(
+    rule: &str,
+    options: &str,
+    plugin_options: &str,
+    config_file: &str,
+    files: &Files,
+) -> gate_sdk::Result<Vec<Seen>> {
     let request = CheckRequest {
         project: String::new(),
         rules: vec![RuleRun {
@@ -129,6 +141,7 @@ pub(crate) fn run(
         languages: "{}".to_owned(),
         norms: Vec::new(),
         rule_decisions: Vec::new(),
+        config_file: config_file.to_owned(),
     };
     gate_sdk::check(&ledger::PLUGIN, files, &request).map(|findings| {
         findings
@@ -165,6 +178,7 @@ pub(crate) fn keys(rule: &str, options: &str, plugin_options: &str, files: &File
         languages: "{}".to_owned(),
         norms: Vec::new(),
         rule_decisions: Vec::new(),
+        config_file: String::new(),
     };
     gate_sdk::check(&ledger::PLUGIN, files, &request)
         .expect("the rule runs")
@@ -191,6 +205,17 @@ pub(crate) fn findings(
     files: &Files,
 ) -> Vec<Seen> {
     run(rule, options, plugin_options, files).expect("the rule runs")
+}
+
+/// The findings of a run that must succeed, in a call whose own `gate.toml` is `config_file`.
+pub(crate) fn findings_in(
+    rule: &str,
+    options: &str,
+    plugin_options: &str,
+    config_file: &str,
+    files: &Files,
+) -> Vec<Seen> {
+    run_in(rule, options, plugin_options, config_file, files).expect("the rule runs")
 }
 
 /// The error of a run that must fail.

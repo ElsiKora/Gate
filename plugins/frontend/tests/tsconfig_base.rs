@@ -82,6 +82,7 @@ fn run(files: &[(&str, &str)]) -> gate_sdk::Result<Vec<Finding>> {
             languages: "{}".to_owned(),
             norms: Vec::new(),
             rule_decisions: Vec::new(),
+            config_file: String::new(),
         },
     )
 }

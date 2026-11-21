@@ -61,6 +61,7 @@ impl Fixture {
             languages: String::new(),
             norms: norms.iter().map(|norm| (*norm).to_owned()).collect(),
             rule_decisions: Vec::new(),
+            config_file: String::new(),
         };
         gate_sdk::check(&agents::PLUGIN, self, &request)
     }

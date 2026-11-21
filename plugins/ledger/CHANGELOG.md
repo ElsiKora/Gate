@@ -26,8 +26,9 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 ### Features
 
 - **ledger:** the presets `ledger/recommended` and `ledger/adoption`: `decisions`, `manifest`,
-  `records`, `blockers`, `exception-owners`, `exception-decisions` and `rule-decisions`, at `error`
-  and at `warning`.
+  `records`, `blockers`, `exception-owners`, `exception-decisions`, `rule-decisions`,
+  `root-exception-owners`, `root-exception-decisions` and `root-rule-decisions`, at `error` and at
+  `warning`.
   They leave out `closing-notes`, `reuses` and `record-status`, which need the project's `field`
   and `catalog` and the plugin option `parity`.
 - **ledger:** rebuilt for the plugin interface `gate:plugin@0.3.0`, whose `generate` call also
@@ -45,6 +46,12 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   decision index with the block of `ledger/decision-counts` and its table header; with a tracked
   manifest, also each canonical file it lists. Every file is a seed, written only where nothing
   exists, and a tracked file is never seeded.
+- **ledger:** three repository-scope rules hold the root files of a workspace whose root is not a
+  project to the same judgement as a project's own: `ledger/root-rule-decisions` for the decisions
+  of the root `gate.toml`'s entries, `ledger/root-exception-decisions` and
+  `ledger/root-exception-owners` for the decisions and owners of the root `gate.exceptions.toml`.
+  Their options are read relative to the repository root. Under a root project they report nothing,
+  since the project rules check the root files there.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.1.0...plugin-ledger-v0.2.0) (2026-11-19)
 

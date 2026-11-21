@@ -101,9 +101,11 @@ Each shared plugin keeps its own changelog next to its code.
   now an unknown table: rename it.
 - **sdk:** the plugin interface's `check-request` gains `rule-decisions`: each decision a rule entry
   of the scope's own `gate.toml` names, with the entry's key as written and its line (a project's
-  file in its project's call, the root file in the root project's call). It is part of the
-  `gate:plugin@0.3.0` interface, against which every plugin is rebuilt; a rule reads it with
-  `run.rule_decisions()`.
+  file in its project's call, the root file in the root project's call, or in the repository call
+  when the root is not a project), and `config-file`, that file's path relative to the scope's root,
+  empty in the repository call under a root project. Both are part of the `gate:plugin@0.3.0`
+  interface, against which every plugin is rebuilt; a rule reads them with `run.rule_decisions()`
+  and `run.config_file()`.
 - **sdk:** the plugin interface's `check` export returns a `check-result` instead of a list of
   findings: the findings and `judged`, the targets the call's rules judged in full. It is part of
   the `gate:plugin@0.3.0` interface; a plugin built with `gate-sdk` 0.3.0 returns it without a
@@ -206,6 +208,11 @@ Each shared plugin keeps its own changelog next to its code.
   generators, one `gate sync` lays down a project's whole documentation standard, and `gate check`
   then asks only for content: each index's `#unfilled`, the rule files' `#input`, the ledger files
   only the project can write, and its first records.
+- **plugin-ledger:** at a root that is not a project, the repository-scope rules
+  `ledger/root-rule-decisions`, `ledger/root-exception-decisions` and `ledger/root-exception-owners`
+  hold the root `gate.toml` and `gate.exceptions.toml` to the decisions and owners they name, with
+  the judgement of their project counterparts. A root could relax a rule or accept a finding by
+  naming a decision that was unlisted or only proposed, and every check passed.
 
 - **plugins:** every shared plugin ships two presets: `<plugin>/recommended` turns on its rules at
   `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the

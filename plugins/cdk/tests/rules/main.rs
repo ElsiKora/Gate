@@ -144,6 +144,7 @@ pub(crate) fn run(
         languages: "{}".to_owned(),
         norms: Vec::new(),
         rule_decisions: Vec::new(),
+        config_file: String::new(),
     };
     gate_sdk::check(&cdk::PLUGIN, files, &request)
 }
