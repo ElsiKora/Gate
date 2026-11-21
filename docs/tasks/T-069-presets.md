@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | rebased onto `main` at `d0c6cda3`; round 385 green; merges last of 0.3.0 |
+| Status | rebased onto `main` at `30a1da26`; round 396 green; merges after T-071b and T-076 |
 | Release | v0.3.0 (presets only; no interface change) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -281,7 +281,18 @@ lead's ruling the check now gives each preset rule each pack in turn. All fiftee
 their exact test fail (exit 101); the last, `file-names` taken out of `frontend/adoption`, fails
 `frontend`'s test on the list of rules (`adoption`), no longer on `pack`.
 
+### Proof of the round after the third rebase
+
+Lane ticket 396 on `73b25307`, 2026-11-21T00:50:17+00:00 to 2026-11-21T01:09:47+00:00
+(`round-inner.sh`, its own target directory, logs kept under the ticket): fmt 0, clippy 0, test 0
+(1495 passed, 0 failed), deny 0 (advisories, bans, licenses, sources ok), release build 0. The test
+log shows `Compiling` for every `gate` crate and plugin from the round's own checkout of
+`73b25307`, and lists each plugin's preset test, the five load checks, `cdk`'s test and the CLI
+test by name, each `ok`. All sixteen mutations made their exact test fail (exit 101); the new one,
+`rule-decisions` taken out of `ledger/adoption`, fails the ledger preset test on the list of rules.
+
 ## Resume point
 
-2026-11-20T23:41:34+00:00: rebased onto `main` at `30a1da26`; `ledger/rule-decisions` joins both
-`ledger` presets. The lane round is next; the branch merges after T-071b and T-076.
+2026-11-21T01:11:14+00:00: ticket 396 on `73b25307` is green with every mutation caught. The branch
+merges after T-071b and T-076; if `main` moves in code it touches, it rebases and runs one more
+round.
