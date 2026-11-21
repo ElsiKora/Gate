@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Option 1 approved and reviewed; fix round rebased onto `main` `6d7081a1` (T-080), one lane round |
+| Status | Option 1 approved and reviewed; fix round green (lane ticket 424 on `6d8ae17a`, on `main` `6d7081a1`); for the lead to merge |
 | Release | v0.3.0 (the request's meaning for the repository call, on `gate:plugin@0.3.0`, unreleased) |
 | Writer | "Gate 006" |
 | Reviewer | a separate review session |
@@ -215,10 +215,9 @@ Each new rule's page, with its example finding run against a synthetic tree.
 
 ## Resume point
 
-2026-11-21T04:27:41+00:00: the review found nothing blocking. The fix round is rebased onto `main`
-`6d7081a1`, which holds T-080; only `CHANGELOG.md` conflicted, and the cache keeps T-080's
-`FORMAT = 5`. The four `tsconfig_base.rs` tests that came with `main` build their request with
-`config_file`. The `config-file` comments in the WIT and the SDK say that under a root project the
-repository call still gets the root exceptions of its repository-scope rules. New ledger cases run
-the root rules with `config_file` `gate.toml` and show that they name the files they read, and the
-crate doc of `lib.rs` is wrapped. Next: one lane round, reported by log; the lead merges.
+2026-11-21T06:27:28+00:00: lane ticket 424 (`round2.sh`, the fix round on `6d8ae17a`, on `main`
+`6d7081a1`) exited 0: fmt, clippy with `-D warnings`, the ten `gate` end-to-end tests and the ten
+ledger root, presets and presence tests by name, then `cargo test --workspace` (1548 passed, 0
+failed, 7 ignored), `cargo deny check` and the release build. `gate-sdk`, `gate-runtime`,
+`gate-host`, `gate` and the ledger, cdk, frontend, typescript and nestjs plugins compiled from this
+worktree only. Next: the lead merges.
