@@ -249,7 +249,9 @@ impl Baseline {
 
     /// [`Baseline::pruned`] for the entries `judged` holds too, the baseline as it was before the
     /// findings were collected; every other entry, written meanwhile by another run from a tree
-    /// these findings may not reflect, is kept as it is.
+    /// these findings may not reflect, is kept as it is. The findings such an entry accepts are
+    /// its own: an entry `judged` holds neither accepts one of them nor is re-keyed to one, so no
+    /// finding is accepted twice.
     #[must_use]
     pub fn pruned_since(&self, judged: &Self, findings: &[Finding], ran: &RulesRan) -> Pruned {
         let known: std::collections::BTreeSet<&BaselineEntry> = judged.entries.iter().collect();
@@ -258,12 +260,21 @@ impl Baseline {
             .iter()
             .cloned()
             .partition(|entry| known.contains(entry));
-        let mut pruned = Self::from_entries(seen).pruned(findings, ran);
-        if !newer.is_empty() {
-            let mut entries = pruned.baseline.entries;
-            entries.extend(newer);
-            pruned.baseline = Self::from_entries(entries);
+        if newer.is_empty() {
+            return Self::from_entries(seen).pruned(findings, ran);
         }
+        let newer = Self::from_entries(newer);
+        let taken = newer.accept(findings).findings;
+        let left: Vec<Finding> = findings
+            .iter()
+            .zip(&taken)
+            .filter(|(_, taken)| !**taken)
+            .map(|(finding, _)| finding.clone())
+            .collect();
+        let mut pruned = Self::from_entries(seen).pruned(&left, ran);
+        let mut entries = pruned.baseline.entries;
+        entries.extend(newer.entries);
+        pruned.baseline = Self::from_entries(entries);
         pruned
     }
 

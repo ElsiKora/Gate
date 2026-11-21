@@ -292,7 +292,9 @@ Each shared plugin keeps its own changelog next to its code.
   two take turns on an advisory lock on `gate.baseline.guard` in the worktree's git directory. A
   prune reads the baseline again once it holds the lock, so a baseline another run wrote during its
   check is what it prunes. Before, prune wrote over it from the baseline it had read earlier: an
-  entry the other run added was lost, or one it removed came back.
+  entry the other run added was lost, or one it removed came back. An entry the other run wrote is
+  kept as it is, and the findings it accepts are its own, so prune never re-keys an older entry to
+  one of them and no finding is accepted twice.
 - **host:** `gate doctor` before the first `gate sync` says the hooks are not written yet and asks
   for `gate sync`, instead of saying the hooks in `.githooks` do not run while `.githooks` does not
   exist; `gate sync` says `set core.hooksPath to .githooks (it was not set)` or `(it was <path>)`,

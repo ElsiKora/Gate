@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved; code written on the branch; its lane round waits for T-085 |
+| Status | design approved; parts one and two written on the branch; its lane round waits for T-085 |
 | Release | v0.3.0 |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `20480703`; the code lands after T-085, which also touches `crates/gate/src/distribution.rs` |
-| Touches | `crates/gate/src/distribution.rs`, `crates/gate-host/src/lock/mod.rs`, `crates/gate/tests/distribution.rs`, `README.md` (the `gate cache prune` row of the command table, the only text on it), `CHANGELOG.md` |
+| Touches | `crates/gate/src/distribution.rs`, `crates/gate-host/src/lock/mod.rs`, `crates/gate/tests/distribution.rs`, `crates/gate-host/src/baseline.rs` and `crates/gate-host/tests/host/findings.rs` (part two), `README.md` (the `gate cache prune` row of the command table, the only text on it), `CHANGELOG.md` |
 
 ## Goal
 
@@ -142,10 +142,36 @@ A step in the lane round removes the guards from prune and expects
 `a_cache_prune_waits_for_a_lock_run_in_another_worktree` to fail on "prune waited", as T-076's
 round checked its guard.
 
+## Part two: a prune that accepts no finding twice
+
+T-077b's `Baseline::pruned_since` (merged in `db96d37f`) keeps an entry written while prune's check
+ran, and prunes only the entries the check saw. It pruned those against every finding, so an entry
+the check saw could be re-keyed to a finding that an entry written meanwhile already accepts:
+
+1. Prune loads a baseline with a keyless entry `E`.
+2. While its check runs, a `gate baseline write` from a tree with both findings keeps `E` and adds
+   the keyed entry `E'` for the finding `F`.
+3. Prune's check reports only `F`, keyed. Under the guard it re-keys `E` to `F`, and the file holds
+   `E'` twice.
+
+Two entries accept two findings of `F`'s fingerprint, so a new one passes the gate: it fails open.
+Run after the write, prune would let `E'` accept `F` and remove `E` as stale.
+
+**The fix.** The entries written meanwhile accept their findings first, and the entries the check
+saw are pruned against the findings left, so no finding is accepted twice and none is re-keyed to.
+The entries written meanwhile are still kept as they are.
+
+**Test.** `a_prune_never_re_keys_an_entry_to_a_finding_an_entry_written_meanwhile_accepts`, in
+`crates/gate-host/tests/host/findings.rs`, builds those two baselines and calls `pruned_since`. It
+expects nothing re-keyed, `E` removed, the baseline to be `E'` alone, and a check with two copies of
+`F` to report one. A second mutation step in the lane round prunes the seen entries against every
+finding again and expects the test to fail.
+
 ## Done when
 
 - The four tests pass, and the two that wait fail with the guards removed from prune (the
   mutation step).
+- Part two's test passes, and fails under its mutation step.
 - One lane round on the pushed tip, on this task's own target directory: fmt, clippy, test, deny
   and the release build exit 0, and the log shows `gate-host` and `gate` compiled from this task's
   worktree.
@@ -170,3 +196,7 @@ branch. Next: the code, once T-085 has merged.
 `Guard::take_worktrees`, prune `--yes` holding its guards, the README row and the changelog entry.
 `rustfmt --check` is clean on the changed files; nothing is compiled yet. Next: once T-085 has
 merged, rebase onto main and run the lane round with its mutation step.
+2026-11-21T05:54:15+00:00: part two, as the lead asked: `pruned_since` lets the entries written meanwhile accept
+their findings first, with a host test and a second mutation step in the round script. Next: the
+independent review of the branch, then, once T-085 has merged, the rebase and one lane round for
+both parts.
