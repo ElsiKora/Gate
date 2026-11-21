@@ -120,9 +120,11 @@ interface types {
     /// The scope's own `gate.toml`, relative to the scope's root, whose entries `rule-decisions`
     /// lists: `gate.toml` in a project's call, and in the repository call when the root is not a
     /// project; empty in the repository call under a root project, whose root file is that
-    /// project's, and for a project without a `gate.toml` of its own. A rule that reads a file
-    /// beside the scope's configuration reads it beside this one; a rule that ignores it is
-    /// unaffected.
+    /// project's, and for a project without a `gate.toml` of its own. Under a root project the
+    /// repository call still gets the root exceptions of its repository-scope rules, in
+    /// `rule-run.exceptions`; only the root file's entries belong to the project's call. A rule
+    /// that reads a file beside the scope's configuration reads it beside this one; a rule that
+    /// ignores it is unaffected.
     config-file: string,
   }
 

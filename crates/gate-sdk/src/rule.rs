@@ -221,8 +221,10 @@ impl<'h> Call<'h> {
     /// [`Call::rule_decisions`] lists: `gate.toml` in a project's call, and in the repository call
     /// when the root is not a project. `None` in the repository call under a root project, whose
     /// root file belongs to that project's call, and for a project without a `gate.toml` of its
-    /// own. A rule that reads a file kept beside the scope's configuration, such as its exceptions,
-    /// reads it beside this one; a rule that never asks is unaffected.
+    /// own. Under a root project the repository call still gets the root exceptions of its
+    /// repository-scope rules, in each rule's [`Run::exceptions`]; only the root file's entries go
+    /// to the project's call. A rule that reads a file kept beside the scope's configuration, such
+    /// as its exceptions, reads it beside this one; a rule that never asks is unaffected.
     #[must_use]
     pub fn config_file(&self) -> Option<&'h str> {
         (!self.config_file.is_empty()).then_some(self.config_file)

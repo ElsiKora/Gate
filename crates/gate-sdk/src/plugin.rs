@@ -207,8 +207,9 @@ pub struct CheckRequest {
     pub rule_decisions: Vec<RuleDecision>,
     /// The scope's own `gate.toml`, relative to the scope's root, whose entries `rule_decisions`
     /// lists; empty in the repository call under a root project, whose root file is that
-    /// project's, and for a project without a `gate.toml` of its own. See
-    /// [`Call::config_file`](crate::Call::config_file).
+    /// project's, and for a project without a `gate.toml` of its own. Under a root project the
+    /// repository call still gets the root exceptions of its repository-scope rules, in each
+    /// [`RuleRun::exceptions`]. See [`Call::config_file`](crate::Call::config_file).
     pub config_file: String,
 }
 
