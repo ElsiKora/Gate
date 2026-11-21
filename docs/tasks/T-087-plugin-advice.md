@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | the review's fix round written; lane round next |
+| Status | round 406 green after the review's fix round; waits for the lead |
 | Release | v0.3.0 (`nestjs` and `docker` plugins) |
 | Writer | "Gate 003: host foundations" |
 | Reviewer | a separate review session |
@@ -59,6 +59,32 @@ Findings 7 and 8 of the release-candidate trial (T-083):
   round checkout and lists the new tests by name; mutations of each fix fail their test.
 - An independent review, one fix round, then the lead decides.
 
+## Proof
+
+Lane ticket 399 on `53dc77cc` stopped at clippy (exit 101): `doc_markdown` wanted backticks around
+the product name in the doc comment of `private-entrypoints`; the comments now say "the
+application" and "a Nest app" (`77913f22`, rebased onto `main` at `6b36eeac`).
+
+Lane ticket 406 on `77913f22`, 2026-11-21T02:37:26+00:00 to 2026-11-21T03:03:09+00:00
+(`round-inner.sh`, its own target directory, logs kept under the ticket): fmt 0, clippy 0, test 0
+(1506 passed, 0 failed), deny 0 (advisories, bans, licenses, sources ok), release build 0. The test
+log shows `Compiling` for every `gate` crate and plugin from the round's own checkout, among them
+`gate-plugin-nestjs` and `gate-plugin-docker`, and lists the new tests by name, each `ok`:
+`the_source_roots_main_ts_is_approved_when_the_option_is_unset`,
+`a_list_replaces_the_default_and_the_help_names_the_rule_option` and
+`compose::the_port_help_keeps_the_host_and_container_ports`. Each of the six mutations made its
+exact test fail (exit 101):
+
+| Mutation | Test |
+| --- | --- |
+| the unset option approves nothing | `the_source_roots_main_ts_is_approved_when_the_option_is_unset` |
+| the help without "the rule's option" | `a_list_replaces_the_default_and_the_help_names_the_rule_option` |
+| a host port dropped (`127.0.0.1::<host>:<container>`) | `compose::the_port_help_keeps_the_host_and_container_ports` |
+| the address kept in the suggestion | `compose::the_port_help_keeps_the_host_and_container_ports` |
+| `loopback()` splits on every `:` | `compose::the_port_help_keeps_the_host_and_container_ports` |
+| the default ignores `entrypoint-suffix` | `the_source_roots_main_ts_is_approved_when_the_option_is_unset` |
+
 ## Resume point
 
-2026-11-21T00:00:33+00:00: the review's fix round is written and pushed; the lane round is next.
+2026-11-21T03:03:44+00:00: ticket 406 on `77913f22` is green with every mutation caught; the branch
+waits for the lead.
