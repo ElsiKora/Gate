@@ -664,7 +664,7 @@ pub fn resolve(wanted: &Wanted, existing: Option<&Lock>, fetcher: &Fetcher) -> R
 
 /// The releases [`resolve`] found missing so far: a configuration error each, collected so that one
 /// run names every version gate.toml asks for that is not released.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Missing(Vec<String>);
 
 impl Missing {

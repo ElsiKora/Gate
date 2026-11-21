@@ -78,6 +78,7 @@ impl Subject {
 /// What the presets of each scope set, or why it could not be read: `gate list` and `gate
 /// explain` still print what the `gate.toml` files write, and say why the presets' rules are
 /// missing.
+#[derive(Debug)]
 pub struct Presets {
     settings: Result<PresetSettings, gate_host::Error>,
 }
@@ -97,7 +98,8 @@ impl Presets {
             .as_ref()
             .ok()
             .and_then(|settings| settings.get(&project.map(ToOwned::to_owned)))
-            .map_or(&[], Vec::as_slice)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     /// Why the presets' rules are not shown, when they could not be read.
