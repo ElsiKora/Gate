@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, for the lead's review |
+| Status | code written, for the lane round and an independent review |
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `6b36eeac` |
-| Touches | `crates/gate-runtime/src/runtime.rs`, `crates/gate-host/src/plugins.rs`, `crates/gate-host/src/lib.rs`, `crates/gate-host/src/doctor/mod.rs`, `crates/gate/src/main.rs`, their tests, `docs/guide`, `CHANGELOG.md` |
+| Touches | `crates/gate-runtime/src/runtime.rs`, `crates/gate-host/src/plugins.rs`, `crates/gate-host/src/lib.rs`, `crates/gate-host/src/cli.rs`, `crates/gate-host/src/doctor/mod.rs`, `crates/gate/src/main.rs`, their tests, `docs/guide`, `CHANGELOG.md` |
 
 ## Goal
 
@@ -102,6 +102,9 @@ So:
    measures `the run took 280 ms, not counting 5560 ms compiling 9 plugins`, and the timings line
    says `load 5560 ms (compiled 9 plugins; not counted toward --warn-after and --fail-after)`.
    When nothing compiled, the budget is the whole run, as today.
+   As built: the time left out is the wall time of each parallel load batch during which the
+   runtime's miss count grew (the batch at the start, and each batch of on-call loads), never more
+   than the run.
 4. **Precompiling (2).** `gate sync` already compiles every declared plugin; no new command. `gate
    doctor` reports the plugins that are not compiled under this core (no stored declaration for
    the pinned sha256): `3 plugins are not compiled yet under this gate (nestjs, git, typescript);
@@ -112,6 +115,28 @@ So:
    452 ms from the cache, describe 16 ms` (or `compiled in 7100 ms`), one line for the plugins not
    loaded, `timings: load: not loaded, every call cached: ci, docker, ...`, and the read and verify
    time of the blobs.
+   As built: wasmtime counts hits and misses per runtime, not per module, and the modules of a
+   batch load in parallel, so which plugin compiled is not knowable. The line per plugin is
+   `timings: load <name>: module <ms> ms, describe <ms> ms`, and one summary line gives the counts:
+   `timings: load: <n> read and verified in <ms> ms; modules: <n> from the cache, <n> compiled;
+   <ms> ms compiling, not counted toward --warn-after and --fail-after` (the last part only when
+   something compiled).
+
+The lead's conditions on the design, and how the code meets them:
+
+- Stored declarations are keyed by the pinned sha256, the core version and the plugin interface
+  (`declarations::key`: the format, `gate_runtime::INTERFACE` and the core's version); after an
+  upgrade of either there is no stored declaration, and the plugin loads up front.
+- The cached-only path skips reading the blob, never the pin: `lock::verify_with` (gate.toml
+  against gate.lock) runs before `plugins::load`, and `declared` fails on a plugin `gate.lock` does
+  not pin, as before. A result is keyed by the sha256 `gate.lock` pins, so an edited sha256 finds
+  no declaration and no result: the plugin loads up front from that pin and fails closed.
+- Plugin-wide options are checked by the host against the options schema of the stored
+  declaration, before any call, without loading the plugin; and they are part of the call's
+  request (`plugin-options`), so a new value misses the result cache and loads the plugin.
+- The budget message is as designed; the configuration page says that compiling does not count
+  toward `--warn-after` and `--fail-after`, and so do the options' help texts.
+- No `unsafe`, no Winch.
 
 Not taken, measured or read:
 
@@ -123,20 +148,32 @@ Not taken, measured or read:
 
 ## Tests
 
-1. A fully cached run loads no plugin: after a warm run, the plugin's blob is removed from the
-   cache; the next run with the same inputs passes from the result cache, and a run whose input
-   changed fails closed with the existing error that the pinned blob is missing.
-2. A changed input still runs the plugin and stores the new result (the existing result-cache
-   tests keep passing).
-3. The budget: a run that compiled is measured without its load phase and says so; a run that
-   compiled nothing is measured whole (unit tests on the budget with given timings and a compile
-   count, so no test depends on how fast this machine compiles).
-4. `gate doctor` before `gate sync` names the plugins not compiled, and after it says `ready`.
-5. `--timings` has one load line per loaded plugin and names the plugins not loaded.
+1. A fully cached run loads no plugin
+   (`a_run_whose_every_call_is_cached_loads_no_plugin_and_says_so`; these tests are in
+   `crates/gate/tests/distribution.rs`):
+   after a first run, the plugin's blob is removed from the cache; the next run with the same
+   inputs passes from the result cache, downloads nothing, and `--timings` says `not loaded, every
+   call cached: git`. The first run's `--timings` names the plugin loaded and the module compiled.
+2. A warm cache serves nothing once `gate.lock` no longer pins the plugin
+   (`a_warm_cache_serves_nothing_once_the_lock_no_longer_pins_the_plugin`), or once its sha256 is
+   edited (`a_warm_cache_serves_nothing_once_the_pinned_sha256_is_edited`): both fail with exit 2
+   and no report.
+3. A plugin-wide option is checked without loading the plugin, and a new value misses the cache
+   (`a_plugin_option_is_checked_without_loading_the_plugin_and_a_new_value_misses_the_cache`):
+   with the blob removed and every call cached, `main = 5` is the configuration error
+   `plugin git options: ...`; `main = []`, which the schema takes, misses and fails closed on the
+   missing blob.
+4. The budget (unit tests in `crates/gate-host/src/lib.rs`, so no test depends on how fast this
+   machine compiles): a run that compiled is measured without its compile time and says so; a run
+   that compiled nothing is measured whole.
+5. `gate doctor` before `gate sync` names the plugin not compiled, and after it says it is
+   compiled (`doctor_names_a_plugin_not_compiled_until_gate_sync_compiles_it`).
+6. A changed input still runs the plugin and stores the new result: the existing result-cache tests
+   keep passing.
 
 ## Done when
 
-- The five tests pass; the warm and cold measurements above are run again on the built tip, on
+- The tests above pass; the warm and cold measurements above are run again on the built tip, on
   the same trees, and the numbers are in this file with their commands.
 - One lane round on the pushed tip on this task's own target directory: fmt, clippy, test, deny
   and the release build exit 0, and its log shows the changed crates compiled from this task's
@@ -145,5 +182,6 @@ Not taken, measured or read:
 
 ## Resume point
 
-2026-11-21T02:38:52+00:00: design written from the measurements above, for the lead's review. No
-code yet.
+2026-11-21T02:51:31+00:00: the design approved with the lead's conditions; code, tests, the
+configuration page, the getting-started guide and the changelog written, not compiled yet. Next:
+commit, one lane round, then the measurements again on the built tip.

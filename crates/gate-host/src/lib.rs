@@ -60,8 +60,8 @@ pub use findings::{
 pub use git::Git;
 pub use lock::{LOCK_FILE, Lock, Pin, Wanted};
 pub use plugins::{
-    Generated, GitAnswers, JsonSchemaValidator, PluginGenerators, PluginReads, PresetSetting,
-    PresetSettings, SyncStates, preset_settings,
+    Generated, GitAnswers, JsonSchemaValidator, Loads, PluginGenerators, PluginReads,
+    PresetSetting, PresetSettings, SyncStates, preset_settings,
 };
 pub use projects::{Origin, Project, Projects};
 pub use report::{EXIT_CLEAN, EXIT_ERRORS, EXIT_FAILURE, Format, Report, SelectionFormat};
@@ -94,9 +94,10 @@ pub enum ChangeRequest {
 pub struct RunOptions {
     /// Print the time of each phase and plugin call.
     pub timings: bool,
-    /// A run that takes longer is a `gate/budget` warning.
+    /// A run that takes longer, not counting compiling plugins, is a `gate/budget` warning.
     pub warn_after: Option<Duration>,
-    /// A run that takes longer is a `gate/budget` error; above `warn_after` when both are set.
+    /// A run that takes longer, not counting compiling plugins, is a `gate/budget` error; above
+    /// `warn_after` when both are set.
     pub fail_after: Option<Duration>,
     /// Stop at the first error finding.
     pub fail_fast: bool,
@@ -186,6 +187,9 @@ pub struct Checked {
     /// What the first cache write that failed said, when one did: the check is complete, but
     /// the next run cannot reuse its work.
     pub cache_warning: Option<String>,
+    /// How the plugins loaded: each one loaded, those every call of which came from the cache,
+    /// and the time compiling took.
+    pub loads: Loads,
 }
 
 /// Runs `gate check` on the repository that contains `start`.
@@ -208,7 +212,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
     found.retain_rules(&request.rules);
     let mut findings = found.finish(workspace.exceptions(), workspace.baseline(), &ran);
 
-    if let Some(finding) = over_budget(started.elapsed(), &request.options) {
+    if let Some(finding) = over_budget(started.elapsed(), &run.ran.loads, &request.options) {
         findings.push(finding);
         findings.sort();
     }
@@ -235,6 +239,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
         git_answers: run.ran.git_answers,
         generated: run.ran.generated,
         cache_warning: run.ran.cache_warning,
+        loads: run.ran.loads,
     })
 }
 
@@ -469,7 +474,14 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
         // they declare from the cache, so the whole configuration is still checked, and are
         // loaded only when the cache holds nothing for them.
         let needed = plugins::needed(&workspace, &selection, &request.rules);
-        plugins::load(&workspace, lock.as_ref(), &files, &needed)?.map(std::sync::Arc::new)
+        plugins::load(
+            &workspace,
+            lock.as_ref(),
+            &files,
+            &needed,
+            plugins::Loading::OnCall,
+        )?
+        .map(std::sync::Arc::new)
     };
     phase("load", at);
     let at = Instant::now();
@@ -609,35 +621,49 @@ const BUDGET_HELP: &str =
     "find the slow step with --timings, or raise --warn-after or --fail-after";
 
 /// The one `gate/budget` finding of a run that took `elapsed`: an error over `--fail-after`, else a
-/// warning over `--warn-after`, else none. An error over both thresholds names both.
-fn over_budget(elapsed: Duration, options: &RunOptions) -> Option<Finding> {
-    let over = |threshold: Option<Duration>| threshold.filter(|threshold| elapsed > *threshold);
+/// warning over `--warn-after`, else none. An error over both thresholds names both. The time of
+/// the loads that compiled a plugin (`loads`) is not counted: a first run after a clone, a core
+/// upgrade or a plugin bump compiles, and the next runs do not.
+fn over_budget(elapsed: Duration, loads: &Loads, options: &RunOptions) -> Option<Finding> {
+    let compiling = if loads.compiled > 0 {
+        loads.compiling.min(elapsed)
+    } else {
+        Duration::ZERO
+    };
+    let counted = elapsed - compiling;
+    let over = |threshold: Option<Duration>| threshold.filter(|threshold| counted > *threshold);
+    let took = if compiling.is_zero() {
+        format!("the run took {} ms", counted.as_millis())
+    } else {
+        format!(
+            "the run took {} ms, not counting {} ms compiling {} {}",
+            counted.as_millis(),
+            compiling.as_millis(),
+            loads.compiled,
+            if loads.compiled == 1 {
+                "plugin"
+            } else {
+                "plugins"
+            }
+        )
+    };
     let warned = over(options.warn_after);
     let (level, message) = match (over(options.fail_after), warned) {
         (Some(fail), Some(warn)) => (
             Level::Error,
             format!(
-                "the run took {} ms, over --fail-after {} ms (and --warn-after {} ms)",
-                elapsed.as_millis(),
+                "{took}, over --fail-after {} ms (and --warn-after {} ms)",
                 fail.as_millis(),
                 warn.as_millis()
             ),
         ),
         (Some(fail), None) => (
             Level::Error,
-            format!(
-                "the run took {} ms, over --fail-after {} ms",
-                elapsed.as_millis(),
-                fail.as_millis()
-            ),
+            format!("{took}, over --fail-after {} ms", fail.as_millis()),
         ),
         (None, Some(warn)) => (
             Level::Warning,
-            format!(
-                "the run took {} ms, over --warn-after {} ms",
-                elapsed.as_millis(),
-                warn.as_millis()
-            ),
+            format!("{took}, over --warn-after {} ms", warn.as_millis()),
         ),
         (None, None) => return None,
     };
@@ -684,5 +710,73 @@ fn short(revision: &str) -> &str {
         &revision[..12]
     } else {
         revision
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(warn: u64, fail: u64) -> RunOptions {
+        RunOptions {
+            timings: false,
+            warn_after: Some(Duration::from_millis(warn)),
+            fail_after: Some(Duration::from_millis(fail)),
+            fail_fast: false,
+        }
+    }
+
+    fn compiled(plugins: usize, millis: u64) -> Loads {
+        Loads {
+            compiled: plugins,
+            compiling: Duration::from_millis(millis),
+            ..Loads::default()
+        }
+    }
+
+    #[test]
+    fn a_run_that_compiled_is_measured_without_its_compile_time() {
+        let elapsed = Duration::from_millis(5840);
+        assert_eq!(
+            over_budget(elapsed, &compiled(9, 5560), &options(3000, 10_000)),
+            None
+        );
+
+        let finding = over_budget(elapsed, &compiled(9, 4000), &options(1000, 10_000))
+            .expect("over --warn-after without the compile time");
+        assert_eq!(finding.level, Level::Warning);
+        assert_eq!(
+            finding.message,
+            "the run took 1840 ms, not counting 4000 ms compiling 9 plugins, over --warn-after 1000 ms"
+        );
+
+        let finding = over_budget(elapsed, &compiled(1, 840), &options(1000, 3000))
+            .expect("over both without the compile time");
+        assert_eq!(finding.level, Level::Error);
+        assert_eq!(
+            finding.message,
+            "the run took 5000 ms, not counting 840 ms compiling 1 plugin, over --fail-after 3000 ms (and --warn-after 1000 ms)"
+        );
+    }
+
+    #[test]
+    fn a_run_that_compiled_nothing_is_measured_whole() {
+        let elapsed = Duration::from_millis(5840);
+        // Loads that compiled nothing leave nothing out, whatever time they record.
+        let finding = over_budget(elapsed, &compiled(0, 5560), &options(3000, 10_000))
+            .expect("over --warn-after");
+        assert_eq!(finding.level, Level::Warning);
+        assert_eq!(
+            finding.message,
+            "the run took 5840 ms, over --warn-after 3000 ms"
+        );
+        assert_eq!(
+            over_budget(
+                Duration::from_millis(900),
+                &Loads::default(),
+                &options(1000, 2000)
+            ),
+            None
+        );
     }
 }

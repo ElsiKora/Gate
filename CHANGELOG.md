@@ -133,6 +133,13 @@ Each shared plugin keeps its own changelog next to its code.
 
 ### Features
 
+- **host:** `gate check` loads a plugin only for a call that misses the result cache; a run whose
+  every call is cached reads and loads no plugin. `gate.toml` and `gate.lock` are still checked
+  against each other first, and the configuration against what each plugin declares, which the
+  cache keeps per plugin sha256, core and plugin interface. `--timings` prints one load line per
+  plugin loaded, the plugins not loaded, and how many modules came from the module cache or were
+  compiled. `gate doctor` names the plugins of `gate.lock` not compiled under this core yet, which
+  `gate sync` compiles.
 - **host:** `[workspace] extends` turns on presets for the repository-scope rules of a root that is
   not a project, such as `git/recommended` for `git/branch-name` and `git/commit-message` in a
   monorepo; the root `[rules]` overrides them, and a preset's project-scope rules are skipped there
@@ -252,6 +259,10 @@ Each shared plugin keeps its own changelog next to its code.
   `anyOf` text.
 - **check:** the `gate/budget` help sends the reader to the slow step that `--timings` shows,
   instead of a slow plugin.
+- **host:** compiling plugins no longer counts toward `--warn-after` and `--fail-after`: the first
+  run after a clone, a core upgrade or a plugin bump failed the hook budget while it compiled every
+  plugin. A run that compiled says how long it took without the compile, and how long compiling
+  took.
 - **host:** a `[rules]` entry that sets only a level for a rule a preset turns on keeps the options
   the preset gives it: `extends = ["git/recommended"]` with `"git/branch-name" = "warning"` loads
   and runs with the preset's branch template. It used to be a configuration error (exit 2,

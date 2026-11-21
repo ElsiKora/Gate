@@ -48,7 +48,7 @@ pub fn healthy(checks: &[Check]) -> bool {
 }
 
 /// Runs every check: git, the hooks path, the launcher (`launcher` is the text `gate init`
-/// writes), `gate.lock`, the cache, the plugins of the lock.
+/// writes), `gate.lock`, the cache, the plugins of the lock and whether they are compiled.
 #[must_use]
 pub fn doctor(workspace: &Workspace, cache: Option<&Cache>, launcher: &[u8]) -> Vec<Check> {
     let lock = verify(workspace);
@@ -84,6 +84,10 @@ pub fn doctor(workspace: &Workspace, cache: Option<&Cache>, launcher: &[u8]) -> 
         Check {
             name: "plugins",
             status: plugins(lock.as_ref().ok().and_then(Option::as_ref), cache),
+        },
+        Check {
+            name: "compiled",
+            status: compiled(lock.as_ref().ok().and_then(Option::as_ref), cache),
         },
     ]
 }
@@ -244,6 +248,41 @@ fn plugins(lock: Option<&Lock>, cache: Option<&Cache>) -> Status {
             problems.join("; ")
         ))
     }
+}
+
+/// Whether each plugin of `lock` that the cache holds is compiled under this core: a check
+/// compiles the others first, which the hook budget does not count but a developer waits for.
+fn compiled(lock: Option<&Lock>, cache: Option<&Cache>) -> Status {
+    let (Some(lock), Some(cache)) = (lock, cache) else {
+        return Status::Ok(
+            "nothing to compile without a usable gate.lock and cache (see above)".to_owned(),
+        );
+    };
+    // A plugin is compiled once it has loaded under this core: its declaration is then stored.
+    let mut waiting = Vec::new();
+    for (source, pin) in &lock.plugins {
+        if matches!(cache.held(&pin.sha256), Ok(Held::Verified))
+            && !crate::plugins::declarations::stored(cache, &pin.sha256)
+        {
+            waiting.push(source.to_string());
+        }
+    }
+    if waiting.is_empty() {
+        return Status::Ok(format!(
+            "every plugin of {LOCK_FILE} in the cache is compiled under gate {CORE_VERSION}"
+        ));
+    }
+    Status::Fix(format!(
+        "{} {} not compiled yet under gate {CORE_VERSION} ({}); run gate sync before the first commit, or the first gate check compiles {}",
+        waiting.len(),
+        if waiting.len() == 1 {
+            "plugin is"
+        } else {
+            "plugins are"
+        },
+        waiting.join(", "),
+        if waiting.len() == 1 { "it" } else { "them" }
+    ))
 }
 
 #[cfg(unix)]

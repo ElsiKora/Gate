@@ -44,6 +44,11 @@ pub(super) fn read(cache: &Cache, plugin: &Sha256Sum) -> Option<PluginInfo> {
 /// not parse, or names another plugin, is replaced by the run that loaded the plugin because of
 /// it. A cache that cannot be written costs the next run a load of the plugin, not a failure, so
 /// nothing is reported.
+/// Whether the cache holds a declaration of `plugin` under this core and plugin interface.
+pub(crate) fn stored(cache: &Cache, plugin: &Sha256Sum) -> bool {
+    cache.declaration(plugin, &key()).is_file()
+}
+
 pub(super) fn write(cache: &Cache, plugin: &Sha256Sum, info: &PluginInfo) {
     let key = key();
     let Ok(bytes) = serde_json::to_vec(&Stored::from(info)) else {

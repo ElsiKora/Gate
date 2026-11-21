@@ -725,7 +725,18 @@ with one key or both, each above 0, and `fail-after` above `warn-after`.
 
 | Option | Effect |
 | --- | --- |
-| `--timings` | prints the time of each phase of the run (snapshot, configuration, selection, plugins, total) to standard error |
-| `--warn-after <seconds>` | a run that takes longer is a `gate/budget` warning |
-| `--fail-after <seconds>` | a run that takes longer is a `gate/budget` error, so the gate fails; above `--warn-after` when both are given (exit `2` otherwise) |
+| `--timings` | prints the time of each phase of the run (snapshot, configuration, selection, plugins, total) to standard error, and how the plugins loaded: one line per plugin loaded, the plugins every call of which came from the result cache, and how many modules came from the module cache or were compiled |
+| `--warn-after <seconds>` | a run that takes longer, not counting the time spent compiling plugins, is a `gate/budget` warning |
+| `--fail-after <seconds>` | a run that takes longer, not counting the time spent compiling plugins, is a `gate/budget` error, so the gate fails; above `--warn-after` when both are given (exit `2` otherwise) |
 | `--fail-fast` | stops at the first error finding |
+
+Compiling does not count toward `--warn-after` and `--fail-after`. A plugin is compiled the first
+time it loads under a core: after a clone, a core upgrade or a plugin bump. A run that compiled
+says so in its `gate/budget` message, `the run took <n> ms, not counting <m> ms compiling <k>
+plugins`, and in its `--timings` line. To compile before the first commit, run `gate sync`, which
+loads every plugin `gate.lock` pins; `gate doctor` names the plugins not compiled yet.
+
+A plugin is loaded only for a call that runs. A call answered from the result cache needs the
+plugin's sha256 from `gate.lock` and what the plugin declares, which the cache keeps per sha256
+and core, but not the plugin itself. `gate.toml` and `gate.lock` are checked against each other
+first, as on every run, and the configuration against what each plugin declares.
