@@ -39,7 +39,10 @@ exceptions is dropped before the baseline sees it).
 - The CLI: `gate baseline write`, then `gate check` prints the count; a fixed finding lowers it.
 - The CLI: a baseline written over two identical findings passes its own check with
   `1 finding held back`.
+- After the merge: T-077's prune test sent the same keyed finding twice and expected one reported;
+  the dedup folds them into one, so its second finding is now on another line, which the keyed
+  entry matches and the dedup keeps apart.
 
 ## Resume point
 
-Code, tests and the review's fix round committed; round 432 queued.
+Merged as 0474c155; T-077's prune test adjusted to the dedup after the final round on 3e285e13.

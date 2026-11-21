@@ -741,10 +741,23 @@ fn a_prune_never_re_keys_an_entry_to_a_finding_an_entry_written_meanwhile_accept
     assert_eq!(pruned.removed.len(), 1, "{:?}", pruned.removed);
     assert_eq!(pruned.removed[0].key, None);
     assert_eq!(pruned.baseline.entries(), [BaselineEntry::of(&keyed)]);
-    // The pruned baseline accepts the finding once, so a second one is reported.
+    // The pruned baseline accepts the finding once, so a second one is reported. The second is on
+    // another line: the fingerprint leaves the line out, so the keyed entry matches it too, while
+    // `finish` folds two identical findings into one before the baseline sees them.
+    let mut second = keyed.clone();
+    second.location = Some(Location::File {
+        path: "apps/x.ts".to_owned(),
+        span: Some(Span {
+            line: 9,
+            column: 1,
+            end_line: 9,
+            end_column: 5,
+        }),
+    });
+    assert_eq!(second.fingerprint(), keyed.fingerprint());
     let mut sink = Findings::new();
-    sink.extend([keyed.clone(), keyed.clone()]);
-    assert_eq!(sink.finish(&[], &pruned.baseline, &ran_all()), [keyed]);
+    sink.extend([keyed, second.clone()]);
+    assert_eq!(sink.finish(&[], &pruned.baseline, &ran_all()), [second]);
 }
 
 #[test]
