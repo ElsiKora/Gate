@@ -244,6 +244,26 @@ impl Baseline {
         }
     }
 
+    /// [`Baseline::pruned`] for the entries `judged` holds too, the baseline as it was before the
+    /// findings were collected; every other entry, written meanwhile by another run from a tree
+    /// these findings may not reflect, is kept as it is.
+    #[must_use]
+    pub fn pruned_since(&self, judged: &Self, findings: &[Finding], ran: &RulesRan) -> Pruned {
+        let known: std::collections::BTreeSet<&BaselineEntry> = judged.entries.iter().collect();
+        let (seen, newer): (Vec<BaselineEntry>, Vec<BaselineEntry>) = self
+            .entries
+            .iter()
+            .cloned()
+            .partition(|entry| known.contains(entry));
+        let mut pruned = Self::from_entries(seen).pruned(findings, ran);
+        if !newer.is_empty() {
+            let mut entries = pruned.baseline.entries;
+            entries.extend(newer);
+            pruned.baseline = Self::from_entries(entries);
+        }
+        pruned
+    }
+
     /// The number of entries.
     #[must_use]
     pub fn len(&self) -> usize {

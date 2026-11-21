@@ -273,7 +273,11 @@ pub fn write_baseline(start: &Path) -> Result<BaselineWritten> {
 
     if let Some(directory) = path.parent() {
         std::fs::create_dir_all(directory).map_err(|error| {
-            Error::environment(format!("cannot create {}: {error}", directory.display()))
+            Error::environment(format!(
+                "cannot create {}: {error}; check that {} is writable, then run gate baseline write again",
+                directory.display(),
+                root.display()
+            ))
         })?;
     }
     let guard = lock::Guard::take_baseline(run.workspace.snapshot().git())?;
@@ -314,13 +318,15 @@ pub struct BaselinePruned {
 /// `gate check` reports as stale (they match no finding although their rule ran, an aspect set to
 /// `off` included) are removed. It never adds an entry, so a new finding stays reported. The file is
 /// rewritten only when an entry changes. The check runs first; then, holding the baseline's guard
-/// ([`lock::Guard::take_baseline`]), the run reads the file again, prunes what it reads and
-/// replaces it whole, so a baseline another run wrote meanwhile is pruned, never overwritten.
+/// ([`lock::Guard::take_baseline`]), the run reads the file again and replaces it whole. It removes
+/// or re-keys only entries the file held when the run started, which its check judged; an entry
+/// another run wrote meanwhile is kept as it is, never overwritten or judged against a tree it may
+/// not come from.
 ///
 /// # Errors
 /// Fails like [`check`], when the baseline does not load, when `gate/baseline.json` exists but git
-/// does not track it (gate would read none of it), when the guard cannot be taken, and when the
-/// file cannot be written.
+/// does not track it (gate would read none of it; checked again under the guard), when the guard
+/// cannot be taken, and when the file cannot be read or written.
 pub fn prune_baseline(start: &Path) -> Result<BaselinePruned> {
     let request = CheckRequest {
         source: Some(Source::WorkTree),
@@ -335,29 +341,34 @@ pub fn prune_baseline(start: &Path) -> Result<BaselinePruned> {
         .git()
         .paths(&["ls-files", "-z", "--", BASELINE_FILE])?
         .is_empty();
-    if path.exists() && !tracked {
-        return Err(Error::config(format!(
+    let untracked = || {
+        Error::config(format!(
             "{BASELINE_FILE} exists but git does not track it, and gate reads tracked files only; run git add {BASELINE_FILE} first, then gate baseline prune"
-        )));
+        ))
+    };
+    if path.exists() && !tracked {
+        return Err(untracked());
     }
     let findings = run.findings.finish(
         run.workspace.exceptions(),
         &Baseline::default(),
         &run.ran.per_scope,
     );
-    // Read under the guard: a baseline another run wrote while this one checked is what is pruned.
+    // Read under the guard: a baseline another run wrote while this one checked is the starting
+    // point, and of it only the entries this run's check judged are pruned.
     let guard = lock::Guard::take_baseline(run.workspace.snapshot().git())?;
     let current = match std::fs::read_to_string(&path) {
+        Ok(_) if !tracked => return Err(untracked()),
         Ok(text) => Baseline::parse(&text)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Baseline::default(),
         Err(error) => {
             return Err(Error::environment(format!(
-                "cannot read {}: {error}",
+                "cannot read {}: {error}; check that it is readable, then run gate baseline prune again",
                 path.display()
             )));
         }
     };
-    let pruned = current.pruned(&findings, &run.ran.per_scope);
+    let pruned = current.pruned_since(run.workspace.baseline(), &findings, &run.ran.per_scope);
     let unaccepted = pruned
         .baseline
         .accept(&findings)

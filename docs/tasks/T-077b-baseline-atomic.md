@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | reviewed (one fix round); its lane round follows |
 | Release | v0.3.0 |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `20480703` (T-076's `files::replace` and `lock::Guard`) |
-| Touches | `crates/gate-host/src/lib.rs`, `crates/gate-host/src/baseline.rs`, `crates/gate-host/src/lock/mod.rs`, `crates/gate/tests/plugins.rs`, `docs/guide/configuration.md`, `CHANGELOG.md` |
+| Touches | `crates/gate-host/src/lib.rs`, `crates/gate-host/src/baseline.rs`, `crates/gate-host/src/lock/mod.rs`, `crates/gate-host/src/files.rs`, `crates/gate/tests/plugins.rs`, `docs/guide/configuration.md`, `CHANGELOG.md` |
 
 ## Goal
 
@@ -50,7 +50,18 @@ and then writes it, and nothing orders two runs:
    `baseline write` replaces the file under the guard. A prune that waits for a write prunes what
    the write wrote, and a write that waits for a prune replaces what the prune wrote. The guard is
    held for one read and one write, not for the check.
-4. The baseline loaded when the workspace opened still decides what `gate check` reports. Prune
+4. **Only what the check judged.** Under the guard, prune removes or re-keys only the entries
+   that the baseline held when its workspace opened, before its check
+   (`Baseline::pruned_since`). An entry another run wrote meanwhile may come from a tree the
+   check never saw, so it is kept as it is. Without this, a prune whose check saw `x` while a
+   write added `z` and wrote `x`, `z` would remove `z`, and no serial order gives that result.
+5. **Untracked, checked again.** The untracked check runs again on the file read under the
+   guard. A `gate/baseline.json` that did not exist at check time but exists, untracked, under the
+   guard stops prune with the same error, as the guide says.
+6. **Errors say what to do.** A baseline that cannot be read under the guard, a directory that
+   cannot be created, and a replace that fails (`files::replace`, also used for `gate.lock` and
+   the files `gate sync` writes) now each name the next step.
+7. The baseline loaded when the workspace opened still decides what `gate check` reports. Prune
    uses it only to fail early on a file edited by hand (configuration error, exit 2, nothing
    written), as today. The re-read under the guard is checked the same way.
 
@@ -71,8 +82,15 @@ and then writes it, and nothing orders two runs:
      `removed 1`, so the test fails on "prune waited" and on its output. In a real overlap, that
      write would undo the other run's entry for `z`.
    - Order comes from the guard and the run's own output only, as in T-076.
-2. **Mutation step** in the lane round: remove the guard from `prune_baseline` and expect test 1
-   to fail.
+2. `a_baseline_prune_keeps_an_entry_written_meanwhile_from_a_tree_its_check_did_not_see`: the
+   committed baseline is `x`, `y`; the prune's tree reports only `x`. While prune waits, `z` is
+   added and the first run writes `x`, `z`. Expected: `removed 0 ... 2 kept`, and the file is
+   `x`, `z`. Without `pruned_since`, prune removes `z`.
+3. `a_baseline_that_appears_untracked_while_prune_checks_stops_it`: there is no baseline when
+   prune starts. An untracked one is written while prune waits. Expected: exit 2 with the
+   `git add` advice.
+4. **Mutation steps** in the lane round: the guard removed from `prune_baseline` (test 1 must
+   fail), and `pruned_since` replaced by `pruned` (test 2 must fail).
 
 ## Done when
 
@@ -86,5 +104,9 @@ and then writes it, and nothing orders two runs:
 
 ## Resume point
 
-2026-11-21T03:57:57+00:00: task note written on `task/T-077b-baseline-atomic` from `20480703`,
-as the lead asked (no separate approval step). Next: the code, the test, one lane round, review.
+2026-11-21T03:57:57+00:00: task note written on `task/T-077b-baseline-atomic` from `20480703`.
+2026-11-21T04:05:17+00:00: code and test 1 in `80d980cb`. Independent review: nothing blocks, with
+one fix round: prune judges only entries its check saw (`pruned_since`, test 2), the untracked
+check is repeated under the guard (test 3), the read, create and replace errors name the next step,
+and this note is current. Round 419 on `80d980cb` was withdrawn before it started (by its process
+group). Next: one lane round on the fixed tip, then the merge.

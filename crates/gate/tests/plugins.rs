@@ -5098,6 +5098,70 @@ fn a_baseline_prune_waits_for_a_baseline_written_meanwhile_and_prunes_that() {
 }
 
 #[test]
+fn a_baseline_prune_keeps_an_entry_written_meanwhile_from_a_tree_its_check_did_not_see() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x", "y"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+    let committed = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+    // What a first run writes once `z` is added: `x` and `z`.
+    read_with(&repo, r#"{ paths = ["x", "z"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let written = std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file");
+    // The tree the prune checks reports `x` only; the baseline is the committed `x` and `y`.
+    read_with(&repo, r#"{ paths = ["x"] }"#);
+    repo.write("gate/baseline.json", &committed);
+
+    let first = hold_baseline_guard(&repo);
+    let (prune, lines) = spawn_gate(&repo, &["baseline", "prune"]);
+    let prune_waited = waited(&lines);
+    // Meanwhile `z` is added and the first run writes its baseline, then lets go.
+    read_with(&repo, r#"{ paths = ["x", "z"] }"#);
+    repo.write("gate/baseline.json", &written);
+    drop(first);
+    let output = prune.wait_with_output().expect("gate");
+    let said: Vec<String> = lines.iter().collect();
+
+    assert!(prune_waited, "prune waited: {said:?}");
+    assert_eq!(output.status.code(), Some(0), "{said:?}");
+    assert!(
+        text(&output.stdout)
+            .contains("gate/baseline.json: re-keyed 0, removed 0, added none; 2 kept"),
+        "prune judges only the entries its check saw: {}",
+        text(&output.stdout)
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("gate/baseline.json")).expect("file"),
+        written,
+        "the entry for z, which the prune's check never judged, is kept"
+    );
+}
+
+#[test]
+fn a_baseline_that_appears_untracked_while_prune_checks_stops_it() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x"] }"#);
+
+    // No baseline when prune starts; an untracked one is written while prune checks.
+    let first = hold_baseline_guard(&repo);
+    let (prune, lines) = spawn_gate(&repo, &["baseline", "prune"]);
+    let prune_waited = waited(&lines);
+    repo.write("gate/baseline.json", "{\n  \"findings\": []\n}\n");
+    drop(first);
+    let output = prune.wait_with_output().expect("gate");
+    let said = lines.iter().collect::<Vec<_>>().join("\n");
+
+    assert!(prune_waited, "prune waited: {said}");
+    assert_eq!(output.status.code(), Some(2), "{said}");
+    assert!(
+        said.contains("run git add gate/baseline.json first, then gate baseline prune"),
+        "{said}"
+    );
+}
+
+#[test]
 fn baseline_prune_re_keys_an_entry_written_before_its_plugin_keyed_the_finding() {
     let repo = pinned_probe_repo();
     read_with(
