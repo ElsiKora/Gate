@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Option 1 approved by the lead; code written on the stack tip, waiting for the stack, T-080 and T-069 on `main` |
+| Status | Option 1 approved by the lead; code rebased onto `main` `6b36eeac` (the stack and T-069); one lane round, then review |
 | Release | v0.3.0 (the request's meaning for the repository call, on `gate:plugin@0.3.0`, unreleased) |
 | Writer | "Gate 006" |
 | Reviewer | a separate review session |
@@ -215,12 +215,7 @@ Each new rule's page, with its example finding run against a synthetic tree.
 
 ## Resume point
 
-2026-11-20T21:09:19+00:00: Option 1 written on the stack tip `0ac71f9`, not yet built (no lane
-round): `config-file` in `check-request` (WIT, SDK `Call::config_file`/`Run::config_file`, runtime,
-host `own_config`); the repository call carries the root file's decisions when the root is not a
-project; `ledger/root-rule-decisions`, `ledger/root-exception-decisions` and
-`ledger/root-exception-owners` share `judge`, `judge_decisions` and `judge_owners` with their project
-rules; the probe's `root-decisions` and `config-file` rules; ledger, host and end-to-end tests; the
-pages, guides and changelogs. Next: once the stack, T-080 and T-069 are on `main`, rebase, take
-T-080's fields, add the three rules to `ledger/recommended` and `ledger/adoption`, then one lane
-round and the review.
+2026-11-21T02:28:10+00:00: rebased onto `main` `6b36eeac`, which holds the stack and T-069; T-080 adds no
+`check-request` field, so nothing waits for it. The three `root-` rules joined `ledger/recommended`
+and `ledger/adoption`, with end-to-end tests for a root that extends the preset and for a
+single-project repository on it. Next: one lane round on the pushed tip, then the review.
