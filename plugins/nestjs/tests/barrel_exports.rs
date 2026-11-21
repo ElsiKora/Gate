@@ -50,7 +50,8 @@ fn complete_barrels_and_listed_entrypoints_pass() {
     assert_eq!(check(RULE, PRIVATE, &clean()), []);
 }
 
-/// The clean tree with its one runtime started from the source root's `main.ts`, as NestJS has it.
+/// The clean tree with its one runtime started from the source root's `main.ts`, as a Nest app has
+/// it.
 fn nest_app() -> Vec<(&'static str, &'static str)> {
     with(&[
         ("src/runtime/api/main.ts", ""),

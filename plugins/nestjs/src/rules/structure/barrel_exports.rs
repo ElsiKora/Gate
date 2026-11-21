@@ -32,7 +32,7 @@ pub struct BarrelExports;
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct Options {
     /// The source files that are private runtime entrypoints: no barrel exports them and they are
-    /// no exportable entry of their folder. Unset, the one entry point NestJS starts from:
+    /// no exportable entry of their folder. Unset, the one entry point the application starts from:
     /// `<layout.source-root>/main.ts` (the source root's file that ends with `entrypoint-suffix`).
     /// An empty list approves none, so every entrypoint is reported.
     pub private_entrypoints: Option<Vec<String>>,
