@@ -83,25 +83,33 @@ impl Guard {
 
     /// Takes the `gate.lock` guard of every worktree of each repository at `repositories`, for a
     /// `gate cache prune` that removes what no lock pins: a `gate lock` in any of them admits a
-    /// blob that only its own lock will pin. Each guard is taken once, in the order of the git
-    /// directories, so two prunes cannot wait for each other. A bare repository and a worktree
-    /// whose directory is gone have no `gate.lock` and no run to wait for, and are skipped.
+    /// blob that only its own lock will pin. Each guard is taken once, however its git directory
+    /// is reached (a symlink, a second mount point), and in one fixed order (device and inode on
+    /// Unix, the canonical path elsewhere), so two prunes cannot wait for each other. A bare
+    /// repository, a worktree whose directory is gone, and one whose directory holds no `.git`
+    /// (a locked worktree on media that is not mounted) have no `gate.lock` and no run to wait
+    /// for, and are skipped.
     ///
     /// # Errors
     /// Fails when a path is not in a git repository, or a guard cannot be taken, saying what to do.
     pub fn take_worktrees(repositories: &[PathBuf]) -> Result<Vec<Self>> {
-        let mut directories = BTreeSet::new();
+        let mut directories: BTreeMap<GuardKey, PathBuf> = BTreeMap::new();
         for repository in repositories {
             for worktree in worktrees(&Git::discover(repository)?)? {
-                if worktree.bare || worktree.prunable || !worktree.root.is_dir() {
+                if worktree.bare
+                    || worktree.prunable
+                    || worktree.root.join(".git").symlink_metadata().is_err()
+                {
                     continue;
                 }
                 let directory = Git::discover(&worktree.root)?.git_dir()?;
-                directories.insert(std::fs::canonicalize(&directory).unwrap_or(directory));
+                directories
+                    .entry(guard_key(&directory)?)
+                    .or_insert(directory);
             }
         }
         directories
-            .iter()
+            .values()
             .map(|directory| Self::take_at(&directory.join(GUARD_FILE), directory, LOCK_FILE))
             .collect()
     }
@@ -408,6 +416,35 @@ pub fn pinned_in(path: &Path, pinned: &mut Pinned) -> Result<()> {
     Ok(())
 }
 
+/// What identifies a git directory for its guard: two paths to one directory, through a symlink
+/// or a second mount point, give one key, so one run never takes one lock twice and waits for
+/// itself.
+#[cfg(unix)]
+type GuardKey = (u64, u64);
+#[cfg(not(unix))]
+type GuardKey = PathBuf;
+
+/// The [`GuardKey`] of the git directory `directory`: its device and inode on Unix, its canonical
+/// path elsewhere.
+fn guard_key(directory: &Path) -> Result<GuardKey> {
+    let unreadable = |error: std::io::Error| {
+        Error::environment(format!(
+            "cannot read {}: {error}; check that it exists and is readable",
+            directory.display()
+        ))
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let metadata = std::fs::metadata(directory).map_err(unreadable)?;
+        Ok((metadata.dev(), metadata.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::canonicalize(directory).map_err(unreadable)
+    }
+}
+
 /// One entry of `git worktree list --porcelain`.
 struct Worktree {
     root: PathBuf,
@@ -416,21 +453,33 @@ struct Worktree {
 }
 
 /// The worktrees of the repository `git` is in, as git lists them; the work tree `git` is in when
-/// git lists none.
+/// git lists none. The listing is read as bytes, so a path that is not UTF-8 is still a worktree.
 fn worktrees(git: &Git) -> Result<Vec<Worktree>> {
-    let listing = git.output(&["worktree", "list", "--porcelain"])?;
+    let listing = git.output(&["worktree", "list", "--porcelain", "-z"])?;
     let mut worktrees: Vec<Worktree> = Vec::new();
-    for line in String::from_utf8_lossy(&listing).lines() {
-        if let Some(root) = line.strip_prefix("worktree ") {
+    for field in listing.split(|byte| *byte == 0) {
+        if let Some(root) = field.strip_prefix(b"worktree ") {
+            #[cfg(unix)]
+            let root = {
+                use std::os::unix::ffi::OsStrExt as _;
+                PathBuf::from(std::ffi::OsStr::from_bytes(root))
+            };
+            #[cfg(not(unix))]
+            let root = PathBuf::from(std::str::from_utf8(root).map_err(|_| {
+                Error::environment(format!(
+                    "git lists a worktree whose path is not UTF-8 ({}); move it to a UTF-8 path",
+                    String::from_utf8_lossy(root)
+                ))
+            })?);
             worktrees.push(Worktree {
-                root: PathBuf::from(root),
+                root,
                 bare: false,
                 prunable: false,
             });
         } else if let Some(worktree) = worktrees.last_mut() {
-            if line == "bare" {
+            if field == b"bare" {
                 worktree.bare = true;
-            } else if line == "prunable" || line.starts_with("prunable ") {
+            } else if field == b"prunable" || field.starts_with(b"prunable ") {
                 worktree.prunable = true;
             }
         }
@@ -792,6 +841,18 @@ pub fn set(wanted: &Wanted, existing: Option<Lock>, name: &PluginName, pin: Pin)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_git_directory_reached_through_a_symlink_has_one_guard() {
+        let directory = tempfile::tempdir().expect("directory");
+        let other = tempfile::tempdir().expect("other");
+        let link = other.path().join("link");
+        std::os::unix::fs::symlink(directory.path(), &link).expect("symlink");
+        let key = guard_key(directory.path()).expect("key");
+        assert_eq!(guard_key(&link).expect("key"), key);
+        assert_ne!(guard_key(other.path()).expect("key"), key);
+    }
 
     fn sum(digit: char) -> Sha256Sum {
         Sha256Sum::parse(&digit.to_string().repeat(64)).expect("checksum")

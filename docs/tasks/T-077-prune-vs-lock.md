@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved; parts one and two written on the branch; its lane round waits for T-085 |
+| Status | parts one and two reviewed, with one fix round; its lane round waits for T-085 |
 | Release | v0.3.0 |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
@@ -86,12 +86,17 @@ A second test, `a_cache_prune_without_yes_takes_no_guard`, holds the guard and e
 run (no `--yes`) to finish at once without the waiting line. A listing removes nothing, so it must
 not block behind a `gate lock` that is downloading for minutes.
 
-Two more cover the worktrees. `a_cache_prune_waits_for_a_lock_run_in_another_worktree` holds the
+Three more cover the worktrees. `a_cache_prune_waits_for_a_lock_run_in_another_worktree` holds the
 guard of a linked worktree only and expects a prune started in the main one to wait for it.
-`a_cache_prune_given_one_worktree_twice_takes_its_guard_once` gives prune the repository, its
-linked worktree and the repository again, with no guard held, and expects it to finish without the
-waiting line. A guard taken twice by one process waits for itself and never ends, so the guards
-are taken once per git directory, canonicalized.
+`a_cache_prune_given_one_worktree_by_its_path_and_through_a_symlink_takes_its_guard_once` gives
+prune a linked worktree by its path and through a symlink, with no guard held, and expects it to
+finish without the waiting line. A guard taken twice by one process waits for itself and never
+ends, so the guards are taken once per git directory, keyed by device and inode on Unix (the
+canonical path elsewhere). Git resolves the symlink itself, so the unit test
+`a_git_directory_reached_through_a_symlink_has_one_guard` checks the key directly.
+`a_cache_prune_skips_a_locked_worktree_whose_directory_is_empty` locks a linked worktree and
+empties its directory, as when its media is not mounted, and expects prune to skip it and exit 0.
+All of them put the run's stderr in their failure messages.
 
 ## The fix: prune takes the same guard
 
@@ -113,12 +118,18 @@ are taken once per git directory, canonicalized.
    common directory would serialize every worktree's `gate lock` against the others, which is
    wider than T-076 needs, so the layout stays.
 2. `lock::Guard::take_worktrees` takes the guards: one per worktree root from
-   `git worktree list --porcelain`, of every repository given, each git directory once, taken in
-   the order of their paths, so two prunes over the same repositories cannot deadlock. Prune takes
-   them before `lock::pinned_in` reads the first lock, and `pinned_in` reads the same listing. No
-   other command takes more than one guard.
-3. A worktree whose directory is gone (`prunable` in the listing), and a bare repository, have no
-   `gate.lock` to pin and no run to wait for, so they are skipped: `Lock::read` already reads it as no lock, and
+   `git worktree list --porcelain -z`, read as bytes so that a path that is not UTF-8 is still
+   guarded and read, of every repository given. Each git directory is taken once, keyed and
+   ordered by device and inode on Unix (the canonical path elsewhere), so one directory reached
+   through two paths is not locked twice, and two prunes over the same repositories take the
+   guards in one order and cannot deadlock. Prune takes them before `lock::pinned_in` reads the
+   first lock, and `pinned_in` reads the same listing. No other command takes more than one guard.
+   The two listings are two `git worktree list` runs: a worktree added between them is read by
+   `pinned_in` but not guarded, so a `gate lock --set` started in it within that window of a few
+   milliseconds can still lose its build to the prune.
+3. A worktree whose directory is gone (`prunable` in the listing), a bare repository, and a
+   worktree whose directory holds no `.git` (a locked worktree on media that is not mounted) have
+   no `gate.lock` to pin and no run to wait for, so they are skipped: `Lock::read` already reads it as no lock, and
    `Git::discover` would fail on it. A guard that cannot be
    taken fails the prune, before anything is removed, with T-076's message
    (`cannot lock <guard> ...; check that <git directory> is writable ...`) and "nothing was pruned"
@@ -169,7 +180,7 @@ finding again and expects the test to fail.
 
 ## Done when
 
-- The four tests pass, and the two that wait fail with the guards removed from prune (the
+- The six tests pass, and the two that wait fail with the guards removed from prune (the
   mutation step).
 - Part two's test passes, and fails under its mutation step.
 - One lane round on the pushed tip, on this task's own target directory: fmt, clippy, test, deny
@@ -200,3 +211,8 @@ merged, rebase onto main and run the lane round with its mutation step.
 their findings first, with a host test and a second mutation step in the round script. Next: the
 independent review of the branch, then, once T-085 has merged, the rebase and one lane round for
 both parts.
+2026-11-21T06:01:45+00:00: independent review of `a47c6526`: nothing blocks, with one fix round. A worktree with no
+`.git` is skipped, the listing is read with `-z` as bytes, guard directories are keyed by device
+and inode, the window between the two listings is stated, and the tests put stderr in their
+messages, with a symlink case, an empty locked worktree and a unit test of the key. Next: once
+T-085 has merged, the rebase and one lane round for both parts.
