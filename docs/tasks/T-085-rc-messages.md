@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | 0.3.0 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |
@@ -78,6 +78,16 @@ its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
   leak scan prints nothing.
 
 ## Resume point
+
+2026-11-21T07:06:11+00:00: the fix round is green.
+- Lane ticket 426, on `b43b5e2`, stopped at clippy (exit 101). The new helper was named `stored`,
+  and `plugins.rs` already uses that name. It is now `usable_declaration` (`b750025`).
+- Lane ticket 431 ran on `b750025` and exited 0 after 794 s. fmt, clippy, the workspace tests
+  (1515 passed, 0 failed), deny and the release build each exited 0.
+- The log check found no crate missing. `gate`, `gate-host`, `gate-plugin-git` and
+  `gate-plugin-docs` were compiled from the round worktree, and the new test is listed as `ok`.
+
+Next: the lead's merge.
 
 2026-11-21T04:48:37+00:00: the review's fix round is written.
 - The budget help drops the plugin compile; T-086 stops counting it.
