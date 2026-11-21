@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use gate_host::config::{Options, RuleRef, SettingOrigin, Settings};
 use gate_host::projects::display_root;
-use gate_host::{ScopedException, Workspace};
+use gate_host::{PluginOverride, PresetSetting, PresetSettings, ScopedException, Workspace};
 use serde_json::json;
 
 /// What `gate explain` asks about: one rule, one aspect, or every rule of a plugin.
@@ -75,16 +75,59 @@ impl Subject {
     }
 }
 
+/// What the presets of each scope set, or why it could not be read: `gate list` and `gate
+/// explain` still print what the `gate.toml` files write, and say why the presets' rules are
+/// missing.
+#[derive(Debug)]
+pub struct Presets {
+    settings: Result<PresetSettings, gate_host::Error>,
+}
+
+impl Presets {
+    /// Reads what the presets set from what each declared plugin declares, `overrides` read
+    /// instead of their pins.
+    pub fn read(workspace: &Workspace, overrides: &[PluginOverride]) -> Self {
+        Self {
+            settings: gate_host::preset_settings(workspace, overrides),
+        }
+    }
+
+    /// The settings the presets give the repository (`None`) or a project.
+    fn of(&self, project: Option<&str>) -> &[PresetSetting] {
+        self.settings
+            .as_ref()
+            .ok()
+            .and_then(|settings| settings.get(&project.map(ToOwned::to_owned)))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    /// Why the presets' rules are not shown, when they could not be read.
+    fn missing(&self) -> Option<String> {
+        self.settings.as_ref().err().map(|error| {
+            format!(
+                "the rules the presets turn on are not shown: {}",
+                error.message()
+            )
+        })
+    }
+}
+
 /// One setting as `gate list` prints it.
 struct Row<'a> {
     kind: &'static str,
     key: String,
     value: String,
     origin: &'a SettingOrigin,
+    /// The preset that gives the setting, `<plugin>/<preset>`; `None` for what a `gate.toml`
+    /// writes.
+    preset: Option<&'a str>,
 }
 
-/// Every setting of `settings`, one row each, in a stable order.
-fn rows(settings: &Settings) -> Vec<Row<'_>> {
+/// Every setting of `settings` and of the presets it extends (`presets`), one row each, in a
+/// stable order: the presets' rules come before the families and the `[rules]` entries, which win
+/// over them.
+fn rows<'a>(settings: &'a Settings, presets: &'a [PresetSetting]) -> Vec<Row<'a>> {
     let mut rows = Vec::new();
 
     for (name, plugin) in &settings.plugins {
@@ -113,6 +156,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
             key: name.to_string(),
             value: format!("{}{options}{reads}", plugin.value.source),
             origin: &plugin.origin,
+            preset: None,
         });
     }
 
@@ -122,6 +166,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
             key: id.clone(),
             value: language.value.to_string(),
             origin: &language.origin,
+            preset: None,
         });
     }
 
@@ -131,6 +176,17 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
             key: preset.value.to_string(),
             value: String::new(),
             origin: &preset.origin,
+            preset: None,
+        });
+    }
+
+    for setting in presets {
+        rows.push(Row {
+            kind: "rule",
+            key: setting.key.clone(),
+            value: format!("{} (preset {})", setting.value, setting.preset),
+            origin: &setting.origin,
+            preset: Some(&setting.preset),
         });
     }
 
@@ -140,6 +196,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
             key: format!("{plugin}/*"),
             value: format!("level {}", setting.value),
             origin: &setting.origin,
+            preset: None,
         });
     }
 
@@ -150,6 +207,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
                 key: rule.to_string(),
                 value: format!("level {}", level.value),
                 origin: &level.origin,
+                preset: None,
             });
         }
         if let Some(norm) = &entry.norm {
@@ -158,6 +216,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
                 key: rule.to_string(),
                 value: format!("norm {}", norm.value),
                 origin: &norm.origin,
+                preset: None,
             });
         }
         if let Some(options) = &entry.options {
@@ -166,6 +225,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
                 key: rule.to_string(),
                 value: describe_options(&options.value),
                 origin: &options.origin,
+                preset: None,
             });
         }
         for (aspect, level) in &entry.levels {
@@ -174,6 +234,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
                 key: format!("{rule}#{aspect}"),
                 value: format!("level {}", level.value),
                 origin: &level.origin,
+                preset: None,
             });
         }
         for (aspect, norm) in &entry.norms {
@@ -182,6 +243,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
                 key: format!("{rule}#{aspect}"),
                 value: format!("norm {}", norm.value),
                 origin: &norm.origin,
+                preset: None,
             });
         }
     }
@@ -196,6 +258,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
                 .map(describe_options)
                 .unwrap_or_default(),
             origin: &entry.origin,
+            preset: None,
         });
     }
 
@@ -216,6 +279,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
             key: name.to_string(),
             value,
             origin: &step.origin,
+            preset: None,
         });
     }
 
@@ -235,6 +299,7 @@ fn rows(settings: &Settings) -> Vec<Row<'_>> {
             key: name.to_string(),
             value,
             origin: &suite.origin,
+            preset: None,
         });
     }
 
@@ -268,14 +333,18 @@ fn write_rows(out: &mut String, indent: &str, rows: &[Row<'_>], origin: bool) {
 }
 
 /// The scopes `gate list` prints: the repository's own settings when the top is not a project,
-/// then each project's merged settings.
-fn scopes(workspace: &Workspace) -> Vec<(String, &Settings)> {
+/// then each project's merged settings; each with the settings its presets give it.
+fn scopes<'a>(
+    workspace: &'a Workspace,
+    presets: &'a Presets,
+) -> Vec<(String, &'a Settings, &'a [PresetSetting])> {
     let mut scopes = Vec::new();
 
     if !workspace.root_is_project() {
         scopes.push((
             format!("repository ({})", workspace.root_config().path()),
             workspace.repository(),
+            presets.of(None),
         ));
     }
 
@@ -284,6 +353,7 @@ fn scopes(workspace: &Workspace) -> Vec<(String, &Settings)> {
             scopes.push((
                 format!("project {} ({})", project.name, display_root(&project.root)),
                 settings,
+                presets.of(Some(&project.name)),
             ));
         }
     }
@@ -291,9 +361,10 @@ fn scopes(workspace: &Workspace) -> Vec<(String, &Settings)> {
     scopes
 }
 
-/// The projects, then the settings of the repository and of each project; with `origin`, the
-/// file, line and section each setting came from.
-pub fn text(workspace: &Workspace, origin: bool) -> String {
+/// The projects, then the settings of the repository and of each project, the rules their presets
+/// turn on included; with `origin`, the file, line and section each setting came from (for a
+/// preset's rule, its `extends` entry).
+pub fn text(workspace: &Workspace, presets: &Presets, origin: bool) -> String {
     let mut out = String::new();
     let projects = workspace.projects();
     let _ = writeln!(out, "projects ({}):", projects.len());
@@ -330,13 +401,16 @@ pub fn text(workspace: &Workspace, origin: bool) -> String {
         .collect();
     write_table(&mut out, "  ", &table);
 
-    for (title, settings) in scopes(workspace) {
+    for (title, settings, preset_settings) in scopes(workspace, presets) {
         let _ = writeln!(out, "{title}:");
-        let rows = rows(settings);
+        let rows = rows(settings, preset_settings);
         if rows.is_empty() {
             let _ = writeln!(out, "  nothing configured");
         }
         write_rows(&mut out, "  ", &rows, origin);
+    }
+    if let Some(missing) = presets.missing() {
+        let _ = writeln!(out, "{missing}");
     }
 
     out
@@ -366,16 +440,20 @@ fn write_table<const N: usize>(out: &mut String, indent: &str, rows: &[[String; 
     }
 }
 
-fn settings_json(settings: &Settings) -> serde_json::Value {
-    let rows: Vec<serde_json::Value> = rows(settings)
+fn settings_json(settings: &Settings, presets: &[PresetSetting]) -> serde_json::Value {
+    let rows: Vec<serde_json::Value> = rows(settings, presets)
         .iter()
         .map(|row| {
-            json!({
+            let mut value = json!({
                 "kind": row.kind,
                 "key": row.key,
                 "value": row.value,
                 "origin": row.origin,
-            })
+            });
+            if let (Some(preset), Some(object)) = (row.preset, value.as_object_mut()) {
+                object.insert("preset".to_owned(), json!(preset));
+            }
+            value
         })
         .collect();
     let options: serde_json::Map<String, serde_json::Value> = settings
@@ -391,35 +469,41 @@ fn settings_json(settings: &Settings) -> serde_json::Value {
     json!({ "settings": rows, "options": options })
 }
 
-/// The same as [`text`], as JSON, origins included.
-pub fn json(workspace: &Workspace) -> Result<String, gate_host::Error> {
+/// The same as [`text`], as JSON, origins included; a preset's rule carries its `preset`, and
+/// `presets-error` says why the presets' rules are missing when they could not be read.
+pub fn json(workspace: &Workspace, presets: &Presets) -> Result<String, gate_host::Error> {
     let settings: serde_json::Map<String, serde_json::Value> = workspace
         .projects()
         .iter()
         .filter_map(|project| {
-            workspace
-                .settings(&project.name)
-                .map(|settings| (project.name.clone(), settings_json(settings)))
+            workspace.settings(&project.name).map(|settings| {
+                (
+                    project.name.clone(),
+                    settings_json(settings, presets.of(Some(&project.name))),
+                )
+            })
         })
         .collect();
     let value = json!({
         "projects": workspace.projects(),
-        "repository": settings_json(workspace.repository()),
+        "repository": settings_json(workspace.repository(), presets.of(None)),
         "project-settings": settings,
+        "presets-error": presets.missing(),
     });
     let mut out = serde_json::to_string_pretty(&value)?;
     out.push('\n');
     Ok(out)
 }
 
-/// What the configuration says about `subject`, in every scope, with origins.
-pub fn explain(workspace: &Workspace, subject: &Subject, name: &str) -> String {
+/// What the configuration says about `subject`, in every scope, with origins: the `gate.toml`
+/// files and the presets they extend.
+pub fn explain(workspace: &Workspace, presets: &Presets, subject: &Subject, name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{name}");
     let mut found = false;
 
-    for (title, settings) in scopes(workspace) {
-        let related: Vec<Row<'_>> = rows(settings)
+    for (title, settings, preset_settings) in scopes(workspace, presets) {
+        let related: Vec<Row<'_>> = rows(settings, preset_settings)
             .into_iter()
             .filter(|row| {
                 (row.kind == "rule" && subject.concerns(&row.key))
@@ -465,8 +549,17 @@ pub fn explain(workspace: &Workspace, subject: &Subject, name: &str) -> String {
         }
     }
 
-    if !found {
-        let _ = writeln!(out, "  no gate.toml configures it");
+    match presets.missing() {
+        Some(missing) => {
+            if !found {
+                let _ = writeln!(out, "  no gate.toml configures it");
+            }
+            let _ = writeln!(out, "  {missing}");
+        }
+        None if !found => {
+            let _ = writeln!(out, "  no gate.toml or preset configures it");
+        }
+        None => {}
     }
 
     out

@@ -654,6 +654,8 @@ struct Parsed {
     /// The message as given, comments included, with the appended line feed.
     raw: String,
     header: Option<String>,
+    /// Whether the header matches the header pattern: a header that does not has no part.
+    formed: bool,
     kind: Option<String>,
     scope: Option<String>,
     subject: Option<String>,
@@ -894,6 +896,7 @@ impl Parsed {
                         .map(|found| found.as_str().to_owned())
                         .filter(|text| !text.is_empty())
                 };
+                parsed.formed = true;
                 parsed.kind = group("type");
                 parsed.scope = group("scope");
                 parsed.subject = group("subject");
@@ -1238,6 +1241,15 @@ fn type_checks(
     form: &str,
 ) {
     let header = parsed.header.as_deref().unwrap_or_default();
+    if parsed.header.is_some() && !parsed.formed {
+        // One finding for a header without the form; its scope and subject are not judged apart.
+        found.add(
+            "type-empty",
+            format!("the header {header:?} does not have the form <type>(<scope>): <subject>"),
+            form,
+        );
+        return;
+    }
     let Some(kind) = present(parsed.kind.as_ref()) else {
         found.add(
             "type-empty",
@@ -1269,6 +1281,10 @@ fn scope_checks(
     form: &str,
 ) {
     let header = parsed.header.as_deref().unwrap_or_default();
+    if parsed.header.is_some() && !parsed.formed {
+        // `type-empty` reported the header.
+        return;
+    }
     let Some(scope) = present(parsed.scope.as_ref()) else {
         found.add(
             "scope-empty",
@@ -1311,6 +1327,8 @@ fn subject_checks(
     let header = parsed.header.as_deref();
     let subject = present(parsed.subject.as_ref());
     match subject {
+        // `type-empty` reported a header without the form.
+        None if header.is_some() && !parsed.formed => {}
         None => found.add(
             "subject-empty",
             format!("the header {:?} has no subject", header.unwrap_or_default()),

@@ -109,6 +109,33 @@ fn each_header_type_and_scope_check_fails_as_the_reference_fails_it() {
 }
 
 #[test]
+fn a_header_without_the_form_is_one_finding_that_says_so() {
+    let found = findings(Some("wip"), "{}");
+    let parts: Vec<&Finding> = found
+        .iter()
+        .filter(|finding| finding.aspect.ends_with("-empty"))
+        .collect();
+    assert_eq!(parts.len(), 1, "{found:?}");
+    assert_eq!(parts[0].aspect, "type-empty");
+    assert_eq!(
+        parts[0].message,
+        "the header \"wip\" does not have the form <type>(<scope>): <subject>"
+    );
+    // A header with the form and an empty part still names the part.
+    assert_eq!(
+        findings(Some("feat(core): "), "{}")
+            .iter()
+            .map(|finding| (finding.aspect.as_str(), finding.message.as_str()))
+            .filter(|(aspect, _)| aspect.ends_with("-empty"))
+            .collect::<Vec<_>>(),
+        [(
+            "subject-empty",
+            "the header \"feat(core): \" has no subject"
+        )]
+    );
+}
+
+#[test]
 fn each_subject_body_and_footer_check_fails_as_the_reference_fails_it() {
     let long_body = format!("{}.", "b".repeat(100));
     let cases: Vec<(String, &str, Vec<&str>)> = vec![
@@ -120,7 +147,7 @@ fn each_subject_body_and_footer_check_fails_as_the_reference_fails_it() {
         (
             "feat(core) add the thing".to_owned(),
             "{}",
-            vec!["type-empty", "scope-empty", "subject-empty"],
+            vec!["type-empty"],
         ),
         (
             "feat(core): ab".to_owned(),
@@ -287,7 +314,7 @@ fn merges_reverts_fixups_and_releases_are_not_checked() {
     // Close to an ignored form, but not one.
     assert_eq!(
         aspects(Some("Merging things in"), "{}"),
-        ["header-case", "type-empty", "scope-empty", "subject-empty"]
+        ["header-case", "type-empty"]
     );
     assert_eq!(
         aspects(Some("chore(Release): 1.2"), "{}"),
@@ -423,12 +450,7 @@ fn without_the_default_ignores_a_fixup_is_checked() {
     assert_eq!(aspects(Some("fixup! x"), "{}"), Vec::<String>::new());
     assert_eq!(
         aspects(Some("fixup! x"), r#"{"default-ignores": false}"#),
-        [
-            "header-min-length",
-            "type-empty",
-            "scope-empty",
-            "subject-empty"
-        ]
+        ["header-min-length", "type-empty"]
     );
     // The repository's own ignores are added to the defaults.
     assert_eq!(

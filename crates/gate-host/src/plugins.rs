@@ -26,7 +26,7 @@ use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
     Config, LevelSetting, PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting,
-    Settings, Sourced,
+    SettingOrigin, Settings, Sourced,
 };
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
@@ -295,10 +295,8 @@ pub(crate) fn load(
     let mut loading = Vec::new();
     for plugin in declared {
         let from_cache = (!needed.wants(&plugin.name))
-            .then(|| declarations::read(&cache, &plugin.sha256))
-            .flatten()
-            .filter(|info| info.name == plugin.source.plugin)
-            .and_then(|info| Declaration::of(&plugin.name, info).ok());
+            .then(|| usable_declaration(&cache, &plugin))
+            .flatten();
         match from_cache {
             Some(declaration) => {
                 stored.insert(plugin.name, declaration);
@@ -311,6 +309,15 @@ pub(crate) fn load(
     loaded.plugins.retain(|name, _| needed.wants(name));
     loaded.declarations.extend(stored);
     Ok(Some(loaded))
+}
+
+/// What the cache stores for `plugin` when [`load`] can use it instead of loading the plugin: an
+/// entry of that plugin that makes a valid declaration. `None` otherwise, and [`load`] then loads
+/// the plugin, from the cache or fetched.
+fn usable_declaration(cache: &Cache, plugin: &Declared) -> Option<Declaration> {
+    declarations::read(cache, &plugin.sha256)
+        .filter(|info| info.name == plugin.source.plugin)
+        .and_then(|info| Declaration::of(&plugin.name, info).ok())
 }
 
 /// A declared plugin: its one source and the sha256 of the bytes that load for it.
@@ -1512,6 +1519,106 @@ impl Generators for PluginGenerators<'_> {
     }
 }
 
+/// One setting a preset gives a scope: what `gate list` and `gate explain` show beside what the
+/// `gate.toml` files write.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PresetSetting {
+    /// `<plugin>/<rule>`, or `<plugin>/<rule>#<aspect>` for an aspect's level.
+    pub key: String,
+    /// `level <level>` or `options`.
+    pub value: String,
+    /// The preset, `<plugin>/<preset>`.
+    pub preset: String,
+    /// The `extends` entry that brought the preset in.
+    pub origin: SettingOrigin,
+}
+
+/// The settings the presets of each scope give its rules of that scope, later presets over
+/// earlier: the repository's under `None`, each project's under its name. A `[rules]` entry or a
+/// family level of the scope wins over them, as in a run.
+pub type PresetSettings = BTreeMap<Option<String>, Vec<PresetSetting>>;
+
+/// What the presets every scope extends set, read from what each declared plugin declares: its
+/// stored declaration, else the plugin from the cache, loaded without running. Nothing is
+/// downloaded. `overrides` are the `--plugin` builds to read instead of their pins.
+///
+/// # Errors
+/// Fails on no or a stale `gate.lock`, a pinned plugin the cache holds nothing for (run `gate
+/// sync` once), an override that cannot be read, a plugin that does not load, or an `extends`
+/// entry naming a preset its plugin does not declare.
+pub fn preset_settings(
+    workspace: &Workspace,
+    overrides: &[crate::PluginOverride],
+) -> Result<PresetSettings> {
+    let mut settings_of = PresetSettings::new();
+    if scopes(workspace).all(|(_, settings)| settings.extends.is_empty()) {
+        return Ok(settings_of);
+    }
+    let (_, files) = crate::resolve_overrides(workspace, overrides)?;
+    let lock = crate::lock::verify_with(workspace, &files.keys().cloned().collect())?;
+    // Never a download: a command that only prints the configuration works offline.
+    let cache = Cache::from_env()?;
+    for plugin in declared(workspace, lock.as_ref(), &files)?.unwrap_or_default() {
+        // The test load makes: a stored declaration it would not use is not held.
+        let held = files.contains_key(&plugin.name)
+            || usable_declaration(&cache, &plugin).is_some()
+            || cache.get(&plugin.sha256)?.is_some();
+        if !held {
+            return Err(Error::environment(format!(
+                "plugin {} = {} is not in the cache; run gate sync once to fetch it, or pass --plugin {}=<file.wasm>",
+                plugin.name, plugin.source, plugin.name
+            )));
+        }
+    }
+    let Some(loaded) = load(
+        workspace,
+        lock.as_ref(),
+        &files,
+        &Needed::Only(BTreeSet::new()),
+    )?
+    else {
+        return Ok(settings_of);
+    };
+    for (project, settings) in scopes(workspace) {
+        let scope = if project.is_none() {
+            Scope::Repository
+        } else {
+            Scope::Project
+        };
+        let mut rows = Vec::new();
+        for (name, declaration) in &loaded.declarations {
+            for (rule, preset) in presets(&declaration.info, name, settings)? {
+                if declaration
+                    .rule(&rule)
+                    .is_none_or(|info| info.scope != scope)
+                {
+                    continue;
+                }
+                let id = format!("{name}/{rule}");
+                let mut push = |key: String, value: String| {
+                    rows.push(PresetSetting {
+                        key,
+                        value,
+                        preset: preset.preset.clone(),
+                        origin: preset.extended.origin.clone(),
+                    });
+                };
+                if let Some(level) = preset.level {
+                    push(id.clone(), format!("level {level}"));
+                }
+                if preset.options.is_some() {
+                    push(id.clone(), "options".to_owned());
+                }
+                for (aspect, level) in &preset.levels {
+                    push(format!("{id}#{aspect}"), format!("level {level}"));
+                }
+            }
+        }
+        settings_of.insert(project.map(ToOwned::to_owned), rows);
+    }
+    Ok(settings_of)
+}
+
 /// The repository scope, then each project with settings, in name order.
 fn scopes(workspace: &Workspace) -> impl Iterator<Item = (Option<&str>, &Settings)> {
     std::iter::once((None, workspace.repository())).chain(workspace.projects().iter().filter_map(
@@ -1883,8 +1990,19 @@ fn presets(
             .iter()
             .find(|preset| preset.name == item.value.name())
         else {
+            let mut known: Vec<String> = info
+                .presets
+                .iter()
+                .map(|preset| format!("{name}/{}", preset.name))
+                .collect();
+            known.sort();
+            let known = match known.as_slice() {
+                [] => "it declares none".to_owned(),
+                [one] => format!("its preset is {one}"),
+                [rest @ .., last] => format!("its presets are {} and {last}", rest.join(", ")),
+            };
             return Err(Error::config(format!(
-                "{}: plugin {name} has no preset {}; run gate list to see its presets",
+                "{}: plugin {name} has no preset {}; {known}",
                 item.origin,
                 item.value.name()
             )));
@@ -2050,15 +2168,68 @@ impl SchemaValidator for JsonSchemaValidator {
                 .iter_errors(value)
                 .map(|error| {
                     let path = error.instance_path().to_string();
+                    let text = allowed_values(schema, error.schema_path().as_str()).map_or_else(
+                        || error.to_string(),
+                        |allowed| format!("{} is not one of {allowed}", error.instance()),
+                    );
                     if path.is_empty() {
-                        error.to_string()
+                        text
                     } else {
-                        format!("{path}: {error}")
+                        format!("{path}: {text}")
                     }
                 })
                 .collect(),
         }
     }
+}
+
+/// The values the keyword at `keyword` (a JSON Pointer into `schema`) allows, written
+/// `"a", "b" or "c"`, when it is an `enum`, or an `anyOf` or `oneOf` whose every branch is a
+/// constant, an `enum`, `null` or a reference to one of those; `None` for any other keyword, whose
+/// own message stands.
+fn allowed_values(schema: &Value, keyword: &str) -> Option<String> {
+    let name = keyword.rsplit('/').next()?;
+    if !matches!(name, "enum" | "anyOf" | "oneOf") {
+        return None;
+    }
+    let parent = keyword.strip_suffix(name)?.strip_suffix('/')?;
+    let mut values = Vec::new();
+    constants(schema, schema.pointer(parent)?, &mut values, 0)?;
+    let values: Vec<String> = values.iter().map(Value::to_string).collect();
+    match values.as_slice() {
+        [] => None,
+        [one] => Some(one.clone()),
+        [rest @ .., last] => Some(format!("{} or {last}", rest.join(", "))),
+    }
+}
+
+/// Adds to `values` the constants `node` allows, `null` left out (an absent option is never
+/// written as one); `None` when `node` allows anything that is not a constant.
+fn constants(root: &Value, node: &Value, values: &mut Vec<Value>, depth: usize) -> Option<()> {
+    if depth > 16 {
+        return None;
+    }
+    if let Some(value) = node.get("const") {
+        values.push(value.clone());
+        return Some(());
+    }
+    if let Some(Value::Array(options)) = node.get("enum") {
+        values.extend(options.iter().filter(|value| !value.is_null()).cloned());
+        return Some(());
+    }
+    if let Some(Value::String(reference)) = node.get("$ref") {
+        let target = root.pointer(reference.strip_prefix('#')?)?;
+        return constants(root, target, values, depth + 1);
+    }
+    for keyword in ["anyOf", "oneOf"] {
+        if let Some(Value::Array(branches)) = node.get(keyword) {
+            for branch in branches {
+                constants(root, branch, values, depth + 1)?;
+            }
+            return Some(());
+        }
+    }
+    (node.get("type") == Some(&Value::String("null".to_owned()))).then_some(())
 }
 
 /// The snapshot as the plugin runtime reads it.
@@ -3387,6 +3558,48 @@ mod tests {
         assert!(violations[0].starts_with("/max: "), "{violations:?}");
         let violations = validator.validate(&schema, &serde_json::json!({ "min": 1 }));
         assert!(violations[0].contains("min"), "{violations:?}");
+    }
+
+    #[test]
+    fn a_value_outside_an_enum_names_the_allowed_values() {
+        // The shape schemars gives an optional enum with documented variants, and a plain enum.
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pack": { "anyOf": [{ "$ref": "#/$defs/Pack" }, { "type": "null" }] },
+                "mode": { "type": "string", "enum": ["fast", "full"] },
+                "size": { "anyOf": [{ "type": "integer" }, { "type": "string" }] }
+            },
+            "$defs": {
+                "Pack": {
+                    "oneOf": [
+                        { "type": "string", "const": "react-vite", "description": "Vite" },
+                        { "type": "string", "const": "nextjs", "description": "Next.js" },
+                        { "type": "string", "const": "react-library", "description": "A library" }
+                    ]
+                }
+            }
+        });
+        let validator = JsonSchemaValidator;
+        assert_eq!(
+            validator.validate(&schema, &serde_json::json!({ "pack": "nextjs" })),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            validator.validate(&schema, &serde_json::json!({ "pack": "next" })),
+            vec![r#"/pack: "next" is not one of "react-vite", "nextjs" or "react-library""#]
+        );
+        assert_eq!(
+            validator.validate(&schema, &serde_json::json!({ "mode": "slow" })),
+            vec![r#"/mode: "slow" is not one of "fast" or "full""#]
+        );
+        // An anyOf of types, not of constants, keeps the validator's own message.
+        let violations = validator.validate(&schema, &serde_json::json!({ "size": true }));
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].starts_with("/size: ") && !violations[0].contains("is not one of"),
+            "{violations:?}"
+        );
     }
 
     #[test]

@@ -246,7 +246,11 @@ rule. A rule's page lists its options and its aspects.
 
 The root `[rules]` holds repository-scope rules only (for example `git/no-ci-skip`). Project-scope
 rules go in a project's own file or in a profile. `gate list` prints every rule that is on, every rule
-or family that is off, and the file that turned it off.
+or family that is off, and the file that turned it off. A rule a preset turns on is printed with
+`(preset <plugin>/<preset>)` and, with `--origin`, the line of its `extends` entry. The presets are
+read from what each pinned plugin declares, from the cache only, never downloaded; when that cannot
+be read (no `gate.lock` yet, or a plugin no `gate sync` has fetched on this machine) the last line
+says why.
 
 ## `[[profiles]]`
 
@@ -705,7 +709,10 @@ bin/gate lock --set house=https://github.com/your-org/your-repo/releases/downloa
 ```
 
 The pin gets the sha256 of the file and the cache gets the file, so `gate check` on this machine runs
-exactly that build before the asset exists. Anywhere else, `gate check` downloads the asset and fails
+exactly that build before the asset exists. To pin several builds in one run, repeat both options,
+the first `--file` for the first `--set` and so on; nothing is written while one of them is refused.
+When `gate lock` resolves releases and some do not exist yet, it names every one of them in one
+configuration error and writes nothing. Anywhere else, `gate check` downloads the asset and fails
 closed if it is not the pinned file; when the asset is not found, the error says to publish it or to
 admit the build with `--file`. A refused or missing credential keeps its own message, since the asset
 may be private.

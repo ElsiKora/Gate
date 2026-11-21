@@ -167,6 +167,18 @@ fn a_monorepo_root_has_no_ledger_and_no_modules_and_says_why() {
         ),
         "{findings:?}"
     );
+    // Each says what the entries of the kind are and how a project declares one of its own.
+    for finding in &findings {
+        let help = finding.help.as_deref().unwrap_or_default();
+        assert!(
+            help.starts_with("the entries of a monorepo root are docs/README.md, ")
+                && !help.contains("docs/ledger/")
+                && help.ends_with(
+                    "declare another in the [plugins.docs] options as extra = [{ name = \"<name>\", job = \"<what it holds>\" }]"
+                ),
+            "{help}"
+        );
+    }
 }
 
 #[test]
@@ -303,7 +315,7 @@ fn an_index_has_its_kinds_sections_in_order_and_may_add_more_after() {
     let findings = without_routing.check(&frontend).expect("checks");
     assert_eq!(
         keys(&findings),
-        ["sections docs/architecture/README.md docs/architecture/README.md#Routing"]
+        ["sections docs/architecture/README.md docs/architecture/README.md#missing"]
     );
     assert_eq!(
         messages(&findings),
@@ -312,7 +324,40 @@ fn an_index_has_its_kinds_sections_in_order_and_may_add_more_after() {
         ]
     );
 
+    assert!(
+        findings[0]
+            .help
+            .as_deref()
+            .is_some_and(|help| help.starts_with(
+                "write each as a level-2 heading, ## <title>, in this order: System shape, Routing"
+            )),
+        "{findings:?}"
+    );
+
+    // Several absent sections are one finding, which names them in the standard's order.
     let service = kind("service");
+    let bare = book("service")
+        .replaced(
+            "## Mental model\n\nWhat this project is, in a few paragraphs, and the words it uses.\n",
+            "",
+        )
+        .replaced("## First day\n\nWhat to read, run and change first.\n", "");
+    let findings = bare.check(&service).expect("checks");
+    assert_eq!(
+        keys(&findings),
+        ["sections docs/start-here.md docs/start-here.md#missing"]
+    );
+    assert_eq!(
+        messages(&findings),
+        [
+            "docs/start-here.md lacks the sections \"Mental model\", \"First day\"; in a service they are: Mental model, First day"
+        ]
+    );
+    assert_eq!(
+        findings[0].help.as_deref(),
+        Some("write each as a level-2 heading, ## <title>, in this order: Mental model, First day")
+    );
+
     let reordered = book("service")
         .replaced("## Data\n", "## Runtime-tmp\n")
         .replaced("## Runtime\n", "## Data\n")
@@ -332,7 +377,7 @@ fn an_index_has_its_kinds_sections_in_order_and_may_add_more_after() {
     let no_members = book("monorepo-root").replaced("## Members\n", "## Others\n");
     assert_eq!(
         check(&no_members, &root),
-        ["sections docs/README.md docs/README.md#Members"]
+        ["sections docs/README.md docs/README.md#missing"]
     );
 }
 

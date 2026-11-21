@@ -4596,6 +4596,127 @@ fn a_frontend_project_without_a_pack_is_a_configuration_error_that_names_the_pac
 }
 
 #[test]
+fn an_unknown_pack_names_the_three_packs_and_an_unknown_preset_names_the_presets() {
+    let output = frontend_check(Some("next"), &[("src/main.tsx", "export {};\n")]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains(
+                "/pack: \"next\" is not one of \"react-vite\", \"nextjs\" or \"react-library\""
+            )
+            && !message.contains("anyOf"),
+        "{message}"
+    );
+
+    let (path, _) = frontend();
+    let repo = Repo::empty();
+    repo.write("src/main.tsx", "export {};\n");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nextends = [\"frontend/strict\"]\n\n[plugins.frontend]\nsource = \"acme/rules:frontend@0.3.0\"\noptions = {{ pack = \"nextjs\" }}\n"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("frontend={}", path.display());
+    assert_config_error(
+        &repo,
+        &["check", "--plugin", &plugin],
+        "gate.toml:5 [project] extends: plugin frontend has no preset strict; its presets are frontend/adoption and frontend/recommended",
+    );
+}
+
+#[test]
+fn list_and_explain_show_the_rules_a_preset_turns_on_with_the_preset_as_their_origin() {
+    let (path, _) = frontend();
+    let repo = Repo::empty();
+    repo.write("src/main.tsx", "export {};\n");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nextends = [\"frontend/adoption\"]\n\n[plugins.frontend]\nsource = \"acme/rules:frontend@0.3.0\"\noptions = {{ pack = \"nextjs\" }}\n\n[rules]\n\"frontend/layout\" = \"error\"\n"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("frontend={}", path.display());
+    let run = |arguments: &[&str]| {
+        let output = repo.gate(arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+        text(&output.stdout)
+    };
+    let row = |said: &str, key: &str, value: &str, origin: &str| {
+        said.lines().any(|line| {
+            let cells: Vec<&str> = line.split("  ").filter(|cell| !cell.is_empty()).collect();
+            cells.iter().any(|cell| cell.trim() == key)
+                && cells.iter().any(|cell| cell.trim() == value)
+                && line.ends_with(origin)
+        })
+    };
+    let extends = "gate.toml:5 [project] extends";
+    let preset = "level warning (preset frontend/adoption)";
+
+    // A rule only the preset turns on, with the extends entry as its origin.
+    let said = run(&["explain", "frontend/file-names", "--plugin", &plugin]);
+    assert!(row(&said, "frontend/file-names", preset, extends), "{said}");
+    assert!(!said.contains("configures it"), "{said}");
+    // A rule the preset and [rules] both set: both rows, the preset's first.
+    let said = run(&["explain", "frontend/layout", "--plugin", &plugin]);
+    assert!(row(&said, "frontend/layout", preset, extends), "{said}");
+    assert!(
+        row(
+            &said,
+            "frontend/layout",
+            "level error",
+            "gate.toml:12 [rules]"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.find(preset) < said.find("level error"),
+        "the preset's row comes before the entry that wins over it: {said}"
+    );
+    // A rule of no plugin the configuration declares.
+    let said = run(&["explain", "frontend/nothing", "--plugin", &plugin]);
+    assert!(
+        said.contains("no gate.toml or preset configures it"),
+        "{said}"
+    );
+
+    let said = run(&["list", "--origin", "--plugin", &plugin]);
+    assert!(row(&said, "frontend/hook-names", preset, extends), "{said}");
+    let said = run(&["list", "--format", "json", "--plugin", &plugin]);
+    let value: serde_json::Value = serde_json::from_str(&said).expect("JSON");
+    let rows = value["project-settings"]
+        .as_object()
+        .and_then(|projects| projects.values().next())
+        .and_then(|project| project["settings"].as_array())
+        .expect("the project's settings");
+    assert!(
+        rows.iter().any(|row| row["key"] == "frontend/file-names"
+            && row["preset"] == "frontend/adoption"
+            && row["origin"]["line"] == 5),
+        "{said}"
+    );
+    assert!(value["presets-error"].is_null(), "{said}");
+
+    // Without the build, the pin is missing: the list says why the presets' rules are not shown.
+    let said = run(&["list"]);
+    let last = said.lines().last().unwrap_or_default();
+    assert!(
+        last.starts_with("the rules the presets turn on are not shown: ")
+            && last.contains("gate lock")
+            && !said.contains("frontend/file-names"),
+        "{said}"
+    );
+}
+
+#[test]
 fn the_frontend_component_passes_each_standard_tree_and_reports_a_departure() {
     let trees: [(&str, &[(&str, &str)]); 3] = [
         (
@@ -6497,6 +6618,45 @@ fn a_stored_declaration_that_is_corrupt_or_names_another_plugin_is_replaced_by_t
             "{what}: the next run answers from the entry and compiles hello only"
         );
     }
+}
+
+#[test]
+fn list_with_a_stored_declaration_load_would_not_use_and_no_build_in_the_cache_says_gate_sync_and_fetches_nothing()
+ {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let entry = stored_declaration(&repo, &hello().1);
+    let mut renamed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&entry).expect("the entry")).expect("JSON");
+    renamed["name"] = serde_json::Value::from("other");
+    std::fs::write(&entry, renamed.to_string()).expect("an entry that names another plugin");
+    let blob = repo
+        .cache
+        .path()
+        .join("blobs/sha256")
+        .join(sha256(&hello().1));
+    std::fs::remove_file(&blob).expect("the build leaves the cache");
+    repo.write(
+        "apps/hello/gate.toml",
+        "[project]\nname = \"greeter\"\nextends = [\"hello/recommended\"]\n",
+    );
+    repo.commit("greeter extends a preset");
+
+    let output = repo.gate(&["list"]);
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_eq!(output.status.code(), Some(0), "{said}");
+    assert!(
+        said.contains(&format!(
+            "the rules the presets turn on are not shown: plugin hello = {SOURCE} is not in the cache; run gate sync once to fetch it, or pass --plugin hello=<file.wasm>"
+        )),
+        "{said}"
+    );
+    assert!(
+        !said.contains("example.invalid"),
+        "nothing is fetched: {said}"
+    );
+    assert!(!blob.exists(), "nothing is fetched into the cache");
 }
 
 #[test]

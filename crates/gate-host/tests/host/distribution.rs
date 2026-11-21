@@ -548,6 +548,72 @@ fn lock_resolves_releases_into_pins_and_keeps_what_it_has() {
 }
 
 #[test]
+fn lock_names_every_release_that_does_not_exist_and_blames_no_credential_it_does_not_need() {
+    let server = Server::start();
+    releases(&server, None);
+    // The repository answers, so a release it does not find does not exist.
+    server.serve("/repos/ElsiKora/Gate", "{}");
+    let cache_dir = tempfile::tempdir().expect("cache");
+    let wanted = wanted(&[
+        ("ci", "ElsiKora/Gate:ci@0.3.0"),
+        ("git", "ElsiKora/Gate:git@0.1.0"),
+        ("node", "ElsiKora/Gate:node@0.3.0"),
+    ]);
+    for token in [None, Some("good-credential")] {
+        let fetcher = Fetcher::new(config(&server, token), Cache::at(cache_dir.path()));
+        let error = lock::resolve(&wanted, None, &fetcher).expect_err("two are missing");
+        assert_eq!(error.kind(), ErrorKind::Config, "{error}");
+        let message = error.message();
+        assert!(
+            message.starts_with("2 releases gate.toml asks for do not exist; nothing was written:\n  release plugin-ci-v0.3.0 of ElsiKora/Gate does not exist: ")
+                && message.contains("\n  release plugin-node-v0.3.0 of ElsiKora/Gate does not exist: ")
+                && message.contains(&format!("check the version in gate.toml against {}/ElsiKora/Gate/releases", server.url("")))
+                && !message.contains("plugin-git")
+                && !message.contains("GATE_GITHUB_TOKEN")
+                && !message.contains("good-credential"),
+            "{message}"
+        );
+    }
+
+    // One missing release is one message.
+    let fetcher = Fetcher::new(config(&server, None), Cache::at(cache_dir.path()));
+    let error = lock::resolve(
+        &self::wanted(&[("ci", "ElsiKora/Gate:ci@0.3.0")]),
+        None,
+        &fetcher,
+    )
+    .expect_err("missing");
+    assert!(
+        error
+            .message()
+            .starts_with("release plugin-ci-v0.3.0 of ElsiKora/Gate does not exist: ElsiKora/Gate answers, and has no such release; "),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_release_of_a_repository_the_credential_cannot_read_still_asks_for_a_credential() {
+    let server = Server::start();
+    releases(&server, None);
+    let cache_dir = tempfile::tempdir().expect("cache");
+    let fetcher = Fetcher::new(config(&server, None), Cache::at(cache_dir.path()));
+    let error = lock::resolve(
+        &wanted(&[("house", "acme/rules:house@1.2.0")]),
+        None,
+        &fetcher,
+    )
+    .expect_err("not readable");
+    assert_eq!(error.kind(), ErrorKind::Environment, "{error}");
+    assert!(
+        error
+            .message()
+            .contains("was not found without a credential")
+            && error.message().contains("GATE_GITHUB_TOKEN"),
+        "{error}"
+    );
+}
+
+#[test]
 fn lock_refuses_a_download_that_differs_from_the_published_digest() {
     let server = Server::start();
     releases(&server, Some(&"d".repeat(64)));

@@ -64,6 +64,11 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   then a `Co-authored-by` block no longer fails it, also when the block holds an issue reference
   such as `Refs: #12` that starts the footer, and a body that is only a trailer block passes; a
   body without a full stop above the block still fails.
+- `git/commit-message` reports a header without the form `<type>(<scope>): <subject>`, such as
+  `wip`, once, as `type-empty`, whose message says the header does not have the form. It used to
+  report `type-empty`, `scope-empty` and `subject-empty` with the same help, and `names no type`
+  for a header that was a type alone. `scope-empty` and `subject-empty` judge a header that has
+  the form, as before.
 
 ### Features
 

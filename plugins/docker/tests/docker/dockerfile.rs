@@ -158,6 +158,21 @@ fn labels_reports_a_missing_oci_label_and_any_other_label() {
 }
 
 #[test]
+fn a_stage_without_a_name_is_named_by_its_number_once() {
+    let digest = digest();
+    let text = format!("FROM node@sha256:{digest}\nRUN true\n");
+    let fixture = Fixture::new(&[("Dockerfile", &text)]);
+    let findings = fixture.check_with(RULE, "{}", "").expect("runs");
+    let messages = texts(&findings);
+    assert!(
+        messages.contains("the unnamed runtime stage 0 runs as root")
+            && messages.contains("the unnamed runtime stage 0 does not set ")
+            && !messages.contains("stage stage"),
+        "{messages}"
+    );
+}
+
+#[test]
 fn ignore_reports_a_missing_file_and_a_missing_pattern_and_a_dockerignore_under_name() {
     let text = good();
     let missing = Fixture::new(&[("api/Dockerfile", &text)]);

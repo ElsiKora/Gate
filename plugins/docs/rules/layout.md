@@ -150,21 +150,26 @@ overrides it as usual. The generator is not part of a preset: put `"docs/layout"
 | Aspect | Reported when | At | Key |
 | --- | --- | --- | --- |
 | `missing` | a required entry of the kind is not tracked (for a directory, its `README.md`) | the entry's index | the entry |
-| `unknown` | a top-level name is not an entry of the kind and not declared; for a reserved name, a kind's absent entry or a Markdown file named like a directory entry, the message says where the content goes or why the kind has none | the name | the name |
+| `unknown` | a top-level name is not an entry of the kind and not declared; for a reserved name, a kind's absent entry or a Markdown file named like a directory entry, the message says where the content goes or why the kind has none; the help lists the kind's entries and how to declare one | the name | the name |
 | `extra-missing` | a declared extension is not tracked | the declared name | the name |
 | `delegated-missing` | a delegated entry listed in `delegated` has no tracked file under it | the entry's name | the entry |
 | `entry-index` | an optional or declared directory has no `README.md` | its `README.md` | the entry |
 | `index` | the Entries section of `docs/README.md` does not link a present entry or a listed delegated entry, or lists the entries out of the standard order | `docs/README.md` | `link <entry>`, `order <entry>` |
-| `sections` | an index lacks a required section of its kind, or has them out of order | the index (the first misplaced heading, for the order) | `<index>#<section>`, `<index>#order` |
+| `sections` | an index lacks required sections of its kind (one finding naming every absent one, in the standard's order), or has them out of order; the help gives the order | the index (the first misplaced heading, for the order) | `<index>#missing`, `<index>#order` |
 | `unfilled` | a required index still holds the seed's marker line | the marker's line | the index |
 
 ```text
 error docs/layout#unknown docs/ledger
   docs/ledger/ is not an entry of a monorepo root: work is recorded in the ledger of the member project whose code it changes, and a repository-wide decision is an adr/ record
+  help: the entries of a monorepo root are docs/README.md, docs/start-here.md, ...; declare another in the [plugins.docs] options as extra = [{ name = "<name>", job = "<what it holds>" }]
 error docs/layout#missing docs/start-here.md
   docs/start-here.md is a required entry of a service; run gate sync to lay it down, then fill it
 error docs/layout#sections docs/architecture/README.md
   docs/architecture/README.md has no section "Routing"; in a frontend it comes after "System shape"
+  help: write each as a level-2 heading, ## <title>, in this order: System shape, Routing, ...
+error docs/layout#sections docs/start-here.md
+  docs/start-here.md lacks the sections "Mental model", "First day"; in a service they are: Mental model, First day
+  help: write each as a level-2 heading, ## <title>, in this order: Mental model, First day
 ```
 
 The target of each finding is the entry's or the index's path. A project that is migrating can set

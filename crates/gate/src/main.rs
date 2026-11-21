@@ -35,6 +35,9 @@ enum Command {
     Explain {
         /// The rule: <plugin>/<rule>, <plugin>/<rule>#<aspect> or <plugin>/*.
         rule: String,
+        /// Read what a local build declares instead of its pin: <name>=<path.wasm>. Repeatable.
+        #[arg(long = "plugin", value_name = "NAME=PATH", value_parser = PluginOverride::parse)]
+        plugins: Vec<PluginOverride>,
     },
     /// Print the JSON Schema of gate.toml.
     Schema(SchemaArgs),
@@ -58,14 +61,14 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct LockArgs {
-    /// Pin one plugin to its release asset URL before the asset is published: <name>=<url>. Needs
-    /// --file.
+    /// Pin a plugin to its release asset URL before the asset is published: <name>=<url>. Needs
+    /// --file; repeat both to pin several plugins, the n-th --file for the n-th --set.
     #[arg(long, value_name = "NAME=URL", requires = "file")]
-    set: Option<String>,
-    /// The built plugin --set pins: gate.lock gets its sha256 and the cache gets the file, so gate
-    /// check runs exactly it.
+    set: Vec<String>,
+    /// The built plugin a --set pins: gate.lock gets its sha256 and the cache gets the file, so
+    /// gate check runs exactly it.
     #[arg(long, value_name = "PATH", requires = "set")]
-    file: Option<PathBuf>,
+    file: Vec<PathBuf>,
     /// Refused: an override is for one gate check run and never enters gate.lock.
     #[arg(long = "plugin", value_name = "NAME=PATH", hide = true)]
     plugins: Vec<String>,
@@ -174,6 +177,9 @@ struct ListArgs {
     /// Print the file, line and section each setting came from.
     #[arg(long)]
     origin: bool,
+    /// Read what a local build declares instead of its pin: <name>=<path.wasm>. Repeatable.
+    #[arg(long = "plugin", value_name = "NAME=PATH", value_parser = PluginOverride::parse)]
+    plugins: Vec<PluginOverride>,
 }
 
 #[derive(Debug, Args)]
@@ -206,7 +212,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Check(arguments) => check(&arguments),
         Command::List(arguments) => list(&arguments),
-        Command::Explain { rule } => explain(&rule),
+        Command::Explain { rule, plugins } => explain(&rule, &plugins),
         Command::Schema(arguments) => schema(&arguments),
         Command::Baseline(BaselineCommand::Write) => baseline_write(),
         Command::Baseline(BaselineCommand::Prune) => baseline_prune(),
@@ -438,18 +444,20 @@ fn call_timing(call: &gate_host::PluginReads) -> String {
 
 fn list(arguments: &ListArgs) -> Result<u8, Error> {
     let workspace = workspace()?;
+    let presets = list::Presets::read(&workspace, &arguments.plugins);
     let text = match arguments.format {
-        ListFormat::Text => list::text(&workspace, arguments.origin),
-        ListFormat::Json => list::json(&workspace)?,
+        ListFormat::Text => list::text(&workspace, &presets, arguments.origin),
+        ListFormat::Json => list::json(&workspace, &presets)?,
     };
     write_out(&text)?;
     Ok(0)
 }
 
-fn explain(rule: &str) -> Result<u8, Error> {
+fn explain(rule: &str, plugins: &[PluginOverride]) -> Result<u8, Error> {
     let subject = list::Subject::parse(rule).map_err(Error::config)?;
     let workspace = workspace()?;
-    write_out(&list::explain(&workspace, &subject, rule))?;
+    let presets = list::Presets::read(&workspace, plugins);
+    write_out(&list::explain(&workspace, &presets, &subject, rule))?;
     Ok(0)
 }
 

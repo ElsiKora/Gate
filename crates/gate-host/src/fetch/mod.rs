@@ -592,6 +592,13 @@ impl Fetcher {
                 "GitHub's API rate limit {with} is used up ({url}, HTTP 403); wait for it to reset, or set {} to a token to get a higher limit",
                 TOKEN_VARIABLES[0]
             ))),
+            // The repository answers with the same credential: the release itself is missing.
+            404 if self.repository_readable(which, owner, repo, deadline) => {
+                Err(Error::config(format!(
+                    "{what} does not exist: {owner}/{repo} answers, and has no such release; check the version in gate.toml against {}/{owner}/{repo}/releases, or pin a local build with gate lock --set <name>=<url> --file <path>",
+                    self.endpoint(which).web_url
+                )))
+            }
             401 | 403 | 404 => Err(match credential {
                 None => Error::environment(format!(
                     "{what} was not found without a credential ({url}, HTTP {status}); check the version, and if {owner}/{repo} is private set {} (or {}) to a token that can read it, or sign in with gh auth login",
@@ -606,6 +613,32 @@ impl Fetcher {
                 "{what}: {url} answered HTTP {status}; try again later"
             ))),
         }
+    }
+
+    /// Whether the API answers `owner/repo` itself with the credential `release` used: when it
+    /// does, a release it does not find does not exist, and the credential is not to blame.
+    fn repository_readable(
+        &self,
+        which: Which,
+        owner: &str,
+        repo: &str,
+        deadline: Instant,
+    ) -> bool {
+        let url = format!("{}/repos/{owner}/{repo}", self.endpoint(which).api_url);
+        if check_url(&url).is_err() {
+            return false;
+        }
+        let mut request = self
+            .agent
+            .get(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", API_VERSION);
+        if let Some(credential) = self.credential(which) {
+            request = request.header("Authorization", bearer(&credential.secret));
+        }
+        within(request, deadline)
+            .call()
+            .is_ok_and(|response| response.status().as_u16() == 200)
     }
 
     /// GETs `url` without a credential, following redirects and checking every hop.

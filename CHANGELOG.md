@@ -213,6 +213,14 @@ Each shared plugin keeps its own changelog next to its code.
   hold the root `gate.toml` and `gate.exceptions.toml` to the decisions and owners they name, with
   the judgement of their project counterparts. A root could relax a rule or accept a finding by
   naming a decision that was unlisted or only proposed, and every check passed.
+- **lock:** `gate lock --set` and `--file` may be repeated to pin several builds in one run, the
+  first `--file` for the first `--set`; every pin is checked before any build enters the cache or
+  `gate.lock` is written.
+- **gate:** `gate list` and `gate explain` show the rules a preset turns on, each marked
+  `(preset <plugin>/<preset>)` with its `extends` entry as its origin, read from what each pinned
+  plugin declares, from the cache only; both take `--plugin <name>=<file.wasm>`. When the
+  declarations cannot be read, for example before the first `gate lock` or `gate sync`, the output
+  says why.
 
 - **plugins:** every shared plugin ships two presets: `<plugin>/recommended` turns on its rules at
   `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the
@@ -233,6 +241,17 @@ Each shared plugin keeps its own changelog next to its code.
   a base outside the project is read when it is tracked and granted with `reads`, and an
   unreadable base (not granted, absolute, empty, or a `#` entry whose target cannot be read) is
   left out of the chain and is one finding of the call with what to do.
+- **lock:** a release `gate.toml` asks for that does not exist is a configuration error that says
+  so and names the repository's releases, when the repository itself answers; it used to blame the
+  credential, also for a public repository. `gate lock` names every missing release in one run
+  and writes nothing.
+- **host:** an `extends` entry that names a preset its plugin does not have lists the plugin's
+  presets; it used to send the reader to `gate list`, which did not show them.
+- **host:** an option value outside an enumeration names the allowed values (`/pack: "next" is not
+  one of "react-vite", "nextjs" or "react-library"`), instead of the schema validator's
+  `anyOf` text.
+- **check:** the `gate/budget` help sends the reader to the slow step that `--timings` shows,
+  instead of a slow plugin.
 - **host:** a `[rules]` entry that sets only a level for a rule a preset turns on keeps the options
   the preset gives it: `extends = ["git/recommended"]` with `"git/branch-name" = "warning"` loads
   and runs with the preset's branch template. It used to be a configuration error (exit 2,

@@ -27,7 +27,7 @@ use serde::Deserialize;
 
 use crate::cache::Sha256Sum;
 use crate::config::{PluginName, PluginSource, SettingOrigin};
-use crate::error::{Error, Result};
+use crate::error::{Error, ErrorKind, Result};
 use crate::fetch::{self, Fetcher};
 use crate::git::Git;
 use crate::workspace::Workspace;
@@ -614,9 +614,11 @@ pub struct Resolution {
 ///
 /// # Errors
 /// Fails when a release or an asset does not exist, a download fails, a credential is missing
-/// or refused, or a download does not match the checksum the release publishes.
+/// or refused, or a download does not match the checksum the release publishes. Releases that do
+/// not exist are a configuration error naming every one of them; any other failure stops at once.
 pub fn resolve(wanted: &Wanted, existing: Option<&Lock>, fetcher: &Fetcher) -> Result<Resolution> {
     let mut resolution = Resolution::default();
+    let mut missing = Missing::default();
 
     let kept_core = existing.and_then(|lock| lock.core.as_ref()).filter(|core| {
         core.version == wanted.core
@@ -633,16 +635,21 @@ pub fn resolve(wanted: &Wanted, existing: Option<&Lock>, fetcher: &Fetcher) -> R
         let mut targets = BTreeMap::new();
         for target in TARGETS {
             let asset = format!("gate-{target}.tar.gz");
-            targets.insert(
-                target.to_owned(),
-                fetcher.pin_release_asset(owner, repo, &tag, &asset)?,
-            );
+            match missing.note(fetcher.pin_release_asset(owner, repo, &tag, &asset))? {
+                Some(pin) => {
+                    targets.insert(target.to_owned(), pin);
+                }
+                // One message for the release: its other targets are missing with it.
+                None => break,
+            }
         }
-        resolution.lock.core = Some(CorePin {
-            version: wanted.core.clone(),
-            targets,
-        });
-        resolution.resolved.push(format!("core {}", wanted.core));
+        if targets.len() == TARGETS.len() {
+            resolution.lock.core = Some(CorePin {
+                version: wanted.core.clone(),
+                targets,
+            });
+            resolution.resolved.push(format!("core {}", wanted.core));
+        }
     }
 
     for source in wanted.plugins.keys() {
@@ -650,16 +657,19 @@ pub fn resolve(wanted: &Wanted, existing: Option<&Lock>, fetcher: &Fetcher) -> R
             resolution.lock.plugins.insert(source.clone(), pin.clone());
             resolution.kept.push(source.to_string());
         } else {
-            let pin = fetcher.pin_release_asset(
+            let pinned = fetcher.pin_release_asset(
                 &source.owner,
                 &source.repo,
                 &source.release_tag(),
                 &source.asset(),
-            )?;
-            resolution.lock.plugins.insert(source.clone(), pin);
-            resolution.resolved.push(source.to_string());
+            );
+            if let Some(pin) = missing.note(pinned)? {
+                resolution.lock.plugins.insert(source.clone(), pin);
+                resolution.resolved.push(source.to_string());
+            }
         }
     }
+    missing.fail()?;
 
     if let Some(lock) = existing {
         resolution.removed = lock
@@ -670,6 +680,38 @@ pub fn resolve(wanted: &Wanted, existing: Option<&Lock>, fetcher: &Fetcher) -> R
             .collect();
     }
     Ok(resolution)
+}
+
+/// The releases [`resolve`] found missing so far: a configuration error each, collected so that one
+/// run names every version gate.toml asks for that is not released.
+#[derive(Debug, Default)]
+struct Missing(Vec<String>);
+
+impl Missing {
+    /// The pin, or `None` when its release does not exist; any other failure is returned.
+    fn note(&mut self, pinned: Result<Pin>) -> Result<Option<Pin>> {
+        match pinned {
+            Ok(pin) => Ok(Some(pin)),
+            Err(error) if error.kind() == ErrorKind::Config => {
+                self.0.push(error.message().to_owned());
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// One configuration error for every missing release, or nothing when none is missing.
+    fn fail(self) -> Result<()> {
+        match self.0.as_slice() {
+            [] => Ok(()),
+            [one] => Err(Error::config(one.clone())),
+            many => Err(Error::config(format!(
+                "{} releases gate.toml asks for do not exist; nothing was written:\n  {}",
+                many.len(),
+                many.join("\n  ")
+            ))),
+        }
+    }
 }
 
 /// `gate lock --set <name>=<url> --file <path>`: pins the source declared under `name` to `url`

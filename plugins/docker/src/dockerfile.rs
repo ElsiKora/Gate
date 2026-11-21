@@ -252,6 +252,11 @@ impl Check<'_> {
                 .name
                 .clone()
                 .unwrap_or_else(|| format!("stage {index}"));
+            // How a message names the stage: by its name, or by its number when it has none.
+            let called = stage.name.as_ref().map_or_else(
+                || format!("the unnamed runtime stage {index}"),
+                |name| format!("the runtime stage {name}"),
+            );
 
             let user = chain.iter().find_map(|link| {
                 self.parsed.stages[*link]
@@ -270,7 +275,7 @@ impl Check<'_> {
                     .finding(
                         "user",
                         Location::line(self.path, stage.line),
-                        format!("the runtime stage {name} runs as root"),
+                        format!("{called} runs as root"),
                     )
                     .target(format!("{}:{name}", self.path))
                     .help("end the stage with `USER <name>`, an account of the image that is not root")
@@ -294,10 +299,7 @@ impl Check<'_> {
                     .finding(
                         "labels",
                         Location::line(self.path, stage.line),
-                        format!(
-                            "the runtime stage {name} does not set {}",
-                            missing.join(", ")
-                        ),
+                        format!("{called} does not set {}", missing.join(", ")),
                     )
                     .target(format!("{}:{name}", self.path))
                     .help("set the OCI labels with `LABEL`, their values from build arguments")
