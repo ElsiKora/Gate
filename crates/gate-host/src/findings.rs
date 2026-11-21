@@ -346,9 +346,10 @@ impl Findings {
             .collect();
 
         // Two identical findings are one: `gate baseline write` stores one entry for them, so the
-        // baseline must see them once, or a freshly written baseline fails its own check.
-        kept.sort();
-        kept.dedup();
+        // baseline must see them once, or a freshly written baseline fails its own check. The
+        // first of each stays where it is, so an entry still accepts the first in this order.
+        let mut seen = BTreeSet::new();
+        kept.retain(|finding| seen.insert(finding.clone()));
         let accepted = baseline.accept(&kept);
         let held = accepted.findings.iter().filter(|flag| **flag).count();
         let mut flags = accepted.findings.iter();
