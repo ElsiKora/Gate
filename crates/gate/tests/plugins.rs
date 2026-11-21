@@ -2730,6 +2730,80 @@ fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_exceptions_name() {
 }
 
 #[test]
+fn a_root_that_is_not_a_project_takes_the_root_rules_from_the_recommended_preset() {
+    // [workspace] extends takes only the preset's repository-scope rules at such a root.
+    for (status, expected) in [
+        (
+            "proposed",
+            (
+                Some(1),
+                vec!["ledger/root-rule-decisions gate.toml:12 the rule entry \"ledger/root-exception-owners\" names the decision D-API-002, which is `proposed`; a rule entry needs an accepted decision".to_owned()],
+            ),
+        ),
+        ("accepted", (Some(0), vec![])),
+    ] {
+        let repo = ledger_root(
+            "\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n",
+            status,
+        );
+        let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+        repo.write(
+            "gate.toml",
+            &toml.replace(
+                "projects = [\"apps/*\"]\n",
+                "projects = [\"apps/*\"]\nextends = [\"ledger/recommended\"]\n",
+            ),
+        );
+        repo.commit("a root that extends the ledger preset");
+        assert_eq!(ledger_check(&repo), expected, "{status}");
+    }
+}
+
+#[test]
+fn a_single_project_repository_on_the_recommended_preset_reports_a_decision_once() {
+    let repo = Repo::empty();
+    let source = "acme/rules:ledger@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [\"ledger/recommended\"]\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/manifest\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/ledger.wasm",
+            &"c".repeat(64),
+        ),
+    );
+    repo.write(
+        "docs/ledger/decision-index.md",
+        "| `D-API-002` | `accepted` | Api | `api.md` |\n",
+    );
+    repo.commit("one project on the preset with an unlisted decision");
+    let (code, seen) = ledger_check(&repo);
+    assert_eq!(code, Some(1), "{seen:?}");
+    // The preset's other rules report the ledger files this tree lacks; of the rules about
+    // decisions and exceptions, only the project rule reports the entry.
+    let judged: Vec<&String> = seen
+        .iter()
+        .filter(|line| {
+            line.starts_with("ledger/rule-decisions ")
+                || line.starts_with("ledger/root-")
+                || line.starts_with("ledger/exception-")
+        })
+        .collect();
+    assert_eq!(
+        judged,
+        [
+            "ledger/rule-decisions gate.toml:12 the rule entry \"ledger/manifest\" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
+        ],
+        "{seen:?}"
+    );
+}
+
+#[test]
 fn a_single_project_repository_reports_an_unlisted_decision_once() {
     // The root file is the project's: the project rules judge it, and the root rules, with no
     // decisions and no file of their own in the repository call, judge nothing.

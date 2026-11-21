@@ -36,7 +36,8 @@ pub use self::settings::{Parity, Settings};
 
 /// `ledger/recommended`: every rule a preset may turn on, at error, for a repository that follows
 /// the standard. It leaves out `closing-notes`, `reuses` and `record-status`, which stay off until
-/// the project sets `field`, `catalog` and the plugin option `parity`.
+/// the project sets `field`, `catalog` and the plugin option `parity`. A root that is not a project
+/// takes only its three repository-scope `root-` rules from `[workspace] extends`.
 const RECOMMENDED: &str = r#"{
     "blockers": { "level": "error" },
     "decisions": { "level": "error" },
@@ -44,6 +45,9 @@ const RECOMMENDED: &str = r#"{
     "exception-owners": { "level": "error" },
     "manifest": { "level": "error" },
     "records": { "level": "error" },
+    "root-exception-decisions": { "level": "error" },
+    "root-exception-owners": { "level": "error" },
+    "root-rule-decisions": { "level": "error" },
     "rule-decisions": { "level": "error" }
 }"#;
 
@@ -56,6 +60,9 @@ const ADOPTION: &str = r#"{
     "exception-owners": { "level": "warning" },
     "manifest": { "level": "warning" },
     "records": { "level": "warning" },
+    "root-exception-decisions": { "level": "warning" },
+    "root-exception-owners": { "level": "warning" },
+    "root-rule-decisions": { "level": "warning" },
     "rule-decisions": { "level": "warning" }
 }"#;
 

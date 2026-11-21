@@ -26,8 +26,9 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 ### Features
 
 - **ledger:** the presets `ledger/recommended` and `ledger/adoption`: `decisions`, `manifest`,
-  `records`, `blockers`, `exception-owners`, `exception-decisions` and `rule-decisions`, at `error`
-  and at `warning`.
+  `records`, `blockers`, `exception-owners`, `exception-decisions`, `rule-decisions`,
+  `root-exception-owners`, `root-exception-decisions` and `root-rule-decisions`, at `error` and at
+  `warning`.
   They leave out `closing-notes`, `reuses` and `record-status`, which need the project's `field`
   and `catalog` and the plugin option `parity`.
 - **ledger:** rebuilt for the plugin interface `gate:plugin@0.3.0`, whose `generate` call also

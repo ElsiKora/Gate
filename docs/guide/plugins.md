@@ -253,9 +253,11 @@ ledger = { source = "ElsiKora/Gate:ledger@0.2.0", options = { decisions = "ledge
 | `ledger/root-rule-decisions` | the decision a rule entry of the root `gate.toml` names is an accepted decision of the index, at a root that is not a project |
 
 Presets: `ledger/recommended` turns on `decisions`, `manifest`, `records`, `blockers`,
-`exception-owners`, `exception-decisions` and `rule-decisions` at `error`, and `ledger/adoption` the
-same at `warning`. Both leave out `closing-notes`, `reuses` and `record-status`, which need the
-project's `field` and `catalog` and the plugin option `parity`.
+`exception-owners`, `exception-decisions`, `rule-decisions` and the three `root-` rules at `error`,
+and `ledger/adoption` the same at `warning`. Both leave out `closing-notes`, `reuses` and
+`record-status`, which need the project's `field` and `catalog` and the plugin option `parity`. A
+root that is not a project takes only the `root-` rules from `[workspace] extends`; a single-project
+repository takes them all, and the `root-` rules report nothing there.
 
 ### `nestjs`
 
