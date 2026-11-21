@@ -411,10 +411,13 @@ the `root-` rules report nothing, so no entry is reported twice.
 bin/gate baseline write
 ```
 
-Writes the fingerprints of today's findings to `gate/baseline.json`, replacing it; commit it. A finding
-in the baseline is not reported; a baseline entry that matches no finding is, so the baseline only
-shrinks. Use it to adopt a rule on a repository with many existing findings, and exceptions for the
-findings that stay on purpose.
+Writes the fingerprints of today's findings to `gate/baseline.json`, replacing it; commit it. A
+finding in the baseline is not reported; a baseline entry that matches no finding is, so the
+baseline only shrinks. The summary line counts the findings the baseline holds back, as in
+`0 errors, 0 warnings, 12 findings held back by gate/baseline.json`, so a clean run with a
+baseline does not read as a clean tree; `--format json` has the count as `baselined`, and SARIF as
+the run's `properties.baselined`. Use it to adopt a rule on a repository with many existing
+findings, and exceptions for the findings that stay on purpose.
 
 ```bash
 bin/gate baseline prune

@@ -5746,6 +5746,55 @@ fn baseline_prune_removes_only_stale_entries_and_never_adds_one() {
     );
 }
 
+#[test]
+fn check_counts_the_findings_the_baseline_holds_back() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x", "y"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stdout));
+    assert!(
+        text(&output.stdout).contains(
+            " 0 errors, 0 warnings, 2 findings held back by gate/baseline.json; projects"
+        ),
+        "{}",
+        text(&output.stdout)
+    );
+
+    // `y` is fixed: one finding stays held back, and its entry is stale.
+    read_with(&repo, r#"{ paths = ["x"] }"#);
+    let output = repo.gate(&["check", "--format", "json"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stdout));
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout)).expect("json");
+    assert_eq!(report["baselined"], 1, "{report}");
+    assert!(
+        report["summary"].as_str().is_some_and(|summary| summary
+            .contains(" 1 error, 0 warnings, 1 finding held back by gate/baseline.json; projects")),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_baseline_written_over_two_identical_findings_passes_its_own_check() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x", "x"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stdout));
+    assert!(
+        text(&output.stdout)
+            .contains(" 0 errors, 0 warnings, 1 finding held back by gate/baseline.json; projects"),
+        "{}",
+        text(&output.stdout)
+    );
+}
+
 /// Takes the guard of `repo`'s `gate/baseline.json` as a first run would, before the run under
 /// test starts.
 fn hold_baseline_guard(repo: &Repo) -> std::fs::File {

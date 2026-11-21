@@ -60,6 +60,7 @@ fn report(findings: Vec<Finding>) -> Report {
         mode: "tree".to_owned(),
         rules: 2,
         findings,
+        baselined: 0,
         selection: Selection {
             ran: vec![Decision {
                 project: "server".to_owned(),
@@ -516,6 +517,115 @@ fn the_baseline_hides_one_finding_per_entry_and_reports_stale_entries() {
     assert!(
         quiet.is_empty(),
         "an entry of a scope that did not run is not due"
+    );
+}
+
+#[test]
+fn finish_counts_each_finding_a_baseline_entry_accepts_and_nothing_else() {
+    let target = "src/user.ts:User.parent";
+    let old = finding("layers/relation", "", Level::Error, "apps/x.ts", 3, "old");
+    let twin = finding("layers/relation", "", Level::Error, "apps/x.ts", 9, "old");
+    let warned = finding(
+        "layers/relation",
+        "",
+        Level::Warning,
+        "apps/w.ts",
+        2,
+        "warned",
+    );
+    let noted = finding("layers/relation", "", Level::Note, "apps/v.ts", 4, "noted");
+    let mut excepted = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/server/src/user.ts",
+        3,
+        "excepted",
+    );
+    excepted.target = Some(target.to_owned());
+    let mut gone = finding("layers/relation", "", Level::Error, "apps/y.ts", 1, "fixed");
+    gone.project = Some("client".to_owned());
+    // A core finding, which no entry accepts, and a finding on a commit `a/rule` re-judged only
+    // for its exceptions, which is dropped before the baseline sees it.
+    let core = finding("gate/budget", "", Level::Warning, "gate.toml", 1, "slow");
+    let id = "c".repeat(40);
+    let mut rejudged = finding(
+        "a/rule",
+        "",
+        Level::Error,
+        "apps/server/x.ts",
+        1,
+        "re-judged",
+    );
+    rejudged.target = Some(id.clone());
+    // Keyed by the commit, as a commit rule's finding is, so its entry is due only where the rule
+    // judged that commit in full.
+    rejudged.key = Some(id.clone());
+    let baseline = Baseline::from_findings(&[
+        old.clone(),
+        warned.clone(),
+        noted.clone(),
+        excepted.clone(),
+        gone,
+        core.clone(),
+        rejudged.clone(),
+    ]);
+    let mut ran = ran_all();
+    ran.narrow(Some("server"), "a/rule", Vec::new());
+    ran.rejudge(Some("server"), "a/rule", vec![id]);
+
+    let mut sink = Findings::new();
+    sink.extend([old, twin.clone(), warned, noted, excepted, core, rejudged]);
+    let finished = sink.finish_counted(&[exception("layers/relation", target)], &baseline, &ran);
+
+    // `old`, `warned` and `noted` are held back; `twin` is past its fingerprint's one entry, the
+    // exception takes `excepted` first, the entries of `excepted` and `gone` match nothing, the
+    // core finding stays reported, and the re-judged finding is dropped uncounted. Three held and
+    // two not, so a count of the findings no entry accepted reads 2, not 3.
+    assert_eq!(finished.baselined, 3, "{:?}", finished.findings);
+    let mut rules: Vec<&str> = finished
+        .findings
+        .iter()
+        .map(|finding| finding.rule.as_str())
+        .collect();
+    rules.sort_unstable();
+    assert_eq!(
+        rules,
+        [
+            "gate/baseline",
+            "gate/baseline",
+            "gate/budget",
+            "layers/relation"
+        ]
+    );
+    assert!(finished.findings.contains(&twin), "{:?}", finished.findings);
+
+    let nothing = Findings::new().finish_counted(&[], &baseline, &ran_all());
+    assert_eq!(nothing.baselined, 0, "{:?}", nothing.findings);
+}
+
+#[test]
+fn the_summary_counts_the_findings_the_baseline_held_back_when_there_are_any() {
+    let mut report = report(Vec::new());
+    assert_eq!(
+        report.summary(),
+        "gate check (tree): 2 rules, 0 errors, 0 warnings; projects: ran server; skipped none"
+    );
+    report.baselined = 1;
+    assert_eq!(
+        report.summary(),
+        "gate check (tree): 2 rules, 0 errors, 0 warnings, 1 finding held back by gate/baseline.json; projects: ran server; skipped none"
+    );
+    report.baselined = 3;
+    let json: serde_json::Value =
+        serde_json::from_str(&report.render(Format::Json).expect("render")).expect("json");
+    assert_eq!(json["baselined"], 3);
+    let sarif: serde_json::Value =
+        serde_json::from_str(&report.render(Format::Sarif).expect("render")).expect("sarif");
+    assert_eq!(sarif["runs"][0]["properties"]["baselined"], 3);
+    assert_eq!(
+        json["summary"],
+        "gate check (tree): 2 rules, 0 errors, 0 warnings, 3 findings held back by gate/baseline.json; projects: ran server; skipped none"
     );
 }
 

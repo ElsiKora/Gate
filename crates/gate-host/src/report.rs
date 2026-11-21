@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::baseline::BASELINE_FILE;
 use crate::changes::{Reason, Selection};
 use crate::error::Result;
 use crate::findings::{Finding, Level, Location, SHORT_ID};
@@ -39,6 +40,8 @@ pub struct Report {
     pub rules: usize,
     /// The findings, in the deterministic order.
     pub findings: Vec<Finding>,
+    /// How many findings an entry of `gate/baseline.json` accepted, so they are not reported.
+    pub baselined: usize,
     /// The projects that ran and that were skipped.
     pub selection: Selection,
     /// The plugins replaced for this run by `--plugin`, each as `<name>=<path> sha256 <hex>`.
@@ -65,8 +68,9 @@ impl Report {
         }
     }
 
-    /// `gate check (<mode>): N rules, E errors, W warnings; projects: ran a, b; skipped c`, then
-    /// `; override <name>=<path> sha256 <hex>` for each `--plugin`.
+    /// `gate check (<mode>): N rules, E errors, W warnings; projects: ran a, b; skipped c`, with
+    /// `, B findings held back by gate/baseline.json` after the warnings when the baseline held
+    /// any back, then `; override <name>=<path> sha256 <hex>` for each `--plugin`.
     #[must_use]
     pub fn summary(&self) -> String {
         let names = |decisions: &[crate::changes::Decision]| {
@@ -84,8 +88,17 @@ impl Report {
             let _ = write!(text, "; override {line}");
             text
         });
+        let baselined = if self.baselined == 0 {
+            String::new()
+        } else {
+            format!(
+                ", {} {} held back by {BASELINE_FILE}",
+                self.baselined,
+                plural(self.baselined, "finding", "findings")
+            )
+        };
         format!(
-            "gate check ({}): {} {}, {} {}, {} {}; projects: ran {}; skipped {}{overrides}",
+            "gate check ({}): {} {}, {} {}, {} {}{baselined}; projects: ran {}; skipped {}{overrides}",
             self.mode,
             self.rules,
             plural(self.rules, "rule", "rules"),
@@ -157,6 +170,7 @@ impl Report {
             "errors": self.count(Level::Error),
             "warnings": self.count(Level::Warning),
             "notes": self.count(Level::Note),
+            "baselined": self.baselined,
             "projects": self.selection,
             "findings": findings,
             "summary": self.summary(),
@@ -232,6 +246,7 @@ impl Report {
                     }
                 },
                 "results": results,
+                "properties": { "baselined": self.baselined },
             }],
         });
         let mut out = serde_json::to_string_pretty(&value)?;

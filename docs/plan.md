@@ -97,7 +97,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-074 | v0.3.0 | Gate checks itself | done (merged at `5d7f1b6`) | none |
 | T-075 | v0.3.0 | Prohibited body lines and a body full stop above the trailers | done (merged at `8b9d40c`) | T-074 |
 | T-076 | v0.3.0 | Concurrent `gate lock` runs keep both changes | done (merged at `1a32c10`) | none |
-| T-077 | v0.3.0 | `gate cache prune` against a concurrent `gate lock --set` | in progress (branch `task/T-077-prune-vs-lock` at `0dc95af`) | T-085 |
+| T-077 | v0.3.0 | `gate cache prune` against a concurrent `gate lock --set` | done (merged as `4f3548c9`) | T-085 |
 | T-077b | v0.3.0 | `gate/baseline.json` is replaced whole, and its writers take turns | done (merged at `db96d37`) | none |
 | T-078 | v0.3.0 | Release documentation for 0.3.0 | done (merged at `18c0bf8`) | none |
 | T-079 | v0.3.0 | The plan says what `main` holds for 0.3.0 | done (merged at `4d1f4fe`) | none |
@@ -109,10 +109,10 @@ reference for every ported rule is the reference implementation, outside this re
 | T-083 | v0.3.0 | Release-candidate trial | done (merged at `3ce3be6`) | none |
 | T-084 | v0.3.0 | A tsconfig base outside the project | done (merged at `2048070`) | none |
 | T-085 | v0.3.0 | Release-candidate message fixes | in progress (branch `task/T-085-rc-messages` at `b43b5e2`) | T-083 |
-| T-086 | v0.3.0 | Plugin load time, cold and warm | in progress (branch `task/T-086-plugin-load-time` at `03cba6a`) | T-083 |
+| T-086 | v0.3.0 | Plugin load time, cold and warm | done (merged as `2adfb09d`) | T-083 |
 | T-087 | v0.3.0 | Two plugin defaults from the release-candidate trial | done (merged at `e008106`) | T-083 |
 | T-088 | v0.3.0 | Three minor findings of the release-candidate trial | in progress (branch `task/T-088-rc-minor` at `4eb35fb`) | T-083 |
-| T-088b | v0.3.0 | The report counts the findings the baseline holds back (trial finding 19) | open (no task file, no branch on `origin` yet) | T-080, T-088 |
+| T-088b | v0.3.0 | The report counts the findings the baseline holds back (trial finding 19) | done (merged with this row) | T-080, T-088 |
 | T-089 | v0.3.0 | The plan says what `main` holds after T-063 | done (merged with this plan) | none |
 
 ## Open after rc.1

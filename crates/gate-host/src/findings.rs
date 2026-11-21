@@ -315,6 +315,20 @@ impl Findings {
         baseline: &Baseline,
         ran: &RulesRan,
     ) -> Vec<Finding> {
+        self.finish_counted(exceptions, baseline, ran).findings
+    }
+
+    /// [`Findings::finish`], with how many findings an entry of the baseline accepted, counted out
+    /// of the same match that drops them: after the exceptions and after the findings a rule
+    /// re-judged only for its exceptions are dropped. A core finding is never accepted, so it is
+    /// never counted.
+    #[must_use]
+    pub fn finish_counted(
+        self,
+        exceptions: &[ScopedException],
+        baseline: &Baseline,
+        ran: &RulesRan,
+    ) -> Finished {
         let mut used = vec![false; exceptions.len()];
         let mut kept: Vec<Finding> = self
             .items
@@ -331,7 +345,13 @@ impl Findings {
             })
             .collect();
 
+        // Two identical findings are one: `gate baseline write` stores one entry for them, so the
+        // baseline must see them once, or a freshly written baseline fails its own check. The
+        // first of each stays where it is, so an entry still accepts the first in this order.
+        let mut seen = BTreeSet::new();
+        kept.retain(|finding| seen.insert(finding.clone()));
         let accepted = baseline.accept(&kept);
+        let held = accepted.findings.iter().filter(|flag| **flag).count();
         let mut flags = accepted.findings.iter();
         kept.retain(|_| !flags.next().copied().unwrap_or(false));
 
@@ -354,8 +374,20 @@ impl Findings {
 
         kept.sort();
         kept.dedup();
-        kept
+        Finished {
+            findings: kept,
+            baselined: held,
+        }
     }
+}
+
+/// What [`Findings::finish_counted`] keeps, and how many findings the baseline held back.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Finished {
+    /// The findings that stay, sorted, as [`Findings::finish`] returns them.
+    pub findings: Vec<Finding>,
+    /// How many findings an entry of the baseline accepted, so they are not reported.
+    pub baselined: usize,
 }
 
 impl Findings {
