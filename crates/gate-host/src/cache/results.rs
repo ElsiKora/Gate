@@ -240,7 +240,9 @@ fn encode(stored: &Stored) -> Value {
     let judged: Vec<Value> = stored
         .judged
         .iter()
-        .map(|judged| json!({ "rule": judged.rule, "targets": judged.targets }))
+        .map(|judged| {
+            json!({ "rule": judged.rule, "targets": judged.targets, "rejudged": judged.rejudged })
+        })
         .collect();
     let read: Map<String, Value> = stored
         .read_set
@@ -299,6 +301,7 @@ fn decode(value: &Value) -> Option<Stored> {
             Some(Judged {
                 rule: judged.get("rule")?.as_str()?.to_owned(),
                 targets: strings(judged.get("targets")?)?,
+                rejudged: strings(judged.get("rejudged")?)?,
             })
         })
         .collect::<Option<Vec<_>>>()?;
@@ -529,10 +532,12 @@ mod tests {
             Judged {
                 rule: "rule".to_owned(),
                 targets: vec!["c".repeat(40), "feat/one".to_owned()],
+                rejudged: vec!["d".repeat(40)],
             },
             Judged {
                 rule: "other".to_owned(),
                 targets: Vec::new(),
+                rejudged: Vec::new(),
             },
         ]);
         assert_eq!(decode(&encode(&stored)), Some(stored.clone()));

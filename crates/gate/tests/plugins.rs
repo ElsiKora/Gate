@@ -3553,6 +3553,90 @@ fn an_exception_for_a_commit_the_history_no_longer_holds_is_reported() {
     );
 }
 
+#[test]
+fn an_excepted_commit_re_judged_outside_its_push_brings_no_finding_its_exception_does_not_cover() {
+    let rules = |trailers: &str| {
+        format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n\"git/commit-message\" = {{ level = \"error\", options = {{ header-max-length = 40{trailers} }} }}\n"
+        )
+    };
+    let repo = Repo::empty();
+    repo.write("gate.toml", &rules(""));
+    repo.commit("chore(repo): configure");
+    repo.git(&["checkout", "-q", "-b", "feat/the-thing"]);
+    repo.write("a.txt", "a\n");
+    // Pushed before the hooks were on: its header is too long, and it carries a trailer.
+    let pushed = repo.commit(
+        "feat(core): add the thing with a long header\n\nThe body says why.\n\nProhibited: yes",
+    );
+    repo.write(
+        "gate.exceptions.toml",
+        &format!(
+            "[[exception]]\nrule = \"git/commit-message#header-max-length\"\ntarget = \"{pushed}\"\nreason = \"pushed before the hooks were on\"\n"
+        ),
+    );
+    repo.commit("chore(repo): accept it");
+    // Later, a pattern the pushed commit's trailer matches.
+    repo.write(
+        "gate.toml",
+        &rules(", prohibited-trailers = [\"^Prohibited\"]"),
+    );
+    let configured = repo.commit("chore(repo): prohibit a trailer");
+    let plugin = format!("git={}", git_component().0.display());
+    let commit_messages = |arguments: &[&str]| -> (Vec<String>, i32) {
+        let mut all = vec!["check", "--plugin", plugin.as_str(), "--format", "json"];
+        all.extend_from_slice(arguments);
+        let output = repo.gate(&all);
+        let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
+            .unwrap_or_else(|_| panic!("a JSON report: {}", text(&output.stderr)));
+        let found = report["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .map(|finding| {
+                format!(
+                    "{}#{}",
+                    finding["rule"].as_str().unwrap_or_default(),
+                    finding["aspect"].as_str().unwrap_or_default()
+                )
+            })
+            .collect();
+        (found, output.status.code().unwrap_or(-1))
+    };
+
+    // pre-commit and commit-msg re-judge the excepted commit: its header finding is accepted, and
+    // the trailer, which no exception covers, is not this run's to report.
+    repo.write("c.txt", "c\n");
+    repo.git(&["add", "c.txt"]);
+    assert_eq!(
+        commit_messages(&["--staged"]),
+        (Vec::new(), 0),
+        "pre-commit"
+    );
+    let outside = tempfile::tempdir().expect("temporary directory");
+    let message = outside.path().join("COMMIT_EDITMSG");
+    std::fs::write(&message, "feat(core): add c\n").expect("message");
+    let at = message.display().to_string();
+    assert_eq!(
+        commit_messages(&["--commit-message", &at]),
+        (Vec::new(), 0),
+        "commit-msg"
+    );
+
+    // The push that brings the commit judges it in full and reports the trailer.
+    let range = format!("{}..{configured}", revision(&repo, "main"));
+    assert_eq!(
+        commit_messages(&[
+            "--push",
+            &range,
+            "--target-ref",
+            "refs/heads/feat/the-thing"
+        ]),
+        (vec!["git/commit-message#prohibited-trailers".to_owned()], 1),
+        "the push"
+    );
+}
+
 impl GitOptions {
     fn new() -> Self {
         let git = git_component();

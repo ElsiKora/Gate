@@ -348,6 +348,8 @@ pub struct Run<'h, O, S: CallState = ()> {
     pub(crate) exceptions: Vec<String>,
     /// The targets the rule judged, once it narrowed its view; `None`: its whole scope.
     pub(crate) judged: Option<Vec<String>>,
+    /// The targets the rule judged only to re-check its own exceptions.
+    pub(crate) rejudged: Vec<String>,
     pub(crate) state: &'h (dyn Enter<S> + 'h),
 }
 
@@ -466,6 +468,23 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
             let target = target.into();
             if !judged.contains(&target) {
                 judged.push(target);
+            }
+        }
+    }
+
+    /// Lists `targets` as judged only to re-check this rule's own exceptions, outside what the run
+    /// judges otherwise: a commit an exception names, read again in a run that does not push it,
+    /// say. The host keeps a finding on such a target only when an exception accepts it, so a
+    /// re-check never brings a new finding into a run that does not judge its target; and the
+    /// exception is due, reported when it matches no finding. It narrows the run's view as
+    /// [`Run::judges_only`] does; a target also listed there is judged in full. Each call adds to
+    /// the list.
+    pub fn rejudges<T: Into<String>>(&mut self, targets: impl IntoIterator<Item = T>) {
+        self.judged.get_or_insert_with(Vec::new);
+        for target in targets {
+            let target = target.into();
+            if !self.rejudged.contains(&target) {
+                self.rejudged.push(target);
             }
         }
     }

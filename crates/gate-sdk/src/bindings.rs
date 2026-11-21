@@ -189,6 +189,7 @@ pub fn check<S: CallState>(
                 .map(|judged| wit::JudgedTargets {
                     rule: judged.rule,
                     targets: judged.targets,
+                    rejudged: judged.rejudged,
                 })
                 .collect(),
         })

@@ -251,11 +251,18 @@ that is checked out. Such a rule says what it judged:
   target. Each call adds to the list; a run that judged nothing calls it with an empty list. Only
   the exceptions whose target is listed are due.
 - `run.exceptions()` holds the targets of the rule's own exceptions. In every run, the rule judges
-  those it can judge on its own and lists them, so a stale exception is still reported. For example,
-  `git/commit-message` reads each excepted commit by its id.
+  those it can judge on its own and lists them with `run.rejudges(targets)`, so a stale exception
+  is still reported. For example, `git/commit-message` reads each excepted commit by its id.
+- `run.rejudges(targets)` narrows the run's view as `judges_only` does, and marks the targets as
+  judged only to re-check the rule's exceptions. The core keeps a finding on such a target only
+  when an exception accepts it. So a re-check never brings a new finding into a run that does not
+  otherwise judge its target, such as an aspect the exception does not cover. A target also listed
+  with `judges_only` is judged in full.
 
-A baseline entry with a key is due when the key is listed, so such a rule keys its findings by the
-targets it lists. `gate_sdk::check_output` answers what each rule judged, for a native test.
+A baseline entry with a key is due when the key is listed with `judges_only`. So such a rule lists
+the keys of its findings among its targets: `git/commit-message` lists `<id> <line>` for each body
+line and trailer of a commit it judges. `gate_sdk::check_output` answers what each rule judged,
+for a native test.
 
 ## 8. Errors
 

@@ -291,6 +291,73 @@ fn an_exception_of_a_rule_that_narrowed_its_view_is_due_only_where_it_judged_the
 }
 
 #[test]
+fn a_finding_on_a_target_re_judged_for_its_exceptions_stays_only_when_an_exception_accepts_it() {
+    let id = "c".repeat(40);
+    let mut excepted = exception("a/rule#header-max-length", &id);
+    excepted.path = None;
+    let on = |aspect: &str, message: &str| {
+        let mut found = finding(
+            "a/rule",
+            aspect,
+            Level::Error,
+            "apps/server/x.ts",
+            1,
+            message,
+        );
+        found.target = Some(id.clone());
+        found
+    };
+    let messages = |found: Vec<Finding>, baseline: &Baseline, ran: &RulesRan| -> Vec<String> {
+        let mut sink = Findings::new();
+        sink.extend(found);
+        sink.finish(std::slice::from_ref(&excepted), baseline, ran)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    };
+    // The run judged nothing in full and re-judged the excepted commit.
+    let mut ran = ran_all();
+    ran.narrow(Some("server"), "a/rule", Vec::new());
+    ran.rejudge(Some("server"), "a/rule", vec![id.clone()]);
+
+    // The excepted aspect is accepted; the aspect the exception does not cover, failing since an
+    // option changed, is dropped: the run does not judge the commit otherwise.
+    let both = || {
+        vec![
+            on("header-max-length", "long"),
+            on("prohibited-trailers", "trailer"),
+        ]
+    };
+    assert_eq!(
+        messages(both(), &Baseline::default(), &ran),
+        [] as [String; 0]
+    );
+    // Once the excepted aspect passes, the exception is due and reported.
+    assert_eq!(
+        messages(
+            vec![on("prohibited-trailers", "trailer")],
+            &Baseline::default(),
+            &ran
+        ),
+        [format!(
+            "the exception for a/rule#header-max-length at {id} matches no finding"
+        )]
+    );
+    // A baseline entry keyed by a target only re-judged is not due.
+    let mut keyed = on("prohibited-trailers", "trailer");
+    keyed.key = Some(id.clone());
+    let baseline = Baseline::from_findings(&[keyed]);
+    assert_eq!(
+        messages(vec![on("header-max-length", "long")], &baseline, &ran),
+        [] as [String; 0]
+    );
+
+    // A run that judges the commit in full, a push of it, reports the other aspect.
+    ran.narrow(Some("server"), "a/rule", vec![id.clone()]);
+    assert_eq!(messages(both(), &Baseline::default(), &ran), ["trailer"]);
+}
+
+#[test]
 fn a_baseline_entry_of_a_rule_that_narrowed_its_view_is_due_only_where_it_judged_its_key() {
     let mut keyed = finding("a/rule", "", Level::Error, "apps/x.ts", 1, "keyed");
     keyed.key = Some("feat/old".to_owned());

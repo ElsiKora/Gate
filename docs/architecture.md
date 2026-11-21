@@ -150,8 +150,9 @@ interface types {
   }
   record generated-file { path: string, contents: list<u8>, seed: bool }   // a seed: written only
                                                                            // where nothing exists
-  record judged-targets { rule: string, targets: list<string> } // what a rule judged when less
-                                                                 // than its whole scope
+  record judged-targets { rule: string, targets: list<string>, rejudged: list<string> }
+                                  // what a rule judged when less than its whole scope; rejudged:
+                                  // only to re-check its own exceptions
   record check-result { findings: list<finding>, judged: list<judged-targets> }
   record generate-result { files: list<generated-file>, findings: list<finding> }
   variant plugin-error {      // why check or generate failed; the message says what to do

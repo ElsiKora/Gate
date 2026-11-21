@@ -1,5 +1,6 @@
-//! `Run::judges_only`: a rule that never calls it judged its whole scope and is not listed in
-//! what `check` answers; one that calls it is listed with the targets it gave, without repeats.
+//! `Run::judges_only` and `Run::rejudges`: a rule that calls neither judged its whole scope and is
+//! not listed in what `check` answers; one that calls either is listed with the targets it gave,
+//! without repeats, and a target it judges in full is not also listed as re-judged.
 
 use gate_sdk::{
     CheckRequest, GitHost, Host, Judged, Location, NoOptions, Result, Rule, RuleRun, Run, TreeHost,
@@ -21,7 +22,8 @@ impl Rule for Whole {
     }
 }
 
-/// Judges the subject it checks and the excepted targets that start with `keep`.
+/// Judges the subject it checks, and re-judges the excepted targets that start with `keep` and the
+/// subject, which stays judged in full.
 #[derive(Default)]
 struct Narrow;
 
@@ -34,12 +36,29 @@ impl Rule for Narrow {
         let kept: Vec<String> = run
             .exceptions()
             .iter()
-            .filter(|target| target.starts_with("keep"))
+            .filter(|target| target.starts_with("keep") || *target == "subject")
             .cloned()
             .collect();
         run.judges_only(["subject"]);
-        run.judges_only(kept);
+        run.rejudges(kept.clone());
+        run.rejudges(kept);
         run.judges_only(["subject"]);
+        Ok(())
+    }
+}
+
+/// Only re-judges its exceptions' targets.
+#[derive(Default)]
+struct Recheck;
+
+impl Rule for Recheck {
+    type Options = NoOptions;
+    const NAME: &'static str = "recheck";
+    const TITLE: &'static str = "Re-judges its exceptions";
+
+    fn check(&self, run: &mut Run<'_, NoOptions>) -> Result<()> {
+        let excepted = run.exceptions().to_vec();
+        run.rejudges(excepted);
         Ok(())
     }
 }
@@ -63,7 +82,7 @@ gate_sdk::plugin! {
     name: "judges",
     version: "0.0.0",
     options: NoOptions,
-    rules: [Whole, Narrow, Nothing],
+    rules: [Whole, Narrow, Recheck, Nothing],
     generators: [],
     presets: [],
 }
@@ -110,6 +129,7 @@ fn only_the_rules_that_narrow_are_listed_with_what_they_judged() {
         rules: vec![
             rule("whole", &["keep-a"]),
             rule("narrow", &["keep-a", "drop", "keep-b", "subject"]),
+            rule("recheck", &["keep-a"]),
             rule("nothing", &["keep-a"]),
         ],
         ..CheckRequest::default()
@@ -120,15 +140,18 @@ fn only_the_rules_that_narrow_are_listed_with_what_they_judged() {
         [
             Judged {
                 rule: "narrow".to_owned(),
-                targets: vec![
-                    "subject".to_owned(),
-                    "keep-a".to_owned(),
-                    "keep-b".to_owned()
-                ],
+                targets: vec!["subject".to_owned()],
+                rejudged: vec!["keep-a".to_owned(), "keep-b".to_owned()],
+            },
+            Judged {
+                rule: "recheck".to_owned(),
+                targets: Vec::new(),
+                rejudged: vec!["keep-a".to_owned()],
             },
             Judged {
                 rule: "nothing".to_owned(),
                 targets: Vec::new(),
+                rejudged: Vec::new(),
             },
         ]
     );

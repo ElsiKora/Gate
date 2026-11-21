@@ -126,7 +126,10 @@ interface types {
   /// The targets one rule judged in a `check` call, when it judged less than its whole scope: the
   /// pushed commits it checked, say, or the branch it checked. An exception of the rule is due (a
   /// `gate/exceptions` error when it matches no finding) only when its target is one of them.
-  record judged-targets { rule: string, targets: list<string> }
+  /// `rejudged` lists the targets it judged only to re-check its own exceptions, outside what the
+  /// call judges otherwise; the host keeps a finding on one of them only when an exception accepts
+  /// it.
+  record judged-targets { rule: string, targets: list<string>, rejudged: list<string> }
 
   /// What `check` answers. A rule `judged` does not list judged its whole scope.
   record check-result { findings: list<finding>, judged: list<judged-targets> }

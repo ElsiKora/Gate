@@ -975,7 +975,6 @@ fn request_to_wit(request: &CheckRequest, grant: &Grant) -> wit::CheckRequest {
     }
 }
 
-/// Fails unless `finding` is of a rule the call ran (`ran`), with no aspect or one the rule declares.
 /// What a rule of the call judged, checked: the rule ran in this invocation.
 fn judged_from(plugin: &str, ran: &[&RuleInfo], judged: wit::JudgedTargets) -> Result<Judged> {
     if !ran.iter().any(|rule| rule.name == judged.rule) {
@@ -991,9 +990,12 @@ fn judged_from(plugin: &str, ran: &[&RuleInfo], judged: wit::JudgedTargets) -> R
     Ok(Judged {
         rule: judged.rule,
         targets: judged.targets,
+        rejudged: judged.rejudged,
     })
 }
 
+/// Fails unless `finding` is of a rule the call ran (`ran`), with no aspect or one the rule
+/// declares.
 fn ran_rule(plugin: &str, ran: &[&RuleInfo], finding: &Finding) -> Result<()> {
     let Some(rule) = ran.iter().find(|rule| rule.name == finding.rule) else {
         return Err(Error::new(

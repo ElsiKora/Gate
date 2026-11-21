@@ -1029,6 +1029,7 @@ impl Loaded {
             for judged in outcome.judged {
                 let rule = format!("{name}/{}", judged.rule);
                 ran.per_scope.narrow(*project, &rule, judged.targets);
+                ran.per_scope.rejudge(*project, &rule, judged.rejudged);
             }
             ran.rules += rules.len();
             ran.reads.push(PluginReads {

@@ -19,11 +19,13 @@ use crate::{Error, Result};
 /// How the call runs one rule: the host, the rule's run and the call's shared state.
 type RunRule<S> = fn(&dyn Host, &RuleRun, &Shared<'_, S>) -> Result<Ruled>;
 
-/// What one rule run answers: its findings, and the targets it judged when it narrowed its view
-/// ([`Run::judges_only`]); `None` when it judged its whole scope.
+/// What one rule run answers: its findings, the targets it judged when it narrowed its view
+/// ([`Run::judges_only`]; `None` when it judged its whole scope), and those it judged only to
+/// re-check its own exceptions ([`Run::rejudges`]).
 pub(crate) struct Ruled {
     findings: Vec<Finding>,
     judged: Option<Vec<String>>,
+    rejudged: Vec<String>,
 }
 
 /// One rule of a plugin, erased to what the host calls. `S` is the plugin's [`CallState`].
@@ -205,13 +207,18 @@ pub struct CheckRequest {
 }
 
 /// The targets one rule judged in a `check` call, when it judged less than its whole scope
-/// ([`Run::judges_only`]). An exception of the rule is due only when its target is one of them.
+/// ([`Run::judges_only`], [`Run::rejudges`]). An exception of the rule is due only when its target
+/// is one of them.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Judged {
     /// The rule's name inside the plugin.
     pub rule: String,
     /// The targets it judged, in the order given, without repeats.
     pub targets: Vec<String>,
+    /// The targets it judged only to re-check its own exceptions, in the order given, without
+    /// repeats and without those in `targets`. The host keeps a finding on one of them only when
+    /// an exception accepts it.
+    pub rejudged: Vec<String>,
 }
 
 /// What `check` answers.
@@ -327,9 +334,12 @@ pub fn check_output<S: CallState>(
         let ruled = (entry.run)(host, rule, &shared)?;
         output.findings.extend(ruled.findings);
         if let Some(targets) = ruled.judged {
+            let mut rejudged = ruled.rejudged;
+            rejudged.retain(|target| !targets.contains(target));
             output.judged.push(Judged {
                 rule: rule.name.clone(),
                 targets,
+                rejudged,
             });
         }
     }
@@ -405,6 +415,7 @@ fn run_rule<R: Rule<S>, S: CallState>(
         options_file: rule.options_file.clone(),
         exceptions: rule.exceptions.clone(),
         judged: None,
+        rejudged: Vec::new(),
         state: shared.state,
     };
     R::default()
@@ -413,6 +424,7 @@ fn run_rule<R: Rule<S>, S: CallState>(
     Ok(Ruled {
         findings: run.report.into_findings(),
         judged: run.judged,
+        rejudged: run.rejudged,
     })
 }
 

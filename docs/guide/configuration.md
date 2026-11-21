@@ -287,12 +287,21 @@ An exception is reported only by a run that judged what it covers:
 - A rule whose subjects change from run to run judges only those subjects, and says so. Examples
   are the commits a push adds and the branch that is checked out. Its rule page lists them. An
   exception for another commit or branch is not checked in that run, so an exception keyed by a
-  shared commit's id holds in every hook. Such a rule also judges the targets of its own exceptions
-  that it can judge alone, in every run: `git/commit-message` reads each excepted commit again. So
-  an exception that no longer accepts anything is still reported.
+  shared commit's id holds in every hook. Such a rule also re-judges the targets of its own
+  exceptions that it can judge alone, in every run: `git/commit-message` reads each excepted commit
+  again. So an exception that no longer accepts anything is still reported.
+- A re-judged target brings no new finding into the run. The run keeps only the findings on it
+  that an exception accepts. Say an exception accepts a commit's `header-max-length`, and a later
+  `prohibited-trailers` pattern matches a trailer of that commit. The trailer is reported by the
+  run that judges the commit in full, its push, not by every hook on every branch that holds it.
 
-The baseline follows the same rule. An entry with a key is checked by a run that judged that key,
-and an entry without one by any run of its rule.
+The baseline follows the same rule. An entry with a key is checked by a run that judged that key in
+full, and an entry without one by any run of its rule. A target that a run only re-judged does not
+make a baseline entry due.
+
+An exception keyed by a commit names the commit's full lower-case id, as the rule's findings do. A
+short or upper-case id would never match a finding, so the git rules refuse it as a configuration
+error that gives the command to print the full id.
 
 ## Decision policy
 

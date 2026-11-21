@@ -210,11 +210,14 @@ Each shared plugin keeps its own changelog next to its code.
   for a pushed commit others already have, failed every pre-commit, commit-msg and later push run,
   in which the rule ran without judging that commit; an exception for one branch name failed every
   run on another branch. A rule whose subjects change from run to run now says what it judged
-  (`Run::judges_only`, and `judged` in the plugin interface's new `check-result`), and judges the
-  targets of its own exceptions it can judge alone in every run, so a truly stale exception is
-  still reported: `git/commit-message` reads each excepted commit again, alone, and
-  `git/branch-name` judges each excepted name. A rule that never says keeps today's behaviour: all
-  its exceptions are due whenever it ran. Baseline entries follow the same rule by their key.
+  (`Run::judges_only`, and `judged` in the plugin interface's new `check-result`), and re-judges
+  the targets of its own exceptions it can judge alone in every run (`Run::rejudges`), so a truly
+  stale exception is still reported: `git/commit-message` reads each excepted commit again, alone,
+  and `git/branch-name` judges each excepted name. A re-judged target keeps only the findings an
+  exception accepts, so a failure the exceptions do not cover is reported by the run that judges
+  the target in full, not by every hook. A rule that never says keeps today's behaviour: all its
+  exceptions are due whenever it ran. Baseline entries follow the same rule by their key, and a
+  target only re-judged does not make them due.
 - **runtime:** `wasmtime` and `wasmtime-wasi` 50.0.3, for RUSTSEC-2026-0587, a WASI filesystem
   sandbox escape on Windows through a drive-prefixed path component, which 50.0.2 had. The
   released binaries, macOS arm64 (`aarch64-apple-darwin`) and Linux musl

@@ -304,7 +304,10 @@ impl Findings {
     /// `gate/baseline` error, so both only ever shrink. One is due when its rule ran in its scope
     /// (`ran`) and judged what it covers there: the rule's whole scope, or, for a rule that
     /// narrowed its view, the exception's target or the entry's key among the targets it judged
-    /// (an entry without a key is due whenever its rule ran).
+    /// (an entry without a key is due whenever its rule ran). A target the rule judged only to
+    /// re-check its own exceptions (`Run::rejudges`) makes its exceptions due, not its baseline
+    /// entries, and a finding on it that no exception accepts is dropped: a re-check brings no new
+    /// finding into a run that does not otherwise judge its target.
     #[must_use]
     pub fn finish(
         self,
@@ -324,7 +327,7 @@ impl Findings {
                         matched = true;
                     }
                 }
-                !matched
+                !matched && !rejudged(ran, finding)
             })
             .collect();
 
@@ -335,8 +338,11 @@ impl Findings {
         for (exception, used) in exceptions.iter().zip(used) {
             let rule = exception.rule.rule.to_string();
             let target = Some(exception.target.as_str());
-            let due = ran.judged(exception.project.as_deref(), &rule, target)
-                || (exception.is_root() && ran.judged(None, &rule, target));
+            let judged = |project: Option<&str>| {
+                ran.judged(project, &rule, target)
+                    || ran.rejudged(project, &rule, &exception.target)
+            };
+            let due = judged(exception.project.as_deref()) || (exception.is_root() && judged(None));
             if !used && due {
                 kept.push(unmatched(exception));
             }
@@ -373,6 +379,7 @@ impl Extend<Finding> for Findings {
 pub struct RulesRan {
     pairs: BTreeSet<(Option<String>, String)>,
     narrowed: BTreeMap<(Option<String>, String), BTreeSet<String>>,
+    rejudged: BTreeMap<(Option<String>, String), BTreeSet<String>>,
 }
 
 impl RulesRan {
@@ -403,9 +410,38 @@ impl RulesRan {
             .extend(targets);
     }
 
-    /// Whether `rule` ran for `project` and judged `target` there: its whole scope, or `target`
-    /// among the targets it narrowed its view to. No target (a baseline entry without a key, which
-    /// cannot be told apart) counts as judged whenever the rule ran.
+    /// Records that `rule`, for `project`, judged `targets` only to re-check its own exceptions
+    /// (`Run::rejudges`). It narrowed its view, so call [`RulesRan::narrow`] too.
+    pub fn rejudge(&mut self, project: Option<&str>, rule: &str, targets: Vec<String>) {
+        if targets.is_empty() {
+            return;
+        }
+        self.rejudged
+            .entry((project.map(str::to_owned), rule.to_owned()))
+            .or_default()
+            .extend(targets);
+    }
+
+    /// Whether `rule`, for `project`, judged `target` only to re-check its own exceptions: listed
+    /// as re-judged and not among the targets it judged in full.
+    #[must_use]
+    pub fn rejudged(&self, project: Option<&str>, rule: &str, target: &str) -> bool {
+        let key = (project.map(str::to_owned), rule.to_owned());
+        self.ran(project, rule)
+            && self
+                .rejudged
+                .get(&key)
+                .is_some_and(|targets| targets.contains(target))
+            && !self
+                .narrowed
+                .get(&key)
+                .is_some_and(|targets| targets.contains(target))
+    }
+
+    /// Whether `rule` ran for `project` and judged `target` there in full: its whole scope, or
+    /// `target` among the targets it narrowed its view to. A target it only re-judged is not
+    /// counted. No target (a baseline entry without a key, which cannot be told apart) counts as
+    /// judged whenever the rule ran.
     #[must_use]
     pub fn judged(&self, project: Option<&str>, rule: &str, target: Option<&str>) -> bool {
         if !self.ran(project, rule) {
@@ -426,6 +462,7 @@ impl RulesRan {
     pub fn retain_rules(&mut self, filter: &RuleFilter) {
         self.pairs.retain(|(_, rule)| filter.allows(rule));
         self.narrowed.retain(|(_, rule), _| filter.allows(rule));
+        self.rejudged.retain(|(_, rule), _| filter.allows(rule));
     }
 }
 
@@ -534,6 +571,14 @@ pub fn matches(exception: &ScopedException, finding: &Finding) -> bool {
                 .as_ref()
                 .is_some_and(|location| location.path() == exception.path.as_deref()),
         }
+}
+
+/// Whether `finding` is on a target its rule judged only to re-check its exceptions.
+fn rejudged(ran: &RulesRan, finding: &Finding) -> bool {
+    finding
+        .target
+        .as_deref()
+        .is_some_and(|target| ran.rejudged(finding.project.as_deref(), &finding.rule, target))
 }
 
 fn unmatched(exception: &ScopedException) -> Finding {
