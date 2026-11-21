@@ -199,7 +199,20 @@ The independent review of `1fa6135c` found one blocking item and five nits, all 
 6. `--timings` `not loaded, every call cached` names only plugins with a call planned; the others
    are left out.
 
+## Lane rounds
+
+- Round 415 (`9cd3b715`): fmt exit 0, clippy exit 101 (`too_many_lines` on `run` in `lib.rs`
+  and `Loaded::run`, `unchecked_time_subtraction` in the budget); fixed in `03cba6ab`.
+- Round 423 (`03cba6ab`, `T-086/lane/run-2.log`): fmt, clippy, deny, the release build and the 13
+  wasm builds exit 0; the mutation (`OnCall` to `UpFront` in `gate check`) fails the cached-run
+  test, exit 101, as it must. Test exit 101: three tests of `crates/gate/tests/plugins.rs` counted
+  the modules a check compiles on the old rule that every needed plugin loads. Under this task a
+  plugin with no call (spare declares typescript with no rule turned on) or whose calls come from
+  the result cache is not loaded. `compiled_by` now empties the result cache too, and the two
+  tests that expect typescript to compile turn on `typescript/parse` in spare, so it has a call;
+  the expected counts are the ones they had.
+
 ## Resume point
 
-2026-11-21T03:00:42+00:00: review fix round written; next: commit, the lane round on the new
-tip, the measurements on the built tip.
+2026-11-21T06:12:03+00:00: the three tests adjusted; next: one lane round on the new tip, then the
+measurements on the built tip.
