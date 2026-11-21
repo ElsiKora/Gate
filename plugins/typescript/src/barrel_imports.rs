@@ -16,11 +16,12 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run};
+use gate_typescript::call::TypeScriptCall;
 use gate_typescript::owners::export_name;
 use gate_typescript::oxc_ast::ast::{
     Declaration, ImportDeclarationSpecifier, Statement, TSModuleReference,
 };
-use gate_typescript::{Allocator, ReadSource, Settings, SourceFile, TypeScript};
+use gate_typescript::{SourceFile, TypeScript};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 /// The rule.
@@ -58,7 +59,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for BarrelImports {
+impl Rule<TypeScriptCall> for BarrelImports {
     type Options = Options;
 
     const NAME: &'static str = "barrel-imports";
@@ -66,73 +67,73 @@ impl Rule for BarrelImports {
     const ASPECTS: &'static [&'static str] = &["deep-path", "not-exported"];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
-        let options = run.options();
-        let barrel_name = options.barrel_name.as_str();
-        if barrel_name.is_empty()
-            || barrel_name.contains(['/', '\\'])
-            || barrel_name == "."
-            || barrel_name == ".."
-        {
-            return Err(Error::config(format!(
-                "barrel-name {barrel_name:?} is not a file name; write the name of a folder's \
-                 barrel file, for example \"index.ts\""
-            )));
-        }
-        let owners = globs("owners", &options.owners)?;
-        let exempt = globs("exempt", &options.exempt)?;
-
-        let tree = run.tree();
-        let source = ReadSource::new(tree.paths(), move |path| tree.bytes(path));
-        let settings = run.language::<Settings>("typescript")?.unwrap_or_default();
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, settings, &allocator);
-        let checker = Checker {
-            typescript: &typescript,
-            files: typescript.files().iter().copied().collect(),
-            barrel_name,
-            owners: &owners,
-            own: RefCell::new(HashMap::new()),
-        };
-
-        let mut found = Vec::new();
-        for path in typescript.files() {
-            if typescript.settings().skips(path) || exempt.is_match(path) {
-                continue;
-            }
-            let Some(file) = checker.parse(path)? else {
-                continue;
-            };
-            for load in loads(&file) {
-                checker.check(path, &load, &mut found)?;
-            }
-        }
-
-        for finding in found {
-            let help = match finding.aspect {
-                "deep-path" => format!(
-                    "import from the folder's barrel {} instead; a name the barrel does not \
-                     export is internal to {}: export it from the barrel, or keep the import \
-                     inside the folder",
-                    finding.barrel, finding.folder
-                ),
-                _ => format!(
-                    "export the name from the barrel {}, or keep the import inside {}",
-                    finding.barrel, finding.folder
-                ),
-            };
-            run.report()
-                .finding(
-                    finding.aspect,
-                    Location::line(&finding.path, finding.line),
-                    finding.message,
-                )
-                .target(finding.path.clone())
-                .key(finding.key)
-                .help(help);
-        }
-        Ok(())
+    fn check(&self, run: &mut Run<'_, Options, TypeScriptCall>) -> Result<()> {
+        run.with_call(|run, shared| check(run, shared.typescript()?))
     }
+}
+
+/// The check of [`BarrelImports`] over the call's TypeScript view.
+fn check(run: &mut Run<'_, Options, TypeScriptCall>, typescript: &TypeScript<'_>) -> Result<()> {
+    let options = run.options();
+    let barrel_name = options.barrel_name.as_str();
+    if barrel_name.is_empty()
+        || barrel_name.contains(['/', '\\'])
+        || barrel_name == "."
+        || barrel_name == ".."
+    {
+        return Err(Error::config(format!(
+            "barrel-name {barrel_name:?} is not a file name; write the name of a folder's \
+             barrel file, for example \"index.ts\""
+        )));
+    }
+    let owners = globs("owners", &options.owners)?;
+    let exempt = globs("exempt", &options.exempt)?;
+
+    let checker = Checker {
+        typescript,
+        files: typescript.files().iter().copied().collect(),
+        barrel_name,
+        owners: &owners,
+        own: RefCell::new(HashMap::new()),
+    };
+
+    let mut found = Vec::new();
+    for path in typescript.files() {
+        if typescript.settings().skips(path) || exempt.is_match(path) {
+            continue;
+        }
+        let Some(file) = checker.parse(path)? else {
+            continue;
+        };
+        for load in loads(&file) {
+            checker.check(path, &load, &mut found)?;
+        }
+    }
+
+    for finding in found {
+        let help = match finding.aspect {
+            "deep-path" => format!(
+                "import from the folder's barrel {} instead; a name the barrel does not \
+                 export is internal to {}: export it from the barrel, or keep the import \
+                 inside the folder",
+                finding.barrel, finding.folder
+            ),
+            _ => format!(
+                "export the name from the barrel {}, or keep the import inside {}",
+                finding.barrel, finding.folder
+            ),
+        };
+        run.report()
+            .finding(
+                finding.aspect,
+                Location::line(&finding.path, finding.line),
+                finding.message,
+            )
+            .target(finding.path.clone())
+            .key(finding.key)
+            .help(help);
+    }
+    Ok(())
 }
 
 /// Globs whose `*` does not cross `/`, from option `key`.

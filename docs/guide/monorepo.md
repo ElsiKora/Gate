@@ -70,11 +70,18 @@ The project file of `apps/server`, for what only that project needs:
 name = "server"
 
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", reads = ["tsconfig.base.json"] }
 
 [rules]
 "nestjs/import-direction" = { level = "error", options = { contracts = [{ source-directory = "src/modules/domain", aspect = "domain-direction", forbidden-owner-paths = ["src/modules/public"], forbidden-packages = ["@nestjs/swagger"] }] } }
 ```
+
+The project's `tsconfig.json` extends the root's `tsconfig.base.json`, as `node/tsconfig` wants of
+every project in a monorepo. A plugin reads only its own project unless an entry grants more, so
+every plugin that resolves imports (`nestjs`, `cdk`, `frontend`, `typescript`) is granted the base
+with `reads`, written from the repository root. Without the grant the module resolver runs without
+the base's `paths`, and the plugin reports the base as a finding with the line to add; see
+[configuration.md](configuration.md#languages).
 
 `gate lock` at the root pins the plugins of every file in one `gate.lock`.
 

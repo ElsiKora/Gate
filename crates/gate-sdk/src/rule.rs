@@ -307,6 +307,12 @@ pub trait CallState: 'static {
 
     /// The state of one call, borrowing its owner.
     fn state<'o>(owner: &'o Self::Owner<'_>) -> Self::State<'o>;
+
+    /// Reports, into the rule's `report`, what the state found while a rule used it: called after
+    /// each [`Run::with_call`] body that answers without an error. A state that reads a file every
+    /// rule depends on, such as a configuration file it cannot read, reports it here once per call,
+    /// as a finding of the first rule that met it. Reports nothing by default.
+    fn report(_state: &Self::State<'_>, _report: &mut Report) {}
 }
 
 /// No state: the rules of the call share nothing but the call itself.
@@ -367,7 +373,9 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
     }
 
     /// Runs `body` with this run and the state every rule of the call shares ([`CallState`]),
-    /// and answers what `body` answers. The state is borrowed only inside `body`.
+    /// and answers what `body` answers. The state is borrowed only inside `body`; when `body`
+    /// answers without an error, [`CallState::report`] then reports what the state found into
+    /// this run's report.
     ///
     /// # Errors
     /// What `body` answers.
@@ -380,7 +388,11 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
         let mut answer = None;
         state.enter(&mut |shared| {
             if let Some(body) = body.take() {
-                answer = Some(body(self, shared));
+                let answered = body(self, shared);
+                if answered.is_ok() {
+                    S::report(shared, &mut self.report);
+                }
+                answer = Some(answered);
             }
         });
         answer.unwrap_or_else(|| {

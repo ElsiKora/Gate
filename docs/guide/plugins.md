@@ -186,6 +186,11 @@ agents = { source = "ElsiKora/Gate:agents@0.2.0" }
 "agents/agents-block" = { options = { root = "docs/agents", entry = "AGENTS.md" } }
 ```
 
+In a monorepo the service's `tsconfig.json` extends the root's base, so the plugin is granted it
+with `reads`, as `cdk`, `frontend` and `typescript` are; without the grant the module resolver runs
+without the base's `paths` and the plugin reports the base as a finding with the line to add. See
+[configuration.md](configuration.md#languages).
+
 `agents/no-claude-md` is a repository-scope rule: it runs once and sees every tracked path, so set it
 in the root `gate.toml`'s `[rules]` (`"agents/no-claude-md" = "error"`); a project's file may not set
 it.
@@ -255,8 +260,8 @@ TypeScript language library.
 name = "server"
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1", options = { layout = { source-root = "src" } } }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0", reads = ["tsconfig.base.json"] }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", options = { layout = { source-root = "src" } }, reads = ["tsconfig.base.json"] }
 
 [rules]
 "nestjs/barrel-exports" = "error"
@@ -385,9 +390,13 @@ name = "infrastructure"
 extends = ["cdk/recommended"]
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
-cdk = { source = "ElsiKora/Gate:cdk@0.3.0", options = { regions = ["eu-central-1", "us-east-1"] } }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0", reads = ["tsconfig.base.json"] }
+cdk = { source = "ElsiKora/Gate:cdk@0.3.0", options = { regions = ["eu-central-1", "us-east-1"] }, reads = ["tsconfig.base.json"] }
 ```
+
+In a monorepo the app's `tsconfig.json` extends the root's base, so the plugin is granted it with
+`reads`, as `nestjs`, `frontend` and `typescript` are; see
+[configuration.md](configuration.md#languages).
 
 A project extends the standard only through `[plugins.cdk] options`: `extra` directories and
 `extra-tags`, each with its job, `regions` and `nag-packs`. An existing app starts from the
@@ -409,9 +418,13 @@ name = "web"
 extends = ["frontend/recommended"]
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
-frontend = { source = "ElsiKora/Gate:frontend@0.3.0", options = { pack = "nextjs" } }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0", reads = ["tsconfig.base.json"] }
+frontend = { source = "ElsiKora/Gate:frontend@0.3.0", options = { pack = "nextjs" }, reads = ["tsconfig.base.json"] }
 ```
+
+In a monorepo the app's `tsconfig.json` extends the root's base, so the plugin is granted it with
+`reads`, as `nestjs`, `cdk` and `typescript` are; see
+[configuration.md](configuration.md#languages).
 
 `frontend/recommended` sets every rule to `error`; `frontend/adoption` sets every rule to `warning`, for
 an existing app moving to the standard. No preset can choose the framework, so a project that

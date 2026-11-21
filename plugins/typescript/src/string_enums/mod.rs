@@ -15,6 +15,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run};
 use gate_typescript::binder::{Binder, Meaning};
+use gate_typescript::call::TypeScriptCall;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
     Expression, IdentifierReference, PropertyKey, TSEnumDeclaration, TSEnumMember,
@@ -27,7 +28,7 @@ use gate_typescript::oxc_span::GetSpan;
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::oxc_syntax::symbol::{SymbolFlags, SymbolId};
 use gate_typescript::value::{string_like, unwrap};
-use gate_typescript::{Allocator, ReadSource, Settings, SourceFile, TypeScript};
+use gate_typescript::{SourceFile, TypeScript};
 
 use crate::findings::Findings;
 
@@ -100,7 +101,7 @@ impl Options {
     }
 }
 
-impl Rule for StringEnums {
+impl Rule<TypeScriptCall> for StringEnums {
     type Options = Options;
 
     const NAME: &'static str = "string-enums";
@@ -115,37 +116,41 @@ impl Rule for StringEnums {
     ];
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let options = run.options();
-        let test_prefixes = options.test_prefixes()?;
-        let tree = run.tree();
-        let source = ReadSource::new(tree.paths(), move |path| tree.bytes(path));
-        let settings = run.language::<Settings>("typescript")?.unwrap_or_default();
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, settings, &allocator);
-        let mut findings = Findings::default();
-
-        for path in tree.paths() {
-            if Path::new(&path)
-                .extension()
-                .is_none_or(|extension| extension != "ts")
-                || path.ends_with(".d.ts")
-                || typescript.settings().skips(&path)
-            {
-                continue;
-            }
-            let Some(file) = typescript.parse(&path)?.filter(|file| !file.fatal()) else {
-                continue;
-            };
-            let test = test_prefixes.iter().any(|prefix| path.starts_with(prefix));
-
-            Analysis::new(options, &file, test).report(&path, &mut findings);
-            namespace::report(&file, &path, &mut findings);
-        }
-
-        findings.report(run, help);
-        Ok(())
+    fn check(&self, run: &mut Run<'_, Options, TypeScriptCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| check(run, shared.typescript()?))
     }
+}
+
+/// The check of [`StringEnums`] over the call's TypeScript view.
+fn check(
+    run: &mut Run<'_, Options, TypeScriptCall>,
+    typescript: &TypeScript<'_>,
+) -> gate_sdk::Result<()> {
+    let options = run.options();
+    let test_prefixes = options.test_prefixes()?;
+    let tree = run.tree();
+    let mut findings = Findings::default();
+
+    for path in tree.paths() {
+        if Path::new(&path)
+            .extension()
+            .is_none_or(|extension| extension != "ts")
+            || path.ends_with(".d.ts")
+            || typescript.settings().skips(&path)
+        {
+            continue;
+        }
+        let Some(file) = typescript.parse(&path)?.filter(|file| !file.fatal()) else {
+            continue;
+        };
+        let test = test_prefixes.iter().any(|prefix| path.starts_with(prefix));
+
+        Analysis::new(options, &file, test).report(&path, &mut findings);
+        namespace::report(&file, &path, &mut findings);
+    }
+
+    findings.report(run, help);
+    Ok(())
 }
 
 /// What to do about a finding of `aspect`.

@@ -1031,6 +1031,7 @@ name = "gate-typescript"
 version = "0.2.1"
 dependencies = [
  "gate-sdk",
+ "json-strip-comments",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",

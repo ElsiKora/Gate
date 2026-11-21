@@ -57,6 +57,16 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   `<layout.source-root>/main.ts` by default (`src/main.ts`), where it approved none and every
   service's `src/main.ts` was a `#runtime-entrypoint` error. A list replaces the default, and `[]`
   approves none. The help names `private-entrypoints` as an option of the rule's `[rules]` entry.
+- A project tsconfig that extends a base above the project root, such as
+  `"extends": "../../tsconfig.base.json"` in a monorepo, no longer stops every rule that resolves
+  imports with an environment error (exit 2). The module resolver reads each base of the `extends`
+  chain through the plugin's tree, so a base outside the project is read when it is tracked and
+  granted with `reads = ["tsconfig.base.json"]` in the plugin's entry, and its `paths` that lead
+  back into the project resolve. A base the plugin cannot read is one finding of the call, at the
+  tsconfig that names it, with the grant to add; resolution goes on without it. So are a base named
+  by an absolute path, an empty entry and a `#` entry whose `package.json` `imports` target cannot
+  be read. A base from an untracked package (`@tsconfig/node22`), or a `#` entry that maps to one,
+  is skipped, as an import of one is.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.2.0...plugin-nestjs-v0.2.1) (2026-11-20)
 

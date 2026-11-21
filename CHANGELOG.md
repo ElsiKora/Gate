@@ -185,6 +185,9 @@ Each shared plugin keeps its own changelog next to its code.
 - **plugin-ledger:** `ledger/rule-decisions` reports a decision a rule entry names that the decision
   index does not list as accepted, as `ledger/exception-decisions` does for exceptions. It reads the
   decisions the core hands it, never `gate.toml`.
+- **sdk:** `CallState::report` lets a plugin's call state report what it found while a rule used
+  it, into that rule's report, after each `Run::with_call` that answers without an error; the
+  default reports nothing.
 
 - **plugins:** every shared plugin ships two presets: `<plugin>/recommended` turns on its rules at
   `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the
@@ -198,6 +201,13 @@ Each shared plugin keeps its own changelog next to its code.
 
 ### Bug Fixes
 
+- **plugins:** a project tsconfig that extends a base above the project root, such as
+  `"extends": "../../tsconfig.base.json"` in a monorepo, no longer stops every `nestjs`, `cdk`,
+  `frontend` and `typescript` rule that resolves imports with an environment error (exit 2). The
+  TypeScript language library reads each base of the `extends` chain through the plugin's tree, so
+  a base outside the project is read when it is tracked and granted with `reads`, and an
+  unreadable base (not granted, absolute, empty, or a `#` entry whose target cannot be read) is
+  left out of the chain and is one finding of the call with what to do.
 - **host:** a `[rules]` entry that sets only a level for a rule a preset turns on keeps the options
   the preset gives it: `extends = ["git/recommended"]` with `"git/branch-name" = "warning"` loads
   and runs with the preset's branch template. It used to be a configuration error (exit 2,

@@ -28,6 +28,19 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 - The presets `typescript/recommended` and `typescript/adoption`: `parse`, `barrel-imports` and
   `string-enums`, at `error` and at `warning`.
 
+### Bug Fixes
+
+- A project tsconfig that extends a base above the project root, such as
+  `"extends": "../../tsconfig.base.json"` in a monorepo, no longer stops every rule that resolves
+  imports with an environment error (exit 2). The module resolver reads each base of the `extends`
+  chain through the plugin's tree, so a base outside the project is read when it is tracked and
+  granted with `reads = ["tsconfig.base.json"]` in the plugin's entry, and its `paths` that lead
+  back into the project resolve. A base the plugin cannot read is one finding of the call, at the
+  tsconfig that names it, with the grant to add; resolution goes on without it. So are a base named
+  by an absolute path, an empty entry and a `#` entry whose `package.json` `imports` target cannot
+  be read. A base from an untracked package (`@tsconfig/node22`), or a `#` entry that maps to one,
+  is skipped, as an import of one is.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-typescript-v0.1.0...plugin-typescript-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.

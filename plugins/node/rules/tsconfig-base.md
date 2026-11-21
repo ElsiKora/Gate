@@ -33,6 +33,21 @@ reads it; its own `extends` is not followed, so the flags are written in the bas
 
 Scope: repository. Language: none. Reads history: no. Aspects: `missing`, `flags`.
 
+In a monorepo the base lies outside every project, and a plugin reads only its own project unless
+its entry grants more. Each plugin that resolves imports through the project's tsconfig (`nestjs`,
+`cdk`, `frontend`, `typescript`) is granted the base with `reads`, written from the repository
+root:
+
+```toml
+# apps/api/gate.toml
+[plugins]
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", reads = ["tsconfig.base.json"] }
+```
+
+Without the grant the module resolver runs without the base's `paths`, and the plugin reports the
+base as a finding with the line to add; see
+[configuration.md](../../../docs/guide/configuration.md#languages).
+
 ## Options
 
 The rule has no options of its own. It reads `base` and `separate` from `[plugins.node] options`

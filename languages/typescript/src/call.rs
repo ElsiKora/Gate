@@ -4,13 +4,13 @@
 //! once and resolves each import once. A plugin names [`TypeScriptCall`] as its call state, and a
 //! rule reaches the [`Sources`] through [`gate_sdk::Run::with_call`].
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gate_sdk::{Call, CallState, Run, Tree};
+use gate_sdk::{Call, CallState, Location, Report, Run, Tree};
 
-use crate::{Allocator, Settings, Source, SourceFile, TypeScript};
+use crate::{Allocator, Settings, Source, SourceFile, TypeScript, UnreadableBase};
 
 /// A plugin's call state ([`CallState`]): the sources and the TypeScript view its rules share.
 #[derive(Debug)]
@@ -24,6 +24,7 @@ impl CallState for TypeScriptCall {
         Owned {
             allocator: Allocator::default(),
             source: CallSource::new(call.tree()),
+            project: call.project(),
             settings: call
                 .language::<Settings>("typescript")
                 .map(Option::unwrap_or_default),
@@ -34,22 +35,100 @@ impl CallState for TypeScriptCall {
         Sources {
             source: &owner.source,
             typescript: match &owner.settings {
-                Ok(settings) => Ok(TypeScript::new(
-                    &owner.source,
-                    settings.clone(),
-                    &owner.allocator,
-                )),
+                Ok(settings) => {
+                    Ok(
+                        TypeScript::new(&owner.source, settings.clone(), &owner.allocator)
+                            .in_project(owner.project),
+                    )
+                }
                 Err(error) => Err(error.clone()),
             },
+            reported: Cell::new(false),
+        }
+    }
+
+    /// Reports each tsconfig base the module resolver could not read ([`report_unreadable_bases`]).
+    fn report(state: &Sources<'_>, report: &mut Report) {
+        if let Ok(typescript) = &state.typescript {
+            report_unreadable_bases(typescript, &state.reported, report);
         }
     }
 }
 
-/// What one call owns: the arena every parse of the call allocates into, the call's tracked files
-/// and the settings.
+/// Reports each tsconfig base the module resolver of `typescript` could not read
+/// ([`TypeScript::unreadable_bases`]) into `report`, once per call: `reported` records that a rule
+/// of the call did. A plugin's [`CallState::report`] calls it with its view, so the bases are
+/// findings of the first rule whose imports the view resolved, whose results may lack what the
+/// bases' `paths` resolve. Each finding is at the tsconfig that names the base, with no aspect;
+/// its target is `<tsconfig>:<extends entry>` and its help says how to make the base readable.
+pub fn report_unreadable_bases(
+    typescript: &TypeScript<'_>,
+    reported: &Cell<bool>,
+    report: &mut Report,
+) {
+    let bases = typescript.unreadable_bases();
+    if bases.is_empty() || reported.get() {
+        return;
+    }
+    reported.set(true);
+    for base in bases {
+        report
+            .finding(
+                "",
+                Location::file(base.tsconfig.clone()),
+                format!(
+                    "{} extends {:?}, which the plugin cannot read, so the module resolver runs \
+                     without it: the paths and baseUrl it sets are not applied, and an import \
+                     they resolve is not followed",
+                    base.tsconfig, base.extends
+                ),
+            )
+            .target(format!("{}:{}", base.tsconfig, base.extends))
+            .help(unreadable_help(base))
+            .key(base.extends.clone());
+    }
+}
+
+/// What to do about a tsconfig base the resolver could not read, and what its absence does to the
+/// plugin's other findings.
+fn unreadable_help(base: &UnreadableBase) -> String {
+    let advice = match (&base.path, &base.repository) {
+        (Some(path), Some(repository)) if path.starts_with("../") => format!(
+            "the plugin reads a file outside its project only when it is tracked and granted: \
+             track {repository} and add it to the plugin's entry in gate.toml, \
+             reads = [\"{repository}\"]"
+        ),
+        (Some(_), Some(repository)) => {
+            format!("track {repository}: the plugin reads only tracked files")
+        }
+        (Some(_), None) => "the base lies outside the repository, which the plugin never \
+                            reads; extend a tracked file inside the repository"
+            .to_owned(),
+        (None, _) if base.extends.is_empty() => {
+            "write the path of a base, or remove the empty entry".to_owned()
+        }
+        (None, _) if base.extends.starts_with('#') => format!(
+            "the \"imports\" of the nearest package.json map {} to no file the plugin can \
+             read; map it to a tracked file, or extend the base by its relative path",
+            base.extends
+        ),
+        (None, _) => "name the base by a path relative to the tsconfig; the plugin never reads \
+                      an absolute path"
+            .to_owned(),
+    };
+    format!(
+        "{advice}. Until the base is read, other findings of this plugin about imports (an \
+         import that resolves to nothing, say) may come from its absence; this finding has the \
+         level of the rule that met the base first"
+    )
+}
+
+/// What one call owns: the arena every parse of the call allocates into, the call's tracked files,
+/// its project's root and the settings.
 pub struct Owned<'h> {
     allocator: Allocator,
     source: CallSource<'h>,
+    project: &'h str,
     settings: gate_sdk::Result<Settings>,
 }
 
@@ -57,6 +136,8 @@ pub struct Owned<'h> {
 pub struct Sources<'o> {
     source: &'o CallSource<'o>,
     typescript: gate_sdk::Result<TypeScript<'o>>,
+    /// Whether a rule of the call reported the tsconfig bases the resolver could not read.
+    reported: Cell<bool>,
 }
 
 impl std::fmt::Debug for Owned<'_> {

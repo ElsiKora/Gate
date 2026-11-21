@@ -74,7 +74,14 @@ A value that breaks these is a configuration error (exit 2) that names the key a
 [plugins.cdk]
 source = "ElsiKora/Gate:cdk@0.3.0"
 options = { regions = ["eu-central-1", "us-east-1"], extra = [{ name = "monitoring", job = "the alarms and dashboards" }] }
+reads = ["tsconfig.base.json"]
 ```
+
+`reads` grants the plugin the monorepo root's `tsconfig.base.json`, which the app's `tsconfig.json`
+extends as [`node/tsconfig`](../../node/rules/tsconfig.md) wants. The module resolver reads the
+base only through that grant; without it the resolver runs without the base's `paths`, and the
+plugin reports the base as a finding with the line to add. An app that is the whole repository
+needs no grant. See [configuration.md](../../../docs/guide/configuration.md#languages).
 
 ## Presets
 
