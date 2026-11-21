@@ -416,6 +416,22 @@ pub fn pinned_in(path: &Path, pinned: &mut Pinned) -> Result<()> {
     Ok(())
 }
 
+/// When the git `git` runs is older than `minimum` (major, minor), the error that says so; a git
+/// that is new enough, or whose version cannot be read, gives none.
+fn older_than(git: &Git, minimum: (u32, u32)) -> Option<Error> {
+    let output = git.output(&["version"]).ok()?;
+    let text = String::from_utf8_lossy(&output);
+    let found = text.split_whitespace().nth(2)?;
+    let mut parts = found.split('.').map(str::parse::<u32>);
+    let version = (parts.next()?.ok()?, parts.next()?.ok()?);
+    (version < minimum).then(|| {
+        Error::environment(format!(
+            "gate cache prune needs git {}.{} or later (found {found}); install a newer git and put it on PATH",
+            minimum.0, minimum.1
+        ))
+    })
+}
+
 /// What identifies a git directory for its guard: two paths to one directory, through a symlink
 /// or a second mount point, give one key, so one run never takes one lock twice and waits for
 /// itself.
@@ -455,7 +471,9 @@ struct Worktree {
 /// The worktrees of the repository `git` is in, as git lists them; the work tree `git` is in when
 /// git lists none. The listing is read as bytes, so a path that is not UTF-8 is still a worktree.
 fn worktrees(git: &Git) -> Result<Vec<Worktree>> {
-    let listing = git.output(&["worktree", "list", "--porcelain", "-z"])?;
+    let listing = git
+        .output(&["worktree", "list", "--porcelain", "-z"])
+        .map_err(|error| older_than(git, (2, 36)).unwrap_or(error))?;
     let mut worktrees: Vec<Worktree> = Vec::new();
     for field in listing.split(|byte| *byte == 0) {
         if let Some(root) = field.strip_prefix(b"worktree ") {

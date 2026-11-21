@@ -191,7 +191,7 @@ Gate/
 ## 📋 Prerequisites
 
 - macOS on Apple silicon (`aarch64-apple-darwin`) or Linux on x86-64 (`x86_64-unknown-linux-musl`)
-- `git` on `PATH`
+- `git` 2.36 or later on `PATH`
 - A POSIX shell and `curl` for the launcher
 - To build from source or write a plugin: Rust through `rustup` (the toolchain installs itself from
   `rust-toolchain.toml`)

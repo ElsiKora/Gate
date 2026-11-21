@@ -96,7 +96,10 @@ canonical path elsewhere). Git resolves the symlink itself, so the unit test
 `a_git_directory_reached_through_a_symlink_has_one_guard` checks the key directly.
 `a_cache_prune_skips_a_locked_worktree_whose_directory_is_empty` locks a linked worktree and
 empties its directory, as when its media is not mounted, and expects prune to skip it and exit 0.
-All of them put the run's stderr in their failure messages.
+`a_cache_prune_with_a_git_older_than_2_36_says_so` puts a git 2.30 first on `PATH`, which
+answers `worktree list -z` with its usage, and expects prune, with and without `--yes`, to say
+`gate cache prune needs git 2.36 or later (found 2.30.1)` instead. All of them put the run's
+stderr in their failure messages.
 
 ## The fix: prune takes the same guard
 
@@ -127,6 +130,9 @@ All of them put the run's stderr in their failure messages.
    The two listings are two `git worktree list` runs: a worktree added between them is read by
    `pinned_in` but not guarded, so a `gate lock --set` started in it within that window of a few
    milliseconds can still lose its build to the prune.
+   `worktree list -z` came with git 2.36. When the listing fails and `git version` is older,
+   prune says it needs git 2.36 or later and which version it found; the README's prerequisites
+   state the minimum.
 3. A worktree whose directory is gone (`prunable` in the listing), a bare repository, and a
    worktree whose directory holds no `.git` (a locked worktree on media that is not mounted) have
    no `gate.lock` to pin and no run to wait for, so they are skipped: `Lock::read` already reads it as no lock, and
@@ -180,7 +186,7 @@ finding again and expects the test to fail.
 
 ## Done when
 
-- The six tests pass, and the two that wait fail with the guards removed from prune (the
+- The seven tests pass, and the two that wait fail with the guards removed from prune (the
   mutation step).
 - Part two's test passes, and fails under its mutation step.
 - One lane round on the pushed tip, on this task's own target directory: fmt, clippy, test, deny
@@ -216,3 +222,6 @@ both parts.
 and inode, the window between the two listings is stated, and the tests put stderr in their
 messages, with a symlink case, an empty locked worktree and a unit test of the key. Next: once
 T-085 has merged, the rebase and one lane round for both parts.
+2026-11-21T06:03:37+00:00: the lead added the git floor: an older git gets `gate cache prune needs git 2.36 or
+later (found <version>)` instead of git's usage, with a test on a fake git 2.30, and the README's
+prerequisites say `git` 2.36 or later. Next: once T-085 has merged, the rebase and one lane round.

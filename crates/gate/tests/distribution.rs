@@ -1961,6 +1961,39 @@ fn a_cache_prune_skips_a_locked_worktree_whose_directory_is_empty() {
     );
 }
 
+#[test]
+fn a_cache_prune_with_a_git_older_than_2_36_says_so() {
+    let repo = with_plugins_and_a_tagged_cache();
+    // A git 2.30 first on PATH: it knows no `worktree list -z` and answers with its usage, as gits
+    // before 2.36 do; every other command goes to the real git.
+    let git = repo.bin.path().join("git");
+    std::fs::write(
+        &git,
+        concat!(
+            "#!/bin/sh\n",
+            "case \" $* \" in\n",
+            "  *\" worktree list \"*\" -z \"*) echo \"error: unknown switch \\`z'\" >&2;",
+            " echo 'usage: git worktree list [<options>]' >&2; exit 129 ;;\n",
+            "  *\" version \"*) echo 'git version 2.30.1'; exit 0 ;;\n",
+            "esac\n",
+            "PATH=/usr/bin:/bin exec git \"$@\"\n",
+        ),
+    )
+    .expect("git");
+    executable(&git);
+
+    for arguments in [&["cache", "prune", "--yes"][..], &["cache", "prune"][..]] {
+        let output = repo.gate(arguments, None, &[]);
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}: {stderr}");
+        assert!(
+            stderr.contains("gate cache prune needs git 2.36 or later (found 2.30.1)"),
+            "{arguments:?}: {stderr}"
+        );
+        assert!(!stderr.contains("usage:"), "{arguments:?}: {stderr}");
+    }
+}
+
 /// The git plugin built from this tree for wasm32-wasip2, as its release would carry it.
 fn git_component() -> Vec<u8> {
     built::component("gate-plugin-git", "git", "").1.clone()
