@@ -96,10 +96,18 @@ impl Baseline {
     /// Fails when the file is not the baseline format, or an entry's fingerprint does not match its
     /// fields (the file was edited by hand).
     pub fn load(snapshot: &Snapshot) -> Result<Self> {
-        let Some(text) = snapshot.text(BASELINE_FILE)? else {
-            return Ok(Self::default());
-        };
-        let file: BaselineFile = serde_json::from_str(&text).map_err(|error| {
+        match snapshot.text(BASELINE_FILE)? {
+            Some(text) => Self::parse(&text),
+            None => Ok(Self::default()),
+        }
+    }
+
+    /// The baseline in `text`, the contents of `gate/baseline.json`.
+    ///
+    /// # Errors
+    /// As [`Baseline::load`].
+    pub fn parse(text: &str) -> Result<Self> {
+        let file: BaselineFile = serde_json::from_str(text).map_err(|error| {
             Error::config(format!(
                 "{BASELINE_FILE}:{}:{}: {error}; rewrite it with gate baseline write",
                 error.line(),
@@ -237,6 +245,26 @@ impl Baseline {
             rekeyed,
             removed,
         }
+    }
+
+    /// [`Baseline::pruned`] for the entries `judged` holds too, the baseline as it was before the
+    /// findings were collected; every other entry, written meanwhile by another run from a tree
+    /// these findings may not reflect, is kept as it is.
+    #[must_use]
+    pub fn pruned_since(&self, judged: &Self, findings: &[Finding], ran: &RulesRan) -> Pruned {
+        let known: std::collections::BTreeSet<&BaselineEntry> = judged.entries.iter().collect();
+        let (seen, newer): (Vec<BaselineEntry>, Vec<BaselineEntry>) = self
+            .entries
+            .iter()
+            .cloned()
+            .partition(|entry| known.contains(entry));
+        let mut pruned = Self::from_entries(seen).pruned(findings, ran);
+        if !newer.is_empty() {
+            let mut entries = pruned.baseline.entries;
+            entries.extend(newer);
+            pruned.baseline = Self::from_entries(entries);
+        }
+        pruned
     }
 
     /// The number of entries.

@@ -42,12 +42,17 @@ enum Mode {
 
 fn replace_with(path: &Path, contents: &[u8], mode: Mode) -> Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let failed =
-        |error: io::Error| Error::environment(format!("cannot write {}: {error}", path.display()));
     let directory = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    let failed = |error: io::Error| {
+        Error::environment(format!(
+            "cannot write {}: {error}; check that {} is writable and has free space, then run the command again",
+            path.display(),
+            directory.display()
+        ))
+    };
     let name = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());

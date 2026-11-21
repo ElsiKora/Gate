@@ -47,9 +47,15 @@ const HEADER: &str = "# Written by `gate lock`. Commit it; never edit it by hand
 /// changes and writes `gate.lock`.
 pub const GUARD_FILE: &str = "gate.lock.guard";
 
+/// The file in the worktree's git directory whose advisory lock a run holds while it reads,
+/// changes and writes `gate/baseline.json`.
+pub const BASELINE_GUARD_FILE: &str = "gate.baseline.guard";
+
 /// Held by a run from reading `gate.lock` to writing it: an advisory lock on [`GUARD_FILE`] in the
 /// worktree's git directory, so that a second run waits until the first has written, and reads
-/// what it wrote. The operating system releases the lock when the run ends, however it ends.
+/// what it wrote; [`Guard::take_baseline`] does the same for `gate/baseline.json` on
+/// [`BASELINE_GUARD_FILE`]. The operating system releases the lock when the run ends, however it
+/// ends.
 #[derive(Debug)]
 pub struct Guard {
     _file: File,
@@ -62,14 +68,28 @@ impl Guard {
     /// # Errors
     /// Fails when the git directory cannot be found or the lock cannot be taken, saying what to do.
     pub fn take(git: &Git) -> Result<Self> {
-        let directory = git.git_dir()?;
-        Self::take_at(&directory.join(GUARD_FILE), &directory)
+        Self::take_for(git, GUARD_FILE, LOCK_FILE)
     }
 
-    fn take_at(path: &Path, directory: &Path) -> Result<Self> {
+    /// Takes the guard of `gate/baseline.json` in the worktree `git` is in, which a run holds from
+    /// reading the baseline to writing it. When another run holds it, says so on stderr and waits
+    /// for it.
+    ///
+    /// # Errors
+    /// As [`Guard::take`].
+    pub fn take_baseline(git: &Git) -> Result<Self> {
+        Self::take_for(git, BASELINE_GUARD_FILE, crate::baseline::BASELINE_FILE)
+    }
+
+    fn take_for(git: &Git, file: &str, guarded: &str) -> Result<Self> {
+        let directory = git.git_dir()?;
+        Self::take_at(&directory.join(file), &directory, guarded)
+    }
+
+    fn take_at(path: &Path, directory: &Path, guarded: &str) -> Result<Self> {
         let refused = |error: std::io::Error| {
             Error::environment(format!(
-                "cannot lock {} to update {LOCK_FILE}: {error}; check that {} is writable and on a local file system",
+                "cannot lock {} to update {guarded}: {error}; check that {} is writable and on a local file system",
                 path.display(),
                 directory.display()
             ))
@@ -85,7 +105,7 @@ impl Guard {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
                 eprintln!(
-                    "gate: waiting for another gate run to finish writing {LOCK_FILE} ({})",
+                    "gate: waiting for another gate run to finish writing {guarded} ({})",
                     path.display()
                 );
                 file.lock().map_err(refused)?;

@@ -387,7 +387,8 @@ fingerprint (same rule, aspect, path and message), prune rewrites the entry with
 it. Prune never adds an entry: a new finding stays reported, and prune says how many there are.
 `baseline write` is for the first baseline; running it again would accept every new finding too.
 Prune reads the committed baseline; on a `gate/baseline.json` that git does not track it stops and
-says to run `git add gate/baseline.json` first.
+says to run `git add gate/baseline.json` first. Two baseline runs in one worktree take turns: the
+second says it waits, and a prune then works from the baseline the first one wrote.
 
 After moving a baseline written by 0.1.0 to 0.2.0, run `bin/gate baseline prune` first; it re-keys
 every entry it can. One kind of finding changed in 0.2.0 so that prune cannot: a finding of a project
