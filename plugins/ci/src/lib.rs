@@ -53,6 +53,22 @@ const RECOMMENDED: &str = r#"{
     "names": { "level": "error" }
 }"#;
 
+/// `ci/adoption`: the rules of `ci/recommended` at warning, for a repository on its way to the
+/// standard.
+const ADOPTION: &str = r#"{
+    "actions-pinned": { "level": "warning" },
+    "workflow-run-target": { "level": "warning" },
+    "permissions": { "level": "warning" },
+    "concurrency": { "level": "warning" },
+    "timeout": { "level": "warning" },
+    "runner-pinned": { "level": "warning" },
+    "checkout-credentials": { "level": "warning" },
+    "secrets-in-steps": { "level": "warning" },
+    "environment": { "level": "warning" },
+    "node-setup": { "level": "warning" },
+    "names": { "level": "warning" }
+}"#;
+
 gate_sdk::plugin! {
     name: "ci",
     version: env!("CARGO_PKG_VERSION"),
@@ -71,8 +87,8 @@ gate_sdk::plugin! {
         Names,
     ],
     generators: [],
-    presets: [gate_sdk::Preset {
-        name: "recommended",
-        rules: RECOMMENDED,
-    }],
+    presets: [
+        gate_sdk::Preset { name: "recommended", rules: RECOMMENDED },
+        gate_sdk::Preset { name: "adoption", rules: ADOPTION },
+    ],
 }

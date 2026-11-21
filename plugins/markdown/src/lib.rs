@@ -15,11 +15,28 @@ pub use self::frontmatter::{Frontmatter, Options as FrontmatterOptions};
 pub use self::local_links::{LocalLinks, Options as LocalLinksOptions};
 pub use self::required_sections::{Options as RequiredSectionsOptions, RequiredSections, Sections};
 
+/// `markdown/recommended`: every rule a preset may turn on, at error, for a repository that follows
+/// the standard. It leaves out `required-sections`, whose `sections` only the project can give.
+const RECOMMENDED: &str = r#"{
+    "frontmatter": { "level": "error" },
+    "local-links": { "level": "error" }
+}"#;
+
+/// `markdown/adoption`: the rules of `markdown/recommended` at warning, for a repository on its way
+/// to the standard.
+const ADOPTION: &str = r#"{
+    "frontmatter": { "level": "warning" },
+    "local-links": { "level": "warning" }
+}"#;
+
 gate_sdk::plugin! {
     name: "markdown",
     version: env!("CARGO_PKG_VERSION"),
     options: gate_sdk::NoOptions,
     rules: [Frontmatter, LocalLinks, RequiredSections],
     generators: [],
-    presets: [],
+    presets: [
+        gate_sdk::Preset { name: "recommended", rules: RECOMMENDED },
+        gate_sdk::Preset { name: "adoption", rules: ADOPTION },
+    ],
 }

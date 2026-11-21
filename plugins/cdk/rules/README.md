@@ -79,6 +79,5 @@ options = { regions = ["eu-central-1", "us-east-1"], extra = [{ name = "monitori
 ## Presets
 
 - `recommended`: every rule at `error`.
-- `adoption`: `recommended`, with `file-names`, `declarations`, `barrels`, `properties`, `tests` and
-  the `topic` aspect of `stack-names` at `warning`, so an existing app fixes what protects a deploy
-  first and renames files and classes in commits of their own.
+- `adoption`: every rule of `recommended` at `warning`, for an existing app on its way to the
+  standard; its `[rules]` raises a rule to `error` once the app passes it.

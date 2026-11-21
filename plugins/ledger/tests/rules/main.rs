@@ -8,6 +8,7 @@ mod exceptions;
 mod generators;
 mod manifest;
 mod presence;
+mod presets;
 mod record_status;
 mod records;
 mod reuses;

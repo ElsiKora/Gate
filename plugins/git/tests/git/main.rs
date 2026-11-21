@@ -4,6 +4,7 @@ mod branch_name;
 mod commit_message;
 mod main_history;
 mod no_ci_skip;
+mod presets;
 mod repo;
 
 use repo::{Repo, settings};

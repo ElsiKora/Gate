@@ -4,6 +4,7 @@
 mod fixture;
 mod generators;
 mod instruction_references;
+mod presets;
 mod rules;
 mod skills;
 

@@ -9,6 +9,7 @@ mod layout;
 mod names;
 mod options;
 mod policy;
+mod presets;
 
 use std::collections::BTreeMap;
 
@@ -428,9 +429,10 @@ fn preset(name: &str) -> Value {
 }
 
 #[test]
-fn both_presets_set_every_rule_and_adoption_warns_only_on_renames() {
-    let info = gate_sdk::describe(&cdk::PLUGIN);
-    for name in ["recommended", "adoption"] {
+fn both_presets_set_every_rule_at_their_one_level() {
+    let mut every = RULES.to_vec();
+    every.sort_unstable();
+    for (name, level) in [("recommended", "error"), ("adoption", "warning")] {
         let rules = preset(name);
         let mut set: Vec<&str> = rules
             .as_object()
@@ -439,50 +441,13 @@ fn both_presets_set_every_rule_and_adoption_warns_only_on_renames() {
             .map(String::as_str)
             .collect();
         set.sort_unstable();
-        let mut every = RULES.to_vec();
-        every.sort_unstable();
         assert_eq!(set, every, "cdk/{name}");
-        // Every aspect the preset sets is one its rule declares.
-        for (rule, settings) in rules.as_object().expect("rules") {
-            let declared = &info
-                .rules
-                .iter()
-                .find(|info| info.name == *rule)
-                .expect("a rule of the plugin")
-                .aspects;
-            for aspect in settings["levels"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .map(|(key, _)| key)
-            {
-                assert!(declared.contains(aspect), "cdk/{name} {rule}#{aspect}");
-            }
+        for rule in &RULES {
+            assert_eq!(
+                rules[*rule],
+                serde_json::json!({ "level": level }),
+                "cdk/{name} {rule}"
+            );
         }
     }
-    let recommended = preset("recommended");
-    assert!(
-        RULES
-            .iter()
-            .all(|rule| recommended[*rule]["level"] == "error"),
-        "{recommended}"
-    );
-    let adoption = preset("adoption");
-    let warned: Vec<&str> = RULES
-        .iter()
-        .copied()
-        .filter(|rule| adoption[*rule]["level"] == "warning")
-        .collect();
-    assert_eq!(
-        warned,
-        [
-            "file-names",
-            "declarations",
-            "barrels",
-            "properties",
-            "tests"
-        ]
-    );
-    assert_eq!(adoption["stack-names"]["levels"]["topic"], "warning");
-    assert_eq!(adoption["container-health"]["level"], "error");
 }

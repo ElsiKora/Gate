@@ -186,6 +186,16 @@ Each shared plugin keeps its own changelog next to its code.
   index does not list as accepted, as `ledger/exception-decisions` does for exceptions. It reads the
   decisions the core hands it, never `gate.toml`.
 
+- **plugins:** every shared plugin ships two presets: `<plugin>/recommended` turns on its rules at
+  `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the
+  standard. `git` and `ci` gain `<plugin>/adoption`; `agents`, `ledger`, `markdown`, `nestjs` and
+  `typescript` gain both; `cdk/adoption` turns on every `cdk` rule at `warning`, as the others do.
+  A preset leaves out a rule that needs something only the project can give: an option without a
+  default or whose default turns the rule off, a plugin option such as `activation`, the
+  project's own inventory, or a subsystem a service may not have
+  (`nestjs/advisory-lock-manifest`, `nestjs/asset-storage`). The plugins guide names each such
+  rule and why.
+
 ### Bug Fixes
 
 - **host:** a `[rules]` entry that sets only a level for a rule a preset turns on keeps the options

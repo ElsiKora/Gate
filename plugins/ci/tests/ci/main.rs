@@ -8,6 +8,7 @@ mod fixture;
 mod names;
 mod node_setup;
 mod permissions;
+mod presets;
 mod runner_pinned;
 mod secrets_in_steps;
 mod timeout;
@@ -82,7 +83,7 @@ fn the_recommended_preset_turns_every_rule_on_at_error() {
         .iter()
         .map(|preset| preset.name.as_str())
         .collect();
-    assert_eq!(presets, ["recommended"]);
+    assert_eq!(presets, ["recommended", "adoption"]);
     let rules: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&info.presets[0].rules).expect("the preset is JSON");
     let named: Vec<&str> = rules.keys().map(String::as_str).collect();

@@ -23,6 +23,11 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   that is empty, absolute or not normalized is a configuration error (exit 2). The aspect
   `error-string-shim` stays in `nestjs` as the rule `nestjs/error-string-shim`.
 
+### Features
+
+- The presets `typescript/recommended` and `typescript/adoption`: `parse`, `barrel-imports` and
+  `string-enums`, at `error` and at `warning`.
+
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-typescript-v0.1.0...plugin-typescript-v0.2.0) (2026-11-19)
 
 Built for the plugin interface `gate:plugin@0.2.0`; it loads only in a 0.2.0 core.
