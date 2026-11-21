@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead's approval |
+| Status | design approved (`d4e39e5e`), code waits for T-085 |
 | Release | v0.3.0 |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
@@ -95,6 +95,16 @@ not block behind a `gate lock` that is downloading for minutes.
    the blob, or starts after, so its admit comes after the removal. The guard is T-076's
    `lock::Guard::take`, unchanged. If a guard is held, prune prints the same waiting line and
    waits.
+   **Where the guard lives, and why every worktree.** T-076 put `gate.lock.guard` in the
+   worktree's own git directory, `git rev-parse --absolute-git-dir` (`Git::git_dir`). That is
+   `<repository>/.git` for the main worktree and `<repository>/.git/worktrees/<name>` for a linked
+   one, not the common directory. This matches what it guards: each worktree has its own
+   `gate.lock`, and two worktrees writing their own locks never wait for each other. Prune, though,
+   reads the `gate.lock` of every worktree of a repository (`git worktree list`), and a
+   `gate lock --set` in any of them can admit a blob that only its own lock will pin. Each of those
+   runs holds only its own worktree's guard, so prune must hold all of them. One guard in the
+   common directory would serialize every worktree's `gate lock` against the others, which is
+   wider than T-076 needs, so the layout stays.
 2. `lock::pinned_in` gets a variant that takes the guards: one per worktree root from
    `git worktree list --porcelain`, taken in the order of their paths, so two prunes over the same
    repositories cannot deadlock. No other command takes more than one guard.
@@ -142,5 +152,6 @@ round checked its guard.
 
 ## Resume point
 
-2026-11-21T03:54:34+00:00: design note written on `task/T-077-prune-vs-lock` from `20480703`. No
-code yet. Next: the lead's approval, then the code once T-085 has merged.
+2026-11-21T03:56:58+00:00: design approved, on the condition that the note says where the guard lives and why
+every worktree is needed; added under "The fix". The baseline follow-up became T-077b, on its own
+branch. Next: the code, once T-085 has merged.
