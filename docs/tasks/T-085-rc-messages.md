@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | 0.3.0 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |
@@ -78,6 +78,13 @@ its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
   leak scan prints nothing.
 
 ## Resume point
+
+2026-11-21T04:41:36+00:00: lane ticket 417 ran on `ecc59ee` (rebased onto `e008106`) and exited 0
+after 962 s. fmt, clippy, the workspace tests (1514 passed, 0 failed), deny and the release build
+each exited 0. The log check found no workspace crate missing. `gate`, `gate-host`,
+`gate-plugin-git`, `gate-plugin-docs` and `gate-plugin-docker` were compiled from the round
+worktree, and each new test is listed as `ok`. The docs cases are in existing table tests. Next:
+the lead's review.
 
 2026-11-21T03:06:07+00:00: rebased onto `main` at `e008106`. Ticket 408 on the old base was
 withdrawn while its tests ran. Two conflicts were resolved by keeping both sides:
