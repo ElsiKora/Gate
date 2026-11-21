@@ -55,8 +55,8 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
     no finding.
   - An exception keyed by a commit id written in a form no finding names is a configuration error
     that gives the full lower-case id: a full-length id with an upper-case digit, or a short hex
-    target that git resolves to a commit. A hex target that names no commit, such as a body line
-    of digits, is text and passes.
+    target that git resolves to a commit whose id begins with it. A hex target that names no
+    commit, a tag or a branch, such as a body line of digits, is text and passes.
   - `git/commit-message` judges a pushed commit's body lines and trailers by their keys
     (`<id> <line>`), so a baseline entry of one is due where the commit is judged in full.
 - `git/commit-message`'s `body-full-stop` judges the body above its trailer block, the block

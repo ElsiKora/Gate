@@ -1325,3 +1325,34 @@ fn a_hex_exception_target_that_names_no_commit_is_text_and_passes() {
         .collect();
     assert_eq!(lines, ["20261121"], "the exception's target names the line");
 }
+
+#[test]
+fn a_hex_exception_target_that_names_a_tag_or_branch_is_text_and_passes() {
+    let (mut repo, _, [first, second, _]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    // git reads a ref before an abbreviated id: a release tag named by its date and a branch
+    // named in hex resolve to commits whose ids do not begin with their names.
+    repo.set_ref("refs/tags/20261121", &first);
+    repo.set_ref("refs/heads/deadbeef", &second);
+    repo.set_message(Some(
+        "feat(core): add the thing\n\nThe body says why.\n20261121\n",
+    ));
+    let output = repo
+        .check_excepted(
+            "commit-message",
+            MAIN,
+            r#"{"prohibited-body-lines": ["^\\d+$"]}"#,
+            &["20261121", "deadbeef"],
+        )
+        .expect("a hex target that names a tag or branch is no commit id");
+    let lines: Vec<_> = output
+        .findings
+        .iter()
+        .filter(|finding| finding.aspect == "prohibited-body-lines")
+        .filter_map(|finding| finding.target.as_deref())
+        .collect();
+    assert_eq!(lines, ["20261121"], "the exception's target names the line");
+}

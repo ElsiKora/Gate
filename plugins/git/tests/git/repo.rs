@@ -129,11 +129,17 @@ impl Repo {
         if self.commits.contains_key(revision) {
             return Some(revision.to_owned());
         }
-        if let Some(id) = self.refs.get(revision) {
+        // A ref by its full or short name, in git's order, before an abbreviated id, as git
+        // reads one.
+        let names = ["", "refs/", "refs/tags/", "refs/heads/", "refs/remotes/"];
+        if let Some(id) = names
+            .iter()
+            .find_map(|prefix| self.refs.get(&format!("{prefix}{revision}")))
+        {
             return Some(id.clone());
         }
-        // An abbreviated id, as git reads one: four or more hex digits of any case that begin
-        // exactly one commit's id.
+        // An abbreviated id: four or more hex digits of any case that begin exactly one commit's
+        // id.
         let prefix = revision.to_ascii_lowercase();
         if prefix.len() < 4 || !prefix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return None;

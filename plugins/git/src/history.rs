@@ -160,10 +160,11 @@ pub(crate) fn is_commit_id(text: &str) -> bool {
 ///
 /// # Errors
 /// When a target is a commit id written in a form no finding names: a full-length (40 or 64 hex
-/// digits) id with an upper-case digit, or a shorter hex target that `git` resolves to a commit.
-/// A finding on a commit names its full lower-case id, so such an exception would never match
-/// one, and the rule could not judge the commit it means. A hex target that names no commit, a
-/// body line of digits for one, is no commit id and passes.
+/// digits) id with an upper-case digit, or a shorter hex target that `git` resolves to a commit
+/// whose id begins with it. A finding on a commit names its full lower-case id, so such an
+/// exception would never match one, and the rule could not judge the commit it means. A hex
+/// target that names no commit, or names a tag or branch, is no commit id and passes: a body line
+/// of digits, for one.
 pub(crate) fn excepted_commits<'e>(
     git: &Git<'_>,
     rule: &str,
@@ -188,7 +189,12 @@ pub(crate) fn excepted_commits<'e>(
                 target.to_ascii_lowercase()
             )));
         }
-        if let Some(id) = git.resolve(target) {
+        // git reads a ref before an abbreviated id: a tag or branch named like the target is no
+        // commit id, so only a commit whose id begins with the target makes it one.
+        if let Some(id) = git
+            .resolve(target)
+            .filter(|id| id.starts_with(&target.to_ascii_lowercase()))
+        {
             return Err(Error::config(format!(
                 "the exception for {rule} at {target:?} is a short commit id, which no finding \
                  names; write the commit's full id ({id}) as its target"

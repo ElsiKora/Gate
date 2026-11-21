@@ -343,9 +343,12 @@ commit's id and the line (`<id> <line>`), so a baseline entry of one is due wher
 judged in full.
 
 An exception names the commit's full lower-case id, 40 or 64 hex digits, as the findings do. A
-full-length id with an upper-case digit, or a short hex target that git resolves to a commit, is a
-configuration error that gives the full id. A hex target that names no commit is text: an exception
-for a body line `20261121` under `prohibited-body-lines = ["^\\d+$"]` passes.
+full-length id with an upper-case digit, or a short hex target that git resolves to a commit whose
+id begins with it, is a configuration error that gives the full id. A hex target that names no
+commit is text, and so is one that names a tag or branch, or is shared by two commits: an
+exception for a body line `20261121` under `prohibited-body-lines = ["^\\d+$"]` passes, even
+where a release tag is named `20261121`. The verdict depends on the clone: a short id of a commit
+a shallow clone lacks is text there, and a later commit can make a text target an error.
 
 So an exception for a shared commit holds in the `pre-commit` and `commit-msg` hooks and in later
 pushes, and it is reported once it accepts nothing: after a rewrite, or when new options pass the
