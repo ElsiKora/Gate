@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress: design approved, code written, lane round on main next |
+| Status | in review: lane round 397 green on `main` at `3ce3be63`; independent review next |
 | Release | 0.3.0 (core, SDK, plugin interface `gate:plugin@0.3.0`, git plugin) |
 | Writer | the T-068 writer |
 | Reviewer | an independent session, then the lead |
@@ -243,4 +243,11 @@ into `main` unchanged at `2ef2cc61`. Lane round 391, on `main` at `2ef2cc61`, pa
 deny, the release build and the leak scan, with every new test listed and passing. One test failed:
 `a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, a test of `main` itself that still
 expected `git/branch-name` in a commit-msg run. `main` fixed it in `50920ad9` (T-071b) after the
-rebase. Next: the lane round on `main` at `3ce3be63`, then the independent review.
+rebase.
+
+Lane round 397, on `f81a6854` on `main` at `3ce3be63`, ended
+2026-11-21T01:22:30+00:00 with every step at exit 0: fmt, clippy, the tests (1493 passed, 0 failed
+in 117 test binaries), deny, the release build and the leak scan. `gate` and `gate-host` compiled
+from this checkout in that round; `gate-sdk`, `gate-runtime` and `gate-plugin-git` are unchanged
+since round 391, which compiled them from this checkout. Every new test above is listed by name
+and passes. Next: the independent review.
