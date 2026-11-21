@@ -246,6 +246,7 @@ impl Report {
                     }
                 },
                 "results": results,
+                "properties": { "baselined": self.baselined },
             }],
         });
         let mut out = serde_json::to_string_pretty(&value)?;

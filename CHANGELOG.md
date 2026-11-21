@@ -284,8 +284,11 @@ Each shared plugin keeps its own changelog next to its code.
   Before, a preset of project-scope rules took two errors to place.
 - **host:** the summary line of `gate check` counts the findings the baseline holds back, as in
   `0 errors, 0 warnings, 12 findings held back by gate/baseline.json`, and `--format json` has the
-  count as `baselined`. Before, a run after `gate baseline write` printed `0 errors, 0 warnings`,
-  the same as a clean tree.
+  count as `baselined` (SARIF as the run's `properties.baselined`). Before, a run after
+  `gate baseline write` printed `0 errors, 0 warnings`, the same as a clean tree.
+- **host:** a baseline written over two identical findings passes its own check: identical findings
+  are one before the baseline sees them. Before, `gate baseline write` stored one entry for them,
+  and the next `gate check` held back one and reported the other.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

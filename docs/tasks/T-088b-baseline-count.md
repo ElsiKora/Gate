@@ -23,8 +23,13 @@ exceptions is dropped before the baseline sees it).
   the baseline accepted, counted out of the same `Baseline::accept` call that drops them, after
   the exceptions and the re-judged drop. `finish` keeps its signature and returns the findings.
 - `Report` carries the count as `baselined`. The summary line adds
-  `, N finding(s) held back by gate/baseline.json` after the warnings when N is above 0, and
-  `--format json` has `"baselined": N` always.
+  `, N finding(s) held back by gate/baseline.json` after the warnings when N is above 0,
+  `--format json` has `"baselined": N` always, and SARIF has it as the run's
+  `properties.baselined`.
+- The review: identical findings are deduplicated before the baseline sees them, not only after.
+  `gate baseline write` stored one entry for two identical findings, and the next check held back
+  one and reported the other, so a freshly written baseline failed its own check. This was on
+  `main` before; it is fixed here because it sits in the same code.
 
 ## Tests
 
@@ -32,7 +37,9 @@ exceptions is dropped before the baseline sees it).
   core finding, and not an entry with no finding (that entry stays a stale error).
 - The summary with and without held findings; the JSON key.
 - The CLI: `gate baseline write`, then `gate check` prints the count; a fixed finding lowers it.
+- The CLI: a baseline written over two identical findings passes its own check with
+  `1 finding held back`.
 
 ## Resume point
 
-Code and tests committed; round queued.
+Code, tests and the review's fix round committed; round 432 queued.

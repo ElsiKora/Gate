@@ -5656,6 +5656,24 @@ fn check_counts_the_findings_the_baseline_holds_back() {
     );
 }
 
+#[test]
+fn a_baseline_written_over_two_identical_findings_passes_its_own_check() {
+    let repo = pinned_probe_repo();
+    read_with(&repo, r#"{ paths = ["x", "x"] }"#);
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stdout));
+    assert!(
+        text(&output.stdout)
+            .contains(" 0 errors, 0 warnings, 1 finding held back by gate/baseline.json; projects"),
+        "{}",
+        text(&output.stdout)
+    );
+}
+
 /// Takes the guard of `repo`'s `gate/baseline.json` as a first run would, before the run under
 /// test starts.
 fn hold_baseline_guard(repo: &Repo) -> std::fs::File {

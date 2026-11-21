@@ -345,6 +345,10 @@ impl Findings {
             })
             .collect();
 
+        // Two identical findings are one: `gate baseline write` stores one entry for them, so the
+        // baseline must see them once, or a freshly written baseline fails its own check.
+        kept.sort();
+        kept.dedup();
         let accepted = baseline.accept(&kept);
         let held = accepted.findings.iter().filter(|flag| **flag).count();
         let mut flags = accepted.findings.iter();
