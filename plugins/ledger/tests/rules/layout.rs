@@ -332,16 +332,15 @@ fn a_tracked_ledger_file_is_never_seeded() {
 /// turning it on after the seed is committed changes nothing.
 #[test]
 fn the_seeded_decision_index_is_what_decision_counts_writes() {
-    let files = seeded(Files::default(), &layout("{}", "{}", &Files::default()));
+    let seeds = layout("{}", "{}", &Files::default());
+    let index = "docs/ledger/decision-index.md";
+    let seed = written(&seeds)
+        .into_iter()
+        .find_map(|(path, _, text)| (path == index).then_some(text))
+        .expect("the index is seeded");
+    let files = seeded(Files::default(), &seeds);
     let output = gate_sdk::generate(&ledger::PLUGIN, &files, "decision-counts", "", "{}", "")
         .expect("generates");
-    assert_eq!(
-        written(&output),
-        [(
-            "docs/ledger/decision-index.md".to_owned(),
-            false,
-            DECISION_INDEX.to_owned()
-        )]
-    );
+    assert_eq!(written(&output), [(index.to_owned(), false, seed)]);
     assert_eq!(output.findings, []);
 }
