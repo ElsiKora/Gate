@@ -119,8 +119,14 @@ impl Settings {
     /// When they do not match their type, a path is not in normal form, a closed status is not
     /// lowercase, or the parity prefix is not uppercase letters and digits.
     pub fn read<O>(run: &Run<'_, O>) -> gate_sdk::Result<Self> {
-        let settings: Self = run.plugin_options()?;
+        Self::checked(run.plugin_options()?)
+    }
 
+    /// Checks shared options a generator read with [`gate_sdk::Generate::plugin_options`].
+    ///
+    /// # Errors
+    /// As [`Settings::read`].
+    pub fn checked(settings: Self) -> gate_sdk::Result<Self> {
         let mut paths = vec![
             ("decisions", &settings.decisions),
             ("implementation", &settings.implementation),

@@ -2,7 +2,7 @@
 //! verification, follow-up and production blocker records, over the owners and decisions the
 //! project's exceptions name and the decisions its rule entries name, and the generators that
 //! write the counts of a decision index and the review progress of a roadmap into their managed
-//! blocks.
+//! blocks and seed the manifest and the shared files of an empty ledger.
 //!
 //! The shared paths, the parity plan and the status vocabularies are `[plugins.ledger] options`
 //! ([`Settings`]); each rule's own options are in its module. Every path is relative to the project
@@ -20,6 +20,7 @@ mod settings;
 mod text;
 
 pub use self::generators::decision_counts::DecisionCounts;
+pub use self::generators::layout::Layout;
 pub use self::generators::review_progress::ReviewProgress;
 pub use self::rules::blockers::Blockers;
 pub use self::rules::closing_notes::ClosingNotes;
@@ -72,7 +73,7 @@ gate_sdk::plugin! {
         Reuses,
         RuleDecisions,
     ],
-    generators: [DecisionCounts, ReviewProgress],
+    generators: [DecisionCounts, Layout, ReviewProgress],
     presets: [
         gate_sdk::Preset { name: "recommended", rules: RECOMMENDED },
         gate_sdk::Preset { name: "adoption", rules: ADOPTION },

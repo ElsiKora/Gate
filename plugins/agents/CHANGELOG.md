@@ -19,15 +19,20 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   `<root>/rules` as their aspect `input`, and `agents/instruction-references` reports a missing
   `entry` the same way. Add the agent documents, or set `levels = { input = "off" }` with a
   decision.
-- The `agents-block` generator reports an `entry` that is not tracked, or a `<root>/rules` with no
-  rule file, as `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`; before, it
-  wrote nothing and said nothing. A project that does not want the block removes the generator from
-  `[generate]`.
+- The `agents-block` generator reports a `<root>/rules` with no rule file as
+  `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`; before, it wrote nothing
+  and said nothing. An `entry` that is not tracked is seeded (see Features). A project that does not
+  want the block removes the generator from `[generate]`.
 
 ### Features
 
 - The presets `agents/recommended`, all nine rules at `error`, and `agents/adoption`, the same at
   `warning`.
+- `agents/agents-block` seeds the entry (`AGENTS.md`) when it is not tracked: a title, one line, and
+  the managed block filled from the rule files. `gate sync` writes the seed only where nothing
+  exists. With nothing tracked under `root`, it also seeds `<root>/context-map.md`, the agents'
+  reading map, so a delegated `agents/` entry of the docs book exists. An empty `<root>/rules` stays
+  a finding of `gate/sync#agents/agents-block`; rule files are not seeded.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-agents-v0.1.0...plugin-agents-v0.2.0) (2026-11-19)
 

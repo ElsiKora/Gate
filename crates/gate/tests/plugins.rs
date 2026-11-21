@@ -2674,13 +2674,15 @@ fn agents_rules_and_the_agents_block_fail_without_agent_docs_and_pass_with_them(
         said.contains("AGENTS.md is not tracked, and agents/instruction-references reads it"),
         "{said}"
     );
+    // The entry is seeded, and `sync --check` never reports a seed; the rule files are reported.
     let (code, said) = doc_run(&repo, "agents", wasm, &["sync", "--check"]);
     assert_eq!(code, Some(1), "{said}");
     assert!(said.contains("gate/sync#agents/agents-block"), "{said}");
     assert!(
-        said.contains("AGENTS.md is not tracked, and agents/agents-block reads it"),
+        said.contains("docs/agents/rules has no rule file, and agents/agents-block reads"),
         "{said}"
     );
+    assert!(!said.contains("AGENTS.md"), "{said}");
 
     // An entry with the markers and no rule file: only the rule files are missing.
     repo.write(
@@ -7599,4 +7601,350 @@ fn a_commit_message_check_with_a_tree_selector_is_a_usage_error() {
             "{selector:?}: {message}"
         );
     }
+}
+
+/// The indexes `docs/layout` seeds for a service.
+const SERVICE_INDEXES: [&str; 9] = [
+    "docs/README.md",
+    "docs/adr/README.md",
+    "docs/architecture/README.md",
+    "docs/guide/README.md",
+    "docs/modules/README.md",
+    "docs/operations/README.md",
+    "docs/reference/README.md",
+    "docs/start-here.md",
+    "docs/testing/README.md",
+];
+
+/// The files `ledger/layout` seeds at the plugin's defaults.
+const LEDGER_SEEDS: [&str; 6] = [
+    "docs/ledger/manifest.json",
+    "docs/ledger/decision-index.md",
+    "docs/ledger/implementation-slices.md",
+    "docs/ledger/verification.md",
+    "docs/ledger/follow-ups.md",
+    "docs/ledger/production-blockers.md",
+];
+
+/// The agents rules that read the rule files.
+const RULE_FILE_RULES: [&str; 6] = [
+    "rule-enforcement",
+    "rule-file-size",
+    "rule-ids",
+    "rule-owner",
+    "rule-references",
+    "rule-registry",
+];
+
+/// The `gate.toml` of an empty service with the docs, ledger and agents plugins, `docs/<preset>`,
+/// every ledger and agents rule at `level`, and the three generators.
+fn standard_config(preset: &str, level: &str) -> String {
+    let mut rules: Vec<String> = [
+        "manifest",
+        "decisions",
+        "records",
+        "blockers",
+        "exception-owners",
+        "exception-decisions",
+        "rule-decisions",
+    ]
+    .iter()
+    .map(|rule| format!("\"ledger/{rule}\" = \"{level}\""))
+    .collect();
+    rules.push(format!(
+        "\"ledger/closing-notes\" = {{ level = \"{level}\", options = {{ field = \"`TEMPORARY_DELTA` records\" }} }}"
+    ));
+    rules.push(format!(
+        "\"ledger/reuses\" = {{ level = \"{level}\", options = {{ catalog = \"docs/reference/mechanisms.md\" }} }}"
+    ));
+    rules.extend(
+        RULE_FILE_RULES
+            .iter()
+            .chain(&["instruction-references", "skills", "no-claude-md"])
+            .map(|rule| format!("\"agents/{rule}\" = \"{level}\"")),
+    );
+    format!(
+        "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [\"docs/{preset}\"]\n\n\
+         [plugins.docs]\nsource = \"acme/rules:docs@0.1.0\"\noptions = {{ kind = \"service\", delegated = [\"agents\", \"ledger\"] }}\n\n\
+         [plugins.ledger]\nsource = \"acme/rules:ledger@0.1.0\"\n\n\
+         [plugins.agents]\nsource = \"acme/rules:agents@0.1.0\"\n\n\
+         [rules]\n{}\n\n\
+         [generate]\n\"docs/layout\" = {{}}\n\"ledger/layout\" = {{}}\n\"agents/agents-block\" = {{}}\n",
+        rules.join("\n")
+    )
+}
+
+/// Runs gate with the docs, ledger and agents components: the exit code and stdout then stderr.
+fn with_three_plugins(repo: &Repo, command: &[&str]) -> (Option<i32>, String) {
+    let plugins: Vec<String> = [
+        ("docs", "gate-plugin-docs", "docs"),
+        ("ledger", "gate-plugin-ledger", "ledger"),
+        ("agents", "gate-plugin-agents", "agents"),
+    ]
+    .iter()
+    .map(|(name, package, library)| format!("{name}={}", component(package, library).0.display()))
+    .collect();
+    let mut arguments = command.to_vec();
+    for plugin in &plugins {
+        arguments.extend(["--plugin", plugin.as_str()]);
+    }
+    let output = repo.gate(&arguments);
+    (
+        output.status.code(),
+        format!("{}{}", text(&output.stdout), text(&output.stderr)),
+    )
+}
+
+/// Each finding of a human report as `level[rule#aspect] path`, sorted.
+fn finding_heads(report: &str) -> Vec<String> {
+    let mut heads: Vec<String> = report
+        .lines()
+        .filter(|line| line.starts_with("error[") || line.starts_with("warning["))
+        .map(|line| {
+            line.split_once(": ")
+                .map_or(line, |(head, _)| head)
+                .to_owned()
+        })
+        .collect();
+    heads.sort();
+    heads
+}
+
+/// One `gate sync` lays down a service's documentation standard with the docs, ledger and agents
+/// generators: the nine indexes, the manifest and the five shared ledger files, `AGENTS.md` and the
+/// agents' reading map, so no delegated area is missing.
+/// Afterwards `gate check` reports only content findings, which ask the person to write something:
+/// each index's `#unfilled`, the rule files' `#input`, the `#input` of the ledger files only the
+/// project can write, and `ledger/records`' `#none` for the first implementation and production
+/// blocker records. The test lists them, so any structural finding fails it. Under
+/// `docs/recommended`, with every rule at error, the check fails; under `docs/adoption`, with every
+/// rule at warning, it passes. A second sync writes nothing, and `sync --check` reports no seed.
+#[test]
+fn one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content() {
+    // The rule files are the one input no generator writes.
+    let no_rule_file = ["error[gate/sync#agents/agents-block] docs/agents/rules"];
+    for (preset, level, code) in [("recommended", "error", 1), ("adoption", "warning", 0)] {
+        let repo = Repo::empty();
+        repo.write("gate.toml", &standard_config(preset, level));
+        repo.commit("configure an empty service");
+
+        let (_, said) = with_three_plugins(&repo, &["sync"]);
+        let mut written: Vec<&str> = said
+            .lines()
+            .filter_map(|line| line.strip_prefix("wrote "))
+            .collect();
+        written.sort_unstable();
+        let mut seeds: Vec<&str> = SERVICE_INDEXES
+            .iter()
+            .chain(&LEDGER_SEEDS)
+            .chain(&["AGENTS.md", "docs/agents/context-map.md"])
+            .copied()
+            .collect();
+        seeds.sort_unstable();
+        assert_eq!(written, seeds, "{preset}: 9 + 6 + 2 seeds: {said}");
+        assert_eq!(finding_heads(&said), no_rule_file, "{preset}: {said}");
+        repo.commit("lay down the standard");
+
+        let (status, said) = with_three_plugins(&repo, &["check"]);
+        assert_eq!(status, Some(code), "{preset}: {said}");
+        let mut expected: Vec<String> = SERVICE_INDEXES
+            .iter()
+            // Each index's marker line is its third line.
+            .map(|index| format!("{level}[docs/layout#unfilled] {index}:3:1"))
+            .chain(
+                RULE_FILE_RULES
+                    .iter()
+                    .map(|rule| format!("{level}[agents/{rule}#input] docs/agents/rules")),
+            )
+            .chain([
+                format!("{level}[ledger/decisions#input] docs/adr/decision-coverage.md"),
+                format!("{level}[ledger/reuses#input] docs/reference/mechanisms.md"),
+                format!(
+                    "{level}[ledger/records#record-shape] docs/ledger/implementation-slices.md"
+                ),
+                format!("{level}[ledger/records#record-shape] docs/ledger/production-blockers.md"),
+            ])
+            .collect();
+        expected.sort();
+        assert_eq!(finding_heads(&said), expected, "{preset}: {said}");
+        // The agents' delegated area exists: its reading map is seeded.
+        assert!(!said.contains("#delegated-missing"), "{preset}: {said}");
+        // The two record-shape findings are the `#none` of each entry file: they ask for a record.
+        for (path, record) in [
+            ("implementation-slices", "implementation record"),
+            ("production-blockers", "production blocker record"),
+        ] {
+            assert!(
+                said.contains(&format!(
+                    "docs/ledger/{path}.md: docs/ledger/{path}.md must contain at least one {record}"
+                )),
+                "{preset}: {said}"
+            );
+        }
+
+        let (_, said) = with_three_plugins(&repo, &["sync"]);
+        assert!(
+            !said.contains("wrote "),
+            "{preset}: the second sync writes nothing: {said}"
+        );
+        let (_, said) = with_three_plugins(&repo, &["sync", "--check"]);
+        assert_eq!(
+            finding_heads(&said),
+            no_rule_file,
+            "{preset}: sync --check reports no seed: {said}"
+        );
+    }
+}
+
+/// A tracked decision index with the block of `ledger/decision-counts` and four rows.
+const TRACKED_INDEX: &str = "\
+# Decisions
+
+<!-- gate:begin decision-counts -->
+- Decision IDs: `0`
+<!-- gate:end decision-counts -->
+
+| ID | Status | Title | File |
+| --- | --- | --- | --- |
+| `D-ONE-001` | `accepted` | One | `decisions/one.md` |
+| `D-TWO-001` | `superseded by D-THREE-001` | Two | `decisions/two.md` |
+| `D-THREE-001` | `accepted` | Three | `decisions/three.md` |
+| `D-THREE-001` | `superseded` | Three again | `decisions/three.md` |
+";
+
+/// A tracked implementation ledger with three records.
+const TRACKED_IMPLEMENTATION: &str = "\
+# Implementation
+
+- `I-ONE-001`: One
+  - Status: `completed`
+- `I-TWO-001`: Two
+  - Status: `in progress`
+- `I-THREE-001`: Three
+  - Status: `planned`
+";
+
+/// A tracked roadmap with the block of `ledger/review-progress`, every count readable.
+const TRACKED_ROADMAP: &str = "\
+# Roadmap
+
+## Review Progress
+
+<!-- gate:begin review-progress -->
+stale
+<!-- gate:end review-progress -->
+
+## Feature Inventory
+
+#### F001: Alpha
+
+- Review: `implement`
+
+#### F002: Beta
+
+- Review: `awaiting answer`
+
+#### F003: Gamma
+
+- Review: `unreviewed`
+
+```md
+#### F004: Inside a fence
+```
+
+## Decision Journal
+
+### First choice
+
+Counts: 2 answers · F001
+
+### Process note
+
+Counts: 0 answers · PROCESS
+
+### Report shape
+
+Counts: 1 answer · REPORT
+
+## Accepted Execution Queue
+
+| Order | Slice | Record |
+| --- | --- | --- |
+| 1 | first | `I-ONE-001` |
+| 2 | second | `I-TWO-001` |
+| 3 | third | `I-THREE-001` |
+";
+
+/// A tracked manifest that lists the roadmap among its canonical files.
+const TRACKED_MANIFEST: &str = r#"{
+  "canonicalRoot": "docs/ledger",
+  "canonicalFiles": ["decision-index.md", "implementation-slices.md", "plans/roadmap.md"],
+  "idFamilies": {},
+  "forbiddenReferences": []
+}
+"#;
+
+/// `ledger/layout` next to `ledger/decision-counts` and `ledger/review-progress` over a tracked
+/// ledger: the files the other two write are tracked, so `ledger/layout` seeds none of them, and
+/// `gate sync` writes each path once. It seeds only the shared files the project lacks, and
+/// `sync --check` passes once that is committed.
+#[test]
+fn the_ledger_layout_seeds_no_tracked_file_another_ledger_generator_writes() {
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\n\n\
+             [plugins.ledger]\nsource = \"acme/rules:ledger@0.1.0\"\n\n\
+             [generate]\n\"ledger/layout\" = {{}}\n\"ledger/decision-counts\" = {{}}\n\
+             \"ledger/review-progress\" = {{ options = {{ path = \"docs/ledger/plans/roadmap.md\", \
+             cross-cutting-kinds = [\"RET\", \"REPORT\"], zero-answer-kinds = [\"PROCESS\"] }} }}\n"
+        ),
+    );
+    for (path, contents) in [
+        ("docs/ledger/manifest.json", TRACKED_MANIFEST),
+        ("docs/ledger/decision-index.md", TRACKED_INDEX),
+        (
+            "docs/ledger/implementation-slices.md",
+            TRACKED_IMPLEMENTATION,
+        ),
+        ("docs/ledger/plans/roadmap.md", TRACKED_ROADMAP),
+    ] {
+        repo.write(path, contents);
+    }
+    repo.commit("a tracked ledger");
+    let plugin = format!(
+        "ledger={}",
+        component("gate-plugin-ledger", "ledger").0.display()
+    );
+
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_eq!(output.status.code(), Some(0), "{said}");
+    assert!(!said.contains("both write"), "{said}");
+    let read = |path: &str| std::fs::read_to_string(repo.path().join(path)).expect("written");
+    assert!(
+        read("docs/ledger/decision-index.md").contains("- Decision IDs: `4`"),
+        "decision-counts writes the tracked index"
+    );
+    assert!(
+        !read("docs/ledger/plans/roadmap.md").contains("stale"),
+        "review-progress writes the tracked roadmap"
+    );
+    assert_eq!(read("docs/ledger/manifest.json"), TRACKED_MANIFEST);
+    for (path, title) in [
+        ("docs/ledger/verification.md", "# Verification\n"),
+        ("docs/ledger/follow-ups.md", "# Follow-ups\n"),
+        (
+            "docs/ledger/production-blockers.md",
+            "# Production blockers\n",
+        ),
+    ] {
+        assert_eq!(read(path), title, "{path} is seeded");
+    }
+
+    repo.commit("the seeds and the blocks");
+    let output = repo.gate(&["sync", "--check", "--plugin", &plugin]);
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_eq!(output.status.code(), Some(0), "{said}");
 }

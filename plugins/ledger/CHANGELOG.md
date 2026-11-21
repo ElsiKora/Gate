@@ -39,6 +39,12 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   profile's `rules`, that the decision index (`decisions`) does not list as accepted, as
   `ledger/exception-decisions` does for exceptions. It reads the decisions the core hands it, never
   `gate.toml`.
+- **ledger:** the generator `layout` seeds an empty ledger at the paths of
+  `[plugins.ledger] options`: the manifest (the five shared files under their common root, no
+  identifier family, no forbidden reference) and the five shared files, each with a title, the
+  decision index with the block of `ledger/decision-counts` and its table header; with a tracked
+  manifest, also each canonical file it lists. Every file is a seed, written only where nothing
+  exists, and a tracked file is never seeded.
 
 # [0.2.0](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.1.0...plugin-ledger-v0.2.0) (2026-11-19)
 

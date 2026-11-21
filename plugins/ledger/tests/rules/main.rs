@@ -6,6 +6,7 @@ mod closing_notes;
 mod decisions;
 mod exceptions;
 mod generators;
+mod layout;
 mod manifest;
 mod presence;
 mod presets;

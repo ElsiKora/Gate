@@ -18,13 +18,20 @@ Links are relative to `entry`: with `entry = "docs/AGENTS.md"` a rule file
 for byte. Markers that are missing, repeated or reversed are a finding of
 `gate/sync#agents/agents-block` at the first marker's line.
 
-The generator writes only between the markers, so its inputs are findings of
-`gate/sync#agents/agents-block` when they are missing, in `gate sync` and in `gate sync --check`:
+When `entry` is not tracked, the generator seeds it: the title `# Agent instructions`, one line on
+what the file is, and the block between its markers, filled as above. `gate sync` writes a seed only
+where nothing exists, so an `AGENTS.md` a person wrote and has not added to git yet is left alone,
+and `gate sync --check` never reports it. Once the entry is tracked, the generator writes only
+between the markers.
 
-- `entry` is not tracked: nothing is written. Create it with a `<!-- gate:begin agents -->` line and,
-  below it, a `<!-- gate:end agents -->` line, or point `entry` at the file.
-- `<root>/rules` holds no rule file: the block is emptied when the entry has the markers, and nothing
-  is written otherwise. Create a rule file or point `root` at the agent docs.
+When nothing under `root` is tracked, the generator also seeds `<root>/context-map.md`, the agents'
+reading map: a title and one line on what goes there, no marker line. The delegated `agents/` entry
+of the docs book then exists after `gate sync`, and the rule files stay the one thing to write.
+
+`<root>/rules` with no rule file is a finding of `gate/sync#agents/agents-block`, in `gate sync` and
+in `gate sync --check`: the block is emptied when the entry has the markers, and nothing is written
+otherwise. Create a rule file or point `root` at the agent docs. Rule files are never seeded: each
+needs an `area` and an `owner` that names a decision of the project's ledger.
 
 A project that does not want the block removes the generator from `[generate]`.
 
