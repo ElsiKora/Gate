@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Option 1 approved; lane ticket 411 green on `8ed4f919` (on `main` `6b36eeac`); for review |
+| Status | Option 1 approved and reviewed; fix round rebased onto `main` `6d7081a1` (T-080), one lane round |
 | Release | v0.3.0 (the request's meaning for the repository call, on `gate:plugin@0.3.0`, unreleased) |
 | Writer | "Gate 006" |
 | Reviewer | a separate review session |
@@ -215,9 +215,10 @@ Each new rule's page, with its example finding run against a synthetic tree.
 
 ## Resume point
 
-2026-11-21T03:32:42+00:00: lane ticket 411 (`round1.sh`, one round on `8ed4f919`, on `main`
-`6b36eeac`) exited 0: fmt, clippy with `-D warnings`, the ten new or changed `gate` end-to-end tests
-and the ledger root, presets and presence tests by name, then `cargo test --workspace` (1515 passed,
-0 failed, 7 ignored), `cargo deny check` and the release build. `gate-sdk`, `gate-runtime`,
-`gate-host`, `gate` and `gate-plugin-ledger` compiled from this worktree only. Next: the independent
-review; T-072 merges after T-080.
+2026-11-21T04:27:41+00:00: the review found nothing blocking. The fix round is rebased onto `main`
+`6d7081a1`, which holds T-080; only `CHANGELOG.md` conflicted, and the cache keeps T-080's
+`FORMAT = 5`. The four `tsconfig_base.rs` tests that came with `main` build their request with
+`config_file`. The `config-file` comments in the WIT and the SDK say that under a root project the
+repository call still gets the root exceptions of its repository-scope rules. New ledger cases run
+the root rules with `config_file` `gate.toml` and show that they name the files they read, and the
+crate doc of `lib.rs` is wrapped. Next: one lane round, reported by log; the lead merges.
