@@ -60,7 +60,8 @@ pub use findings::{
 pub use git::Git;
 pub use lock::{LOCK_FILE, Lock, Pin, Wanted};
 pub use plugins::{
-    Generated, GitAnswers, JsonSchemaValidator, PluginGenerators, PluginReads, SyncStates,
+    Generated, GitAnswers, JsonSchemaValidator, PluginGenerators, PluginReads, PresetSetting,
+    PresetSettings, SyncStates, preset_settings,
 };
 pub use projects::{Origin, Project, Projects};
 pub use report::{EXIT_CLEAN, EXIT_ERRORS, EXIT_FAILURE, Format, Report, SelectionFormat};
@@ -578,6 +579,9 @@ fn commit_range(
     }))
 }
 
+/// What a `gate/budget` finding advises.
+const BUDGET_HELP: &str = "find the slow step with --timings; the first run after a clone, a core upgrade or a plugin bump compiles the plugins, which gate sync does ahead of the hooks; or raise --warn-after or --fail-after";
+
 /// The one `gate/budget` finding of a run that took `elapsed`: an error over `--fail-after`, else a
 /// warning over `--warn-after`, else none. An error over both thresholds names both.
 fn over_budget(elapsed: Duration, options: &RunOptions) -> Option<Finding> {
@@ -618,9 +622,7 @@ fn over_budget(elapsed: Duration, options: &RunOptions) -> Option<Finding> {
         message,
         location: None,
         target: None,
-        help: Some(
-            "find the slow plugin with --timings, or raise --warn-after or --fail-after".to_owned(),
-        ),
+        help: Some(BUDGET_HELP.to_owned()),
         norm: None,
         project: None,
         key: None,

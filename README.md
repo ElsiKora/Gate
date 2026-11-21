@@ -378,11 +378,11 @@ selection.
 | `gate check --commit-message <file>` | Check a commit message (commit-msg) |
 | `gate check --rev <oid>` | Check one commit |
 | `gate check --plugin <name>=<file.wasm>` | Check with a local build in place of one pinned plugin, for this run only |
-| `gate list` / `gate list --origin` | Print projects, plugins, rules and what is turned off; with `--origin`, the file and section of each setting |
-| `gate explain <plugin>/<rule>` | Print what the configuration says about a rule (levels, norms, origins, exceptions), or that no `gate.toml` configures it |
+| `gate list` / `gate list --origin` | Print projects, plugins, rules (those a preset turns on marked with the preset) and what is turned off; with `--origin`, the file and section of each setting |
+| `gate explain <plugin>/<rule>` | Print what the configuration and its presets say about a rule (levels, norms, origins, exceptions), or that nothing configures it |
 | `gate schema` / `gate schema --exceptions` | Print the JSON Schema of `gate.toml`, or of `gate.exceptions.toml` |
 | `gate lock` | Resolve the core and plugins and write `gate.lock` |
-| `gate lock --set <name>=<url> --file <file.wasm>` | Pin one plugin to a build under its release URL and put the build in the cache, from a plugin's release job |
+| `gate lock --set <name>=<url> --file <file.wasm>` | Pin a plugin to a build under its release URL and put the build in the cache, from a plugin's release job; repeat both for several plugins |
 | `gate baseline write` | Store today's findings in `gate/baseline.json`; they stop being reported |
 | `gate sync` / `gate sync --check` | Write, or verify, hooks, CI jobs and generated files |
 | `gate run <suite or step>` | Run the repository's steps and report each exit code; takes `--staged`, `--changed --base <rev>` or `--push <base>..<tip>` |
@@ -392,7 +392,8 @@ selection.
 
 Options of `gate check`: `--format text|json|sarif|github`, `--rule <plugin>/<rule>` (repeatable),
 `--timings`, `--warn-after <seconds>` (a slower run warns), `--fail-after <seconds>` (a slower run
-fails), `--fail-fast`, `--no-overrides` (refuses `--plugin`). `gate list` takes `--format text|json`.
+fails), `--fail-fast`, `--no-overrides` (refuses `--plugin`). `gate list` takes `--format text|json`;
+`gate list` and `gate explain` take `--plugin <name>=<file.wasm>` to read a local build's presets.
 
 Exit codes: `0` clean, `1` errors found, `2` a configuration or environment failure.
 

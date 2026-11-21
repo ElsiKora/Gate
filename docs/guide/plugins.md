@@ -572,6 +572,10 @@ name = "server"
 extends = ["typescript/adoption", "nestjs/adoption"]
 ```
 
+`gate list` and `gate explain <plugin>/<rule>` print each rule a preset turns on, with the preset
+and the `extends` line that brought it in. An `extends` entry that names a preset the plugin does
+not have is a configuration error that lists the plugin's presets.
+
 ## 🔌 Plugins of Your Own
 
 A plugin for your own conventions lives in your own repository and is pinned the same way:

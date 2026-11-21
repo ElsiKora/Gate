@@ -1,0 +1,82 @@
+# T-085: Release-candidate message fixes
+
+| Field | Value |
+| --- | --- |
+| Status | in progress |
+| Release | 0.3.0 |
+| Writer | the T-066 writer |
+| Reviewer | the lead |
+| Depends on | `main` at `30a1da2` (T-071b merged) |
+| Touches | `crates/gate`, `crates/gate-host` (fetch, lock, plugins), `plugins/git`, `plugins/docs`, `plugins/docker`, their tests, rule pages, guides and CHANGELOGs |
+
+## Goal
+
+Fix the messages that the release-candidate trial found (T-083, `docs/tasks/T-083-rc-trial.md` on
+its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
+
+1. **Presets in `gate list` and `gate explain` (3).**
+   - Both show each rule a preset turns on. The row is marked `(preset <plugin>/<preset>)`, and its
+     origin is the `extends` entry.
+   - The presets are read from what each declared plugin declares: from the cache when it holds
+     the declaration, else from the plugin, loaded without running.
+   - Both commands take `--plugin <name>=<file.wasm>`.
+   - When the declarations cannot be read, for example with no `gate.lock`, the output says why on
+     its last line, and JSON gives the reason as `presets-error`.
+2. **An unknown preset (4).** The error lists the plugin's presets, for example `its presets are
+   frontend/adoption and frontend/recommended`, instead of sending the reader to `gate list`.
+3. **An option value outside an enum (5).** The error names the allowed values: `/pack: "next" is
+   not one of "react-vite", "nextjs" or "react-library"`. This holds for any `enum`, and for any
+   `anyOf` or `oneOf` whose every branch is a constant or `null`. Other errors keep the
+   validator's own message.
+4. **`gate lock` on releases that do not exist (6).**
+   - When the release API answers 404 and the repository itself answers with the same
+     credential, the release does not exist. That is a configuration error that names the
+     repository's releases page and does not blame the credential.
+   - `gate lock` names every missing release in one error and writes nothing.
+   - When the repository does not answer either, the message about the credential stays as it
+     was.
+5. **`gate lock --set` for several plugins (9).**
+   - Repeat `--set` and `--file`: the n-th `--file` goes with the n-th `--set`.
+   - Unequal counts are refused, and so is a plugin named twice.
+   - Every pin is checked before any build enters the cache or `gate.lock` is written.
+6. **A header without the form (13).**
+   - `git/commit-message` reports `wip` once, as `type-empty`, with the message `the header "wip"
+     does not have the form <type>(<scope>): <subject>`.
+   - `scope-empty` and `subject-empty` judge only a header that matches the header pattern.
+   - This departs from commitlint, which gives three findings for it. The rule page says so.
+7. **`docs/layout` (16).**
+   - `#unknown` gets a help line that lists the kind's entries and how to declare one in `extra`.
+   - The absent sections of one index are one `#sections` finding (key `<index>#missing`). It
+     names them in the standard's order.
+   - Both `#sections` findings get a help line with the order.
+8. **The docker stage name (17).** An unnamed runtime stage is `the unnamed runtime stage 1`, not
+   `the runtime stage stage 1`.
+9. **`gate/budget` (20).**
+   - The finding already had a help line, printed in the text, JSON, SARIF and GitHub formats;
+     the code shows no output that drops it. The test now asserts that it is printed.
+   - The help now also names the cause of a slow first run (finding 2): the plugins are compiled.
+     It says that `gate sync` compiles them ahead of the hooks.
+
+## Done when
+
+- Each user-visible message change has a test:
+  - list and explain with a preset, the unknown preset and the unknown pack (CLI, with the built
+    frontend plugin);
+  - the enum message (unit);
+  - missing releases on a readable repository and on an unreadable one (host, with the HTTP
+    fixture);
+  - several `--set` pins, unequal counts and a duplicate (CLI);
+  - the `wip` header (git);
+  - the ordered sections and the help lines (docs);
+  - the unnamed stage (docker);
+  - the budget help line (CLI).
+- The rule pages, README, guides and CHANGELOGs say what changed.
+- One lane round on T-085's own target directories, with hooks off in the round worktree. These
+  must exit 0: fmt, clippy, test (`--workspace --no-fail-fast`), deny and the release build. The log
+  must show every changed crate compiled from T-085's checkout, with every new test listed. The
+  leak scan prints nothing.
+
+## Resume point
+
+2026-11-21T00:08:12+00:00: the changes and tests are written, and rustfmt is clean. Next: commit,
+then one lane round.

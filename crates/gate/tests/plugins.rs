@@ -3966,6 +3966,127 @@ fn a_frontend_project_without_a_pack_is_a_configuration_error_that_names_the_pac
 }
 
 #[test]
+fn an_unknown_pack_names_the_three_packs_and_an_unknown_preset_names_the_presets() {
+    let output = frontend_check(Some("next"), &[("src/main.tsx", "export {};\n")]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let message = text(&output.stderr);
+    assert!(
+        message.starts_with("gate: configuration error:")
+            && message.contains(
+                "/pack: \"next\" is not one of \"react-vite\", \"nextjs\" or \"react-library\""
+            )
+            && !message.contains("anyOf"),
+        "{message}"
+    );
+
+    let (path, _) = frontend();
+    let repo = Repo::empty();
+    repo.write("src/main.tsx", "export {};\n");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nextends = [\"frontend/strict\"]\n\n[plugins.frontend]\nsource = \"acme/rules:frontend@0.3.0\"\noptions = {{ pack = \"nextjs\" }}\n"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("frontend={}", path.display());
+    assert_config_error(
+        &repo,
+        &["check", "--plugin", &plugin],
+        "gate.toml:5 [project] extends: plugin frontend has no preset strict; its presets are frontend/adoption and frontend/recommended",
+    );
+}
+
+#[test]
+fn list_and_explain_show_the_rules_a_preset_turns_on_with_the_preset_as_their_origin() {
+    let (path, _) = frontend();
+    let repo = Repo::empty();
+    repo.write("src/main.tsx", "export {};\n");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nextends = [\"frontend/adoption\"]\n\n[plugins.frontend]\nsource = \"acme/rules:frontend@0.3.0\"\noptions = {{ pack = \"nextjs\" }}\n\n[rules]\n\"frontend/layout\" = \"error\"\n"
+        ),
+    );
+    repo.commit("configure");
+    let plugin = format!("frontend={}", path.display());
+    let run = |arguments: &[&str]| {
+        let output = repo.gate(arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+        text(&output.stdout)
+    };
+    let row = |said: &str, key: &str, value: &str, origin: &str| {
+        said.lines().any(|line| {
+            let cells: Vec<&str> = line.split("  ").filter(|cell| !cell.is_empty()).collect();
+            cells.iter().any(|cell| cell.trim() == key)
+                && cells.iter().any(|cell| cell.trim() == value)
+                && line.ends_with(origin)
+        })
+    };
+    let extends = "gate.toml:5 [project] extends";
+    let preset = "level warning (preset frontend/adoption)";
+
+    // A rule only the preset turns on, with the extends entry as its origin.
+    let said = run(&["explain", "frontend/file-names", "--plugin", &plugin]);
+    assert!(row(&said, "frontend/file-names", preset, extends), "{said}");
+    assert!(!said.contains("configures it"), "{said}");
+    // A rule the preset and [rules] both set: both rows, the preset's first.
+    let said = run(&["explain", "frontend/layout", "--plugin", &plugin]);
+    assert!(row(&said, "frontend/layout", preset, extends), "{said}");
+    assert!(
+        row(
+            &said,
+            "frontend/layout",
+            "level error",
+            "gate.toml:12 [rules]"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.find(preset) < said.find("level error"),
+        "the preset's row comes before the entry that wins over it: {said}"
+    );
+    // A rule of no plugin the configuration declares.
+    let said = run(&["explain", "frontend/nothing", "--plugin", &plugin]);
+    assert!(
+        said.contains("no gate.toml or preset configures it"),
+        "{said}"
+    );
+
+    let said = run(&["list", "--origin", "--plugin", &plugin]);
+    assert!(row(&said, "frontend/hook-names", preset, extends), "{said}");
+    let said = run(&["list", "--format", "json", "--plugin", &plugin]);
+    let value: serde_json::Value = serde_json::from_str(&said).expect("JSON");
+    let rows = value["project-settings"]
+        .as_object()
+        .and_then(|projects| projects.values().next())
+        .and_then(|project| project["settings"].as_array())
+        .expect("the project's settings");
+    assert!(
+        rows.iter().any(|row| row["key"] == "frontend/file-names"
+            && row["preset"] == "frontend/adoption"
+            && row["origin"]["line"] == 5),
+        "{said}"
+    );
+    assert!(value["presets-error"].is_null(), "{said}");
+
+    // Without the build, the pin is missing: the list says why the presets' rules are not shown.
+    let said = run(&["list"]);
+    let last = said.lines().last().unwrap_or_default();
+    assert!(
+        last.starts_with("the rules the presets turn on are not shown: ")
+            && last.contains("gate lock")
+            && !said.contains("frontend/file-names"),
+        "{said}"
+    );
+}
+
+#[test]
 fn the_frontend_component_passes_each_standard_tree_and_reports_a_departure() {
     let trees: [(&str, &[(&str, &str)]); 3] = [
         (

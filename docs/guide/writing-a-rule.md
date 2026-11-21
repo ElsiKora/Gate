@@ -276,8 +276,8 @@ whether it reads history, its aspects, its options with their defaults, an examp
 of its target and how to fix it. Write it with the rule.
 
 `gate explain <plugin>/<rule>` does not print the page: it prints what the repository's configuration
-says about the rule (levels, norms and options in every scope, with the file and line they come from,
-and the exceptions), or `no gate.toml configures it`.
+says about the rule (levels, norms and options in every scope, those its presets set included, with
+the file and line they come from, and the exceptions), or `no gate.toml or preset configures it`.
 
 ## ⚠️ Common Pitfalls
 

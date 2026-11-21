@@ -185,6 +185,13 @@ Each shared plugin keeps its own changelog next to its code.
 - **plugin-ledger:** `ledger/rule-decisions` reports a decision a rule entry names that the decision
   index does not list as accepted, as `ledger/exception-decisions` does for exceptions. It reads the
   decisions the core hands it, never `gate.toml`.
+- **lock:** `gate lock --set` and `--file` may be repeated to pin several builds in one run, the
+  first `--file` for the first `--set`; every pin is checked before any build enters the cache or
+  `gate.lock` is written.
+- **gate:** `gate list` and `gate explain` show the rules a preset turns on, each marked
+  `(preset <plugin>/<preset>)` with its `extends` entry as its origin, read from what each pinned
+  plugin declares; both take `--plugin <name>=<file.wasm>`. When the declarations cannot be read,
+  for example before the first `gate lock`, the output says why.
 
 - **plugins:** every shared plugin ships two presets: `<plugin>/recommended` turns on its rules at
   `error`, and `<plugin>/adoption` the same rules at `warning`, for a repository on its way to the
@@ -198,6 +205,17 @@ Each shared plugin keeps its own changelog next to its code.
 
 ### Bug Fixes
 
+- **lock:** a release `gate.toml` asks for that does not exist is a configuration error that says
+  so and names the repository's releases, when the repository itself answers; it used to blame the
+  credential, also for a public repository. `gate lock` names every missing release in one run
+  and writes nothing.
+- **host:** an `extends` entry that names a preset its plugin does not have lists the plugin's
+  presets; it used to send the reader to `gate list`, which did not show them.
+- **host:** an option value outside an enumeration names the allowed values (`/pack: "next" is not
+  one of "react-vite", "nextjs" or "react-library"`), instead of the schema validator's
+  `anyOf` text.
+- **check:** the `gate/budget` help says that the first run after a clone, a core upgrade or a
+  plugin bump compiles the plugins, which `gate sync` does ahead of the hooks.
 - **host:** a `[rules]` entry that sets only a level for a rule a preset turns on keeps the options
   the preset gives it: `extends = ["git/recommended"]` with `"git/branch-name" = "warning"` loads
   and runs with the preset's branch template. It used to be a configuration error (exit 2,

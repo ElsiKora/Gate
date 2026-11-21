@@ -200,9 +200,25 @@ fn unknown(report: &mut Report, settings: &Settings, book: &Book) {
             report
                 .finding("unknown", Location::file(format!("docs/{name}")), message)
                 .target(shown(name, top.directory()))
-                .key(name.clone());
+                .key(name.clone())
+                .help(entries_help(settings.kind));
         }
     }
+}
+
+/// The help of an entry that is not one: the entries of `kind`, and how a project declares one of
+/// its own.
+fn entries_help(kind: Kind) -> String {
+    let entries: Vec<String> = ENTRIES
+        .iter()
+        .filter(|entry| entry.in_kind(kind))
+        .map(standard::Entry::path)
+        .collect();
+    format!(
+        "the entries of {} are {}; declare another in the [plugins.docs] options as extra = [{{ name = \"<name>\", job = \"<what it holds>\" }}]",
+        kind.noun(),
+        entries.join(", ")
+    )
 }
 
 fn extras(report: &mut Report, settings: &Settings, book: &Book) {
@@ -381,27 +397,49 @@ fn sections(report: &mut Report, kind: Kind, book: &Book, tree: Tree<'_>) {
         };
         let headings = page::sections(&text);
         let required = index.titles(kind);
-        let mut absent = false;
-        for (position, title) in required.iter().enumerate() {
-            if headings.iter().any(|heading| heading.title == *title) {
-                continue;
+        let order = format!(
+            "write each as a level-2 heading, ## <title>, in this order: {}",
+            required.join(", ")
+        );
+        // Every absent section in one finding, in the order the standard gives them.
+        let missing: Vec<(usize, &str)> = required
+            .iter()
+            .enumerate()
+            .filter(|(_, title)| !headings.iter().any(|heading| heading.title == **title))
+            .map(|(position, title)| (position, *title))
+            .collect();
+        let absent = !missing.is_empty();
+        let message = match missing.as_slice() {
+            [] => None,
+            [(position, title)] => {
+                let place = position.checked_sub(1).map_or_else(
+                    || "first".to_owned(),
+                    |previous| format!("after \"{}\"", required[previous]),
+                );
+                Some(format!(
+                    "{path} has no section \"{title}\"; in {} it comes {place}",
+                    kind.noun()
+                ))
             }
-            absent = true;
-            let place = position.checked_sub(1).map_or_else(
-                || "first".to_owned(),
-                |previous| format!("after \"{}\"", required[previous]),
-            );
+            several => {
+                let titles: Vec<String> = several
+                    .iter()
+                    .map(|(_, title)| format!("\"{title}\""))
+                    .collect();
+                Some(format!(
+                    "{path} has none of the sections {}; in {} they are: {}",
+                    titles.join(", "),
+                    kind.noun(),
+                    required.join(", ")
+                ))
+            }
+        };
+        if let Some(message) = message {
             report
-                .finding(
-                    "sections",
-                    Location::file(&path),
-                    format!(
-                        "{path} has no section \"{title}\"; in {} it comes {place}",
-                        kind.noun()
-                    ),
-                )
+                .finding("sections", Location::file(&path), message)
                 .target(path.clone())
-                .key(format!("{path}#{title}"));
+                .key(format!("{path}#missing"))
+                .help(order.clone());
         }
         let found: Vec<&page::Heading> = headings
             .iter()
@@ -425,7 +463,10 @@ fn sections(report: &mut Report, kind: Kind, book: &Book, tree: Tree<'_>) {
                     ),
                 )
                 .target(path.clone())
-                .key(format!("{path}#order"));
+                .key(format!("{path}#order"))
+                .help(format!(
+                    "{order}; a section the standard does not name may follow them"
+                ));
         }
     }
 }

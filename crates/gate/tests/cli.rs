@@ -325,6 +325,7 @@ fn list_prints_projects_and_the_settings_of_each_scope() {
             "  plugin  git       ElsiKora/Gate:git@0.1.0 (options)\n",
             "  plugin  ledger    ElsiKora/Gate:ledger@0.1.0\n",
             "  rule    ledger/*  level off\n",
+            "the rules the presets turn on are not shown: plugins are declared and there is no gate.lock to pin them; run gate lock to resolve and pin them, then commit gate.lock\n",
         )
     );
 }
@@ -367,6 +368,7 @@ fn list_origin_prints_where_each_setting_came_from() {
             "  plugin  git       ElsiKora/Gate:git@0.1.0 (options)  gate.toml:8 [plugins]\n",
             "  plugin  ledger    ElsiKora/Gate:ledger@0.1.0         gate.toml:19 [[profiles]] plugins\n",
             "  rule    ledger/*  level off                          gate.toml:22 [[profiles]] rules\n",
+            "the rules the presets turn on are not shown: plugins are declared and there is no gate.lock to pin them; run gate lock to resolve and pin them, then commit gate.lock\n",
         )
     );
 }
@@ -387,6 +389,7 @@ fn explain_prints_what_each_scope_says_about_a_rule_and_where() {
             "    rule    layers/import-direction  options                               apps/server/gate.toml:12 [rules]\n",
             "  exceptions:\n",
             "    layers/import-direction at src/main.ts:main: historic import, removed with the next module split (owner T-9)  apps/server/gate.exceptions.toml:1\n",
+            "  the rules the presets turn on are not shown: plugins are declared and there is no gate.lock to pin them; run gate lock to resolve and pin them, then commit gate.lock\n",
         )
     );
 }
@@ -479,7 +482,7 @@ fn a_run_over_warn_after_warns_and_over_fail_after_errors_once() {
         text.starts_with("warning[gate/budget]: the run took "),
         "{text}"
     );
-    assert!(text.contains(" ms, over --warn-after 0 ms"), "{text}");
+    assert!(text.contains(" ms, over --warn-after 0 ms\n  help: find the slow step with --timings; the first run after a clone, a core upgrade or a plugin bump compiles the plugins, which gate sync does ahead of the hooks; or raise --warn-after or --fail-after\n"), "{text}");
     assert!(text.contains("0 errors, 1 warning;"), "{text}");
 
     // Over the failure threshold alone, and over both: one error, which names both thresholds.
@@ -490,7 +493,10 @@ fn a_run_over_warn_after_warns_and_over_fail_after_errors_once() {
         text.starts_with("error[gate/budget]: the run took "),
         "{text}"
     );
-    assert!(text.contains(" ms, over --fail-after 0 ms\n"), "{text}");
+    assert!(
+        text.contains(" ms, over --fail-after 0 ms\n  help: find the slow step"),
+        "{text}"
+    );
     let output = repo.gate(&[
         "check",
         "--warn-after",

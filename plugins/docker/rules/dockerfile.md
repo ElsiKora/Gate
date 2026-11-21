@@ -89,7 +89,7 @@ error docker/dockerfile#pinned Dockerfile:1
 error docker/dockerfile#stages Dockerfile:1
   Dockerfile has one stage
 error docker/dockerfile#user Dockerfile:1
-  the runtime stage stage 0 runs as root
+  the unnamed runtime stage 0 runs as root
 ```
 
 ## How to fix it

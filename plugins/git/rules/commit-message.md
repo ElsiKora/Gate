@@ -84,13 +84,13 @@ Each check is an aspect named after the commitlint rule it ports, and is reporte
 | `header-min-length` | The header is shorter than `header-min-length`, or there is no header line. |
 | `header-case` | The header starts with a letter and is not lower case. |
 | `header-full-stop` | The header ends with `.`. |
-| `type-empty` | The header names no type. |
+| `type-empty` | The header names no type, or does not have the form `<type>(<scope>): <subject>` at all. |
 | `type-case` | The type is not lower case. |
 | `type-enum` | The type is not one of `types`. |
-| `scope-empty` | The header names no scope. |
+| `scope-empty` | The header has the form and names no scope. |
 | `scope-case` | A scope is not lower case; `a/b`, `a\b` and `a, b` are several scopes. |
 | `scope-max-length` | The scope is longer than `scope-max-length`. |
-| `subject-empty` | The header has no subject. |
+| `subject-empty` | The header has the form and no subject. |
 | `subject-case` | The subject starts with a letter that has a case and is not lower case. |
 | `subject-full-stop` | The header ends with `.`, but not with `...`. |
 | `subject-min-length` | The subject is shorter than `subject-min-length`. |
@@ -183,8 +183,11 @@ commitlint:     ^(\w*)(?:\((.*)\))?!?: (.*)$   with headerCorrespondence type, s
 header-pattern: ^(?<type>\w*)(?:\((?<scope>.*)\))?!?: (?<subject>.*)$
 ```
 
-A header the pattern does not match names no type, so `type-empty` fails. A pattern with no
-`subject` group names no subject, so `subject-empty` fails on every message, as in commitlint. A
+A header the pattern does not match, such as `wip`, is one finding: `type-empty` says the header
+does not have the form. commitlint reports `type-empty`, `scope-empty` and `subject-empty` for it,
+three findings with the same advice; here `scope-empty` and `subject-empty` judge only a header the
+pattern matches. A pattern with no `subject` group names no subject, so `subject-empty` fails on
+every message, as in commitlint. A
 `header-pattern` that does not compile, or has no `type` group, is an error that names the option
 and fails the run.
 

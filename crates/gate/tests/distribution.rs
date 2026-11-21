@@ -1004,6 +1004,106 @@ fn lock_set_moves_exactly_the_one_pin() {
     );
 }
 
+#[test]
+fn lock_set_pins_several_plugins_in_one_run_or_none() {
+    let repo = with_plugins();
+    let before = repo.read("gate.lock");
+    let git_url = "https://github.com/ElsiKora/Gate/releases/download/plugin-git-v0.1.0/git.wasm";
+    let house_url =
+        "https://github.com/acme/rules/releases/download/plugin-house-v1.3.0/house.wasm";
+    let build = tempfile::tempdir().expect("build");
+    let git = build.path().join("git.wasm");
+    let house = build.path().join("house.wasm");
+    std::fs::write(&git, b"\0asm git 0.1.0").expect("build");
+    std::fs::write(&house, b"\0asm house 1.3.0").expect("build");
+    let (git_hash, house_hash) = (sha256(b"\0asm git 0.1.0"), sha256(b"\0asm house 1.3.0"));
+    let set_git = format!("git={git_url}");
+    let set_house = format!("house={house_url}");
+
+    // A --set without its --file, and one plugin named twice, are refused before anything moves.
+    for (arguments, said) in [
+        (
+            vec![
+                "lock",
+                "--set",
+                &set_git,
+                "--set",
+                &set_house,
+                "--file",
+                path(&git),
+            ],
+            "--set is given 2 times and --file 1 times; give each --set its own --file, in the same order",
+        ),
+        (
+            vec![
+                "lock",
+                "--set",
+                &set_git,
+                "--file",
+                path(&git),
+                "--set",
+                &set_git,
+                "--file",
+                path(&git),
+            ],
+            "--set names plugin git twice; give each plugin one --set",
+        ),
+    ] {
+        let output = repo.gate(&arguments, None, &[]);
+        assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+        assert!(
+            text(&output.stderr).contains(said),
+            "{}",
+            text(&output.stderr)
+        );
+    }
+    assert_eq!(repo.read("gate.lock"), before, "gate.lock is unchanged");
+    assert!(
+        blobs(repo.cache.path()).is_empty(),
+        "a refused run admits nothing"
+    );
+
+    let output = repo.gate(
+        &[
+            "lock",
+            "--set",
+            &set_git,
+            "--file",
+            path(&git),
+            "--set",
+            &set_house,
+            "--file",
+            path(&house),
+        ],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        format!(
+            "gate.lock: pinned git to {git_url} sha256 {git_hash} from {}, now in the cache\ngate.lock: pinned house to {house_url} sha256 {house_hash} from {}, now in the cache\n",
+            git.display(),
+            house.display()
+        )
+    );
+    let after = repo.read("gate.lock");
+    assert!(
+        after.contains(&format!("url = \"{git_url}\"\nsha256 = \"{git_hash}\"\n"))
+            && after.contains(&format!(
+                "url = \"{house_url}\"\nsha256 = \"{house_hash}\"\n"
+            ))
+            && after.contains("[plugins.\"acme/rules:house@1.3.0\"]")
+            && !after.contains("house@1.2.0"),
+        "{after}"
+    );
+    assert_eq!(
+        blobs(repo.cache.path()).len(),
+        2,
+        "both builds are in the cache"
+    );
+}
+
 fn path(file: &Path) -> &str {
     file.to_str().expect("a UTF-8 path")
 }
