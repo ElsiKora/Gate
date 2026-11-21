@@ -714,6 +714,46 @@ fn workspace_extends_at_a_root_that_is_not_a_project_reaches_the_repository_only
 }
 
 #[test]
+fn workspace_extends_of_an_undeclared_plugin_names_the_root_and_a_profile_at_once() {
+    let message = error(&[
+        (
+            "gate.toml",
+            &format!("{WORKSPACE_ROOT}extends = [\"docker/recommended\"]\n"),
+        ),
+        ("apps/one/gate.toml", "[project]\nname = \"one\"\n"),
+    ]);
+    assert_all(
+        &message,
+        &[
+            "gate.toml:6 [workspace] extends: \"docker/recommended\"",
+            "plugin docker is not declared for the repository",
+            "For its repository-scope rules, add [plugins.docker] source",
+            "for its project-scope rules, move the entry to the extends of a [[profiles]] entry",
+            "[profiles.plugins]",
+        ],
+    );
+}
+
+#[test]
+fn workspace_extends_of_a_core_preset_says_the_core_rules_cannot_be_configured() {
+    let message = error(&[
+        (
+            "gate.toml",
+            &format!("{WORKSPACE_ROOT}extends = [\"gate/recommended\"]\n"),
+        ),
+        ("apps/one/gate.toml", "[project]\nname = \"one\"\n"),
+    ]);
+    assert_all(
+        &message,
+        &[
+            "\"gate/recommended\"",
+            "\"gate/...\" rules are the core's own and cannot be configured",
+        ],
+    );
+    assert!(!message.contains("[plugins.gate]"), "{message}");
+}
+
+#[test]
 fn project_extends_in_a_workspace_root_points_to_workspace_extends() {
     let message = error(&[(
         "gate.toml",

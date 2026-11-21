@@ -274,6 +274,14 @@ Each shared plugin keeps its own changelog next to its code.
   prune reads the baseline again once it holds the lock, so a baseline another run wrote during its
   check is what it prunes. Before, prune wrote over it from the baseline it had read earlier: an
   entry the other run added was lost, or one it removed came back.
+- **host:** `gate doctor` before the first `gate sync` says the hooks are not written yet and asks
+  for `gate sync`, instead of saying the hooks in `.githooks` do not run while `.githooks` does not
+  exist; `gate sync` says `set core.hooksPath to .githooks (it was not set)` or `(it was <path>)`,
+  instead of `(unset)`, which read as the new value.
+- **host:** a root's `[workspace] extends` entry whose plugin the root does not declare names both
+  places at once: the root's `[plugins]` for the preset's repository-scope rules, or a
+  `[[profiles]]` entry with the plugin in its `[profiles.plugins]` for its project-scope rules.
+  Before, a preset of project-scope rules took two errors to place.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 
