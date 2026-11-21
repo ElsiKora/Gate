@@ -2,7 +2,7 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:ci@<version>`.
 
-# 0.3.0 (unreleased)
+# [0.3.0](https://github.com/ElsiKora/Gate/compare/plugin-ci-v0.2.0...plugin-ci-v0.3.0) (2026-11-21)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
 

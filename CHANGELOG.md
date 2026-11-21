@@ -8,7 +8,7 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-# 0.3.0 (unreleased)
+# [0.3.0](https://github.com/ElsiKora/Gate/compare/v0.2.1...v0.3.0) (2026-11-21)
 
 ### Breaking Changes
 

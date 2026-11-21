@@ -25,7 +25,7 @@ project when it moves to another repository.
 `gate list --origin` prints every setting of every project with the file and section it came from.
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.2.1/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.0/gate.schema.json
 ```
 
 ## ✅ Validation
@@ -49,7 +49,7 @@ file, the key and what is expected, with exit code `2`:
 
 ```toml
 [gate]
-version = "0.2.1"
+version = "0.3.0"
 ```
 
 | Key | Meaning |
@@ -122,11 +122,11 @@ applies them to the repository's rules too.
 
 ```toml
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
 house = { source = "your-org/your-repo:house@1.2.0" }
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.1"
+source = "ElsiKora/Gate:git@0.3.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -163,7 +163,7 @@ Grant them explicitly:
 
 ```toml
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.2.0", reads = ["docs/records"] }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.0", reads = ["docs/records"] }
 ```
 
 A grant is a file or a directory, written from the repository root whichever `gate.toml` names it, with
@@ -259,8 +259,8 @@ says why.
 projects = ["apps/*"]
 
 [profiles.plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0" }
 
 [profiles.rules]
 "typescript/parse" = "error"
@@ -270,7 +270,7 @@ nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1" }
 projects = ["packages/*"]
 
 [profiles.plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
 ```
 
 Root file only. A profile applies project settings to every project whose root matches one of its

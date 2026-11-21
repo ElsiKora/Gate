@@ -275,21 +275,21 @@ between repositories.
 Root:
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.2.1/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.0/gate.schema.json
 
 [gate]
-version = "0.2.1"                     # the pinned core; checksums in gate.lock
+version = "0.3.0"                     # the pinned core; checksums in gate.lock
 
 [workspace]
 projects = "pnpm"                     # discover from pnpm-workspace.yaml; or a list of globs
 ignore = ["samples/**"]
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.1"
+source = "ElsiKora/Gate:git@0.3.0"
 options = { main = ["refs/remotes/origin/main"], activation = "<the output of git rev-parse HEAD>", release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$' }
 
 [plugins.markdown]
-source = "ElsiKora/Gate:markdown@0.2.0"
+source = "ElsiKora/Gate:markdown@0.3.0"
 
 [rules]
 "git/no-ci-skip" = { level = "error", norm = "RULE-GIT-001" }
@@ -318,10 +318,10 @@ name = "server"
 extends = ["nestjs/recommended", "ledger/recommended"]
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.2.1", options-file = "gate/options/nestjs.json" }
-ledger = { source = "ElsiKora/Gate:ledger@0.2.0" }
-agents = { source = "ElsiKora/Gate:agents@0.2.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", options-file = "gate/options/nestjs.json" }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.0" }
+agents = { source = "ElsiKora/Gate:agents@0.3.0" }
 
 [languages.typescript]
 tsconfig = "tsconfig.json"

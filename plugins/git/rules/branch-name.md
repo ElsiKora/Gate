@@ -82,7 +82,7 @@ The rule reads `main` from `[plugins.git] options`, and has its own options. Exa
 
 ```toml
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.1"
+source = "ElsiKora/Gate:git@0.3.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
