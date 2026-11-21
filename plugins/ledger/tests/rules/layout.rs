@@ -8,6 +8,10 @@ use crate::{Files, Seen, findings, input, keys, seen};
 
 const MANIFEST: &str = "docs/ledger/manifest.json";
 
+/// The seeded decision index: the title, the block of `ledger/decision-counts` as it writes it for
+/// an empty index, and the header of the table.
+const DECISION_INDEX: &str = "# Decision index\n\n<!-- gate:begin decision-counts -->\n\n- Decision IDs: `0`\n- Superseded decisions: `0`\n\n<!-- gate:end decision-counts -->\n\n| ID | Status | Title | Canonical file |\n| --- | --- | --- | --- |\n";
+
 /// The seeded manifest at the plugin's defaults.
 const DEFAULT_MANIFEST: &str = r#"{
   "canonicalRoot": "docs/ledger",
@@ -67,8 +71,7 @@ fn an_empty_project_gets_the_manifest_and_the_five_shared_files_as_seeds() {
             (
                 "docs/ledger/decision-index.md".to_owned(),
                 true,
-                "# Decision index\n\n| ID | Status | Title | Canonical file |\n| --- | --- | --- | --- |\n"
-                    .to_owned()
+                DECISION_INDEX.to_owned()
             ),
             (
                 "docs/ledger/implementation-slices.md".to_owned(),
@@ -126,6 +129,37 @@ fn the_seeds_follow_the_paths_the_project_configures() {
         ),
         "{manifest}"
     );
+    let manifest_options = r#"{"manifest": "records/manifest.json"}"#;
+    let files = seeded(Files::default(), &output);
+    assert_eq!(
+        findings("manifest", manifest_options, plugin_options, &files),
+        []
+    );
+
+    // Shared files at the project root: the root is `.`, and the manifest still passes.
+    let plugin_options = r#"{"decisions": "decisions.md", "implementation": "slices.md", "verification": "checks.md", "follow-ups": "follow-ups.md", "blockers": "blockers.md"}"#;
+    let output = layout(
+        r#"{"manifest": "manifest.json"}"#,
+        plugin_options,
+        &Files::default(),
+    );
+    let manifest = &written(&output)[0].2;
+    assert!(
+        manifest.contains(
+            "\"canonicalRoot\": \".\",\n  \"canonicalFiles\": [\n    \"decisions.md\",\n    \"slices.md\","
+        ),
+        "{manifest}"
+    );
+    let files = seeded(Files::default(), &output);
+    assert_eq!(
+        findings(
+            "manifest",
+            r#"{"manifest": "manifest.json"}"#,
+            plugin_options,
+            &files
+        ),
+        []
+    );
 
     let error = gate_sdk::generate(
         &ledger::PLUGIN,
@@ -163,7 +197,8 @@ fn a_tracked_manifest_gets_each_canonical_file_it_lists_seeded_with_a_title() {
             "# Risk register\n".to_owned()
         )]
     );
-    assert_eq!(written(&output).len(), 7);
+    // The tracked manifest is not seeded again: the six files it lists are.
+    assert_eq!(written(&output).len(), 6);
     assert!(written(&output).iter().all(|(_, seed, _)| *seed));
 }
 
@@ -262,4 +297,51 @@ fn the_seeded_ledgers_record_findings_are_keyed_as_none() {
             ),
         ]
     );
+}
+
+/// A tracked file is the project's, and another generator may write it: over a tracked ledger the
+/// generator seeds only the files the project lacks, never a tracked shared file or a tracked file
+/// the manifest lists.
+#[test]
+fn a_tracked_ledger_file_is_never_seeded() {
+    let manifest = DEFAULT_MANIFEST.replace(
+        "\"production-blockers.md\"\n",
+        "\"production-blockers.md\",\n    \"plans/roadmap.md\"\n",
+    );
+    let files = Files::new(&[
+        (MANIFEST, manifest.as_str()),
+        ("docs/ledger/decision-index.md", "# Decisions\n"),
+        ("docs/ledger/implementation-slices.md", "# Implementation\n"),
+        ("docs/ledger/plans/roadmap.md", "# Roadmap\n"),
+    ]);
+    let paths: Vec<String> = written(&layout("{}", "{}", &files))
+        .into_iter()
+        .map(|(path, _, _)| path)
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "docs/ledger/verification.md",
+            "docs/ledger/follow-ups.md",
+            "docs/ledger/production-blockers.md",
+        ]
+    );
+}
+
+/// `ledger/decision-counts` over the seeded decision index writes the bytes the seed holds, so
+/// turning it on after the seed is committed changes nothing.
+#[test]
+fn the_seeded_decision_index_is_what_decision_counts_writes() {
+    let files = seeded(Files::default(), &layout("{}", "{}", &Files::default()));
+    let output = gate_sdk::generate(&ledger::PLUGIN, &files, "decision-counts", "", "{}", "")
+        .expect("generates");
+    assert_eq!(
+        written(&output),
+        [(
+            "docs/ledger/decision-index.md".to_owned(),
+            false,
+            DECISION_INDEX.to_owned()
+        )]
+    );
+    assert_eq!(output.findings, []);
 }

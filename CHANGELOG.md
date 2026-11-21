@@ -188,10 +188,11 @@ Each shared plugin keeps its own changelog next to its code.
   decisions the core hands it, never `gate.toml`.
 - **plugin-ledger:** the generator `ledger/layout` seeds an empty ledger at the project's paths: the
   manifest (the five shared files under their common root, no identifier family, no forbidden
-  reference) and the five shared files, each with a title, the decision index with its table
-  header; with a tracked manifest, also each canonical file it lists. The seeded ledger is
-  structurally complete: the rules report only the files the project alone can write (`#input`) and
-  its first implementation and production blocker records (`ledger/records`, keyed `#none`).
+  reference) and the five shared files, each with a title, the decision index with the block of
+  `ledger/decision-counts` and its table header; with a tracked manifest, also each canonical file
+  it lists. A tracked file is never seeded. The seeded ledger is structurally complete: the rules
+  report only the files the project alone can write (`#input`) and its first implementation and
+  production blocker records (`ledger/records`, keyed `#none`).
 - **plugin-agents:** `agents/agents-block` seeds `AGENTS.md` when it is not tracked: a title, one
   line, and the managed block filled from the rule files; with nothing tracked under its `root`, it
   also seeds the reading map `<root>/context-map.md`. With the docs, ledger and agents

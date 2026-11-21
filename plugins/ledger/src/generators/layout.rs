@@ -9,6 +9,8 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::serde_json::{self, Value};
 use gate_sdk::{Generate, Generator, Result};
 
+use super::decision_counts::{BLOCK, render};
+use crate::block;
 use crate::settings::{Settings, check_path};
 use crate::text::join;
 
@@ -51,21 +53,31 @@ impl Generator for Layout {
         check_path("[generate] ledger/layout manifest", &manifest)?;
         let shared = shared(&settings);
         let root = common_root(shared.iter().map(|(path, _)| path.as_str()));
+        let tree = run.tree();
 
         // A tracked manifest names the ledger's own files: each one is seeded with only a title.
-        if let Some(text) = run.tree().text(&manifest) {
+        let mut seeds: Vec<(String, String)> = Vec::new();
+        if let Some(text) = tree.text(&manifest) {
             for path in canonical(&text) {
                 let heading = title(&path);
-                run.seed(path, format!("# {heading}\n"));
+                seeds.push((path, format!("# {heading}\n")));
             }
         }
-        run.seed(manifest, manifest_seed(&root, &shared));
+        seeds.push((manifest, manifest_seed(&root, &shared)));
         for (path, title) in &shared {
             let mut text = format!("# {title}\n");
             if *path == settings.decisions {
-                text.push_str(DECISION_TABLE);
+                text.push_str(&decision_index_body());
             }
-            run.seed(path.clone(), text);
+            seeds.push((path.clone(), text));
+        }
+        // Only a path that is not tracked is seeded: a tracked file is the project's, and another
+        // generator may write it (`ledger/decision-counts` the index, `ledger/review-progress` a
+        // roadmap), which `gate sync` refuses for two outputs of one path, seed or not.
+        for (path, text) in seeds {
+            if !tree.contains(&path) {
+                run.seed(path, text);
+            }
         }
         Ok(())
     }
@@ -73,7 +85,16 @@ impl Generator for Layout {
 
 /// The header of the decision index's table, the structure `ledger/decisions` reads its rows from.
 const DECISION_TABLE: &str =
-    "\n| ID | Status | Title | Canonical file |\n| --- | --- | --- | --- |\n";
+    "| ID | Status | Title | Canonical file |\n| --- | --- | --- | --- |\n";
+
+/// The decision index below its title: the block of `ledger/decision-counts` holding the counts
+/// of an empty index, written as that generator writes it, so its next run changes nothing, and
+/// the header of the table.
+fn decision_index_body() -> String {
+    let empty =
+        format!("\n<!-- gate:begin {BLOCK} -->\n<!-- gate:end {BLOCK} -->\n\n{DECISION_TABLE}");
+    block::replace(&empty, BLOCK, &render(0, 0)).unwrap_or(empty)
+}
 
 /// The five shared files and their titles, in the manifest's order; a path two options name is
 /// listed once.

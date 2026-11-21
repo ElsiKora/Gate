@@ -7,6 +7,8 @@ configures.
 
 Every file is a seed: `gate sync` writes it only where nothing exists, never overwrites it, and
 `gate sync --check` never reports it. The ledger is the project's from the moment it is written.
+A file that is tracked is never seeded, so the generator runs next to `ledger/decision-counts` and
+`ledger/review-progress`, which write tracked ledger files, and `gate sync` writes each path once.
 
 - **The manifest**, at `manifest`, in the shape [`ledger/manifest`](../rules/manifest.md) reads:
   `canonicalRoot` is the deepest directory that holds the five shared files, `canonicalFiles`
@@ -15,8 +17,9 @@ Every file is a seed: `gate sync` writes it only where nothing exists, never ove
   one when the ledger has records of it.
 - **The five shared files** of `[plugins.ledger] options` (`decisions`, `implementation`,
   `verification`, `follow-ups`, `blockers`), each with a title. The decision index also gets the
-  header of its table, `| ID | Status | Title | Canonical file |`. A path two options name is
-  seeded once.
+  managed block of [`ledger/decision-counts`](decision-counts.md), holding the counts of an empty
+  index as that generator writes them, and the header of its table,
+  `| ID | Status | Title | Canonical file |`. A path two options name is seeded once.
 - **The files a tracked manifest lists.** When `manifest` is tracked, each of its `canonicalFiles`
   is seeded too, titled by its name (`risk-register.md` is `# Risk register`). A path that leaves
   the project is skipped. A manifest that is not that shape is left to `ledger/manifest`.
