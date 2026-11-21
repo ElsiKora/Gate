@@ -81,6 +81,39 @@ impl Guard {
         Self::take_for(git, BASELINE_GUARD_FILE, crate::baseline::BASELINE_FILE)
     }
 
+    /// Takes the `gate.lock` guard of every worktree of each repository at `repositories`, for a
+    /// `gate cache prune` that removes what no lock pins: a `gate lock` in any of them admits a
+    /// blob that only its own lock will pin. Each guard is taken once, however its git directory
+    /// is reached (a symlink, a second mount point), and in one fixed order (device and inode on
+    /// Unix, the canonical path elsewhere), so two prunes cannot wait for each other. A bare
+    /// repository, a worktree whose directory is gone, and one whose directory holds no `.git`
+    /// (a locked worktree on media that is not mounted) have no `gate.lock` and no run to wait
+    /// for, and are skipped.
+    ///
+    /// # Errors
+    /// Fails when a path is not in a git repository, or a guard cannot be taken, saying what to do.
+    pub fn take_worktrees(repositories: &[PathBuf]) -> Result<Vec<Self>> {
+        let mut directories: BTreeMap<GuardKey, PathBuf> = BTreeMap::new();
+        for repository in repositories {
+            for worktree in worktrees(&Git::discover(repository)?)? {
+                if worktree.bare
+                    || worktree.prunable
+                    || worktree.root.join(".git").symlink_metadata().is_err()
+                {
+                    continue;
+                }
+                let directory = Git::discover(&worktree.root)?.git_dir()?;
+                directories
+                    .entry(guard_key(&directory)?)
+                    .or_insert(directory);
+            }
+        }
+        directories
+            .values()
+            .map(|directory| Self::take_at(&directory.join(GUARD_FILE), directory, LOCK_FILE))
+            .collect()
+    }
+
     fn take_for(git: &Git, file: &str, guarded: &str) -> Result<Self> {
         let directory = git.git_dir()?;
         Self::take_at(&directory.join(file), &directory, guarded)
@@ -364,16 +397,7 @@ pub struct Pinned {
 /// unreadable lock, nothing is safe to prune.
 pub fn pinned_in(path: &Path, pinned: &mut Pinned) -> Result<()> {
     let git = Git::discover(path)?;
-    let listing = git.output(&["worktree", "list", "--porcelain"])?;
-    let mut roots: Vec<PathBuf> = String::from_utf8_lossy(&listing)
-        .lines()
-        .filter_map(|line| line.strip_prefix("worktree "))
-        .map(PathBuf::from)
-        .collect();
-    if roots.is_empty() {
-        roots.push(git.root().to_path_buf());
-    }
-    for root in roots {
+    for root in worktrees(&git)?.into_iter().map(|worktree| worktree.root) {
         if let Some(lock) = Lock::read(&root).map_err(|error| {
             Error::environment(format!(
                 "{}: {}; nothing was pruned",
@@ -390,6 +414,102 @@ pub fn pinned_in(path: &Path, pinned: &mut Pinned) -> Result<()> {
         pinned.tools.extend(tools);
     }
     Ok(())
+}
+
+/// When the git `git` runs is older than `minimum` (major, minor), the error that says so; a git
+/// that is new enough, or whose version cannot be read, gives none.
+fn older_than(git: &Git, minimum: (u32, u32)) -> Option<Error> {
+    let output = git.output(&["version"]).ok()?;
+    let text = String::from_utf8_lossy(&output);
+    let found = text.split_whitespace().nth(2)?;
+    let mut parts = found.split('.').map(str::parse::<u32>);
+    let version = (parts.next()?.ok()?, parts.next()?.ok()?);
+    (version < minimum).then(|| {
+        Error::environment(format!(
+            "gate cache prune needs git {}.{} or later (found {found}); install a newer git and put it on PATH",
+            minimum.0, minimum.1
+        ))
+    })
+}
+
+/// What identifies a git directory for its guard: two paths to one directory, through a symlink
+/// or a second mount point, give one key, so one run never takes one lock twice and waits for
+/// itself.
+#[cfg(unix)]
+type GuardKey = (u64, u64);
+#[cfg(not(unix))]
+type GuardKey = PathBuf;
+
+/// The [`GuardKey`] of the git directory `directory`: its device and inode on Unix, its canonical
+/// path elsewhere.
+fn guard_key(directory: &Path) -> Result<GuardKey> {
+    let unreadable = |error: std::io::Error| {
+        Error::environment(format!(
+            "cannot read {}: {error}; check that it exists and is readable",
+            directory.display()
+        ))
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let metadata = std::fs::metadata(directory).map_err(unreadable)?;
+        Ok((metadata.dev(), metadata.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::canonicalize(directory).map_err(unreadable)
+    }
+}
+
+/// One entry of `git worktree list --porcelain`.
+struct Worktree {
+    root: PathBuf,
+    bare: bool,
+    prunable: bool,
+}
+
+/// The worktrees of the repository `git` is in, as git lists them; the work tree `git` is in when
+/// git lists none. The listing is read as bytes, so a path that is not UTF-8 is still a worktree.
+fn worktrees(git: &Git) -> Result<Vec<Worktree>> {
+    let listing = git
+        .output(&["worktree", "list", "--porcelain", "-z"])
+        .map_err(|error| older_than(git, (2, 36)).unwrap_or(error))?;
+    let mut worktrees: Vec<Worktree> = Vec::new();
+    for field in listing.split(|byte| *byte == 0) {
+        if let Some(root) = field.strip_prefix(b"worktree ") {
+            #[cfg(unix)]
+            let root = {
+                use std::os::unix::ffi::OsStrExt as _;
+                PathBuf::from(std::ffi::OsStr::from_bytes(root))
+            };
+            #[cfg(not(unix))]
+            let root = PathBuf::from(std::str::from_utf8(root).map_err(|_| {
+                Error::environment(format!(
+                    "git lists a worktree whose path is not UTF-8 ({}); move it to a UTF-8 path",
+                    String::from_utf8_lossy(root)
+                ))
+            })?);
+            worktrees.push(Worktree {
+                root,
+                bare: false,
+                prunable: false,
+            });
+        } else if let Some(worktree) = worktrees.last_mut() {
+            if field == b"bare" {
+                worktree.bare = true;
+            } else if field == b"prunable" || field.starts_with(b"prunable ") {
+                worktree.prunable = true;
+            }
+        }
+    }
+    if worktrees.is_empty() {
+        worktrees.push(Worktree {
+            root: git.root().to_path_buf(),
+            bare: false,
+            prunable: false,
+        });
+    }
+    Ok(worktrees)
 }
 
 /// The sha256 of every `[tools.<name>.targets.<target>]` of a `gate.toml`; none when the file
@@ -739,6 +859,18 @@ pub fn set(wanted: &Wanted, existing: Option<Lock>, name: &PluginName, pin: Pin)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_git_directory_reached_through_a_symlink_has_one_guard() {
+        let directory = tempfile::tempdir().expect("directory");
+        let other = tempfile::tempdir().expect("other");
+        let link = other.path().join("link");
+        std::os::unix::fs::symlink(directory.path(), &link).expect("symlink");
+        let key = guard_key(directory.path()).expect("key");
+        assert_eq!(guard_key(&link).expect("key"), key);
+        assert_ne!(guard_key(other.path()).expect("key"), key);
+    }
 
     fn sum(digit: char) -> Sha256Sum {
         Sha256Sum::parse(&digit.to_string().repeat(64)).expect("checksum")

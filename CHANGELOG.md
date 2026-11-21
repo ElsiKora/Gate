@@ -292,7 +292,9 @@ Each shared plugin keeps its own changelog next to its code.
   two take turns on an advisory lock on `gate.baseline.guard` in the worktree's git directory. A
   prune reads the baseline again once it holds the lock, so a baseline another run wrote during its
   check is what it prunes. Before, prune wrote over it from the baseline it had read earlier: an
-  entry the other run added was lost, or one it removed came back.
+  entry the other run added was lost, or one it removed came back. An entry the other run wrote is
+  kept as it is, and the findings it accepts are its own, so prune never re-keys an older entry to
+  one of them and no finding is accepted twice.
 - **host:** `gate doctor` before the first `gate sync` says the hooks are not written yet and asks
   for `gate sync`, instead of saying the hooks in `.githooks` do not run while `.githooks` does not
   exist; `gate sync` says `set core.hooksPath to .githooks (it was not set)` or `(it was <path>)`,
@@ -301,6 +303,12 @@ Each shared plugin keeps its own changelog next to its code.
   places at once: the root's `[plugins]` for the preset's repository-scope rules, or a
   `[[profiles]]` entry with the plugin in its `[profiles.plugins]` for its project-scope rules.
   Before, a preset of project-scope rules took two errors to place.
+- **cache:** `gate cache prune --yes` takes the `gate.lock` guard of every worktree of each
+  repository it is given, each git directory once and in one fixed order, and holds them from its
+  first lock read to its last removal; a listing without `--yes` takes none. Before, a prune that read the
+  locks while `gate lock --set --file` had admitted a build but not yet written its pin removed that
+  build, and the next `gate check` failed on a pin whose blob was gone and whose asset was not
+  published.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

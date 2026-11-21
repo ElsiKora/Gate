@@ -607,6 +607,37 @@ fn pruning_re_keys_an_entry_written_before_its_finding_had_a_key() {
 }
 
 #[test]
+fn a_prune_never_re_keys_an_entry_to_a_finding_an_entry_written_meanwhile_accepts() {
+    let before = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/x.ts",
+        3,
+        "x.ts:3 User.parent",
+    );
+    let mut keyed = before.clone();
+    keyed.key = Some("User.parent".to_owned());
+    // Prune loaded the keyless entry. While its check ran, a baseline write from a tree with both
+    // findings kept that entry and added the keyed one; prune's own check reports only the keyed
+    // finding.
+    let judged = Baseline::from_findings(std::slice::from_ref(&before));
+    let current = Baseline::from_findings(&[before, keyed.clone()]);
+    let pruned = current.pruned_since(&judged, std::slice::from_ref(&keyed), &ran_all());
+
+    // As a prune run after the write: the keyed entry accepts the finding, so the keyless one is
+    // stale, and nothing is re-keyed.
+    assert_eq!(pruned.rekeyed, [] as [BaselineEntry; 0]);
+    assert_eq!(pruned.removed.len(), 1, "{:?}", pruned.removed);
+    assert_eq!(pruned.removed[0].key, None);
+    assert_eq!(pruned.baseline.entries(), [BaselineEntry::of(&keyed)]);
+    // The pruned baseline accepts the finding once, so a second one is reported.
+    let mut sink = Findings::new();
+    sink.extend([keyed.clone(), keyed.clone()]);
+    assert_eq!(sink.finish(&[], &pruned.baseline, &ran_all()), [keyed]);
+}
+
+#[test]
 fn a_baseline_entry_of_one_check_does_not_accept_another_check_of_the_same_subject() {
     // ledger/reuses-planner's two opposite violations of one record and catalog key, on one line,
     // with the keys the plugin gives them.

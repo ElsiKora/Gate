@@ -191,7 +191,7 @@ Gate/
 ## 📋 Prerequisites
 
 - macOS on Apple silicon (`aarch64-apple-darwin`) or Linux on x86-64 (`x86_64-unknown-linux-musl`)
-- `git` on `PATH`
+- `git` 2.36 or later on `PATH`
 - A POSIX shell and `curl` for the launcher
 - To build from source or write a plugin: Rust through `rustup` (the toolchain installs itself from
   `rust-toolchain.toml`)
@@ -387,7 +387,7 @@ selection.
 | `gate sync` / `gate sync --check` | Write, or verify, hooks, CI jobs and generated files |
 | `gate run <suite or step>` | Run the repository's steps and report each exit code; takes `--staged`, `--changed --base <rev>` or `--push <base>..<tip>` |
 | `gate doctor` | Check the installation, the hooks of this clone and the working copy |
-| `gate cache prune [<repository>...]` / `--older-than <days>` / `--max-size <size>` / `--yes` | List the downloads no `gate.lock` of the repositories pins, the results and git answers nothing can use, and, with a bound, those last used longer ago or the least recently used over the size; with `--yes`, remove them. A pinned download is never removed |
+| `gate cache prune [<repository>...]` / `--older-than <days>` / `--max-size <size>` / `--yes` | List the downloads no `gate.lock` of the repositories pins, the results and git answers nothing can use, and, with a bound, those last used longer ago or the least recently used over the size; with `--yes`, remove them. A pinned download is never removed. With `--yes` it first waits for a `gate lock` running in any worktree of those repositories. A pin in a repository it was not given counts as unpinned, so name every repository that uses the cache |
 | `gate init` | Write `gate.toml`, `gate.lock` and `bin/gate` |
 
 Options of `gate check`: `--format text|json|sarif|github`, `--rule <plugin>/<rule>` (repeatable),
