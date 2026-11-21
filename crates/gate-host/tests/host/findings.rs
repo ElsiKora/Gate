@@ -533,6 +533,7 @@ fn finish_counts_each_finding_a_baseline_entry_accepts_and_nothing_else() {
         2,
         "warned",
     );
+    let noted = finding("layers/relation", "", Level::Note, "apps/v.ts", 4, "noted");
     let mut excepted = finding(
         "layers/relation",
         "",
@@ -563,6 +564,7 @@ fn finish_counts_each_finding_a_baseline_entry_accepts_and_nothing_else() {
     let baseline = Baseline::from_findings(&[
         old.clone(),
         warned.clone(),
+        noted.clone(),
         excepted.clone(),
         gone,
         core.clone(),
@@ -573,13 +575,14 @@ fn finish_counts_each_finding_a_baseline_entry_accepts_and_nothing_else() {
     ran.rejudge(Some("server"), "a/rule", vec![id]);
 
     let mut sink = Findings::new();
-    sink.extend([old, twin.clone(), warned, excepted, core, rejudged]);
+    sink.extend([old, twin.clone(), warned, noted, excepted, core, rejudged]);
     let finished = sink.finish_counted(&[exception("layers/relation", target)], &baseline, &ran);
 
-    // `old` and `warned` are held back; `twin` is past its fingerprint's one entry, the exception
-    // takes `excepted` first, the entries of `excepted` and `gone` match nothing, the core
-    // finding stays reported, and the re-judged finding is dropped uncounted.
-    assert_eq!(finished.baselined, 2, "{:?}", finished.findings);
+    // `old`, `warned` and `noted` are held back; `twin` is past its fingerprint's one entry, the
+    // exception takes `excepted` first, the entries of `excepted` and `gone` match nothing, the
+    // core finding stays reported, and the re-judged finding is dropped uncounted. Three held and
+    // two not, so a count of the findings no entry accepted reads 2, not 3.
+    assert_eq!(finished.baselined, 3, "{:?}", finished.findings);
     let mut rules: Vec<&str> = finished
         .findings
         .iter()
