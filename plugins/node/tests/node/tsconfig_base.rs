@@ -122,7 +122,7 @@ fn a_separate_install_has_a_base_of_its_own_and_the_base_path_is_an_option() {
         Fixture::new("monorepo-root", &files)
             .plugin_options(separate)
             .lines(RULE),
-        ["flags spikes/load/tsconfig.base.json strict"]
+        ["flags spikes/load/tsconfig.base.json compilerOptions"]
     );
     let moved = r#"{"kind": "monorepo-root", "base": "config/base.json"}"#;
     assert_eq!(
