@@ -12,7 +12,7 @@ reference for every ported rule is the reference implementation, outside this re
 | `v0.1.0` | 2026-11-18 | the same, fixed by the dry run; guides; public repository from a clean root | first consumer in CI |
 | `v0.2.0` | 2026-11-19, released (tag 17:01Z) | plugin interface `gate:plugin@0.2.0` and every plugin at 0.2.0; `git` branch and commit format at parity with the house linters; the result cache hit by a warm run; stable fingerprints and `gate baseline prune`; option errors as configuration errors; a call state shared by the rules of one call; wasmtime 50.0.2 (CHANGELOG.md, 0.2.0) | second and third consumers, at their leads' time |
 | `v0.2.1` | 2026-11-20, released (tag 08:16Z) | the tag `v0.2.1` is `main`'s merge `e7d5a27` (T-070); the core, `git` and `nestjs` at 0.2.1 (tags `plugin-git-v0.2.1`, `plugin-nestjs-v0.2.1`); merged under the tag after `v0.2.0`: T-037, T-042, T-043, T-046, T-047, T-049, T-056, T-058, T-060, T-060b, T-070; documents T-045, T-032's proof on the released v0.2.0, T-050, T-051, T-054 (CHANGELOG.md, 0.2.1) | the consumers on 0.2.0 |
-| `v0.3.0` | not set | plugin interface `gate:plugin@0.3.0`, breaking (CHANGELOG.md, section 0.3.0, unreleased); merged on `main` after the `v0.2.1` tag: T-044, T-048, T-052, T-053, T-055, T-057, T-059, T-061, T-062, T-063, T-064, T-065, T-066, T-066b, T-067, T-068, T-069, T-071, T-071b, T-073, T-074, T-075, T-076, T-077b, T-078, T-079, T-079b, T-080, T-081, T-082, T-083, T-084, T-087, and this plan, T-089; in progress: T-072, T-077, T-080b, T-085, T-086, T-088, T-088b | not set |
+| `v0.3.0` | 2026-11-21, released (tag 09:08Z) | the tag `v0.3.0` is `main`'s merge `d2cd512` (T-088b); plugin interface `gate:plugin@0.3.0`, breaking; the core and all 13 plugins at 0.3.0 (tags `plugin-<name>-v0.3.0`); merged under the tag after `v0.2.1`: T-044, T-048, T-052, T-053, T-055, T-057, T-059, T-061, T-062, T-063, T-064, T-065, T-066, T-066b, T-067, T-068, T-069, T-071, T-071b, T-072, T-073, T-074, T-075, T-076, T-077, T-077b, T-078, T-079, T-079b, T-080, T-080b, T-081, T-082, T-083, T-084, T-085, T-086, T-087, T-088, T-088b, T-089, T-090 (CHANGELOG.md, 0.3.0) | not set |
 
 ## Tasks
 
@@ -92,7 +92,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-070 | v0.2.1 | Version 0.2.1 and its changelog | done (merged at `e7d5a27`, the `v0.2.1` tag) | none |
 | T-071 | v0.3.0 | A workspace root extends presets for its repository-scope rules | done (merged at `d0c6cda`) | none |
 | T-071b | v0.3.0 | The workspace preset test after T-057 | done (merged at `30a1da2`) | T-057, T-071 |
-| T-072 | v0.3.0 | Exceptions and rule decisions at a workspace root that is not a project | in progress (branch `task/T-072-root-exceptions-decisions` at `6d8ae17`) | T-059, T-071 |
+| T-072 | v0.3.0 | Exceptions and rule decisions at a workspace root that is not a project | done (merged at `3726757`) | T-059, T-071 |
 | T-073 | v0.3.0 | wasmtime 50.0.3, for RUSTSEC-2026-0587 | done (merged at `7f62554`) | T-074 |
 | T-074 | v0.3.0 | Gate checks itself | done (merged at `5d7f1b6`) | none |
 | T-075 | v0.3.0 | Prohibited body lines and a body full stop above the trailers | done (merged at `8b9d40c`) | T-074 |
@@ -103,17 +103,20 @@ reference for every ported rule is the reference implementation, outside this re
 | T-079 | v0.3.0 | The plan says what `main` holds for 0.3.0 | done (merged at `4d1f4fe`) | none |
 | T-079b | v0.3.0 | Task files say done where `main` holds them | done (merged at `1cbd694`; no task file) | T-079 |
 | T-080 | v0.3.0 | An exception is no stale error where its rule did not look | done (merged at `6d7081a`) | none |
-| T-080b | v0.3.0 | Refuse an exception's commit id only where it is one | in progress (branch `task/T-080b-commit-id-check` at `3ea2349`) | T-080 |
+| T-080b | v0.3.0 | Refuse an exception's commit id only where it is one | done (merged at `295eaef`) | T-080 |
 | T-081 | v0.3.0 | Release cut preparation: one version everywhere | done (merged at `9eeb608`) | none |
 | T-082 | v0.3.0 | A 0.3.0 section in every plugin CHANGELOG | done (merged at `249f0b4`) | none |
 | T-083 | v0.3.0 | Release-candidate trial | done (merged at `3ce3be6`) | none |
 | T-084 | v0.3.0 | A tsconfig base outside the project | done (merged at `2048070`) | none |
-| T-085 | v0.3.0 | Release-candidate message fixes | in progress (branch `task/T-085-rc-messages` at `b43b5e2`) | T-083 |
+| T-085 | v0.3.0 | Release-candidate message fixes | done (merged at `f319843`) | T-083 |
 | T-086 | v0.3.0 | Plugin load time, cold and warm | done (merged as `2adfb09d`) | T-083 |
 | T-087 | v0.3.0 | Two plugin defaults from the release-candidate trial | done (merged at `e008106`) | T-083 |
-| T-088 | v0.3.0 | Three minor findings of the release-candidate trial | in progress (branch `task/T-088-rc-minor` at `4eb35fb`) | T-083 |
-| T-088b | v0.3.0 | The report counts the findings the baseline holds back (trial finding 19) | done (merged with this row) | T-080, T-088 |
-| T-089 | v0.3.0 | The plan says what `main` holds after T-063 | done (merged with this plan) | none |
+| T-088 | v0.3.0 | Three minor findings of the release-candidate trial | done (merged at `d24356f`) | T-083 |
+| T-088b | v0.3.0 | The report counts the findings the baseline holds back (trial finding 19) | done (merged at `0474c15`; its test fix at `d2cd512`, the `v0.3.0` tag) | T-080, T-088 |
+| T-089 | v0.3.0 | The plan says what `main` holds after T-063 | done (merged at `cf84f39`) | none |
+| T-090 | v0.3.0 | Version 0.3.0 for the core and every plugin, and its changelog headings | done (merged at `3e285e1`) | T-089 |
+| T-091 | - | Gate checks itself with the released 0.3.0; the plan says what `v0.3.0` holds | in progress (branch `task/T-091-after-0.3.0` off `d2cd512`) | T-090 |
+| T-092 | - | A rule option that fails a `oneOf` prints the validator's raw text (`... is not valid under any of the schemas listed in the 'oneOf' keyword`, seen on `"git/branch-name"` with `options = {}`); the same class as trial finding 5, which T-085 fixed for enums | open | none |
 
 ## Open after rc.1
 
@@ -183,14 +186,12 @@ From the second consumer's requirements (2026-11-18):
 
 ## RESUME POINT
 
-2026-11-21T05:51:08+00:00: `main` is at `2f4fbf0` (T-063 merged). `v0.2.1` is released: the tag `v0.2.1` is
-`main`'s merge `e7d5a27` (T-070), with `plugin-git-v0.2.1` and `plugin-nestjs-v0.2.1`. Every task
-the table marks done names its merge commit on `main`, from `git log --merges`; T-001 to T-024 and
-T-027 merged before the public root (`59fb163`, `v0.1.0`).
+2026-11-21T09:25:30+00:00: `v0.3.0` is released: the tag `v0.3.0` is `main`'s merge `d2cd512` (T-088b's
+test fix), tagged 09:08Z, with the 13 `plugin-<name>-v0.3.0` tags. `v0.2.1` is the tag on `main`'s
+merge `e7d5a27` (T-070), with `plugin-git-v0.2.1` and `plugin-nestjs-v0.2.1`. Every task the table
+marks done names its merge commit on `main`, from `git log --merges`; T-001 to T-024 and T-027
+merged before the public root (`59fb163`, `v0.1.0`).
 
-For `v0.3.0`, merged after the `v0.2.1` tag: T-044, T-048, T-052, T-053, T-055, T-057, T-059,
-T-061, T-062, T-063, T-064, T-065, T-066, T-066b, T-067, T-068, T-069, T-071, T-071b, T-073,
-T-074, T-075, T-076, T-077b, T-078, T-079, T-079b, T-080, T-081, T-082, T-083, T-084, T-087 and
-this plan, T-089. In progress, on their branches: T-072, T-077, T-080b, T-085, T-086 and T-088;
-T-088b has no task file and no branch on `origin` yet. The `nestjs` and `ledger` lines of the
-second consumer's list stay backlog after `v0.3.0`. The task table above is the state.
+Under the `v0.3.0` tag, merged after `v0.2.1`: T-044, T-048, T-052, T-053, T-055, T-057, T-059, T-061, T-062, T-063, T-064, T-065, T-066, T-066b, T-067, T-068, T-069, T-071, T-071b, T-072, T-073, T-074, T-075, T-076, T-077, T-077b, T-078, T-079, T-079b, T-080, T-080b, T-081, T-082, T-083, T-084, T-085, T-086, T-087, T-088, T-088b, T-089 and T-090. After
+it: T-091 in progress on its branch; T-092 open. The `nestjs` and `ledger` lines of the second
+consumer's list stay backlog after `v0.3.0`. The task table above is the state.
