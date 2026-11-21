@@ -111,7 +111,7 @@ fn set(
             url: url.to_owned(),
             sha256,
         };
-        pins.push((name, pin, file));
+        pins.push((name, pin, file.as_path()));
     }
 
     // The files are hashed before the guard is taken, so a build that changes while this run
