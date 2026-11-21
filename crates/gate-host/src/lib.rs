@@ -55,7 +55,7 @@ pub use config::{
 pub use error::{Error, ErrorKind, Result};
 pub use fetch::{FetchConfig, Fetcher};
 pub use findings::{
-    Finding, Findings, Level, Location, RuleFilter, RulesRan, Span, attach_core_norms,
+    Finding, Findings, Finished, Level, Location, RuleFilter, RulesRan, Span, attach_core_norms,
 };
 pub use git::Git;
 pub use lock::{LOCK_FILE, Lock, Pin, Wanted};
@@ -205,7 +205,8 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
     ran.retain_rules(&request.rules);
     let mut found = run.findings;
     found.retain_rules(&request.rules);
-    let mut findings = found.finish(workspace.exceptions(), workspace.baseline(), &ran);
+    let finished = found.finish_counted(workspace.exceptions(), workspace.baseline(), &ran);
+    let mut findings = finished.findings;
 
     if let Some(finding) = over_budget(started.elapsed(), &request.options) {
         findings.push(finding);
@@ -217,6 +218,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
         mode: run.mode,
         rules: run.ran.rules,
         findings,
+        baselined: finished.baselined,
         selection,
         overrides: run.overrides,
     };

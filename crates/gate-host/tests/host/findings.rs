@@ -60,6 +60,7 @@ fn report(findings: Vec<Finding>) -> Report {
         mode: "tree".to_owned(),
         rules: 2,
         findings,
+        baselined: 0,
         selection: Selection {
             ran: vec![Decision {
                 project: "server".to_owned(),
@@ -516,6 +517,77 @@ fn the_baseline_hides_one_finding_per_entry_and_reports_stale_entries() {
     assert!(
         quiet.is_empty(),
         "an entry of a scope that did not run is not due"
+    );
+}
+
+#[test]
+fn finish_counts_each_finding_a_baseline_entry_accepts_and_nothing_else() {
+    let target = "src/user.ts:User.parent";
+    let old = finding("layers/relation", "", Level::Error, "apps/x.ts", 3, "old");
+    let twin = finding("layers/relation", "", Level::Error, "apps/x.ts", 9, "old");
+    let warned = finding(
+        "layers/relation",
+        "",
+        Level::Warning,
+        "apps/w.ts",
+        2,
+        "warned",
+    );
+    let mut excepted = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/server/src/user.ts",
+        3,
+        "excepted",
+    );
+    excepted.target = Some(target.to_owned());
+    let mut gone = finding("layers/relation", "", Level::Error, "apps/y.ts", 1, "fixed");
+    gone.project = Some("client".to_owned());
+    let baseline = Baseline::from_findings(&[old.clone(), warned.clone(), excepted.clone(), gone]);
+
+    let mut sink = Findings::new();
+    sink.extend([old, twin.clone(), warned, excepted]);
+    let finished = sink.finish_counted(
+        &[exception("layers/relation", target)],
+        &baseline,
+        &ran_all(),
+    );
+
+    // `old` and `warned` are held back; `twin` is past its fingerprint's one entry, the exception
+    // takes `excepted` first, and the entries of `excepted` and `gone` match nothing.
+    assert_eq!(finished.baselined, 2, "{:?}", finished.findings);
+    let rules: Vec<&str> = finished
+        .findings
+        .iter()
+        .map(|finding| finding.rule.as_str())
+        .collect();
+    assert_eq!(rules, ["layers/relation", "gate/baseline", "gate/baseline"]);
+    assert_eq!(finished.findings[0], twin);
+
+    let nothing = Findings::new().finish_counted(&[], &baseline, &ran_all());
+    assert_eq!(nothing.baselined, 0, "{:?}", nothing.findings);
+}
+
+#[test]
+fn the_summary_counts_the_findings_the_baseline_held_back_when_there_are_any() {
+    let mut report = report(Vec::new());
+    assert_eq!(
+        report.summary(),
+        "gate check (tree): 2 rules, 0 errors, 0 warnings; projects: ran server; skipped none"
+    );
+    report.baselined = 1;
+    assert_eq!(
+        report.summary(),
+        "gate check (tree): 2 rules, 0 errors, 0 warnings, 1 finding held back by gate/baseline.json; projects: ran server; skipped none"
+    );
+    report.baselined = 3;
+    let json: serde_json::Value =
+        serde_json::from_str(&report.render(Format::Json).expect("render")).expect("json");
+    assert_eq!(json["baselined"], 3);
+    assert_eq!(
+        json["summary"],
+        "gate check (tree): 2 rules, 0 errors, 0 warnings, 3 findings held back by gate/baseline.json; projects: ran server; skipped none"
     );
 }
 
