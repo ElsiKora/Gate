@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | review fix round written on `main` at `6d7081a1`, its lane round next |
+| Status | lane ticket 425 green on `3ea2349d`, every mutation caught; waits for the lead |
 | Release | 0.3.0 (git plugin) |
 | Writer | the T-068 writer |
 | Reviewer | an independent session, then the lead |
@@ -95,9 +95,24 @@ In `plugins/git/tests/git/commit_message.rs`:
 
 ## Proof
 
-None yet.
+Lane ticket 425 on `3ea2349d`, 2026-11-21T06:27:29+00:00 to 2026-11-21T06:44:23+00:00
+(`round.sh`, its own checkout, logs kept under the ticket): fmt 0, clippy 0, test 0 (1536 passed,
+0 failed), deny 0 (advisories, bans, licenses, sources ok), release build 0, leak scan 0. The test
+and release logs show `Compiling gate-plugin-git` from the round's own checkout, and the test log
+lists the three tests by name, each `ok`.
+
+Each mutation made its exact test fail (exit 101). Two of them ran in ticket 425; the other two
+missed their text there, since the fix round split the resolve call over three lines, and ran in
+ticket 430 on the same commit (2026-11-21T06:52:43+00:00 to 2026-11-21T06:52:48+00:00):
+
+| Mutation | Ticket | Test |
+| --- | --- | --- |
+| the upper-case full-length refusal dropped | 425 | `an_exception_with_a_short_or_upper_case_commit_id_is_a_configuration_error` |
+| the resolved id's prefix check dropped | 425 | `a_hex_exception_target_that_names_a_tag_or_branch_is_text_and_passes` |
+| the resolve check dropped | 430 | `an_exception_with_a_short_or_upper_case_commit_id_is_a_configuration_error` |
+| every short hex target refused | 430 | `a_hex_exception_target_that_names_no_commit_is_text_and_passes` |
 
 ## Resume point
 
-2026-11-21T04:32:54+00:00: the review's fix round is written on `main` at `6d7081a1`; ticket 425
-runs on its tip.
+2026-11-21T06:53:15+00:00: tickets 425 and 430 on `3ea2349d` are green with every mutation caught; the branch waits for
+the lead.
