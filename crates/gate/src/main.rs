@@ -371,6 +371,9 @@ fn print_timings(checked: &gate_host::Checked) {
         .collect::<Vec<_>>()
         .join(", ");
     eprintln!("timings: {line}");
+    for line in load_timings(&checked.loads) {
+        eprintln!("timings: {line}");
+    }
     for call in &checked.reads {
         eprintln!("timings: {}", call_timing(call));
         // A call of one invocation already said its time and fuel.
@@ -406,6 +409,46 @@ fn print_timings(checked: &gate_host::Checked) {
             generated.ran, generated.stored
         );
     }
+}
+
+/// The `--timings` lines of the plugins' loads: one per plugin loaded, the plugins every call of
+/// which came from the result cache, and what reading the plugins and their modules took.
+fn load_timings(loads: &gate_host::Loads) -> Vec<String> {
+    let mut lines: Vec<String> = loads
+        .loaded
+        .iter()
+        .map(|(name, time)| {
+            format!(
+                "load {name}: module {} ms, describe {} ms",
+                time.module.as_millis(),
+                time.describe.as_millis()
+            )
+        })
+        .collect();
+    if !loads.not_loaded.is_empty() {
+        lines.push(format!(
+            "load: not loaded, every call cached: {}",
+            loads.not_loaded.join(", ")
+        ));
+    }
+    if !loads.loaded.is_empty() {
+        let mut summary = format!(
+            "load: {} read and verified in {} ms; modules: {} from the cache, {} compiled",
+            loads.loaded.len(),
+            loads.fetch.as_millis(),
+            loads.from_cache,
+            loads.compiled
+        );
+        if loads.compiled > 0 {
+            let _ = write!(
+                summary,
+                "; {} ms compiling, not counted toward --warn-after and --fail-after",
+                loads.compiling.as_millis()
+            );
+        }
+        lines.push(summary);
+    }
+    lines
 }
 
 /// One plugin call of `--timings`: whether it ran or came from the result cache, its time, the

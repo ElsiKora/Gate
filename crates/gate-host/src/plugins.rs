@@ -11,11 +11,11 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gate_runtime::{
-    Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
-    Runtime, Size, Tree,
+    Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, LoadTime, Plugin,
+    ReadSet, Runtime, Size, Tree,
 };
 use gate_sdk::{Commit, CommitRange, Judged, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
@@ -38,7 +38,7 @@ use crate::snapshot::{Snapshot, Source};
 use crate::sync::{self, GeneratedFile as SyncFile, Generators};
 use crate::workspace::{PresetOptions, RuleDeclaration, RuleScope, Workspace};
 
-mod declarations;
+pub(crate) mod declarations;
 
 /// The local builds `--plugin` gives, by plugin name: the path and the bytes read once.
 pub(crate) type Overrides = BTreeMap<PluginName, (PathBuf, Vec<u8>)>;
@@ -46,14 +46,56 @@ pub(crate) type Overrides = BTreeMap<PluginName, (PathBuf, Vec<u8>)>;
 /// The plugins a run runs, loaded into one runtime, and what every declared plugin declares.
 pub struct Loaded {
     runtime: Runtime,
-    /// The plugins this command runs.
+    /// The plugins this command runs that are loaded: up front, because the cache holds no
+    /// declaration of them.
     plugins: BTreeMap<PluginName, Plugin>,
+    /// The plugins this command runs whose declaration came from the cache: each is read,
+    /// verified and loaded only when a call of it misses the result cache, so a run whose every
+    /// call is answered from the cache loads none of them.
+    on_call: BTreeMap<PluginName, OnCall>,
+    /// The run's pins, which an on-call plugin is fetched by; already checked against the
+    /// configuration.
+    lock: Option<Lock>,
+    /// How the plugins loaded so far.
+    loads: Mutex<LoadsSoFar>,
     /// What each declared plugin declares: those this command runs, and the others, from the
     /// cache or loaded for it. The configuration is checked against all of them. A plugin is
     /// missing only when it does not load under this core for good (`commit_plugins`).
     declarations: BTreeMap<PluginName, Declaration>,
     /// The run's `--plugin` builds, which `git.sync-state` loads again at other commits.
     overrides: Arc<Overrides>,
+}
+
+/// A plugin a command runs, declared from the cache and loaded the first time a call of it runs.
+struct OnCall {
+    declared: Declared,
+    plugin: OnceLock<Plugin>,
+}
+
+/// How a check's plugins loaded: the `--timings` lines, and the compile time the budget leaves out.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Loads {
+    /// Each plugin loaded, by name, with where its load time went, in the order they loaded.
+    pub loaded: Vec<(String, LoadTime)>,
+    /// The plugins the run needed whose every call came from the result cache: neither read nor
+    /// loaded.
+    pub not_loaded: Vec<String>,
+    /// The time spent reading the loaded plugins from the cache and checking their sha256.
+    pub fetch: Duration,
+    /// How many modules came from the module cache.
+    pub from_cache: usize,
+    /// How many modules were compiled: none was in the module cache for this core.
+    pub compiled: usize,
+    /// The wall time of the loads that compiled a module, which the budget does not count.
+    pub compiling: Duration,
+}
+
+/// The loads of a run so far.
+#[derive(Debug, Default)]
+struct LoadsSoFar {
+    loaded: Vec<(String, LoadTime)>,
+    fetch: Duration,
+    compiling: Duration,
 }
 
 /// What a plugin declares when it describes itself, with its options schemas parsed: what the
@@ -139,6 +181,7 @@ impl std::fmt::Debug for Loaded {
         formatter
             .debug_struct("Loaded")
             .field("plugins", &self.plugins.keys().collect::<Vec<_>>())
+            .field("on_call", &self.on_call.keys().collect::<Vec<_>>())
             .finish_non_exhaustive()
     }
 }
@@ -200,6 +243,8 @@ pub(crate) struct Ran {
     pub(crate) generated: Generated,
     /// What the first cache write that failed said, when one did.
     pub(crate) cache_warning: Option<String>,
+    /// How the plugins loaded.
+    pub(crate) loads: Loads,
 }
 
 /// The first cache write of a run that failed. A write is best effort: the findings do not depend
@@ -286,28 +331,50 @@ pub(crate) fn load(
     lock: Option<&Lock>,
     overrides: &Overrides,
     needed: &Needed,
+    when: Loading,
 ) -> Result<Option<Loaded>> {
     let Some(declared) = declared(workspace, lock, overrides)? else {
         return Ok(None);
     };
     let cache = Cache::from_env()?;
     let mut stored = BTreeMap::new();
+    let mut on_call = BTreeMap::new();
     let mut loading = Vec::new();
     for plugin in declared {
-        let from_cache = (!needed.wants(&plugin.name))
-            .then(|| usable_declaration(&cache, &plugin))
-            .flatten();
+        // The declaration is stored by the pinned sha256 under this core and plugin interface:
+        // after an upgrade of either there is none, and the plugin loads up front.
+        let from_cache = usable_declaration(&cache, &plugin);
+        let wanted = needed.wants(&plugin.name);
         match from_cache {
-            Some(declaration) => {
+            Some(declaration) if !wanted => {
                 stored.insert(plugin.name, declaration);
             }
-            None => loading.push(plugin),
+            Some(declaration) if when == Loading::OnCall => {
+                stored.insert(plugin.name.clone(), declaration);
+                on_call.insert(
+                    plugin.name.clone(),
+                    OnCall {
+                        declared: plugin,
+                        plugin: OnceLock::new(),
+                    },
+                );
+            }
+            Some(_) | None => loading.push(plugin),
         }
     }
+    let started = Instant::now();
     let fetched = fetch_components(loading, lock, overrides)?;
+    let fetch = started.elapsed();
     let (mut loaded, _) = instantiate(fetched, overrides, true)?;
     loaded.plugins.retain(|name, _| needed.wants(name));
     loaded.declarations.extend(stored);
+    loaded.on_call = on_call;
+    loaded.lock = lock.cloned();
+    loaded
+        .loads
+        .get_mut()
+        .unwrap_or_else(PoisonError::into_inner)
+        .fetch += fetch;
     Ok(Some(loaded))
 }
 
@@ -320,7 +387,18 @@ fn usable_declaration(cache: &Cache, plugin: &Declared) -> Option<Declaration> {
         .and_then(|info| Declaration::of(&plugin.name, info).ok())
 }
 
+/// When the plugins a command runs are loaded.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Loading {
+    /// All of them up front: `gate sync`, and the generators a `sync-state` answer runs.
+    UpFront,
+    /// Up front only those the cache holds no declaration of; each other one when a call of it
+    /// misses the result cache: `gate check`.
+    OnCall,
+}
+
 /// A declared plugin: its one source and the sha256 of the bytes that load for it.
+#[derive(Clone)]
 struct Declared {
     name: PluginName,
     source: PluginSource,
@@ -482,11 +560,56 @@ fn instantiate(
     let mut plugins = BTreeMap::new();
     let mut declarations = BTreeMap::new();
     let mut unloadable = BTreeMap::new();
+    let mut loads = LoadsSoFar::default();
 
-    // Each component compiles (or loads its compiled module) and describes itself on a thread of
-    // its own: a warm run spends most of its time here, and the slowest plugin bounds it.
-    let compiled: Vec<std::result::Result<Compiled, LoadFailure>> = std::thread::scope(|scope| {
-        let runtime = &runtime;
+    let compiled = compile_all(&runtime, &fetched, &mut loads);
+    for (component, compiled) in fetched.into_iter().zip(compiled) {
+        match compiled {
+            Ok((plugin, declaration)) => {
+                // Written once: a stored declaration is the same for the same bytes and core. One
+                // that does not parse, or differs, is written again.
+                if declarations::read(&cache, &component.sha256).as_ref() != Some(&declaration.info)
+                {
+                    declarations::write(&cache, &component.sha256, &declaration.info);
+                }
+                loads
+                    .loaded
+                    .push((component.name.to_string(), plugin.load_time()));
+                declarations.insert(component.name.clone(), declaration);
+                plugins.insert(component.name, plugin);
+            }
+            Err(failure) if strict => return Err(failure.error),
+            Err(failure) => {
+                unloadable.insert(component.name, failure);
+            }
+        }
+    }
+
+    Ok((
+        Loaded {
+            runtime,
+            plugins,
+            on_call: BTreeMap::new(),
+            lock: None,
+            loads: Mutex::new(loads),
+            declarations,
+            overrides: Arc::new(overrides.clone()),
+        },
+        unloadable,
+    ))
+}
+
+/// Compiles (or takes from the module cache) and checks each of `fetched` on a thread of its own:
+/// the slowest plugin bounds the wall time. When a module was compiled, that wall time is added to
+/// what `loads` says was spent compiling.
+fn compile_all(
+    runtime: &Runtime,
+    fetched: &[Fetched],
+    loads: &mut LoadsSoFar,
+) -> Vec<std::result::Result<Compiled, LoadFailure>> {
+    let (_, misses) = runtime.cache_counts();
+    let started = Instant::now();
+    let compiled = std::thread::scope(|scope| {
         let handles: Vec<_> = fetched
             .iter()
             .map(|component| scope.spawn(move || compile(runtime, component)))
@@ -505,29 +628,10 @@ fn instantiate(
             })
             .collect()
     });
-    for (component, compiled) in fetched.into_iter().zip(compiled) {
-        match compiled {
-            Ok((plugin, declaration)) => {
-                declarations::write(&cache, &component.sha256, &declaration.info);
-                declarations.insert(component.name.clone(), declaration);
-                plugins.insert(component.name, plugin);
-            }
-            Err(failure) if strict => return Err(failure.error),
-            Err(failure) => {
-                unloadable.insert(component.name, failure);
-            }
-        }
+    if runtime.cache_counts().1 > misses {
+        loads.compiling += started.elapsed();
     }
-
-    Ok((
-        Loaded {
-            runtime,
-            plugins,
-            declarations,
-            overrides: Arc::new(overrides.clone()),
-        },
-        unloadable,
-    ))
+    compiled
 }
 
 /// A component compiled under this core, and what it declares.
@@ -896,13 +1000,20 @@ impl Loaded {
     /// # Errors
     /// Fails like [`load`].
     fn with_generators(self: &Arc<Self>, workspace: &Workspace) -> Result<Arc<Self>> {
-        let missing: BTreeSet<PluginName> = sync::generator_entries(workspace)
+        let generators: BTreeSet<&PluginName> = sync::generator_entries(workspace)
             .iter()
             .filter_map(|entry| {
-                self.declarations.keys().find(|name| {
-                    name.as_str() == entry.generator.plugin() && !self.plugins.contains_key(*name)
-                })
+                self.declarations
+                    .keys()
+                    .find(|name| name.as_str() == entry.generator.plugin())
             })
+            .collect();
+        // A generator the run declared from the cache loads on the run's runtime, as a call of it
+        // would: the other plugins are not loaded again for it.
+        self.load_on_call(&generators)?;
+        let missing: BTreeSet<PluginName> = generators
+            .into_iter()
+            .filter(|name| self.loaded(name).is_none())
             .cloned()
             .collect();
         if missing.is_empty() {
@@ -912,13 +1023,20 @@ impl Loaded {
         // The run's plugins load again with the missing ones: a `Loaded` holds one runtime, and a
         // plugin is instantiated by the runtime that compiled it. Their modules come from the cache.
         let mut names: BTreeSet<PluginName> = self.plugins.keys().cloned().collect();
+        names.extend(self.on_call.keys().cloned());
         names.extend(missing);
-        let loaded = load(workspace, lock.as_ref(), &self.overrides, &Needed::Only(names))?
-            .ok_or_else(|| {
-                Error::environment(
-                    "the run's configuration declares no plugin although a [generate] entry names one; run gate again, and report it if it recurs",
-                )
-            })?;
+        let loaded = load(
+            workspace,
+            lock.as_ref(),
+            &self.overrides,
+            &Needed::Only(names),
+            Loading::UpFront,
+        )?
+        .ok_or_else(|| {
+            Error::environment(
+                "the run's configuration declares no plugin although a [generate] entry names one; run gate again, and report it if it recurs",
+            )
+        })?;
         Ok(Arc::new(loaded))
     }
 
@@ -982,10 +1100,12 @@ impl Loaded {
                 .map(|project| project.root.clone());
             let own = own_config(workspace, project);
             for name in settings.plugins.keys() {
-                let Some(plugin) = self.plugins.get(name) else {
+                let (Some(sha256), Some(declared)) =
+                    (self.sha256_of(name), self.declarations.get(name))
+                else {
                     continue;
                 };
-                let mut rules = enabled_rules(plugin.info(), name, settings, workspace, project)?;
+                let mut rules = enabled_rules(&declared.info, name, settings, workspace, project)?;
                 rules.retain(|rule| {
                     filter.allows(&rule.id.to_string())
                         && (!message_run || self.reads_message(name, &rule.run.name))
@@ -999,7 +1119,7 @@ impl Loaded {
                     .collect();
                 let grant = grant(root.as_deref(), settings, name, &options_files);
                 let request = check_request(root.as_deref(), settings, name, &rules, own);
-                planned.push((project, settings, name, rules, plugin, request, grant));
+                planned.push((project, settings, name, rules, sha256, request, grant));
             }
         }
 
@@ -1013,9 +1133,9 @@ impl Loaded {
         };
         let calls: Vec<_> = planned
             .iter()
-            .map(|(_, _, _, _, plugin, request, grant)| (*plugin, request, grant))
+            .map(|(_, _, name, _, sha256, request, grant)| (*name, *sha256, request, grant))
             .collect();
-        let outcomes = self.calls(&calls, &tree, &history, &inputs, &git_history.writes);
+        let outcomes = self.calls(&calls, &tree, &history, &inputs, &git_history.writes)?;
 
         let mut ran = Ran::default();
         for ((project, settings, name, rules, _, _, _), looked) in planned.iter().zip(outcomes) {
@@ -1047,25 +1167,102 @@ impl Loaded {
             });
         }
         git_history.finish(&mut ran);
+        ran.loads = self.loads(&planned.iter().map(|call| call.2).collect());
         Ok(ran)
     }
 
-    /// Runs each of `calls` (plugin, request, grant): from the result cache when every input it
-    /// recorded answers as it did, else on the worker pool, and stores what a run call answers.
-    /// The outcomes are in the order of `calls`, each with whether it came from the cache.
-    /// A result that cannot be stored is noted in `writes`.
+    /// The sha256 of the plugin `name` this command runs, loaded or on call; `None` when the
+    /// command does not run it.
+    fn sha256_of(&self, name: &PluginName) -> Option<&str> {
+        self.plugins.get(name).map(Plugin::sha256).or_else(|| {
+            self.on_call
+                .get(name)
+                .map(|on_call| on_call.declared.sha256.as_str())
+        })
+    }
+
+    /// The loaded plugin `name`, up front or on call.
+    fn loaded(&self, name: &PluginName) -> Option<&Plugin> {
+        self.plugins.get(name).or_else(|| {
+            self.on_call
+                .get(name)
+                .and_then(|on_call| on_call.plugin.get())
+        })
+    }
+
+    /// Reads, verifies and loads the on-call plugins among `names` not loaded yet, in parallel.
+    ///
+    /// # Errors
+    /// Fails like loading them up front: a pin that cannot be fetched or verified, a component
+    /// that does not load.
+    fn load_on_call(&self, names: &BTreeSet<&PluginName>) -> Result<()> {
+        let wanted: Vec<Declared> = names
+            .iter()
+            .filter_map(|name| self.on_call.get(*name))
+            .filter(|on_call| on_call.plugin.get().is_none())
+            .map(|on_call| on_call.declared.clone())
+            .collect();
+        if wanted.is_empty() {
+            return Ok(());
+        }
+        let started = Instant::now();
+        let fetched = fetch_components(wanted, self.lock.as_ref(), &self.overrides)?;
+        let mut loads = self.loads.lock().unwrap_or_else(PoisonError::into_inner);
+        loads.fetch += started.elapsed();
+        let compiled = compile_all(&self.runtime, &fetched, &mut loads);
+        for (component, compiled) in fetched.into_iter().zip(compiled) {
+            let (plugin, _) = compiled.map_err(|failure| failure.error)?;
+            loads
+                .loaded
+                .push((component.name.to_string(), plugin.load_time()));
+            if let Some(on_call) = self.on_call.get(&component.name) {
+                // Only this thread loads on call; a plugin already set is the same one.
+                drop(on_call.plugin.set(plugin));
+            }
+        }
+        Ok(())
+    }
+
+    /// How the plugins loaded so far. The plugins not loaded are those of `called`, the plugins
+    /// with a call planned, that were not loaded: every call of them came from the cache.
+    fn loads(&self, called: &BTreeSet<&PluginName>) -> Loads {
+        let so_far = self.loads.lock().unwrap_or_else(PoisonError::into_inner);
+        let (from_cache, compiled) = self.runtime.cache_counts();
+        Loads {
+            loaded: so_far.loaded.clone(),
+            not_loaded: self
+                .on_call
+                .iter()
+                .filter(|(name, on_call)| called.contains(name) && on_call.plugin.get().is_none())
+                .map(|(name, _)| name.to_string())
+                .collect(),
+            fetch: so_far.fetch,
+            from_cache,
+            compiled,
+            compiling: so_far.compiling,
+        }
+    }
+
+    /// Runs each of `calls` (plugin name, its sha256, request, grant): from the result cache when
+    /// every input it recorded answers as it did, else on the worker pool, and stores what a run
+    /// call answers. A plugin is loaded only for a call that runs. The outcomes are in the order
+    /// of `calls`, each with whether it came from the cache. A result that cannot be stored is
+    /// noted in `writes`.
+    ///
+    /// # Errors
+    /// Fails when a plugin a call runs cannot be loaded.
     fn calls(
         &self,
-        calls: &[(&Plugin, &gate_sdk::CheckRequest, &Grant)],
+        calls: &[(&PluginName, &str, &gate_sdk::CheckRequest, &Grant)],
         tree: &Arc<dyn Tree>,
         history: &Arc<dyn History>,
         inputs: &results::Inputs<'_>,
         writes: &CacheWrites,
-    ) -> Vec<Looked> {
+    ) -> Result<Vec<Looked>> {
         let cache = Cache::from_env().ok();
         let keys: Vec<Sha256Sum> = calls
             .iter()
-            .map(|(plugin, request, grant)| results::key(plugin.sha256(), request, grant))
+            .map(|(_, sha256, request, grant)| results::key(sha256, request, grant))
             .collect();
         // Why each call that had a stored result runs again.
         let mut stale: Vec<Option<String>> = vec![None; calls.len()];
@@ -1075,7 +1272,7 @@ impl Loaded {
             .enumerate()
             .map(|(index, (key, stale))| {
                 let started = Instant::now();
-                let stored = results::load(cache.as_ref()?, calls[index].0.sha256(), key)?;
+                let stored = results::load(cache.as_ref()?, calls[index].1, key)?;
                 if let Some(changed) = stored.changed_input(inputs, Some(history.as_ref())) {
                     *stale = Some(changed);
                     return None;
@@ -1103,19 +1300,23 @@ impl Loaded {
         let missed: Vec<usize> = (0..calls.len())
             .filter(|index| outcomes[*index].is_none())
             .collect();
-        let run: Vec<Call<'_>> = missed
-            .iter()
-            .map(|index| {
-                let (plugin, request, grant) = calls[*index];
-                Call {
-                    plugin,
-                    request: request.clone(),
-                    tree: Arc::clone(tree),
-                    history: Some(Arc::clone(history)),
-                    grant: grant.clone(),
-                }
-            })
-            .collect();
+        self.load_on_call(&missed.iter().map(|index| calls[*index].0).collect())?;
+        let mut run: Vec<Call<'_>> = Vec::new();
+        for index in &missed {
+            let (name, _, request, grant) = calls[*index];
+            let plugin = self.loaded(name).ok_or_else(|| {
+                Error::environment(format!(
+                    "plugin {name} did not load for its call; run gate again, and report it if it recurs"
+                ))
+            })?;
+            run.push(Call {
+                plugin,
+                request: request.clone(),
+                tree: Arc::clone(tree),
+                history: Some(Arc::clone(history)),
+                grant: grant.clone(),
+            });
+        }
         for (index, outcome) in missed.iter().zip(self.runtime.check_all(&run)) {
             if let (Some(cache), Ok(outcome)) = (cache.as_ref(), outcome.as_ref()) {
                 let stored = results::Stored::new(
@@ -1124,8 +1325,12 @@ impl Loaded {
                     inputs,
                 )
                 .with_judged(outcome.judged.clone());
-                let plugin = calls[*index].0.sha256();
-                writes.note(results::store(cache, plugin, &keys[*index], &stored));
+                writes.note(results::store(
+                    cache,
+                    calls[*index].1,
+                    &keys[*index],
+                    &stored,
+                ));
             }
             outcomes[*index] = Some(Looked {
                 outcome,
@@ -1133,7 +1338,7 @@ impl Loaded {
                 stale: stale[*index].take(),
             });
         }
-        outcomes.into_iter().flatten().collect()
+        Ok(outcomes.into_iter().flatten().collect())
     }
 }
 
@@ -1270,7 +1475,13 @@ impl<'w> PluginGenerators<'w> {
     pub fn load(workspace: &'w Workspace, overrides: &[crate::PluginOverride]) -> Result<Self> {
         let (lines, files) = crate::resolve_overrides(workspace, overrides)?;
         let lock = crate::lock::verify_with(workspace, &files.keys().cloned().collect())?;
-        let loaded = load(workspace, lock.as_ref(), &files, &Needed::Every)?;
+        let loaded = load(
+            workspace,
+            lock.as_ref(),
+            &files,
+            &Needed::Every,
+            Loading::UpFront,
+        )?;
         if let Some(loaded) = &loaded {
             loaded.validate(workspace, &RuleFilter::new(Vec::new()))?;
         }
@@ -1358,9 +1569,10 @@ impl<'w> PluginGenerators<'w> {
             ))
         })?;
         let (name, plugin) = loaded
-            .plugins
-            .iter()
-            .find(|(name, _)| name.as_str() == item.plugin())
+            .declarations
+            .keys()
+            .find(|name| name.as_str() == item.plugin())
+            .and_then(|name| Some((name, loaded.loaded(name)?)))
             .ok_or_else(|| {
                 Error::config(format!(
                     "[generate] {item}: no gate.toml declares plugin {}; declare it in [plugins]",
@@ -1575,6 +1787,7 @@ pub fn preset_settings(
         lock.as_ref(),
         &files,
         &Needed::Only(BTreeSet::new()),
+        Loading::UpFront,
     )?
     else {
         return Ok(settings_of);

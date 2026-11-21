@@ -110,11 +110,12 @@ pub struct RunArgs {
     /// Print the time of each phase and plugin call to standard error.
     #[arg(long)]
     pub timings: bool,
-    /// Report a run that takes longer than this many seconds as a gate/budget warning.
+    /// Report a run that takes longer than this many seconds, not counting compiling plugins, as a
+    /// gate/budget warning.
     #[arg(long, value_name = "SECONDS", value_parser = parse_seconds)]
     pub warn_after: Option<Duration>,
-    /// Report a run that takes longer than this many seconds as a gate/budget error; above
-    /// --warn-after when both are given.
+    /// Report a run that takes longer than this many seconds, not counting compiling plugins, as a
+    /// gate/budget error; above --warn-after when both are given.
     #[arg(long, value_name = "SECONDS", value_parser = parse_seconds)]
     pub fail_after: Option<Duration>,
     /// Stop at the first error finding.

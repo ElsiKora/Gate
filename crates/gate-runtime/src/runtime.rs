@@ -109,6 +109,17 @@ pub struct Plugin {
     sha256: String,
     pre: PluginPre<State>,
     info: PluginInfo,
+    load_time: LoadTime,
+}
+
+/// Where the time of loading one plugin went.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LoadTime {
+    /// Its compiled module: taken from the module cache, or compiled when the cache has none (the
+    /// runtime's [`Runtime::cache_counts`] say whether any was).
+    pub module: Duration,
+    /// Its `describe` call.
+    pub describe: Duration,
 }
 
 impl std::fmt::Debug for Plugin {
@@ -138,6 +149,12 @@ impl Plugin {
     #[must_use]
     pub fn info(&self) -> &PluginInfo {
         &self.info
+    }
+
+    /// Where the time of loading it went.
+    #[must_use]
+    pub fn load_time(&self) -> LoadTime {
+        self.load_time
     }
 
     /// The globs generator `generator` owns, as repository globs under `grant`'s root: what
@@ -419,7 +436,9 @@ impl Runtime {
                 ),
             )
         };
+        let started = Instant::now();
         let component = Component::new(&self.engine, wasm).map_err(load)?;
+        let module = started.elapsed();
         let pre = PluginPre::new(self.linker.instantiate_pre(&component).map_err(interface)?)
             .map_err(interface)?;
         let sha256 = Sha256::digest(wasm)
@@ -433,6 +452,7 @@ impl Runtime {
             sha256,
             pre,
             info: empty_info(),
+            load_time: LoadTime::default(),
         };
         let access = Access {
             tree: Arc::new(Empty),
@@ -441,9 +461,14 @@ impl Runtime {
             reads_message: false,
             grant: Grant::repository(),
         };
+        let started = Instant::now();
         let (info, _, _, _, _) = self.invoke(&plugin, "describe", access, |bindings, store| {
             bindings.call_describe(store)
         })?;
+        plugin.load_time = LoadTime {
+            module,
+            describe: started.elapsed(),
+        };
         plugin.info = info_from(info);
         check_declaration(name, &plugin.info)?;
         Ok(plugin)

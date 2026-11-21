@@ -155,7 +155,9 @@ worktree of the clone shares it, and the commit adds `.githooks/`. The hooks cal
 every developer runs the pinned version; they never skip themselves on an environment variable. A
 hook may also run one of your steps, for example `run format` to check the staged files. `budget`
 makes a hook that takes longer than 3 seconds warn, and one that takes longer than 10 seconds fail.
-On a fresh clone, `bin/gate doctor` tells you when `gate sync` has not run yet.
+On a fresh clone, `bin/gate doctor` tells you when `gate sync` has not run yet. Run `gate sync`
+after a clone, a core upgrade or a plugin bump: it compiles every plugin, so the first hook does not
+wait for it (compiling is not counted toward the budget either way).
 
 The `commit-msg` hook checks only the message being written, before the commit exists: with the
 rules above, `git/commit-message` checks its form and `git/no-ci-skip` refuses a CI-skip directive

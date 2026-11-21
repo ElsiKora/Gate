@@ -6152,6 +6152,10 @@ fn typescript_plugin() -> String {
 
 /// `repo` with project `spare` in `apps/spare`, which alone declares plugin `typescript` (given
 /// with [`typescript_plugin`]), with `extra` after its `[plugins]` section; committed.
+/// The `[rules]` table of a spare project that turns on a rule of typescript, so that a check of
+/// spare calls typescript.
+const SPARE_RULE: &str = "\n[rules]\n\"typescript/parse\" = \"error\"\n";
+
 fn with_spare(repo: &Repo, extra: &str) {
     repo.write(
         "apps/spare/gate.toml",
@@ -6361,7 +6365,7 @@ fn a_plugin_option_its_schema_refuses_fails_sync_and_every_check() {
 #[test]
 fn after_gate_sync_a_check_compiles_only_the_plugins_it_runs() {
     let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
-    with_spare(&repo, "");
+    with_spare(&repo, SPARE_RULE);
     let plugin = typescript_plugin();
     let output = repo.gate(&["sync", "--plugin", &plugin]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
@@ -6381,7 +6385,7 @@ fn after_gate_sync_a_check_compiles_only_the_plugins_it_runs() {
         (
             &["check", "--staged"],
             2,
-            "the edit in spare selects spare, which declares typescript",
+            "the edit in spare selects spare, whose typescript rule runs",
         ),
     ];
     for (index, (arguments, compiled, why)) in runs.into_iter().enumerate() {
@@ -6567,11 +6571,15 @@ fn stored_declaration(repo: &Repo, wasm: &[u8]) -> PathBuf {
     entries.into_iter().next().expect("one entry")
 }
 
-/// `gate check <arguments>` on an emptied module cache: the modules it compiled.
+/// `gate check <arguments>` on an emptied module cache and result cache: the modules it compiled.
+/// With no result cached, every call that runs loads its plugin; a plugin with no call is loaded
+/// only when the cache holds no declaration of it.
 fn compiled_by(repo: &Repo, arguments: &[&str]) -> BTreeSet<String> {
-    let modules = repo.cache.path().join("modules");
-    if modules.exists() {
-        std::fs::remove_dir_all(&modules).expect("the module cache");
+    for cache in ["modules", "results"] {
+        let directory = repo.cache.path().join(cache);
+        if directory.exists() {
+            std::fs::remove_dir_all(&directory).expect("the cache");
+        }
     }
     let output = repo.gate(arguments);
     assert_ne!(
@@ -6686,7 +6694,7 @@ fn a_stored_declaration_whose_rule_schema_is_not_json_loads_the_plugin() {
 #[test]
 fn after_gate_sync_a_pinned_plugin_the_run_does_not_run_answers_from_its_stored_declaration() {
     let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
-    with_spare(&repo, "");
+    with_spare(&repo, SPARE_RULE);
     let plugin = typescript_plugin();
     let output = repo.gate(&["sync", "--plugin", &plugin]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
@@ -6705,7 +6713,7 @@ fn after_gate_sync_a_pinned_plugin_the_run_does_not_run_answers_from_its_stored_
         compiled.len(),
         1,
         "hello, the pinned download, is left out by --rule and answers from its entry: only \
-         typescript compiles: {compiled:?}"
+         typescript, whose rule runs in spare, compiles: {compiled:?}"
     );
 }
 

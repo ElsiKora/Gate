@@ -2058,3 +2058,234 @@ fn every_suggestion_of_a_fresh_gate_toml_uncommented_checks_clean() {
     );
     server.stop();
 }
+
+/// A repository pinning the git plugin built from this tree, admitted with `gate lock --set
+/// --file` under a URL that answers 404, and committed. Returns it and the pinned sha256.
+fn admitted(server: &Server) -> (Repo, String) {
+    let wasm = git_component();
+    let url = server.url(&format!(
+        "/acme/releases/download/plugin-git-v{VERSION}/git.wasm"
+    ));
+    let repo = git_pinned(&url, &"b".repeat(64));
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("git.wasm");
+    std::fs::write(&file, &wasm).expect("build");
+    let output = repo.gate(
+        &[
+            "lock",
+            "--set",
+            &format!("git={url}"),
+            "--file",
+            path(&file),
+        ],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit();
+    (repo, sha256(&wasm))
+}
+
+/// The repository of [`admitted`], checked once with `--timings`: the plugin compiled, and its
+/// declaration and its call's result are in the cache. Returns the repository, the pinned sha256
+/// and what the first check wrote to stderr.
+fn checked_once(server: &Server) -> (Repo, String, String) {
+    let (repo, hash) = admitted(server);
+    let output = repo.gate(&["check", "--timings"], None, &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stdout).contains("gate check (tree): 1 rule, 0 errors"),
+        "{}",
+        text(&output.stdout)
+    );
+    (repo, hash, text(&output.stderr))
+}
+
+/// Removes the pinned blob from the cache, so a run that still reads it cannot.
+fn remove_blob(repo: &Repo, hash: &str) {
+    std::fs::remove_file(repo.cache.path().join("blobs/sha256").join(hash)).expect("remove");
+}
+
+/// The run failed with a gate error and no rule ran, so no cached result was served.
+fn refused(output: &Output) {
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert!(
+        !text(&output.stdout).contains("gate check"),
+        "no result was served: {}",
+        text(&output.stdout)
+    );
+}
+
+#[test]
+fn a_run_whose_every_call_is_cached_loads_no_plugin_and_says_so() {
+    let server = Server::start();
+    let (repo, hash, first) = checked_once(&server);
+    // The first run compiled the plugin, and its timings say where the load went.
+    assert!(first.contains("timings: load git: module "), "{first}");
+    assert!(
+        first.contains("timings: load: 1 read and verified in ")
+            && first.contains(" ms; modules: 0 from the cache, 1 compiled; ")
+            && first.contains(" ms compiling, not counted toward --warn-after and --fail-after\n"),
+        "{first}"
+    );
+
+    // Without the plugin's bytes, the same inputs are answered from the result cache alone.
+    remove_blob(&repo, &hash);
+    let output = repo.gate(&["check", "--timings"], None, &[]);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    assert!(
+        text(&output.stdout).contains("gate check (tree): 1 rule, 0 errors"),
+        "{}",
+        text(&output.stdout)
+    );
+    assert!(
+        stderr.contains("timings: load: not loaded, every call cached: git\n"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("timings: load git:"), "{stderr}");
+    assert!(server.requests().is_empty(), "nothing was downloaded");
+    server.stop();
+}
+
+#[test]
+fn a_warm_cache_serves_nothing_once_the_lock_no_longer_pins_the_plugin() {
+    let server = Server::start();
+    let (repo, hash, _) = checked_once(&server);
+    let lock = repo.read("gate.lock");
+    let entry = lock
+        .find(&format!("\n[plugins.\"ElsiKora/Gate:git@{VERSION}\"]"))
+        .expect("the git entry");
+    repo.write("gate.lock", &lock[..entry]);
+    assert!(!repo.read("gate.lock").contains(&hash));
+
+    let output = repo.gate(&["check"], None, &[]);
+    refused(&output);
+    assert!(
+        text(&output.stderr).contains(&format!(
+            "gate.lock does not match the configuration: it does not pin plugin git = ElsiKora/Gate:git@{VERSION}"
+        )),
+        "{}",
+        text(&output.stderr)
+    );
+    server.stop();
+}
+
+#[test]
+fn a_warm_cache_serves_nothing_once_the_pinned_sha256_is_edited() {
+    let server = Server::start();
+    let (repo, hash, _) = checked_once(&server);
+    let other = "e".repeat(64);
+    repo.write("gate.lock", &repo.read("gate.lock").replace(&hash, &other));
+
+    let output = repo.gate(&["check"], None, &[]);
+    refused(&output);
+    assert!(
+        text(&output.stderr).contains(&format!("plugin git = ElsiKora/Gate:git@{VERSION}: ")),
+        "{}",
+        text(&output.stderr)
+    );
+    server.stop();
+}
+
+#[test]
+fn a_plugin_option_is_checked_without_loading_the_plugin_and_a_new_value_misses_the_cache() {
+    let server = Server::start();
+    let (repo, hash, _) = checked_once(&server);
+    remove_blob(&repo, &hash);
+    let toml = repo.read("gate.toml");
+    let main = "main = [\"refs/heads/main\"]";
+    assert!(toml.contains(main), "{toml}");
+
+    // A value the plugin's options schema refuses: the stored declaration reports it, though the
+    // plugin's bytes are gone and every call was cached under the old value.
+    repo.write("gate.toml", &toml.replace(main, "main = 5"));
+    let output = repo.gate(&["check"], None, &[]);
+    refused(&output);
+    let stderr = text(&output.stderr);
+    assert!(stderr.contains("plugin git options"), "{stderr}");
+    assert!(
+        !stderr.contains("admit the build"),
+        "the plugin was not read: {stderr}"
+    );
+
+    // A value the schema takes but the plugin refuses: it is part of the call's request, so the
+    // call misses the result cache and needs the plugin, whose bytes are gone: it fails closed.
+    repo.write("gate.toml", &toml.replace(main, "main = []"));
+    let output = repo.gate(&["check"], None, &[]);
+    refused(&output);
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains(&format!("plugin git = ElsiKora/Gate:git@{VERSION}: ")),
+        "{stderr}"
+    );
+    server.stop();
+}
+
+#[test]
+fn doctor_names_a_plugin_not_compiled_until_gate_sync_compiles_it() {
+    let server = Server::start();
+    let (repo, _) = admitted(&server);
+
+    let output = repo.gate(&["doctor"], None, &[]);
+    assert!(
+        text(&output.stdout).contains(&format!(
+            "fix  compiled: 1 plugin is not compiled yet under gate {VERSION} (ElsiKora/Gate:git@{VERSION}); run gate sync before the first commit, or the first gate check compiles it\n"
+        )),
+        "{}",
+        text(&output.stdout)
+    );
+
+    let output = repo.gate(&["sync"], None, &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let output = repo.gate(&["doctor"], None, &[]);
+    assert!(
+        text(&output.stdout).contains(&format!(
+            "ok   compiled: every plugin of gate.lock in the cache is compiled under gate {VERSION}\n"
+        )),
+        "{}",
+        text(&output.stdout)
+    );
+    server.stop();
+}
+
+#[test]
+fn a_stored_declaration_that_does_not_parse_is_written_again() {
+    let server = Server::start();
+    let (repo, hash, _) = checked_once(&server);
+    let directory = repo.cache.path().join("declarations").join(&hash);
+    let entries = files(&directory);
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    let entry = directory.join(&entries[0]);
+    let declaration = std::fs::read(&entry).expect("the stored declaration");
+    std::fs::write(&entry, &declaration[..declaration.len() / 2]).expect("truncate");
+
+    // An entry that does not parse is no declaration: doctor does not call the plugin compiled.
+    let output = repo.gate(&["doctor"], None, &[]);
+    assert!(
+        text(&output.stdout).contains("fix  compiled: 1 plugin is not compiled yet"),
+        "{}",
+        text(&output.stdout)
+    );
+
+    // The next check loads the plugin up front and stores its declaration again.
+    let output = repo.gate(&["check"], None, &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        std::fs::read(&entry).expect("the declaration again"),
+        declaration
+    );
+    let output = repo.gate(&["doctor"], None, &[]);
+    assert!(
+        text(&output.stdout).contains("ok   compiled: "),
+        "{}",
+        text(&output.stdout)
+    );
+    server.stop();
+}

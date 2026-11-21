@@ -40,6 +40,13 @@ pub(super) fn read(cache: &Cache, plugin: &Sha256Sum) -> Option<PluginInfo> {
     Some(stored.into())
 }
 
+/// Whether the cache holds a declaration of `plugin` under this core and plugin interface that
+/// can be read: the plugin has loaded under this core, so its module is compiled. An entry that
+/// does not parse is not one; the next load writes it again.
+pub(crate) fn stored(cache: &Cache, plugin: &Sha256Sum) -> bool {
+    read(cache, plugin).is_some()
+}
+
 /// Stores what the plugin with this sha256 declares, in place of any entry there: one that does
 /// not parse, or names another plugin, is replaced by the run that loaded the plugin because of
 /// it. A cache that cannot be written costs the next run a load of the plugin, not a failure, so

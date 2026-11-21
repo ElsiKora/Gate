@@ -22,7 +22,7 @@ pub use self::grant::{Grant, is_relative_glob};
 pub use self::host::{Blob, History, HostError, Size, Tree};
 pub use self::read_set::{GitQuery, ReadSet};
 pub use self::runtime::{
-    Call, CallOutcome, CallTime, Config, HostTime, INTERFACE, Invocation, Plugin, Runtime,
+    Call, CallOutcome, CallTime, Config, HostTime, INTERFACE, Invocation, LoadTime, Plugin, Runtime,
 };
 
 /// The result of a runtime operation.
