@@ -19,10 +19,10 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
   `<root>/rules` as their aspect `input`, and `agents/instruction-references` reports a missing
   `entry` the same way. Add the agent documents, or set `levels = { input = "off" }` with a
   decision.
-- The `agents-block` generator reports an `entry` that is not tracked, or a `<root>/rules` with no
-  rule file, as `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`; before, it
-  wrote nothing and said nothing. A project that does not want the block removes the generator from
-  `[generate]`.
+- The `agents-block` generator reports a `<root>/rules` with no rule file as
+  `gate/sync#agents/agents-block` in `gate sync` and `gate sync --check`; before, it wrote nothing
+  and said nothing. An `entry` that is not tracked is seeded (see Features). A project that does not
+  want the block removes the generator from `[generate]`.
 
 ### Features
 
