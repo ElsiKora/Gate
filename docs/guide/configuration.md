@@ -111,9 +111,12 @@ repository-scope rules while a profile extends it for the projects' three. An en
 rule of any scope it reaches is a configuration error that names where it goes instead:
 `typescript/recommended` in `[workspace] extends` turns on no repository-scope rule, and a member
 project's `extends = ["git/recommended"]` turns on no project-scope rule. A preset that names a rule
-of the scope at `off` still counts. `[workspace] extends` in a root that is a project is a
-configuration error: its presets go in `[project] extends`, which applies them to the repository's
-rules too.
+of the scope at `off` still counts. A `[workspace] extends` entry whose plugin the root does not
+declare names both places at once, since which scope its preset holds is known only once the plugin
+loads: the root's `[plugins]` for its repository-scope rules, or a `[[profiles]]` entry, with the
+plugin in that entry's `[profiles.plugins]`, for its project-scope rules. `[workspace] extends` in a
+root that is a project is a configuration error: its presets go in `[project] extends`, which
+applies them to the repository's rules too.
 
 ## `[plugins]`
 

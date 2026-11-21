@@ -220,6 +220,14 @@ Each shared plugin keeps its own changelog next to its code.
   directory is synced after the rename; a failed write leaves the old file and no temporary file.
   Before, a crash could leave an empty `gate.lock`, and `gate sync` and `gate init` wrote in place,
   so a `bin/gate` that ran meanwhile could read half a launcher.
+- **host:** `gate doctor` before the first `gate sync` says the hooks are not written yet and asks
+  for `gate sync`, instead of saying the hooks in `.githooks` do not run while `.githooks` does not
+  exist; `gate sync` says `set core.hooksPath to .githooks (it was not set)` or `(it was <path>)`,
+  instead of `(unset)`, which read as the new value.
+- **host:** a root's `[workspace] extends` entry whose plugin the root does not declare names both
+  places at once: the root's `[plugins]` for the preset's repository-scope rules, or a
+  `[[profiles]]` entry with the plugin in its `[profiles.plugins]` for its project-scope rules.
+  Before, a preset of project-scope rules took two errors to place.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

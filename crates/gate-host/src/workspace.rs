@@ -9,7 +9,8 @@ use crate::baseline::Baseline;
 use crate::config::{
     self, CORE_PLUGIN, CORE_RULES, Config, FILE_NAME, Kind, Name, PluginItem, PluginName,
     PluginSource, RuleId, RuleKey, RuleSettings, SchemaValidator, ScopedException, Setting,
-    SettingOrigin, Settings, Sourced, Tool, undeclared,
+    SettingOrigin, Settings, Sourced, Tool, WORKSPACE_EXTENDS, undeclared,
+    undeclared_workspace_preset,
 };
 use crate::error::{Error, Result};
 use crate::findings::RuleFilter;
@@ -606,6 +607,21 @@ impl Workspace {
 fn check_settings(settings: &Settings, tools: &BTreeMap<Name, Tool>, scope: &str) -> Result<()> {
     let declared = |plugin: &str| settings.plugins.keys().any(|name| name.as_str() == plugin);
     let mut references: Vec<(&SettingOrigin, String, &str)> = Vec::new();
+
+    // A root's `[workspace] extends` entry gets a message of its own, which names both places a
+    // preset of an undeclared plugin can go, since its scope is not known yet.
+    for preset in &settings.extends {
+        if preset.origin.section == WORKSPACE_EXTENDS && !declared(preset.value.plugin()) {
+            return Err(at(
+                Some(&preset.origin),
+                format!(
+                    "\"{}\": {}",
+                    preset.value,
+                    undeclared_workspace_preset(preset.value.plugin())
+                ),
+            ));
+        }
+    }
 
     for (plugin, setting) in &settings.families {
         references.push((&setting.origin, format!("{plugin}/*"), plugin));

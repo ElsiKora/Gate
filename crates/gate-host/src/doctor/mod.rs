@@ -131,6 +131,9 @@ fn hooks(workspace: &Workspace) -> Status {
             "core.hooksPath is {:?}, not {HOOKS_DIRECTORY}; run gate sync",
             path.trim()
         )),
+        Ok(None) if !git.root().join(HOOKS_DIRECTORY).is_dir() => Status::Fix(format!(
+            "gate.toml has [hooks], and gate sync has not written them yet; run gate sync to write {HOOKS_DIRECTORY} and set core.hooksPath"
+        )),
         Ok(None) => Status::Fix(format!(
             "core.hooksPath is not set, so the hooks in {HOOKS_DIRECTORY} do not run; run gate sync"
         )),

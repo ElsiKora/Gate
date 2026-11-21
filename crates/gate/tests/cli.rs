@@ -630,7 +630,7 @@ fn sync_writes_the_hooks_byte_stable_and_sets_the_hooks_path() {
     let text = stdout(&output);
     assert!(text.contains("wrote .githooks/pre-commit\n"), "{text}");
     assert!(
-        text.contains("set core.hooksPath to .githooks (unset)\n"),
+        text.contains("set core.hooksPath to .githooks (it was not set)\n"),
         "{text}"
     );
     assert!(
@@ -1839,6 +1839,14 @@ fn doctor_names_each_failing_check_and_what_to_do() {
         (
             "\n[hooks]\npre-commit = [\"check --staged\"]\n",
             Box::new(|_: &Repo| {}),
+            "fix  hooks: gate.toml has [hooks], and gate sync has not written them yet; run gate sync to write .githooks and set core.hooksPath\n",
+        ),
+        (
+            "\n[hooks]\npre-commit = [\"check --staged\"]\n",
+            Box::new(|repo: &Repo| {
+                repo.write(".githooks/pre-commit", "#!/bin/sh\n");
+                repo.commit("hooks written");
+            }),
             "fix  hooks: core.hooksPath is not set, so the hooks in .githooks do not run; run gate sync\n",
         ),
     ];

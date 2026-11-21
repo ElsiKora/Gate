@@ -573,9 +573,9 @@ fn sync(arguments: &SyncArgs) -> Result<u8, Error> {
     }
     if let Some(previous) = &synced.hooks_path {
         let was = if previous.is_empty() {
-            "unset".to_owned()
+            "it was not set".to_owned()
         } else {
-            format!("was {previous}")
+            format!("it was {previous}")
         };
         let _ = writeln!(
             text,

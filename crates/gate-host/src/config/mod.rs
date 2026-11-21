@@ -1016,7 +1016,7 @@ impl Config {
 }
 
 /// The section an origin of `[workspace] extends` shows.
-const WORKSPACE_EXTENDS: &str = "[workspace] extends";
+pub(crate) const WORKSPACE_EXTENDS: &str = "[workspace] extends";
 
 /// The section name an origin shows: `[rules]`, `[project] extends`, `[[profiles]] rules`, ...
 fn section_label(profile: Option<usize>, name: &str) -> String {
@@ -1141,6 +1141,17 @@ pub(crate) fn undeclared(plugin: &str, scope: &str) -> String {
             "plugin {plugin} is not declared for {scope}; add [plugins.{plugin}] source = \"<owner>/<repo>:{plugin}@<version>\""
         )
     }
+}
+
+/// The message for a `[workspace] extends` entry whose plugin the root does not declare. The root
+/// that is not a project runs only repository-scope rules, and which scope the preset holds is
+/// known only once the plugin loads, so the message names both places in one step: the root's
+/// `[plugins]` for a preset of repository-scope rules, a `[[profiles]]` entry for one of
+/// project-scope rules.
+pub(crate) fn undeclared_workspace_preset(plugin: &str) -> String {
+    format!(
+        "plugin {plugin} is not declared for the repository. For its repository-scope rules, add [plugins.{plugin}] source = \"<owner>/<repo>:{plugin}@<version>\" to the root gate.toml; for its project-scope rules, move the entry to the extends of a [[profiles]] entry for the projects and declare the plugin in that entry's [profiles.plugins]"
+    )
 }
 
 fn missing(snapshot: &Snapshot, path: &str) -> String {
