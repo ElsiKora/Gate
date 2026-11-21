@@ -77,6 +77,8 @@ resolver never asks the tree for it.
 
 ## Resume point
 
-2026-11-21T00:29:59+00:00: the review's points are folded in (a `#` base, the help's note on other
-findings, one report per call in `typescript`, the `node_modules` link case, the file oxc reads,
-the directory base and next-rule tests, the empty entry). Next: one lane round on the tip.
+2026-11-21T02:31:00+00:00: lane round 404 on `1109904c` passed (fmt, clippy, test, deny, release
+and wasm all exit 0). The trial's monorepo with its `extends` restored ran with the round's gate and
+plugins: without a grant, `gate check` exits 1 with one base finding from each of `nestjs`,
+`frontend` and `cdk` and no environment error. With `reads = ["tsconfig.base.json"]` it exits 1
+with no base finding, and the plugins' other findings are the same. Next: review.
