@@ -28,14 +28,14 @@ The root `gate.toml`:
 
 ```toml
 [gate]
-version = "0.2.1"
+version = "0.3.0"
 
 [workspace]
 projects = "pnpm"
 ignore = ["samples/**"]
 
 [plugins.git]
-source = "ElsiKora/Gate:git@0.2.1"
+source = "ElsiKora/Gate:git@0.3.0"
 
 [plugins.git.options]
 main = ["refs/remotes/origin/main", "refs/heads/main"]
@@ -49,7 +49,7 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 projects = ["apps/*", "packages/*"]
 
 [profiles.plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.2.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
 
 [profiles.rules]
 "typescript/parse" = "error"

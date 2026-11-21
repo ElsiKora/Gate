@@ -3,7 +3,7 @@
 All notable changes to the `frontend` plugin are recorded here. The plugin follows semantic
 versioning; a rule id, aspect, option or finding message that changes is a breaking change.
 
-# 0.3.0 (unreleased)
+# 0.3.0 (2026-11-21)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
 
