@@ -5825,6 +5825,45 @@ fn a_stored_declaration_that_is_corrupt_or_names_another_plugin_is_replaced_by_t
 }
 
 #[test]
+fn list_with_a_stored_declaration_load_would_not_use_and_no_build_in_the_cache_says_gate_sync_and_fetches_nothing()
+ {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let entry = stored_declaration(&repo, &hello().1);
+    let mut renamed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&entry).expect("the entry")).expect("JSON");
+    renamed["name"] = serde_json::Value::from("other");
+    std::fs::write(&entry, renamed.to_string()).expect("an entry that names another plugin");
+    let blob = repo
+        .cache
+        .path()
+        .join("blobs/sha256")
+        .join(sha256(&hello().1));
+    std::fs::remove_file(&blob).expect("the build leaves the cache");
+    repo.write(
+        "apps/hello/gate.toml",
+        "[project]\nname = \"greeter\"\nextends = [\"hello/recommended\"]\n",
+    );
+    repo.commit("greeter extends a preset");
+
+    let output = repo.gate(&["list"]);
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_eq!(output.status.code(), Some(0), "{said}");
+    assert!(
+        said.contains(&format!(
+            "the rules the presets turn on are not shown: plugin hello = {SOURCE} is not in the cache; run gate sync once to fetch it, or pass --plugin hello=<file.wasm>"
+        )),
+        "{said}"
+    );
+    assert!(
+        !said.contains("example.invalid"),
+        "nothing is fetched: {said}"
+    );
+    assert!(!blob.exists(), "nothing is fetched into the cache");
+}
+
+#[test]
 fn a_stored_declaration_whose_rule_schema_is_not_json_loads_the_plugin() {
     let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
     with_spare(&repo, "");

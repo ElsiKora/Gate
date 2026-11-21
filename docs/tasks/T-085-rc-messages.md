@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review |
+| Status | in progress |
 | Release | 0.3.0 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |
@@ -55,8 +55,8 @@ its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
 9. **`gate/budget` (20).**
    - The finding already had a help line, printed in the text, JSON, SARIF and GitHub formats;
      the code shows no output that drops it. The test now asserts that it is printed.
-   - The help now also names the cause of a slow first run (finding 2): the plugins are compiled.
-     It says that `gate sync` compiles them ahead of the hooks.
+   - The help names the slow step that `--timings` shows, not a slow plugin. It does not name the
+     plugin compile of a first run: T-086 stops counting that compile toward the budget.
 
 ## Done when
 
@@ -78,6 +78,17 @@ its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
   leak scan prints nothing.
 
 ## Resume point
+
+2026-11-21T04:48:37+00:00: the review's fix round is written.
+- The budget help drops the plugin compile; T-086 stops counting it.
+- The offline preset check uses `load`'s own test of a stored declaration. A new test covers a
+  stored declaration `load` would not use, with no build in the cache.
+- `lock --set` hashes every file again under the guard before it admits any.
+- The rule page says a `wip` header passes with `#type-empty` off.
+- The doc comments of `PresetSetting` and `scopes` are separate.
+- The layout message says "lacks the sections".
+
+Next: one lane round.
 
 2026-11-21T04:41:36+00:00: lane ticket 417 ran on `ecc59ee` (rebased onto `e008106`) and exited 0
 after 962 s. fmt, clippy, the workspace tests (1514 passed, 0 failed), deny and the release build

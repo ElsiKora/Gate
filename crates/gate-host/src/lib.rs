@@ -580,7 +580,8 @@ fn commit_range(
 }
 
 /// What a `gate/budget` finding advises.
-const BUDGET_HELP: &str = "find the slow step with --timings; the first run after a clone, a core upgrade or a plugin bump compiles the plugins, which gate sync does ahead of the hooks; or raise --warn-after or --fail-after";
+const BUDGET_HELP: &str =
+    "find the slow step with --timings, or raise --warn-after or --fail-after";
 
 /// The one `gate/budget` finding of a run that took `elapsed`: an error over `--fail-after`, else a
 /// warning over `--warn-after`, else none. An error over both thresholds names both.

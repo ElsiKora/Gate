@@ -186,8 +186,8 @@ header-pattern: ^(?<type>\w*)(?:\((?<scope>.*)\))?!?: (?<subject>.*)$
 A header the pattern does not match, such as `wip`, is one finding: `type-empty` says the header
 does not have the form. commitlint reports `type-empty`, `scope-empty` and `subject-empty` for it,
 three findings with the same advice; here `scope-empty` and `subject-empty` judge only a header the
-pattern matches. A pattern with no `subject` group names no subject, so `subject-empty` fails on
-every message, as in commitlint. A
+pattern matches. With `#type-empty` set to `off`, a `wip` header passes completely. A pattern with
+no `subject` group names no subject, so `subject-empty` fails on every message, as in commitlint. A
 `header-pattern` that does not compile, or has no `type` group, is an error that names the option
 and fails the run.
 

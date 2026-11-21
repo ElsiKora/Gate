@@ -350,7 +350,7 @@ fn an_index_has_its_kinds_sections_in_order_and_may_add_more_after() {
     assert_eq!(
         messages(&findings),
         [
-            "docs/start-here.md has none of the sections \"Mental model\", \"First day\"; in a service they are: Mental model, First day"
+            "docs/start-here.md lacks the sections \"Mental model\", \"First day\"; in a service they are: Mental model, First day"
         ]
     );
     assert_eq!(

@@ -482,7 +482,7 @@ fn a_run_over_warn_after_warns_and_over_fail_after_errors_once() {
         text.starts_with("warning[gate/budget]: the run took "),
         "{text}"
     );
-    assert!(text.contains(" ms, over --warn-after 0 ms\n  help: find the slow step with --timings; the first run after a clone, a core upgrade or a plugin bump compiles the plugins, which gate sync does ahead of the hooks; or raise --warn-after or --fail-after\n"), "{text}");
+    assert!(text.contains(" ms, over --warn-after 0 ms\n  help: find the slow step with --timings, or raise --warn-after or --fail-after\n"), "{text}");
     assert!(text.contains("0 errors, 1 warning;"), "{text}");
 
     // Over the failure threshold alone, and over both: one error, which names both thresholds.

@@ -295,10 +295,8 @@ pub(crate) fn load(
     let mut loading = Vec::new();
     for plugin in declared {
         let from_cache = (!needed.wants(&plugin.name))
-            .then(|| declarations::read(&cache, &plugin.sha256))
-            .flatten()
-            .filter(|info| info.name == plugin.source.plugin)
-            .and_then(|info| Declaration::of(&plugin.name, info).ok());
+            .then(|| stored(&cache, &plugin))
+            .flatten();
         match from_cache {
             Some(declaration) => {
                 stored.insert(plugin.name, declaration);
@@ -311,6 +309,15 @@ pub(crate) fn load(
     loaded.plugins.retain(|name, _| needed.wants(name));
     loaded.declarations.extend(stored);
     Ok(Some(loaded))
+}
+
+/// What the cache stores for `plugin` when [`load`] can use it instead of loading the plugin: an
+/// entry of that plugin that makes a valid declaration. `None` otherwise, and [`load`] then loads
+/// the plugin, from the cache or fetched.
+fn stored(cache: &Cache, plugin: &Declared) -> Option<Declaration> {
+    declarations::read(cache, &plugin.sha256)
+        .filter(|info| info.name == plugin.source.plugin)
+        .and_then(|info| Declaration::of(&plugin.name, info).ok())
 }
 
 /// A declared plugin: its one source and the sha256 of the bytes that load for it.
@@ -1509,7 +1516,6 @@ impl Generators for PluginGenerators<'_> {
     }
 }
 
-/// The repository scope, then each project with settings, in name order.
 /// One setting a preset gives a scope: what `gate list` and `gate explain` show beside what the
 /// `gate.toml` files write.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1550,8 +1556,9 @@ pub fn preset_settings(
     // Never a download: a command that only prints the configuration works offline.
     let cache = Cache::from_env()?;
     for plugin in declared(workspace, lock.as_ref(), &files)?.unwrap_or_default() {
+        // The test load makes: a stored declaration it would not use is not held.
         let held = files.contains_key(&plugin.name)
-            || declarations::read(&cache, &plugin.sha256).is_some()
+            || stored(&cache, &plugin).is_some()
             || cache.get(&plugin.sha256)?.is_some();
         if !held {
             return Err(Error::environment(format!(
@@ -1609,6 +1616,7 @@ pub fn preset_settings(
     Ok(settings_of)
 }
 
+/// The repository scope, then each project with settings, in name order.
 fn scopes(workspace: &Workspace) -> impl Iterator<Item = (Option<&str>, &Settings)> {
     std::iter::once((None, workspace.repository())).chain(workspace.projects().iter().filter_map(
         |project| {

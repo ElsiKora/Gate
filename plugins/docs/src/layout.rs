@@ -427,7 +427,7 @@ fn sections(report: &mut Report, kind: Kind, book: &Book, tree: Tree<'_>) {
                     .map(|(_, title)| format!("\"{title}\""))
                     .collect();
                 Some(format!(
-                    "{path} has none of the sections {}; in {} they are: {}",
+                    "{path} lacks the sections {}; in {} they are: {}",
                     titles.join(", "),
                     kind.noun(),
                     required.join(", ")

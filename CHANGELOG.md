@@ -215,8 +215,8 @@ Each shared plugin keeps its own changelog next to its code.
 - **host:** an option value outside an enumeration names the allowed values (`/pack: "next" is not
   one of "react-vite", "nextjs" or "react-library"`), instead of the schema validator's
   `anyOf` text.
-- **check:** the `gate/budget` help says that the first run after a clone, a core upgrade or a
-  plugin bump compiles the plugins, which `gate sync` does ahead of the hooks.
+- **check:** the `gate/budget` help sends the reader to the slow step that `--timings` shows,
+  instead of a slow plugin.
 - **host:** a `[rules]` entry that sets only a level for a rule a preset turns on keeps the options
   the preset gives it: `extends = ["git/recommended"]` with `"git/branch-name" = "warning"` loads
   and runs with the preset's branch template. It used to be a configuration error (exit 2,

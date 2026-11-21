@@ -168,7 +168,7 @@ error docs/layout#sections docs/architecture/README.md
   docs/architecture/README.md has no section "Routing"; in a frontend it comes after "System shape"
   help: write each as a level-2 heading, ## <title>, in this order: System shape, Routing, ...
 error docs/layout#sections docs/start-here.md
-  docs/start-here.md has none of the sections "Mental model", "First day"; in a service they are: Mental model, First day
+  docs/start-here.md lacks the sections "Mental model", "First day"; in a service they are: Mental model, First day
   help: write each as a level-2 heading, ## <title>, in this order: Mental model, First day
 ```
 
