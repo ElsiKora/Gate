@@ -4,7 +4,7 @@ use std::fmt;
 use std::path::Path;
 use std::process::Command;
 
-use crate::cache::{Cache, Held};
+use crate::cache::{Cache, Held, Sha256Sum};
 use crate::lock::{CORE_VERSION, LOCK_FILE, Lock, verify};
 use crate::sync::{HOOKS_DIRECTORY, LAUNCHER};
 use crate::workspace::Workspace;
@@ -52,6 +52,8 @@ pub fn healthy(checks: &[Check]) -> bool {
 #[must_use]
 pub fn doctor(workspace: &Workspace, cache: Option<&Cache>, launcher: &[u8]) -> Vec<Check> {
     let lock = verify(workspace);
+    let usable = lock.as_ref().ok().and_then(Option::as_ref);
+    let (plugins, verified) = plugins(usable, cache);
     vec![
         Check {
             name: "git",
@@ -83,11 +85,11 @@ pub fn doctor(workspace: &Workspace, cache: Option<&Cache>, launcher: &[u8]) -> 
         },
         Check {
             name: "plugins",
-            status: plugins(lock.as_ref().ok().and_then(Option::as_ref), cache),
+            status: plugins,
         },
         Check {
             name: "compiled",
-            status: compiled(lock.as_ref().ok().and_then(Option::as_ref), cache),
+            status: compiled(usable.and(cache), &verified),
         },
     ]
 }
@@ -205,27 +207,33 @@ fn writable(cache: &Path) -> Status {
     }
 }
 
-fn plugins(lock: Option<&Lock>, cache: Option<&Cache>) -> Status {
+fn plugins<'l>(
+    lock: Option<&'l Lock>,
+    cache: Option<&Cache>,
+) -> (Status, Vec<(String, &'l Sha256Sum)>) {
+    let mut verified = Vec::new();
     let Some(lock) = lock else {
-        return Status::Fix(format!(
+        let status = Status::Fix(format!(
             "no usable {LOCK_FILE} (see lock), so the plugins cannot be checked"
         ));
+        return (status, verified);
     };
     if lock.plugins.is_empty() {
-        return Status::Ok(format!("{LOCK_FILE} pins no plugin"));
+        return (Status::Ok(format!("{LOCK_FILE} pins no plugin")), verified);
     }
     let Some(cache) = cache else {
-        return Status::Fix("no cache directory to hold the plugins".to_owned());
+        let status = Status::Fix("no cache directory to hold the plugins".to_owned());
+        return (status, verified);
     };
     // Read only: a changed entry is reported, and the next gate check replaces it.
     let mut missing = Vec::new();
     let mut changed = Vec::new();
     for (source, pin) in &lock.plugins {
         match cache.held(&pin.sha256) {
-            Ok(Held::Verified) => {}
+            Ok(Held::Verified) => verified.push((source.to_string(), &pin.sha256)),
             Ok(Held::Missing) => missing.push(source.to_string()),
             Ok(Held::Changed(_)) => changed.push(source.to_string()),
-            Err(error) => return Status::Fix(error.message().to_owned()),
+            Err(error) => return (Status::Fix(error.message().to_owned()), verified),
         }
     }
     let mut problems = Vec::new();
@@ -238,7 +246,7 @@ fn plugins(lock: Option<&Lock>, cache: Option<&Cache>) -> Status {
             changed.join(", ")
         ));
     }
-    if problems.is_empty() {
+    let status = if problems.is_empty() {
         Status::Ok(format!(
             "every plugin of {LOCK_FILE} is in the cache and matches its sha256"
         ))
@@ -247,26 +255,25 @@ fn plugins(lock: Option<&Lock>, cache: Option<&Cache>) -> Status {
             "{}; run gate check once with network access",
             problems.join("; ")
         ))
-    }
+    };
+    (status, verified)
 }
 
-/// Whether each plugin of `lock` that the cache holds is compiled under this core: a check
-/// compiles the others first, which the hook budget does not count but a developer waits for.
-fn compiled(lock: Option<&Lock>, cache: Option<&Cache>) -> Status {
-    let (Some(lock), Some(cache)) = (lock, cache) else {
+/// Whether each plugin of `gate.lock` that the cache holds and the plugins check `verified` is
+/// compiled under this core: a check compiles the others first, which the hook budget does not
+/// count but a developer waits for. `cache` is `None` when the lock or the cache is not usable.
+fn compiled(cache: Option<&Cache>, verified: &[(String, &Sha256Sum)]) -> Status {
+    let Some(cache) = cache else {
         return Status::Ok(
             "nothing to compile without a usable gate.lock and cache (see above)".to_owned(),
         );
     };
     // A plugin is compiled once it has loaded under this core: its declaration is then stored.
-    let mut waiting = Vec::new();
-    for (source, pin) in &lock.plugins {
-        if matches!(cache.held(&pin.sha256), Ok(Held::Verified))
-            && !crate::plugins::declarations::stored(cache, &pin.sha256)
-        {
-            waiting.push(source.to_string());
-        }
-    }
+    let waiting: Vec<&str> = verified
+        .iter()
+        .filter(|(_, sha256)| !crate::plugins::declarations::stored(cache, sha256))
+        .map(|(source, _)| source.as_str())
+        .collect();
     if waiting.is_empty() {
         return Status::Ok(format!(
             "every plugin of {LOCK_FILE} in the cache is compiled under gate {CORE_VERSION}"

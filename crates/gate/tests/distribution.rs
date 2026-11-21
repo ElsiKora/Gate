@@ -2031,3 +2031,38 @@ fn doctor_names_a_plugin_not_compiled_until_gate_sync_compiles_it() {
     );
     server.stop();
 }
+
+#[test]
+fn a_stored_declaration_that_does_not_parse_is_written_again() {
+    let server = Server::start();
+    let (repo, hash, _) = checked_once(&server);
+    let directory = repo.cache.path().join("declarations").join(&hash);
+    let entries = files(&directory);
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    let entry = directory.join(&entries[0]);
+    let declaration = std::fs::read(&entry).expect("the stored declaration");
+    std::fs::write(&entry, &declaration[..declaration.len() / 2]).expect("truncate");
+
+    // An entry that does not parse is no declaration: doctor does not call the plugin compiled.
+    let output = repo.gate(&["doctor"], None, &[]);
+    assert!(
+        text(&output.stdout).contains("fix  compiled: 1 plugin is not compiled yet"),
+        "{}",
+        text(&output.stdout)
+    );
+
+    // The next check loads the plugin up front and stores its declaration again.
+    let output = repo.gate(&["check"], None, &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        std::fs::read(&entry).expect("the declaration again"),
+        declaration
+    );
+    let output = repo.gate(&["doctor"], None, &[]);
+    assert!(
+        text(&output.stdout).contains("ok   compiled: "),
+        "{}",
+        text(&output.stdout)
+    );
+    server.stop();
+}

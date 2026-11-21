@@ -734,7 +734,9 @@ Compiling does not count toward `--warn-after` and `--fail-after`. A plugin is c
 time it loads under a core: after a clone, a core upgrade or a plugin bump. A run that compiled
 says so in its `gate/budget` message, `the run took <n> ms, not counting <m> ms compiling <k>
 plugins`, and in its `--timings` line. To compile before the first commit, run `gate sync`, which
-loads every plugin `gate.lock` pins; `gate doctor` names the plugins not compiled yet.
+loads every plugin `gate.lock` pins; `gate doctor` names the plugins not compiled yet. A plugin
+counts as compiled once it has loaded under this core: the cache then holds what it declares,
+stored for its sha256, this core and the plugin interface.
 
 A plugin is loaded only for a call that runs. A call answered from the result cache needs the
 plugin's sha256 from `gate.lock` and what the plugin declares, which the cache keeps per sha256

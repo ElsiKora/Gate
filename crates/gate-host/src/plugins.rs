@@ -566,8 +566,10 @@ fn instantiate(
     for (component, compiled) in fetched.into_iter().zip(compiled) {
         match compiled {
             Ok((plugin, declaration)) => {
-                // Written once: a stored declaration is the same for the same bytes and core.
-                if !declarations::stored(&cache, &component.sha256) {
+                // Written once: a stored declaration is the same for the same bytes and core. One
+                // that does not parse, or differs, is written again.
+                if declarations::read(&cache, &component.sha256).as_ref() != Some(&declaration.info)
+                {
                     declarations::write(&cache, &component.sha256, &declaration.info);
                 }
                 loads
@@ -998,13 +1000,20 @@ impl Loaded {
     /// # Errors
     /// Fails like [`load`].
     fn with_generators(self: &Arc<Self>, workspace: &Workspace) -> Result<Arc<Self>> {
-        let missing: BTreeSet<PluginName> = sync::generator_entries(workspace)
+        let generators: BTreeSet<&PluginName> = sync::generator_entries(workspace)
             .iter()
             .filter_map(|entry| {
-                self.declarations.keys().find(|name| {
-                    name.as_str() == entry.generator.plugin() && !self.plugins.contains_key(*name)
-                })
+                self.declarations
+                    .keys()
+                    .find(|name| name.as_str() == entry.generator.plugin())
             })
+            .collect();
+        // A generator the run declared from the cache loads on the run's runtime, as a call of it
+        // would: the other plugins are not loaded again for it.
+        self.load_on_call(&generators)?;
+        let missing: BTreeSet<PluginName> = generators
+            .into_iter()
+            .filter(|name| self.loaded(name).is_none())
             .cloned()
             .collect();
         if missing.is_empty() {
@@ -1023,11 +1032,11 @@ impl Loaded {
             &Needed::Only(names),
             Loading::UpFront,
         )?
-            .ok_or_else(|| {
-                Error::environment(
-                    "the run's configuration declares no plugin although a [generate] entry names one; run gate again, and report it if it recurs",
-                )
-            })?;
+        .ok_or_else(|| {
+            Error::environment(
+                "the run's configuration declares no plugin although a [generate] entry names one; run gate again, and report it if it recurs",
+            )
+        })?;
         Ok(Arc::new(loaded))
     }
 
@@ -1160,7 +1169,8 @@ impl Loaded {
             });
         }
         git_history.finish(&mut ran);
-        ran.loads = self.loads();
+        let called: BTreeSet<&PluginName> = planned.iter().map(|call| call.2).collect();
+        ran.loads = self.loads(&called);
         Ok(ran)
     }
 
@@ -1216,8 +1226,9 @@ impl Loaded {
         Ok(())
     }
 
-    /// How the plugins loaded so far.
-    fn loads(&self) -> Loads {
+    /// How the plugins loaded so far. The plugins not loaded are those of `called`, the plugins
+    /// with a call planned, that were not loaded: every call of them came from the cache.
+    fn loads(&self, called: &BTreeSet<&PluginName>) -> Loads {
         let so_far = self.loads.lock().unwrap_or_else(PoisonError::into_inner);
         let (from_cache, compiled) = self.runtime.cache_counts();
         Loads {
@@ -1225,7 +1236,7 @@ impl Loaded {
             not_loaded: self
                 .on_call
                 .iter()
-                .filter(|(_, on_call)| on_call.plugin.get().is_none())
+                .filter(|(name, on_call)| called.contains(name) && on_call.plugin.get().is_none())
                 .map(|(name, _)| name.to_string())
                 .collect(),
             fetch: so_far.fetch,
@@ -1561,9 +1572,10 @@ impl<'w> PluginGenerators<'w> {
             ))
         })?;
         let (name, plugin) = loaded
-            .plugins
-            .iter()
-            .find(|(name, _)| name.as_str() == item.plugin())
+            .declarations
+            .keys()
+            .find(|name| name.as_str() == item.plugin())
+            .and_then(|name| Some((name, loaded.loaded(name)?)))
             .ok_or_else(|| {
                 Error::config(format!(
                     "[generate] {item}: no gate.toml declares plugin {}; declare it in [plugins]",

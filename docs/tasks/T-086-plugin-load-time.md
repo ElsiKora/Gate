@@ -168,7 +168,9 @@ Not taken, measured or read:
    that compiled nothing is measured whole.
 5. `gate doctor` before `gate sync` names the plugin not compiled, and after it says it is
    compiled (`doctor_names_a_plugin_not_compiled_until_gate_sync_compiles_it`).
-6. A changed input still runs the plugin and stores the new result: the existing result-cache tests
+6. A stored declaration that does not parse is written again, and doctor does not count it
+   as compiled (`a_stored_declaration_that_does_not_parse_is_written_again`).
+7. A changed input still runs the plugin and stores the new result: the existing result-cache tests
    keep passing.
 
 ## Done when
@@ -180,8 +182,24 @@ Not taken, measured or read:
   worktree.
 - The leak scan prints nothing.
 
+## Review fix round
+
+The independent review of `1fa6135c` found one blocking item and five nits, all taken:
+
+1. `with_generators`: the `.ok_or_else(` after `)?` is level with it, as rustfmt writes it.
+2. A stored declaration that exists but does not parse is written again: the load writes when
+   `declarations::read` does not give back what the plugin declares, and `stored` (doctor's
+   `compiled`) asks the same, not whether a file exists. New test, item 6 above.
+3. A `[generate]` plugin declared from the cache loads on the run's runtime with `load_on_call`;
+   the other plugins are no longer loaded again on a new runtime for a `sync-state` answer.
+   `PluginGenerators` finds a plugin loaded up front or on call.
+4. `declarations::stored` and `declarations::write` each have their own doc comment.
+5. Doctor's `compiled` uses the pins the `plugins` check verified instead of hashing every blob
+   again; the configuration page says what compiled means.
+6. `--timings` `not loaded, every call cached` names only plugins with a call planned; the others
+   are left out.
+
 ## Resume point
 
-2026-11-21T02:51:31+00:00: the design approved with the lead's conditions; code, tests, the
-configuration page, the getting-started guide and the changelog written, not compiled yet. Next:
-commit, one lane round, then the measurements again on the built tip.
+2026-11-21T03:00:42+00:00: review fix round written; next: commit, the lane round on the new
+tip, the measurements on the built tip.
