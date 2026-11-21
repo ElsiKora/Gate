@@ -41,7 +41,9 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
 - An exception of `git/commit-message`, `git/branch-name` or `git/no-ci-skip` is due only in a run
   that judged its target, so an exception keyed by a pushed commit's id no longer fails every
   pre-commit, commit-msg and later push run, and one for a branch name no longer fails every run
-  on another branch. Each rule judges the targets of its exceptions in every run:
+  on another branch. Each rule re-judges the targets of its exceptions in every run, keeping only
+  the findings an exception accepts, so a failure the exceptions do not cover (a trailer a later
+  pattern refuses, say) is reported by the push that brings the commit, not by every hook:
   - `git/commit-message` reads each excepted commit id the head's history holds, that commit alone
     (one ancestry question and one single-commit `git log` per id, no walk of the history), and
     checks its message with the current options; an id the history no longer holds (reworded,
@@ -51,6 +53,10 @@ Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 cor
     exception for `main` holds in CI too, and one for a name the policy now allows is reported.
   - `git/no-ci-skip` judges its history and each excepted commit id; an id outside the history has
     no finding.
+  - An exception keyed by a short or upper-case commit id, which no finding names, is a
+    configuration error that says to write the full lower-case id.
+  - `git/commit-message` judges a pushed commit's body lines and trailers by their keys
+    (`<id> <line>`), so a baseline entry of one is due where the commit is judged in full.
 - `git/commit-message`'s `body-full-stop` judges the body above its trailer block, the block
   `git interpret-trailers` and `prohibited-trailers` find. A body that ends with a full stop and
   then a `Co-authored-by` block no longer fails it, also when the block holds an issue reference

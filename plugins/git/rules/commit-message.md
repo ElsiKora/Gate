@@ -330,10 +330,20 @@ for what a run judged:
 - the message being written, in the `commit-msg` hook: its header, each body line and each trailer,
   the targets of its findings;
 - the commits a push adds, by id;
-- in every run, each commit id an exception names. One the head's history holds is read alone, one
-  ancestry question and one single-commit `git log` per id, never a walk of the history, and checked
-  with the current options; one it no longer holds (reworded, dropped, or squashed into main) has no
-  finding.
+- in every run, each commit id an exception names, re-judged for its exceptions only. One the
+  head's history holds is read alone, one ancestry question and one single-commit `git log` per id,
+  never a walk of the history, and checked with the current options; one it no longer holds
+  (reworded, dropped, or squashed into main) has no finding. A re-judged commit's findings stay only
+  where an exception accepts them. A failure the exceptions do not cover, such as a trailer that a
+  pattern added later refuses, is reported by the push that brings the commit, not by every hook
+  on every branch that holds it.
+
+A pushed commit's body line and trailer are judged by the key a finding on them carries, the
+commit's id and the line (`<id> <line>`), so a baseline entry of one is due where the commit is
+judged in full.
+
+An exception names the commit's full lower-case id, 40 or 64 hex digits, as the findings do. A short
+or upper-case id is a configuration error that says to write the full id (`git rev-parse <id>`).
 
 So an exception for a shared commit holds in the `pre-commit` and `commit-msg` hooks and in later
 pushes, and it is reported once it accepts nothing: after a rewrite, or when new options pass the

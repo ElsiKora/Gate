@@ -116,11 +116,11 @@ impl Rule for NoCiSkip {
         }
         let history = History::read(&run.git()?, &settings, "git/no-ci-skip")?;
         judged.extend(history.commits.iter().map(|commit| commit.id.clone()));
-        judged.extend(
-            excepted_commits(run.exceptions())
-                .into_iter()
-                .map(str::to_owned),
-        );
+        // An excepted commit outside the history is re-judged with no finding.
+        let excepted: Vec<String> = excepted_commits("git/no-ci-skip", run.exceptions())?
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
 
         for commit in &history.commits {
             if history.is_release(commit, &forms, release.as_ref()) {
@@ -150,6 +150,7 @@ impl Rule for NoCiSkip {
         }
 
         run.judges_only(judged);
+        run.rejudges(excepted);
         Ok(())
     }
 }

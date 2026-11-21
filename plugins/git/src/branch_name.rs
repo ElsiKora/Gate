@@ -102,9 +102,9 @@ impl Rule for BranchName {
     const SCOPE: Scope = Scope::Repository;
     const READS_HISTORY: bool = true;
 
-    /// Judges the branch the run is on, and in every run each branch name an exception names,
-    /// by the strictest verdict, the one a hook gives: an excepted name that passes it passes in
-    /// every run, so its exception accepts nothing. The run judges only these names.
+    /// Judges the branch the run is on, and re-judges in every run each branch name an exception
+    /// names, by the strictest verdict, the one a hook gives: an excepted name that passes it
+    /// passes in every run, so its exception accepts nothing. The run judges only these names.
     fn check(&self, run: &mut Run<'_, Options>) -> Result<()> {
         let settings = Settings::read(run)?;
         let options = run.options();
@@ -116,6 +116,7 @@ impl Rule for BranchName {
         let excepted = excepted_names(run.exceptions());
         let mut found = Vec::new();
         let mut judged = Vec::new();
+        let mut rechecked = Vec::new();
         if let Some((name, commit)) = &current {
             judged.push(name.clone());
             // Outside a hook, main passes: a plain or CI run checks main out.
@@ -132,9 +133,7 @@ impl Rule for BranchName {
             if let Some(verdict) = policy.verdict(&name, true) {
                 found.push((name.clone(), at.clone(), verdict));
             }
-            if !judged.contains(&name) {
-                judged.push(name);
-            }
+            rechecked.push(name);
         }
 
         for (name, commit, (message, help)) in found {
@@ -145,6 +144,7 @@ impl Rule for BranchName {
                 .help(help);
         }
         run.judges_only(judged);
+        run.rejudges(rechecked);
         Ok(())
     }
 }

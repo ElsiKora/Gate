@@ -156,15 +156,30 @@ pub(crate) fn is_commit_id(text: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// The targets of `exceptions` that are full commit ids, in order, without repeats.
-pub(crate) fn excepted_commits(exceptions: &[String]) -> Vec<&str> {
+/// The targets of `exceptions` of rule `rule` that are full commit ids, in order, without repeats.
+///
+/// # Errors
+/// When a target reads as a short or upper-case commit id (7 to 64 hex digits, not a full
+/// lower-case id): a finding on a commit names its full lower-case id, so such an exception would
+/// never match one, and the rule could not judge the commit it means.
+pub(crate) fn excepted_commits<'e>(rule: &str, exceptions: &'e [String]) -> Result<Vec<&'e str>> {
     let mut ids: Vec<&str> = Vec::new();
     for target in exceptions {
-        if is_commit_id(target) && !ids.contains(&target.as_str()) {
-            ids.push(target);
+        if is_commit_id(target) {
+            if !ids.contains(&target.as_str()) {
+                ids.push(target);
+            }
+        } else if (7..=64).contains(&target.len())
+            && target.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(Error::config(format!(
+                "the exception for {rule} at {target:?} reads as a short or upper-case commit id, \
+                 which no finding names; write the commit's full lower-case id (git rev-parse \
+                 {target}) as its target"
+            )));
         }
     }
-    ids
+    Ok(ids)
 }
 
 /// The commit `id` when `head`'s history holds it, read alone (`git log <id>^!`, no walk of the

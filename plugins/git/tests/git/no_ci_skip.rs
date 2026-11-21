@@ -198,7 +198,7 @@ fn a_run_judges_its_history_every_excepted_commit_and_the_message_s_header() {
     repo.set_ref("refs/heads/main", &work);
     repo.set_head(&work);
     let gone = format!("d{}", "0".repeat(39));
-    let judged = |repo: &Repo, excepted: &[&str]| -> Vec<String> {
+    let judged = |repo: &Repo, excepted: &[&str]| -> (Vec<String>, Vec<String>) {
         let output = repo
             .check_excepted("no-ci-skip", &settings(&activation), "{}", excepted)
             .expect("runs");
@@ -208,18 +208,22 @@ fn a_run_judges_its_history_every_excepted_commit_and_the_message_s_header() {
                 output.judged
             );
         };
-        judged.targets.clone()
+        (judged.targets.clone(), judged.rejudged.clone())
     };
     // The commit before activation is outside the history, as is one that was rewritten: both
-    // are judged without a finding, so their exceptions are stale.
+    // are re-judged without a finding, so their exceptions are stale. A commit of the history is
+    // judged in full.
     assert_eq!(
-        judged(&repo, &[old.as_str(), gone.as_str(), "feat: work"]),
-        [work.clone(), old.clone(), gone]
+        judged(
+            &repo,
+            &[old.as_str(), gone.as_str(), work.as_str(), "feat: work"]
+        ),
+        (vec![work.clone()], vec![old.clone(), gone])
     );
     // The header of the message being written is judged in the commit-msg hook only.
     repo.set_message(Some("feat: more [ci skip]\n"));
     assert_eq!(
         judged(&repo, &[]),
-        ["feat: more [ci skip]".to_owned(), work]
+        (vec!["feat: more [ci skip]".to_owned(), work], Vec::new())
     );
 }
