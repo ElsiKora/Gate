@@ -6,7 +6,7 @@
 | Release | 0.3.0 |
 | Writer | the T-066 writer |
 | Reviewer | the lead |
-| Depends on | `main` at `30a1da2` (T-071b merged) |
+| Depends on | `main` at `e008106` (T-069, T-076 and T-087 merged) |
 | Touches | `crates/gate`, `crates/gate-host` (fetch, lock, plugins), `plugins/git`, `plugins/docs`, `plugins/docker`, their tests, rule pages, guides and CHANGELOGs |
 
 ## Goal
@@ -78,6 +78,15 @@ its branch). These are findings 3, 4, 5, 6, 9, 13, 16, 17 and 20:
   leak scan prints nothing.
 
 ## Resume point
+
+2026-11-21T03:06:07+00:00: rebased onto `main` at `e008106`. Ticket 408 on the old base was
+withdrawn while its tests ran. Two conflicts were resolved by keeping both sides:
+- `crates/gate/src/distribution.rs`: the several-pin `--set` keeps T-076's guard, taken after the
+  files are hashed and before `gate.lock` is read;
+- `docs/guide/plugins.md`: main's presets paragraph and example, then the paragraph on `gate list`,
+  `gate explain` and the unknown preset.
+
+Next: one lane round on the rebased tip.
 
 2026-11-21T01:39:44+00:00: ticket 400 ran on `a7e8440`. fmt, clippy and deny exited 0. The tests
 ran 1489, 4 failed:
