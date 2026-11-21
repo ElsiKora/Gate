@@ -77,9 +77,9 @@ resolver never asks the tree for it.
 
 ## Resume point
 
-2026-11-21T02:32:47+00:00: rebased onto `main` at `6b36eeac` (T-069 presets, T-076). Three conflicts, both
-sides kept: `mod presets;` beside `mod tsconfig_base;` in the cdk rule tests, and the presets'
-Features beside the Bug Fixes in the `nestjs` and `typescript` changelogs.
-`plugins/typescript/src/lib.rs` merged without a conflict: the presets and `call: TypeScriptCall`
-together, as `frontend` has them. Round 404 (`1109904c`, before the rebase) passed. Next: one lane
-round on the rebased tip, then the merge.
+2026-11-21T03:51:09+00:00: lane round 412 on `6a91bfbf`, rebased onto `main` at `6b36eeac`, passed: fmt,
+clippy, test (1516 passed, 0 failed), deny, release and wasm all exit 0. The preset tests of
+`typescript` and `cdk` pass with `TypeScriptCall`. The round replayed the trial's monorepo with its
+`extends` restored. Without a grant it exits 1 with one base finding each from `nestjs`, `frontend`
+and `cdk` and no environment error; with the grant it exits 1 with no base finding, and the plugins'
+other 27 findings are unchanged. Next: the merge.
