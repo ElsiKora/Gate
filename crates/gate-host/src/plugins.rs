@@ -295,7 +295,7 @@ pub(crate) fn load(
     let mut loading = Vec::new();
     for plugin in declared {
         let from_cache = (!needed.wants(&plugin.name))
-            .then(|| stored(&cache, &plugin))
+            .then(|| usable_declaration(&cache, &plugin))
             .flatten();
         match from_cache {
             Some(declaration) => {
@@ -314,7 +314,7 @@ pub(crate) fn load(
 /// What the cache stores for `plugin` when [`load`] can use it instead of loading the plugin: an
 /// entry of that plugin that makes a valid declaration. `None` otherwise, and [`load`] then loads
 /// the plugin, from the cache or fetched.
-fn stored(cache: &Cache, plugin: &Declared) -> Option<Declaration> {
+fn usable_declaration(cache: &Cache, plugin: &Declared) -> Option<Declaration> {
     declarations::read(cache, &plugin.sha256)
         .filter(|info| info.name == plugin.source.plugin)
         .and_then(|info| Declaration::of(&plugin.name, info).ok())
@@ -1558,7 +1558,7 @@ pub fn preset_settings(
     for plugin in declared(workspace, lock.as_ref(), &files)?.unwrap_or_default() {
         // The test load makes: a stored declaration it would not use is not held.
         let held = files.contains_key(&plugin.name)
-            || stored(&cache, &plugin).is_some()
+            || usable_declaration(&cache, &plugin).is_some()
             || cache.get(&plugin.sha256)?.is_some();
         if !held {
             return Err(Error::environment(format!(
