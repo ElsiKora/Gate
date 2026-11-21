@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved (`d4e39e5e`), code waits for T-085 |
+| Status | design approved; code written on the branch; its lane round waits for T-085 |
 | Release | v0.3.0 |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `20480703`; the code lands after T-085, which also touches `crates/gate/src/distribution.rs` |
-| Touches | `crates/gate/src/distribution.rs`, `crates/gate-host/src/lock/mod.rs`, `crates/gate/tests/distribution.rs`, `docs/guide/` (the `gate cache prune` text), `CHANGELOG.md` |
+| Touches | `crates/gate/src/distribution.rs`, `crates/gate-host/src/lock/mod.rs`, `crates/gate/tests/distribution.rs`, `README.md` (the `gate cache prune` row of the command table, the only text on it), `CHANGELOG.md` |
 
 ## Goal
 
@@ -86,6 +86,13 @@ A second test, `a_cache_prune_without_yes_takes_no_guard`, holds the guard and e
 run (no `--yes`) to finish at once without the waiting line. A listing removes nothing, so it must
 not block behind a `gate lock` that is downloading for minutes.
 
+Two more cover the worktrees. `a_cache_prune_waits_for_a_lock_run_in_another_worktree` holds the
+guard of a linked worktree only and expects a prune started in the main one to wait for it.
+`a_cache_prune_given_one_worktree_twice_takes_its_guard_once` gives prune the repository, its
+linked worktree and the repository again, with no guard held, and expects it to finish without the
+waiting line. A guard taken twice by one process waits for itself and never ends, so the guards
+are taken once per git directory, canonicalized.
+
 ## The fix: prune takes the same guard
 
 1. With `--yes`, `gate cache prune` takes the guard of every worktree of every repository given,
@@ -105,18 +112,20 @@ not block behind a `gate lock` that is downloading for minutes.
    runs holds only its own worktree's guard, so prune must hold all of them. One guard in the
    common directory would serialize every worktree's `gate lock` against the others, which is
    wider than T-076 needs, so the layout stays.
-2. `lock::pinned_in` gets a variant that takes the guards: one per worktree root from
-   `git worktree list --porcelain`, taken in the order of their paths, so two prunes over the same
-   repositories cannot deadlock. No other command takes more than one guard.
-3. A worktree whose directory is gone (`prunable` in the listing) has no `gate.lock` to pin and no
-   run to wait for, so it is skipped: `Lock::read` already reads it as no lock, and
+2. `lock::Guard::take_worktrees` takes the guards: one per worktree root from
+   `git worktree list --porcelain`, of every repository given, each git directory once, taken in
+   the order of their paths, so two prunes over the same repositories cannot deadlock. Prune takes
+   them before `lock::pinned_in` reads the first lock, and `pinned_in` reads the same listing. No
+   other command takes more than one guard.
+3. A worktree whose directory is gone (`prunable` in the listing), and a bare repository, have no
+   `gate.lock` to pin and no run to wait for, so they are skipped: `Lock::read` already reads it as no lock, and
    `Git::discover` would fail on it. A guard that cannot be
    taken fails the prune, before anything is removed, with T-076's message
    (`cannot lock <guard> ...; check that <git directory> is writable ...`) and "nothing was pruned"
    added.
 4. Without `--yes`, prune takes no guard. Its listing may be out of date by the time it prints,
    but it changes nothing.
-5. The guide's `gate cache prune` text adds two points. Prune waits for a `gate lock` that is
+5. The `gate cache prune` text (the README's command table) adds two points. Prune waits for a `gate lock` that is
    running in a repository it was given. A `--set` pin in a repository it was not given is
    unpinned and is removed, which is unchanged: name every repository that uses the cache.
 
@@ -129,12 +138,14 @@ The guard is one more caller of a lock that is already tested.
 ### Mutation check
 
 A step in the lane round removes the guards from prune and expects
-`a_cache_prune_waits_for_a_lock_set_between_admit_and_write` to fail on "prune waited", as T-076's
+`a_cache_prune_waits_for_a_lock_set_between_admit_and_write` and
+`a_cache_prune_waits_for_a_lock_run_in_another_worktree` to fail on "prune waited", as T-076's
 round checked its guard.
 
 ## Done when
 
-- Both tests pass, and the first fails with the guards removed from prune (the mutation step).
+- The four tests pass, and the two that wait fail with the guards removed from prune (the
+  mutation step).
 - One lane round on the pushed tip, on this task's own target directory: fmt, clippy, test, deny
   and the release build exit 0, and the log shows `gate-host` and `gate` compiled from this task's
   worktree.
@@ -155,3 +166,7 @@ round checked its guard.
 2026-11-21T03:56:58+00:00: design approved, on the condition that the note says where the guard lives and why
 every worktree is needed; added under "The fix". The baseline follow-up became T-077b, on its own
 branch. Next: the code, once T-085 has merged.
+2026-11-21T05:51:43+00:00: rebased onto `db96d37f` (T-077b merged). Code and the four tests written:
+`Guard::take_worktrees`, prune `--yes` holding its guards, the README row and the changelog entry.
+`rustfmt --check` is clean on the changed files; nothing is compiled yet. Next: once T-085 has
+merged, rebase onto main and run the lane round with its mutation step.

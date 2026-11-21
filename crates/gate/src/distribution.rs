@@ -235,7 +235,8 @@ version = "{VERSION}"
 
 /// `gate cache prune`: lists, or with `yes` removes, the cache entries no `gate.lock` of the given
 /// repositories (every worktree of each) pins, the derived entries nothing can use, and those the
-/// bounds remove.
+/// bounds remove. With `yes` it first takes the `gate.lock` guard of each of those worktrees and
+/// holds them until it has removed its entries.
 ///
 /// # Errors
 /// Fails when a repository or a lock cannot be read, or an entry cannot be removed.
@@ -245,6 +246,15 @@ pub fn prune(repositories: &[PathBuf], bounds: &Bounds, yes: bool) -> Result<Str
         &current[..]
     } else {
         repositories
+    };
+    // A removal holds every worktree's guard from the first lock read to the last removal, so a
+    // `gate lock` that has admitted a blob has written its pin before prune reads the locks.
+    let _guards = if yes {
+        Guard::take_worktrees(repositories).map_err(|error| {
+            Error::environment(format!("{}; nothing was pruned", error.message()))
+        })?
+    } else {
+        Vec::new()
     };
     let mut pinned = lock::Pinned::default();
     for repository in repositories {

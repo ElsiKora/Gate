@@ -1110,12 +1110,17 @@ fn path(file: &Path) -> &str {
 
 /// Takes the guard of `repo`'s `gate.lock` as a first run would, before the run under test starts.
 fn hold_guard(repo: &Repo) -> std::fs::File {
+    hold_guard_in(&repo.path().join(".git"))
+}
+
+/// Takes the `gate.lock` guard of the worktree whose git directory is `git_dir`.
+fn hold_guard_in(git_dir: &Path) -> std::fs::File {
     let file = std::fs::File::options()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(repo.path().join(".git/gate.lock.guard"))
+        .open(git_dir.join("gate.lock.guard"))
         .expect("the guard file");
     file.lock().expect("the test takes the guard first");
     file
@@ -1769,6 +1774,131 @@ fn cache_prune_lists_then_removes_only_what_no_lock_pins() {
         text(&output.stdout)
     );
     assert_eq!(files(cache), left);
+}
+
+/// `with_plugins`, with its cache tagged as gate's.
+fn with_plugins_and_a_tagged_cache() -> Repo {
+    let repo = with_plugins();
+    std::fs::write(
+        repo.cache.path().join("CACHEDIR.TAG"),
+        "Signature: 8a477f597d28d172789f06886806bc55\n",
+    )
+    .expect("tag");
+    repo
+}
+
+/// `repo` with a linked worktree named `linked` in `parent`; its git directory is
+/// `.git/worktrees/linked`.
+fn linked_worktree(repo: &Repo, parent: &Path) -> PathBuf {
+    let root = parent.join("linked");
+    repo.git(&["worktree", "add", "-q", path(&root)]);
+    root
+}
+
+#[test]
+fn a_cache_prune_waits_for_a_lock_set_between_admit_and_write() {
+    let repo = with_plugins_and_a_tagged_cache();
+    // As `gate lock --set house=<url> --file house.wasm` does under its guard: the build is
+    // admitted to the cache first, and the pin is written after.
+    let guard = hold_guard(&repo);
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("house.wasm");
+    std::fs::write(&file, b"a house build that is not published yet").expect("build");
+    let admitted = gate_host::cache::Cache::at(repo.cache.path())
+        .admit(&file)
+        .expect("admit");
+    let blob = repo
+        .cache
+        .path()
+        .join("blobs/sha256")
+        .join(admitted.as_str());
+    assert!(blob.exists(), "the build is in the cache");
+
+    let (child, lines) = spawn_gate(&repo, &["cache", "prune", "--yes"], None);
+    let prune_waited = waited(&lines);
+    repo.write(
+        "gate.lock",
+        &pinned(&[
+            ("ElsiKora/Gate:git@0.1.0", 'b'),
+            ("acme/rules:house@1.2.0", 'c'),
+        ])
+        .replace(&"c".repeat(64), admitted.as_str()),
+    );
+    drop(guard);
+    let output = child.wait_with_output().expect("prune");
+
+    assert!(
+        prune_waited,
+        "prune waits for the lock --set: {}",
+        text(&output.stdout)
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stdout));
+    assert!(
+        blob.exists(),
+        "the build lock --set admitted and pinned stays: {}",
+        text(&output.stdout)
+    );
+}
+
+#[test]
+fn a_cache_prune_without_yes_takes_no_guard() {
+    let repo = with_plugins_and_a_tagged_cache();
+    let guard = hold_guard(&repo);
+    let (child, lines) = spawn_gate(&repo, &["cache", "prune"], None);
+    let listing_waited = waited(&lines);
+    drop(guard);
+    let output = child.wait_with_output().expect("prune");
+
+    assert!(
+        !listing_waited,
+        "a listing removes nothing and waits for no gate lock"
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stdout));
+}
+
+#[test]
+fn a_cache_prune_waits_for_a_lock_run_in_another_worktree() {
+    let repo = with_plugins_and_a_tagged_cache();
+    let parent = tempfile::tempdir().expect("worktrees");
+    linked_worktree(&repo, parent.path());
+    // A `gate lock --set` in the linked worktree holds that worktree's guard only.
+    let guard = hold_guard_in(&repo.path().join(".git/worktrees/linked"));
+    let (child, lines) = spawn_gate(&repo, &["cache", "prune", "--yes"], None);
+    let prune_waited = waited(&lines);
+    drop(guard);
+    let output = child.wait_with_output().expect("prune");
+
+    assert!(
+        prune_waited,
+        "prune reads the linked worktree's gate.lock, so it waits for its guard: {}",
+        text(&output.stdout)
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stdout));
+}
+
+#[test]
+fn a_cache_prune_given_one_worktree_twice_takes_its_guard_once() {
+    let repo = with_plugins_and_a_tagged_cache();
+    let parent = tempfile::tempdir().expect("worktrees");
+    let linked = linked_worktree(&repo, parent.path());
+    // The repository and its linked worktree both list both worktrees; no other run holds a guard.
+    let (mut child, lines) = spawn_gate(
+        &repo,
+        &["cache", "prune", "--yes", ".", path(&linked), "."],
+        None,
+    );
+    let prune_waited = waited(&lines);
+    if prune_waited {
+        // It waits for itself and would never end.
+        let _ = child.kill();
+    }
+    let output = child.wait_with_output().expect("prune");
+
+    assert!(
+        !prune_waited,
+        "prune takes each guard once and waits for none"
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stdout));
 }
 
 /// The git plugin built from this tree for wasm32-wasip2, as its release would carry it.

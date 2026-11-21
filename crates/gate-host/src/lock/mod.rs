@@ -81,6 +81,31 @@ impl Guard {
         Self::take_for(git, BASELINE_GUARD_FILE, crate::baseline::BASELINE_FILE)
     }
 
+    /// Takes the `gate.lock` guard of every worktree of each repository at `repositories`, for a
+    /// `gate cache prune` that removes what no lock pins: a `gate lock` in any of them admits a
+    /// blob that only its own lock will pin. Each guard is taken once, in the order of the git
+    /// directories, so two prunes cannot wait for each other. A bare repository and a worktree
+    /// whose directory is gone have no `gate.lock` and no run to wait for, and are skipped.
+    ///
+    /// # Errors
+    /// Fails when a path is not in a git repository, or a guard cannot be taken, saying what to do.
+    pub fn take_worktrees(repositories: &[PathBuf]) -> Result<Vec<Self>> {
+        let mut directories = BTreeSet::new();
+        for repository in repositories {
+            for worktree in worktrees(&Git::discover(repository)?)? {
+                if worktree.bare || worktree.prunable || !worktree.root.is_dir() {
+                    continue;
+                }
+                let directory = Git::discover(&worktree.root)?.git_dir()?;
+                directories.insert(std::fs::canonicalize(&directory).unwrap_or(directory));
+            }
+        }
+        directories
+            .iter()
+            .map(|directory| Self::take_at(&directory.join(GUARD_FILE), directory, LOCK_FILE))
+            .collect()
+    }
+
     fn take_for(git: &Git, file: &str, guarded: &str) -> Result<Self> {
         let directory = git.git_dir()?;
         Self::take_at(&directory.join(file), &directory, guarded)
@@ -364,16 +389,7 @@ pub struct Pinned {
 /// unreadable lock, nothing is safe to prune.
 pub fn pinned_in(path: &Path, pinned: &mut Pinned) -> Result<()> {
     let git = Git::discover(path)?;
-    let listing = git.output(&["worktree", "list", "--porcelain"])?;
-    let mut roots: Vec<PathBuf> = String::from_utf8_lossy(&listing)
-        .lines()
-        .filter_map(|line| line.strip_prefix("worktree "))
-        .map(PathBuf::from)
-        .collect();
-    if roots.is_empty() {
-        roots.push(git.root().to_path_buf());
-    }
-    for root in roots {
+    for root in worktrees(&git)?.into_iter().map(|worktree| worktree.root) {
         if let Some(lock) = Lock::read(&root).map_err(|error| {
             Error::environment(format!(
                 "{}: {}; nothing was pruned",
@@ -390,6 +406,43 @@ pub fn pinned_in(path: &Path, pinned: &mut Pinned) -> Result<()> {
         pinned.tools.extend(tools);
     }
     Ok(())
+}
+
+/// One entry of `git worktree list --porcelain`.
+struct Worktree {
+    root: PathBuf,
+    bare: bool,
+    prunable: bool,
+}
+
+/// The worktrees of the repository `git` is in, as git lists them; the work tree `git` is in when
+/// git lists none.
+fn worktrees(git: &Git) -> Result<Vec<Worktree>> {
+    let listing = git.output(&["worktree", "list", "--porcelain"])?;
+    let mut worktrees: Vec<Worktree> = Vec::new();
+    for line in String::from_utf8_lossy(&listing).lines() {
+        if let Some(root) = line.strip_prefix("worktree ") {
+            worktrees.push(Worktree {
+                root: PathBuf::from(root),
+                bare: false,
+                prunable: false,
+            });
+        } else if let Some(worktree) = worktrees.last_mut() {
+            if line == "bare" {
+                worktree.bare = true;
+            } else if line == "prunable" || line.starts_with("prunable ") {
+                worktree.prunable = true;
+            }
+        }
+    }
+    if worktrees.is_empty() {
+        worktrees.push(Worktree {
+            root: git.root().to_path_buf(),
+            bare: false,
+            prunable: false,
+        });
+    }
+    Ok(worktrees)
 }
 
 /// The sha256 of every `[tools.<name>.targets.<target>]` of a `gate.toml`; none when the file
