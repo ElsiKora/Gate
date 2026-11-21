@@ -325,8 +325,12 @@ full, and an entry without one by any run of its rule. A target that a run only 
 make a baseline entry due.
 
 An exception keyed by a commit names the commit's full lower-case id, as the rule's findings do. A
-short or upper-case id would never match a finding, so `git/commit-message` and `git/no-ci-skip`
-refuse it as a configuration error that gives the command to print the full id.
+full-length id with an upper-case digit, or a short hex target that git resolves to a commit whose
+id begins with it, would never match a finding, so `git/commit-message` and `git/no-ci-skip` refuse
+it as a configuration error that gives the full id. A hex target that names no commit, such as a
+body line of digits, is text and passes; so is one that names a tag or branch, or is shared by two
+commits. The verdict depends on the clone: a short id of a commit a shallow clone lacks is text
+there, and a later commit can make a text target an error.
 
 ## Decision policy
 

@@ -1265,17 +1265,28 @@ fn an_exception_with_a_short_or_upper_case_commit_id_is_a_configuration_error() 
         "fix(core): mend the thing",
         "fix(core): mend it again",
     ]);
-    let upper = first.to_uppercase();
-    for target in [&first[..7], &first[..12], upper.as_str()] {
+    let short_upper = first[..12].to_uppercase();
+    for target in [&first[..7], &first[..12], short_upper.as_str()] {
         let error = repo
             .check_excepted("commit-message", MAIN, "{}", &[target])
-            .expect_err("a short or upper-case id is refused");
+            .expect_err("a short id of a commit is refused");
         let message = error.to_string();
         assert!(
-            message.contains(&format!("{target:?}")) && message.contains("full lower-case id"),
+            message.contains(&format!("{target:?} is a short commit id"))
+                && message.contains(&format!("full id ({first})")),
             "{message}"
         );
     }
+    let upper = first.to_uppercase();
+    let error = repo
+        .check_excepted("commit-message", MAIN, "{}", &[upper.as_str()])
+        .expect_err("a full-length upper-case id is refused");
+    let message = error.to_string();
+    assert!(
+        message.contains(&format!("{upper:?} reads as an upper-case commit id"))
+            && message.contains(&format!("lower case ({first})")),
+        "{message}"
+    );
     // A full lower-case id and a header text are taken as they are.
     assert!(
         repo.check_excepted(
@@ -1286,4 +1297,62 @@ fn an_exception_with_a_short_or_upper_case_commit_id_is_a_configuration_error() 
         )
         .is_ok()
     );
+}
+
+#[test]
+fn a_hex_exception_target_that_names_no_commit_is_text_and_passes() {
+    let (mut repo, _, _) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    repo.set_message(Some(
+        "feat(core): add the thing\n\nThe body says why.\n20261121\n",
+    ));
+    let output = repo
+        .check_excepted(
+            "commit-message",
+            MAIN,
+            r#"{"prohibited-body-lines": ["^\\d+$"]}"#,
+            &["20261121", "deadbeef0"],
+        )
+        .expect("a hex target that names no commit is no commit id");
+    let lines: Vec<_> = output
+        .findings
+        .iter()
+        .filter(|finding| finding.aspect == "prohibited-body-lines")
+        .filter_map(|finding| finding.target.as_deref())
+        .collect();
+    assert_eq!(lines, ["20261121"], "the exception's target names the line");
+}
+
+#[test]
+fn a_hex_exception_target_that_names_a_tag_or_branch_is_text_and_passes() {
+    let (mut repo, _, [first, second, _]) = branch([
+        "feature(core): add the thing",
+        "fix(core): mend the thing",
+        "fix(core): mend it again",
+    ]);
+    // git reads a ref before an abbreviated id: a release tag named by its date and a branch
+    // named in hex resolve to commits whose ids do not begin with their names.
+    repo.set_ref("refs/tags/20261121", &first);
+    repo.set_ref("refs/heads/deadbeef", &second);
+    repo.set_message(Some(
+        "feat(core): add the thing\n\nThe body says why.\n20261121\n",
+    ));
+    let output = repo
+        .check_excepted(
+            "commit-message",
+            MAIN,
+            r#"{"prohibited-body-lines": ["^\\d+$"]}"#,
+            &["20261121", "deadbeef"],
+        )
+        .expect("a hex target that names a tag or branch is no commit id");
+    let lines: Vec<_> = output
+        .findings
+        .iter()
+        .filter(|finding| finding.aspect == "prohibited-body-lines")
+        .filter_map(|finding| finding.target.as_deref())
+        .collect();
+    assert_eq!(lines, ["20261121"], "the exception's target names the line");
 }

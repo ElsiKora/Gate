@@ -80,5 +80,9 @@ ones). A commit already on main gets an exception with its full id as the target
 A run judges its whole history, each commit id an exception names, and in the `commit-msg` hook the
 first line of the message being written. An excepted id outside the history (before activation, or
 rewritten) has no finding, so its exception is reported. An exception names the commit's full
-lower-case id; a short or upper-case one is a configuration error. An exception keyed by a
-message's first line is due only in the `commit-msg` run that writes that message.
+lower-case id; an upper-case one, or a short one that git resolves to a commit whose id begins
+with it, is a configuration error. A hex target that names no commit is text, and so is one that
+names a tag or branch, or is shared by two commits. The verdict depends on the clone: a short id
+of a commit a shallow clone lacks is text there, and a later commit can make a text target an
+error. An exception keyed by a message's first line is due only in the `commit-msg` run that
+writes that message.

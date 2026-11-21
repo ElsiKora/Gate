@@ -36,9 +36,9 @@ impl Repo {
         changes: &[(&str, Option<&str>)],
     ) -> String {
         let order = self.commits.len();
-        // The order shows within the first 12 characters, so short ids differ too, and ids sort
+        // The order shows within the first 7 characters, so short ids differ too, and ids sort
         // in the order the commits were made.
-        let id = format!("c{order:011x}{order:028x}");
+        let id = format!("c{order:06x}{order:033x}");
         let mut files = parents
             .first()
             .and_then(|parent| self.commits.get(*parent))
@@ -129,7 +129,24 @@ impl Repo {
         if self.commits.contains_key(revision) {
             return Some(revision.to_owned());
         }
-        self.refs.get(revision).cloned()
+        // A ref by its full or short name, in git's order, before an abbreviated id, as git
+        // reads one.
+        let names = ["", "refs/", "refs/tags/", "refs/heads/", "refs/remotes/"];
+        if let Some(id) = names
+            .iter()
+            .find_map(|prefix| self.refs.get(&format!("{prefix}{revision}")))
+        {
+            return Some(id.clone());
+        }
+        // An abbreviated id: four or more hex digits of any case that begin exactly one commit's
+        // id.
+        let prefix = revision.to_ascii_lowercase();
+        if prefix.len() < 4 || !prefix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        let mut matches = self.commits.keys().filter(|id| id.starts_with(&prefix));
+        let id = matches.next()?;
+        matches.next().is_none().then(|| id.clone())
     }
 
     fn ancestry(&self, revision: &str) -> BTreeSet<String> {
