@@ -6,7 +6,7 @@
 | Release | v0.3.0 (blocker 1 of the release-candidate trial, T-083) |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
-| Depends on | `main` at `30a1da26` |
+| Depends on | `main` at `6b36eeac` (rebased from `30a1da26`) |
 | Touches | `languages/typescript/src/{resolver,call,lib}.rs`, `languages/typescript/Cargo.toml`, `Cargo.toml`, `Cargo.lock`, `crates/gate-sdk/src/rule.rs`, `plugins/cdk/src/sources.rs`, `plugins/typescript/src/{lib,parse,findings,barrel_imports}.rs`, `plugins/typescript/src/string_enums/mod.rs`, tests of `languages/typescript`, `nestjs`, `cdk` and `frontend`, `docs/guide/{configuration,monorepo,plugins}.md`, the `cdk`, `frontend` and `node/tsconfig-base` rule pages, `CHANGELOG.md`, the `nestjs` and `typescript` changelogs |
 
 ## Goal
@@ -77,8 +77,9 @@ resolver never asks the tree for it.
 
 ## Resume point
 
-2026-11-21T02:31:00+00:00: lane round 404 on `1109904c` passed (fmt, clippy, test, deny, release
-and wasm all exit 0). The trial's monorepo with its `extends` restored ran with the round's gate and
-plugins: without a grant, `gate check` exits 1 with one base finding from each of `nestjs`,
-`frontend` and `cdk` and no environment error. With `reads = ["tsconfig.base.json"]` it exits 1
-with no base finding, and the plugins' other findings are the same. Next: review.
+2026-11-21T02:32:47+00:00: rebased onto `main` at `6b36eeac` (T-069 presets, T-076). Three conflicts, both
+sides kept: `mod presets;` beside `mod tsconfig_base;` in the cdk rule tests, and the presets'
+Features beside the Bug Fixes in the `nestjs` and `typescript` changelogs.
+`plugins/typescript/src/lib.rs` merged without a conflict: the presets and `call: TypeScriptCall`
+together, as `frontend` has them. Round 404 (`1109904c`, before the rebase) passed. Next: one lane
+round on the rebased tip, then the merge.
