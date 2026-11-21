@@ -17,7 +17,7 @@ use gate_runtime::{
     Blob, Call, CallOutcome, CallTime, Grant, History, HostError, Invocation, Plugin, ReadSet,
     Runtime, Size, Tree,
 };
-use gate_sdk::{Commit, CommitRange, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
+use gate_sdk::{Commit, CommitRange, Judged, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -1026,11 +1026,7 @@ impl Loaded {
             for rule in rules {
                 ran.per_scope.insert(*project, &rule.id.to_string());
             }
-            for judged in outcome.judged {
-                let rule = format!("{name}/{}", judged.rule);
-                ran.per_scope.narrow(*project, &rule, judged.targets);
-                ran.per_scope.rejudge(*project, &rule, judged.rejudged);
-            }
+            record_judged(&mut ran.per_scope, *project, name, outcome.judged);
             ran.rules += rules.len();
             ran.reads.push(PluginReads {
                 project: project.map(str::to_owned),
@@ -1621,6 +1617,21 @@ fn level(
     // The entry's level, else the family's: what `[rules]` says of the whole rule.
     own.or_else(|| settings.setting(id, ""))
         .or_else(|| preset.and_then(|preset| preset.levels.get(aspect).copied().or(preset.level)))
+}
+
+/// Records in `ran` what each rule of `plugin`'s call for `project` narrowed its view to: the
+/// targets it judged in full and those it re-judged for its exceptions only.
+fn record_judged(
+    ran: &mut RulesRan,
+    project: Option<&str>,
+    plugin: &impl std::fmt::Display,
+    judged: Vec<Judged>,
+) {
+    for judged in judged {
+        let rule = format!("{plugin}/{}", judged.rule);
+        ran.narrow(project, &rule, judged.targets);
+        ran.rejudge(project, &rule, judged.rejudged);
+    }
 }
 
 /// The rules of `plugin` that run in this scope, with what their call carries: those whose scope
