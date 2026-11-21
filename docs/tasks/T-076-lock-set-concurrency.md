@@ -169,3 +169,12 @@ the release build and the 13 plugin wasm builds exit 0; `gate-host` and `gate` c
 task's worktree; the five new tests ran and passed. The mutation step (the guard removed from
 `gate lock --set`) made test 1 fail on "the second run's pin is not lost", exit 101. Next:
 independent review.
+2026-11-21T00:49:08+00:00: review accepted pending a round after the rebase. Rebased onto `main`
+at `2ef2cc61` without a conflict; the review fixes in `0a3acfdd` (race tests 5 and 6, the guard
+error, the directory sync, `bin/gate` and `gate.toml` through the helper, a separator-agnostic
+path check, the known limits). Lane round 394 on `0a3acfdd`: fmt, clippy, deny, the release build
+and the 13 plugin wasm builds exit 0; test exit 101 on one test only,
+`a_monorepo_root_extends_git_recommended_and_its_own_rules_win` (`crates/gate/tests/plugins.rs`),
+which fails the same way in other rounds on `main`; every test of this task passed. The mutation
+step (all three guards removed) made tests 1, 5 and 6 fail, exit 101 each: test 1 on the lost
+pin, tests 5 and 6 on "waited". Next: the merge.
