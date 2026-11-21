@@ -80,5 +80,6 @@ ones). A commit already on main gets an exception with its full id as the target
 A run judges its whole history, each commit id an exception names, and in the `commit-msg` hook the
 first line of the message being written. An excepted id outside the history (before activation, or
 rewritten) has no finding, so its exception is reported. An exception names the commit's full
-lower-case id; a short or upper-case one is a configuration error. An exception keyed by a
+lower-case id; an upper-case one, or a short one that git resolves to a commit, is a configuration
+error. An exception keyed by a
 message's first line is due only in the `commit-msg` run that writes that message.

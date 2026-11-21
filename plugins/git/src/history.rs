@@ -159,23 +159,39 @@ pub(crate) fn is_commit_id(text: &str) -> bool {
 /// The targets of `exceptions` of rule `rule` that are full commit ids, in order, without repeats.
 ///
 /// # Errors
-/// When a target reads as a short or upper-case commit id (7 to 64 hex digits, not a full
-/// lower-case id): a finding on a commit names its full lower-case id, so such an exception would
-/// never match one, and the rule could not judge the commit it means.
-pub(crate) fn excepted_commits<'e>(rule: &str, exceptions: &'e [String]) -> Result<Vec<&'e str>> {
+/// When a target is a commit id written in a form no finding names: a full-length (40 or 64 hex
+/// digits) id with an upper-case digit, or a shorter hex target that `git` resolves to a commit.
+/// A finding on a commit names its full lower-case id, so such an exception would never match
+/// one, and the rule could not judge the commit it means. A hex target that names no commit, a
+/// body line of digits for one, is no commit id and passes.
+pub(crate) fn excepted_commits<'e>(
+    git: &Git<'_>,
+    rule: &str,
+    exceptions: &'e [String],
+) -> Result<Vec<&'e str>> {
     let mut ids: Vec<&str> = Vec::new();
     for target in exceptions {
         if is_commit_id(target) {
             if !ids.contains(&target.as_str()) {
                 ids.push(target);
             }
-        } else if (7..=64).contains(&target.len())
-            && target.bytes().all(|byte| byte.is_ascii_hexdigit())
+            continue;
+        }
+        if !(7..=64).contains(&target.len()) || !target.bytes().all(|byte| byte.is_ascii_hexdigit())
         {
+            continue;
+        }
+        if matches!(target.len(), 40 | 64) {
             return Err(Error::config(format!(
-                "the exception for {rule} at {target:?} reads as a short or upper-case commit id, \
-                 which no finding names; write the commit's full lower-case id (git rev-parse \
-                 {target}) as its target"
+                "the exception for {rule} at {target:?} reads as an upper-case commit id, which no \
+                 finding names; write it in lower case ({}) as its target",
+                target.to_ascii_lowercase()
+            )));
+        }
+        if let Some(id) = git.resolve(target) {
+            return Err(Error::config(format!(
+                "the exception for {rule} at {target:?} is a short commit id, which no finding \
+                 names; write the commit's full id ({id}) as its target"
             )));
         }
     }

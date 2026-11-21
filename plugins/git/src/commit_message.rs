@@ -153,7 +153,7 @@ impl Rule for CommitMessage {
         let head = git.range().map(|range| range.head).or_else(|| git.head());
         // An excepted commit outside the run's own targets is re-judged for its exceptions only:
         // the core keeps no finding on it that an exception does not accept.
-        let excepted: Vec<String> = excepted_commits("git/commit-message", run.exceptions())?
+        let excepted: Vec<String> = excepted_commits(&git, "git/commit-message", run.exceptions())?
             .into_iter()
             .filter(|id| !judged.iter().any(|target| target == id))
             .map(str::to_owned)
