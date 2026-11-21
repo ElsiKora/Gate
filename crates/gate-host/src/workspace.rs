@@ -609,15 +609,18 @@ fn check_settings(settings: &Settings, tools: &BTreeMap<Name, Tool>, scope: &str
     let mut references: Vec<(&SettingOrigin, String, &str)> = Vec::new();
 
     // A root's `[workspace] extends` entry gets a message of its own, which names both places a
-    // preset of an undeclared plugin can go, since its scope is not known yet.
+    // preset of an undeclared plugin can go, since its scope is not known yet. A core preset
+    // falls through to the message that the core's rules cannot be configured.
     for preset in &settings.extends {
-        if preset.origin.section == WORKSPACE_EXTENDS && !declared(preset.value.plugin()) {
+        let plugin = preset.value.plugin();
+        if preset.origin.section == WORKSPACE_EXTENDS && plugin != CORE_PLUGIN && !declared(plugin)
+        {
             return Err(at(
                 Some(&preset.origin),
                 format!(
                     "\"{}\": {}",
                     preset.value,
-                    undeclared_workspace_preset(preset.value.plugin())
+                    undeclared_workspace_preset(plugin)
                 ),
             ));
         }

@@ -26,8 +26,10 @@ Not taken:
 
 - 19 (the count of findings the baseline holds back): it is counted in `Findings::finish`, which
   T-080 rewrites, and T-080 changes which findings reach the baseline.
-- 21 (the guide's `cdk/adoption` line): already fixed on `main` by T-069; the guide and the cdk
-  page both say every rule at `warning`.
+- 21 (the guide's `cdk/adoption` line): already fixed on `main` by T-069
+  (`docs/tasks/T-069-presets.md:127` and `:142`): the guide's table lists both presets
+  (`docs/guide/plugins.md:46`) and its cdk section says every rule at `warning`, as the cdk page
+  does (`plugins/cdk/rules/README.md:82`).
 
 ## Change
 
@@ -54,4 +56,4 @@ Not taken:
 
 ## Resume point
 
-Findings 10, 14 and 18 committed; round queued.
+Findings 10, 14 and 18 committed with the review's two nits; round 418 queued.

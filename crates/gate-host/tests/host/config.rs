@@ -735,6 +735,25 @@ fn workspace_extends_of_an_undeclared_plugin_names_the_root_and_a_profile_at_onc
 }
 
 #[test]
+fn workspace_extends_of_a_core_preset_says_the_core_rules_cannot_be_configured() {
+    let message = error(&[
+        (
+            "gate.toml",
+            &format!("{WORKSPACE_ROOT}extends = [\"gate/recommended\"]\n"),
+        ),
+        ("apps/one/gate.toml", "[project]\nname = \"one\"\n"),
+    ]);
+    assert_all(
+        &message,
+        &[
+            "\"gate/recommended\"",
+            "\"gate/...\" rules are the core's own and cannot be configured",
+        ],
+    );
+    assert!(!message.contains("[plugins.gate]"), "{message}");
+}
+
+#[test]
 fn project_extends_in_a_workspace_root_points_to_workspace_extends() {
     let message = error(&[(
         "gate.toml",
