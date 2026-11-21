@@ -41,9 +41,12 @@ pub mod workspace;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
+
+use crate::plugins::Loading;
 
 pub use baseline::{BASELINE_FILE, Baseline, BaselineEntry};
 pub use cache::{Cache, Sha256Sum};
@@ -470,18 +473,10 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     let loaded = if request.list_changed_projects {
         None
     } else {
-        // Only the plugins a selected scope declares and --rule allows run. The others give what
-        // they declare from the cache, so the whole configuration is still checked, and are
-        // loaded only when the cache holds nothing for them.
+        // Only the plugins a selected scope declares and --rule allows run, each when a call of it
+        // misses the result cache; every declared plugin's declaration is checked (see load).
         let needed = plugins::needed(&workspace, &selection, &request.rules);
-        plugins::load(
-            &workspace,
-            lock.as_ref(),
-            &files,
-            &needed,
-            plugins::Loading::OnCall,
-        )?
-        .map(std::sync::Arc::new)
+        plugins::load(&workspace, lock.as_ref(), &files, &needed, Loading::OnCall)?.map(Arc::new)
     };
     phase("load", at);
     let at = Instant::now();
@@ -630,7 +625,7 @@ fn over_budget(elapsed: Duration, loads: &Loads, options: &RunOptions) -> Option
     } else {
         Duration::ZERO
     };
-    let counted = elapsed - compiling;
+    let counted = elapsed.saturating_sub(compiling);
     let over = |threshold: Option<Duration>| threshold.filter(|threshold| counted > *threshold);
     let took = if compiling.is_zero() {
         format!("the run took {} ms", counted.as_millis())

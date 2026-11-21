@@ -1100,10 +1100,9 @@ impl Loaded {
                 .map(|project| project.root.clone());
             let own = own_config(workspace, project);
             for name in settings.plugins.keys() {
-                let Some(sha256) = self.sha256_of(name) else {
-                    continue;
-                };
-                let Some(declaration) = self.declarations.get(name) else {
+                let (Some(sha256), Some(declaration)) =
+                    (self.sha256_of(name), self.declarations.get(name))
+                else {
                     continue;
                 };
                 let mut rules =
@@ -1169,8 +1168,7 @@ impl Loaded {
             });
         }
         git_history.finish(&mut ran);
-        let called: BTreeSet<&PluginName> = planned.iter().map(|call| call.2).collect();
-        ran.loads = self.loads(&called);
+        ran.loads = self.loads(&planned.iter().map(|call| call.2).collect());
         Ok(ran)
     }
 
