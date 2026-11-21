@@ -162,6 +162,51 @@ content: under `docs/recommended` it exits 1 by design; under `docs/adoption` it
   deny and the release build exit 0, and the leak scan prints nothing.
 - Do not edit docs/plan.md unless the lead asks.
 
+## Proof
+
+Lane round on `b24145e1` (ticket 402, 2026-11-21, 01:39 to 01:54 UTC), the branch rebased onto
+`main` at `3ce3be63`, in this task's own target directory:
+
+| Step | Command | Exit |
+| --- | --- | --- |
+| fmt | `cargo fmt --all --check` | 0 |
+| clippy | `cargo clippy --locked --workspace --all-targets -- -D warnings` | 0 |
+| test | `cargo test --locked --workspace --no-fail-fast` | 0 (1492 passed, 0 failed, 116 binaries) |
+| deny | `cargo deny --locked check` | 0 |
+| build | `cargo build --release --locked` | 0 |
+
+The log shows `Compiling gate`, `gate-plugin-ledger` and `gate-plugin-agents` from this checkout,
+the three crates the branch changes, and lists the eleven new tests by name, each `ok`:
+`an_empty_project_gets_the_manifest_and_the_five_shared_files_as_seeds`,
+`the_seeds_follow_the_paths_the_project_configures`,
+`a_tracked_manifest_gets_each_canonical_file_it_lists_seeded_with_a_title`,
+`the_seeded_ledger_asks_only_for_what_the_project_writes`,
+`the_seeded_ledgers_record_findings_are_keyed_as_none`,
+`the_root_is_the_deepest_directory_of_every_shared_file`,
+`a_canonical_file_outside_the_project_is_not_seeded`,
+`a_canonical_files_title_is_its_stem_in_words`,
+`an_untracked_entry_is_seeded_with_its_block_and_the_next_run_writes_the_same_bytes`,
+`an_empty_root_gets_its_context_map_as_a_seed` and
+`one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content`.
+
+The round before it, ticket 392 on `e295b663` (the branch on `main` at `2ef2cc61`), exited 0 at
+fmt, clippy, deny and build and 101 at test: 1489 passed and 1 failed, `main`'s own
+`a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, which the branch does not touch
+and which `main` fixed in `50920ad9` after that base. Its eleven new tests passed.
+
+Kill check (ticket 403, on `b24145e1`, in a scratch worktree, same target directory): each group
+removes the pieces below and runs only the tests that guard them; every one failed, and the log
+shows the crates compiled from the scratch worktree.
+
+| Group | Pieces removed | Tests that failed |
+| --- | --- | --- |
+| A | the tracked manifest's files seeded; a path two options name listed once; the decision table header; the manifest option checked for normal form | `an_empty_project_gets_the_manifest_and_the_five_shared_files_as_seeds`, `the_seeds_follow_the_paths_the_project_configures`, `a_tracked_manifest_gets_each_canonical_file_it_lists_seeded_with_a_title` |
+| B | paths that leave the project skipped; files relative to the root; the title's first letter in uppercase | `a_canonical_file_outside_the_project_is_not_seeded`, `a_canonical_files_title_is_its_stem_in_words`, `the_seeded_ledger_asks_only_for_what_the_project_writes` |
+| C | the common root; the entry written as a seed; the context map seeded in an empty root | `the_root_is_the_deepest_directory_of_every_shared_file`, `an_untracked_entry_is_seeded_with_its_block_and_the_next_run_writes_the_same_bytes`, `an_empty_root_gets_its_context_map_as_a_seed`, `the_agents_block_needs_one_pair_of_markers_and_a_tracked_entry`, `one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content` |
+| D | `ledger/layout` registered; the seed's block laid out as the generator writes it; the context map only in an empty root | `the_seeded_ledgers_record_findings_are_keyed_as_none`, `the_generators_own_no_glob`, `an_untracked_entry_is_seeded_with_its_block_and_the_next_run_writes_the_same_bytes`, `an_empty_root_gets_its_context_map_as_a_seed`, `one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content` |
+
+Each of the eleven new tests fails with its piece removed.
+
 ## Resume point
 
 2026-11-20: design written on `task/T-063-seeds` from T-062's tip `ec96a38`, read against T-061's
@@ -181,3 +226,4 @@ its one finding, which the test lists.
 (a), the `context-map.md` seed (Decided, 4). Rebasing onto `main` (`cee6491`) waits: merging
 T-061's tip into it conflicts in `gate-host/src/plugins.rs` (T-059's `check_decisions` against
 main's `check_presets`), which is T-059's and T-061's to resolve.
+2026-11-21: rebased onto `main` at `3ce3be63`; round 402 and kill check 403 green (Proof).
