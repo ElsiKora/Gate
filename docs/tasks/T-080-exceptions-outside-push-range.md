@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review: lane round 397 green on `main` at `3ce3be63`; independent review next |
+| Status | review fix round: written on `main` at `6b36eeac`, its lane round next |
 | Release | 0.3.0 (core, SDK, plugin interface `gate:plugin@0.3.0`, git plugin) |
 | Writer | the T-068 writer |
 | Reviewer | an independent session, then the lead |
-| Depends on | `main` at `3ce3be63`, which holds the Gate 001 stack and T-071b |
+| Depends on | `main` at `6b36eeac` |
 | Touches | `wit/gate.wit`, `crates/gate-sdk`, `crates/gate-runtime`, `crates/gate-host/src/findings.rs`, `crates/gate-host/src/baseline.rs`, `crates/gate-host/src/plugins.rs`, the result cache, `plugins/git`, their tests and pages, `docs/guide/configuration.md`, `CHANGELOG.md` |
 
 ## The bug
@@ -166,6 +166,49 @@ name, with no git call. The judged list adds N ids per narrowed call to the stor
 In a shallow clone, an excepted commit past the cut reads as not held, so its exception is reported
 there. The CI job fetches the whole history for a rule that reads it, unless `fetch-depth` is set.
 
+### The review's fix round
+
+The independent review found nothing that blocks the design, and asked for one fix round:
+
+1. **A re-judged commit brought new findings.** Re-judging an excepted commit reported every aspect
+   of it. So an exception for a commit's `header-max-length`, plus a later `prohibited-trailers`
+   pattern that the commit matches, made every pre-commit and commit-msg run fail on every branch
+   that holds it, over a commit no one can change. The core now drops them, not the rule:
+   - `judged-targets` gains `rejudged: list<string>`, the targets a rule judged only to re-check
+     its own exceptions (`Run::rejudges`), outside what the call judges otherwise.
+   - The core keeps a finding on a re-judged target only when an exception accepts it, so the
+     aspects the exceptions do not cover are left to the run that judges the target in full.
+   - Handing each rule the aspects of its exceptions was the other way. It would change
+     `rule-run.exceptions` from a list of targets to records, and with it the fixtures of every
+     plugin's tests. The core already holds the exceptions with their aspects.
+   - `git/commit-message`, `git/branch-name` and `git/no-ci-skip` re-judge their excepted targets
+     outside their own subjects. A target a rule both judges and re-judges is judged in full.
+2. **A short or upper-case commit id was never due.** `excepted_commits` skipped any target that is
+   not a full lower-case id. A target of 7 to 64 hex digits that is not one is now a configuration
+   error. It names the exception and says to write the full lower-case id (`git rev-parse <id>`).
+   A finding could not report it, because the exception itself would accept that finding: its
+   target is the same text.
+3. **Baseline keys did not line up.** A pushed commit's body-line and trailer findings are keyed
+   `<id> <line>`, and the rule listed only `<id>`. It now lists both keys of each commit it judges
+   in full, so such a baseline entry is due where the commit is judged in full (its push). A target
+   only re-judged does not make a baseline entry due: a re-check drops what no exception accepts,
+   so a baseline entry would read as stale there. `gate baseline write` runs a full run, which
+   judges no commit, so it writes no such entry; one can come only from a push run's findings.
+4. The split doc comment in `crates/gate-runtime/src/runtime.rs` and the long line in
+   `crates/gate-host/src/baseline.rs`.
+
+### Known behaviour
+
+- **An excepted commit on another branch, or past a shallow clone's cut.** The head of a run on a
+  branch that does not hold the commit cannot read it. So the commit is judged with no finding, and
+  the exception is reported in that run. An exception keyed by a commit belongs on the branch that
+  holds the commit, which is where it is committed. A shallow clone hides commits past its cut, so
+  the CI job fetches the whole history for a rule that reads it, unless `fetch-depth` is set.
+- **Path exceptions of a narrowing rule.** An exception is due when its target, as written, is among
+  the targets the rule listed. A rule that narrows its view and reports findings with no target,
+  matched by path, must list those paths as the exceptions write them. None of the three narrowing
+  git rules reports such a finding.
+
 ### What a run still does not report
 
 A target a rule cannot judge on its own is due only in the runs that hold it. An example is an
@@ -205,7 +248,22 @@ whole scope, so a stale path exception is reported there.
 - `crates/gate-sdk/tests/judged.rs`:
   - a rule that never calls `judges_only` is not listed;
   - one that calls it is listed with its targets, without repeats;
+  - one that re-judges is listed with those targets apart, without the ones it judged in full;
   - one that judged nothing is listed empty.
+- `crates/gate-host/tests/host/findings.rs`,
+  `a_finding_on_a_target_re_judged_for_its_exceptions_stays_only_when_an_exception_accepts_it`:
+  - on a re-judged commit, the excepted aspect is accepted, and another aspect is dropped;
+  - the exception is due once the excepted aspect passes;
+  - a baseline entry keyed by a re-judged target is not due;
+  - judged in full, the other aspect is reported.
+- `crates/gate/tests/plugins.rs`,
+  `an_excepted_commit_re_judged_outside_its_push_brings_no_finding_its_exception_does_not_cover`.
+  This is the review's input: an exception for the commit's `header-max-length`, then a
+  `prohibited-trailers` pattern the commit matches. Pre-commit and commit-msg pass; the push that
+  brings the commit reports the trailer.
+- `plugins/git/tests/git/commit_message.rs`,
+  `an_exception_with_a_short_or_upper_case_commit_id_is_a_configuration_error`, and the push test
+  lists each pushed commit's `<id> <line>` keys.
 - `plugins/git/tests/git`: what each mode judges, through `gate_sdk::check_output`:
   - `git/commit-message`: a plain run; `--rev`; an excepted commit held and good, held and bad, and
     not held; a push; and the message's header, body line and trailer;
@@ -226,28 +284,6 @@ whole scope, so a stale path exception is reported there.
 
 ## Resume point
 
-The code, tests and docs are on `main` at `3ce3be63`. Lane round 383, on the earlier
-stack tip `0ac71f94`, passed fmt, clippy, deny and the release build. Three tests failed:
-
-- `config::a_budget_is_a_table_of_one_or_two_thresholds_above_zero_in_order`: a stack fixture
-  without `timeout-minutes`, fixed on the stack by `8361ffa8`.
-- `an_exception_for_a_commit_the_history_no_longer_holds_is_reported` and
-  `a_changed_exception_list_is_not_answered_from_the_result_cache`. When the repository root is a
-  project, the root's `gate.exceptions.toml` names that project. So `rule-run.exceptions` of a
-  repository-scope call held none of them, and `git/commit-message` saw no excepted commit. The
-  request side now hands the root's file to repository-scope calls, as `Findings::finish` already
-  applies it.
-
-The rebase onto the stack tip `8361ffa8` took in T-057 (`Run::message`), and the stack then merged
-into `main` unchanged at `2ef2cc61`. Lane round 391, on `main` at `2ef2cc61`, passed fmt, clippy,
-deny, the release build and the leak scan, with every new test listed and passing. One test failed:
-`a_monorepo_root_extends_git_recommended_and_its_own_rules_win`, a test of `main` itself that still
-expected `git/branch-name` in a commit-msg run. `main` fixed it in `50920ad9` (T-071b) after the
-rebase.
-
-Lane round 397, on `f81a6854` on `main` at `3ce3be63`, ended
-2026-11-21T01:22:30+00:00 with every step at exit 0: fmt, clippy, the tests (1493 passed, 0 failed
-in 117 test binaries), deny, the release build and the leak scan. `gate` and `gate-host` compiled
-from this checkout in that round; `gate-sdk`, `gate-runtime` and `gate-plugin-git` are unchanged
-since round 391, which compiled them from this checkout. Every new test above is listed by name
-and passes. Next: the independent review.
+Lane round 397 was green on `main` at `3ce3be63`. The review's fix round is written on `main` at
+`6b36eeac`: re-judged targets, short commit ids, baseline keys, and the two style points. Next:
+its lane round, then the report by log to the lead.
