@@ -89,9 +89,10 @@ pub fn report_unreadable_bases(
     }
 }
 
-/// What to do about a tsconfig base the resolver could not read.
+/// What to do about a tsconfig base the resolver could not read, and what its absence does to the
+/// plugin's other findings.
 fn unreadable_help(base: &UnreadableBase) -> String {
-    match (&base.path, &base.repository) {
+    let advice = match (&base.path, &base.repository) {
         (Some(path), Some(repository)) if path.starts_with("../") => format!(
             "the plugin reads a file outside its project only when it is tracked and granted: \
              track {repository} and add it to the plugin's entry in gate.toml, \
@@ -103,10 +104,23 @@ fn unreadable_help(base: &UnreadableBase) -> String {
         (Some(_), None) => "the base lies outside the repository, which the plugin never \
                             reads; extend a tracked file inside the repository"
             .to_owned(),
+        (None, _) if base.extends.is_empty() => {
+            "write the path of a base, or remove the empty entry".to_owned()
+        }
+        (None, _) if base.extends.starts_with('#') => format!(
+            "the \"imports\" of the nearest package.json map {} to no file the plugin can \
+             read; map it to a tracked file, or extend the base by its relative path",
+            base.extends
+        ),
         (None, _) => "name the base by a path relative to the tsconfig; the plugin never reads \
                       an absolute path"
             .to_owned(),
-    }
+    };
+    format!(
+        "{advice}. Until the base is read, other findings of this plugin about imports (an \
+         import that resolves to nothing, say) may come from its absence; this finding has the \
+         level of the rule that met the base first"
+    )
 }
 
 /// What one call owns: the arena every parse of the call allocates into, the call's tracked files,

@@ -1,6 +1,6 @@
 //! A collector that reports each distinct finding once, in the order found.
 
-use gate_sdk::{Location, Run};
+use gate_sdk::{CallState, Location, Run};
 
 /// One finding before it is reported.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,7 +46,11 @@ impl Findings {
     }
 
     /// Reports the collected findings on `run`, each with the help `help` gives for its aspect.
-    pub fn report<O>(self, run: &mut Run<'_, O>, help: impl Fn(&str) -> &'static str) {
+    pub fn report<O, S: CallState>(
+        self,
+        run: &mut Run<'_, O, S>,
+        help: impl Fn(&str) -> &'static str,
+    ) {
         for finding in self.pending {
             let help = help(finding.aspect);
             let location = match finding.line.and_then(|line| usize::try_from(line).ok()) {

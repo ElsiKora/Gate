@@ -20,6 +20,7 @@ gate-test = { path = "crates/gate-test" }
 gate-typescript = { path = "languages/typescript" }
 globset = { version = "=0.4.20", default-features = false }
 ignore = "=0.4.33"
+json-strip-comments = "=3.1.2"
 jsonschema = { version = "=0.61.2", default-features = false }
 oxc_allocator = "=0.153.0"
 oxc_ast = "=0.153.0"

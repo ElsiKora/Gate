@@ -204,7 +204,7 @@ impl<'a> TypeScript<'a> {
     /// `paths` of the tracked tsconfig of [`Settings::tsconfig`]. Without that tsconfig the
     /// resolver has no `paths`, which is allowed only for the default name: a tsconfig the
     /// settings name explicitly must be tracked. A base of its `extends` chain that cannot be read
-    /// stands as an empty tsconfig and is listed by [`TypeScript::unreadable_bases`].
+    /// is left out of the chain and listed by [`TypeScript::unreadable_bases`].
     ///
     /// # Errors
     /// Fails when the tsconfig or a `package.json` on the way cannot be read, or when a
@@ -243,9 +243,10 @@ impl<'a> TypeScript<'a> {
     }
 
     /// The tsconfig bases of the configured tsconfig's `extends` chain that the source could not
-    /// read: not tracked, not granted, outside the repository, or named by an absolute path. Each
-    /// stood as an empty tsconfig, so the `paths` and `baseUrl` it sets were not applied. Empty
-    /// until the first [`TypeScript::resolve`].
+    /// read: not tracked, not granted, outside the repository, named by an absolute path or an
+    /// empty string, or a `#` entry whose target cannot be read. Each was left out of the chain,
+    /// so the `paths` and `baseUrl` it sets were not applied. Empty until the first
+    /// [`TypeScript::resolve`].
     #[must_use]
     pub fn unreadable_bases(&self) -> &[UnreadableBase] {
         self.resolver.get().map_or(&[][..], Resolver::unreadable)

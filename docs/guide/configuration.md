@@ -205,9 +205,16 @@ nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", reads = ["tsconfig.base.json"]
 ```
 
 A base the plugin cannot read is reported once per run of the plugin, as a finding at the tsconfig
-that names it, and resolution goes on without the `paths` and `baseUrl` the base sets. A base from a
-package that is not tracked, such as `@tsconfig/node22`, is skipped without a finding, as an import
-of such a package resolves to nothing.
+that names it, and resolution goes on without the `paths` and `baseUrl` the base sets. So are a base
+named by an absolute path, an empty `extends` entry, and a `#` entry whose `package.json` `imports`
+target is a file the plugin cannot read. The finding carries the level of the first rule that
+resolved an import, which may be a warning, while the base's absence may also cause other findings
+of the plugin, such as an import that resolves to nothing. A base from a package that is not
+tracked, such as `@tsconfig/node22`, or a `#` entry that maps to one, is skipped without a finding,
+as an import of such a package resolves to nothing. That includes a workspace package whose files
+are tracked but which the project reaches only through the untracked `node_modules` link the
+package manager makes: no grant lets the plugin follow that link, so extend such a base by its
+relative path (`../../packages/tsconfig/base.json`) and grant that path instead.
 
 ## `[rules]`
 

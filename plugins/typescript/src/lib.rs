@@ -34,6 +34,7 @@ gate_sdk::plugin! {
     name: "typescript",
     version: env!("CARGO_PKG_VERSION"),
     options: gate_sdk::NoOptions,
+    call: gate_typescript::call::TypeScriptCall,
     rules: [Parse, BarrelImports, StringEnums],
     generators: [],
     presets: [

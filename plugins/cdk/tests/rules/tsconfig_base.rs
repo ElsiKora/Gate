@@ -12,11 +12,12 @@ const TSCONFIG: &str =
 
 const BASE: &str = r#"{ "compilerOptions": { "strict": true } }"#;
 
-/// Every rule of the plugin over `files`, as the call of the project at `infrastructure` runs them.
-fn run(files: &Files) -> gate_sdk::Result<Vec<Finding>> {
+/// The rules `rules` of the plugin over `files`, as the call of the project at `infrastructure`
+/// runs them.
+fn run(rules: &[&str], files: &Files) -> gate_sdk::Result<Vec<Finding>> {
     let request = CheckRequest {
         project: "infrastructure".to_owned(),
-        rules: RULES
+        rules: rules
             .iter()
             .map(|rule| RuleRun {
                 name: (*rule).to_owned(),
@@ -39,7 +40,7 @@ fn an_app_whose_tsconfig_extends_a_granted_base_above_it_passes_every_rule() {
         .with("tsconfig.json", TSCONFIG)
         .with("../tsconfig.base.json", BASE);
 
-    let findings: Vec<String> = run(&files)
+    let findings: Vec<String> = run(&RULES, &files)
         .expect("the rules run")
         .into_iter()
         .map(|finding| format!("{}#{} {}", finding.rule, finding.aspect, finding.message))
@@ -51,7 +52,7 @@ fn an_app_whose_tsconfig_extends_a_granted_base_above_it_passes_every_rule() {
 fn a_base_the_plugin_cannot_read_is_one_finding_of_the_call_with_the_grant_to_add() {
     let files = app().with("tsconfig.json", TSCONFIG);
 
-    let findings = run(&files).expect("the rules run without an environment error");
+    let findings = run(&RULES, &files).expect("the rules run without an environment error");
     let found: Vec<_> = findings
         .iter()
         .map(|finding| {
@@ -79,4 +80,33 @@ fn a_base_the_plugin_cannot_read_is_one_finding_of_the_call_with_the_grant_to_ad
     assert!(!findings[0].message.contains("/gate/"));
     let help = findings[0].help.as_deref().unwrap_or_default();
     assert!(help.contains(r#"reads = ["tsconfig.base.json"]"#), "{help}");
+    assert!(help.contains("may come from its absence"), "{help}");
+}
+
+#[test]
+fn the_base_finding_moves_to_the_next_rule_when_the_first_rule_does_not_run() {
+    let files = app().with("tsconfig.json", TSCONFIG);
+    let base_findings = |rules: &[&str]| -> Vec<String> {
+        run(rules, &files)
+            .expect("the rules run without an environment error")
+            .into_iter()
+            .filter(|finding| {
+                finding.target.as_deref() == Some("tsconfig.json:../tsconfig.base.json")
+            })
+            .map(|finding| finding.rule)
+            .collect()
+    };
+
+    let every = base_findings(&RULES);
+    let [first] = every.as_slice() else {
+        panic!("one base finding of the call, got {every:?}");
+    };
+    let rest: Vec<&str> = RULES
+        .iter()
+        .copied()
+        .filter(|rule| *rule != first.as_str())
+        .collect();
+    let without_first = base_findings(&rest);
+    assert_eq!(without_first.len(), 1, "{without_first:?}");
+    assert_ne!(&without_first[0], first, "{without_first:?}");
 }

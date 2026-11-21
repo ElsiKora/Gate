@@ -26,8 +26,8 @@ use crate::{Error, Result, Source};
 /// no tracked file of the project before. Error texts name paths relative to the project root.
 const REPOSITORY: &str = "/gate/repository";
 
-/// What a tsconfig base that cannot be read stands as: a tsconfig that sets nothing.
-const EMPTY_TSCONFIG: &[u8] = b"{}";
+/// The UTF-8 byte order mark a tsconfig may start with, which oxc reads as whitespace.
+const BYTE_ORDER_MARK: &[u8] = &[0xEF, 0xBB, 0xBF];
 
 /// The extensions a specifier without a TypeScript-known extension is tried with, in the order of
 /// the TypeScript compiler's `tryAddingExtensions`.
@@ -76,10 +76,11 @@ const DECLARATION_EXTENSIONS: [(&str, &str); 3] =
 ///
 /// A tsconfig base named by a relative path is read through the source with its path relative to
 /// the project root, so a base outside the project is read when the source grants it. A base that
-/// cannot be read that way, or one named by an absolute path, stands as an empty tsconfig and is
-/// listed by [`Resolver::unreadable`]; a base from a package (`@tsconfig/node22`) stands as an
-/// empty tsconfig unless the package is tracked, as an import of an untracked package resolves to
-/// nothing. A `#` base is resolved through the tracked `package.json` `imports`.
+/// cannot be read that way, one named by an absolute path or by an empty string, and a `#` base
+/// whose `package.json` `imports` target is a file the source cannot read, are dropped from the
+/// `extends` the resolver reads and listed by [`Resolver::unreadable`]. A base from a package
+/// (`@tsconfig/node22`), or a `#` base that maps to one, is dropped without being listed unless
+/// the package is tracked, as an import of an untracked package resolves to nothing.
 pub struct Resolver {
     root: PathBuf,
     inner: ResolverGeneric<SourceFileSystem>,
@@ -87,14 +88,16 @@ pub struct Resolver {
 }
 
 /// A tsconfig base of the `extends` chain the resolver could not read through the source; it
-/// stood as an empty tsconfig, so the `paths` and `baseUrl` it sets were not applied.
+/// was dropped from the `extends` the resolver reads, so the `paths` and `baseUrl` it sets were
+/// not applied.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnreadableBase {
     /// The tsconfig whose `extends` names the base, relative to the project root (`..` above it).
     pub tsconfig: String,
     /// The `extends` entry as the tsconfig writes it.
     pub extends: String,
-    /// The base relative to the project root (`..` above it); `None` for an absolute path.
+    /// The file the compiler would read for the base, relative to the project root (`..` above
+    /// it); `None` for an absolute path, an empty entry or a `#` entry.
     pub path: Option<String>,
     /// The base relative to the repository root; `None` when it lies outside the repository.
     pub repository: Option<String>,
@@ -258,7 +261,7 @@ fn relative_path(path: &Path) -> Option<String> {
 /// The tracked files of a source as the resolver sees them: every tracked path exists, every
 /// ancestor directory of one exists, and the configuration files the resolver reads (each
 /// `package.json`, `tsconfig*.json` and `jsconfig*.json`) have their tracked contents.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct SourceFileSystem {
     files: HashSet<PathBuf>,
     directories: HashSet<PathBuf>,
@@ -308,9 +311,10 @@ impl SourceFileSystem {
 
     /// Reads the `extends` chain of the tsconfig `tsconfig` (relative to the project root `root`)
     /// through `source`: each base a relative path names is read with its path relative to the
-    /// project root, and a base that cannot be read, or that an absolute path names, stands as an
-    /// empty tsconfig where oxc looks for it and is answered. A base from a package that is not
-    /// tracked stands as an empty tsconfig too, without an answer.
+    /// project root, and a `#` or package base is kept when it resolves to a file the resolver
+    /// holds. A base that cannot be read is dropped from the `extends` the resolver reads, so
+    /// resolution goes on without it, and is answered, except a base from a package that is not
+    /// tracked, which is dropped without an answer.
     ///
     /// # Errors
     /// When the source cannot read a base it tracks.
@@ -323,6 +327,7 @@ impl SourceFileSystem {
         let mut unreadable = Vec::new();
         let mut seen = HashSet::new();
         let mut queue = vec![tsconfig.to_owned()];
+        let mut packages: Option<ResolverGeneric<Self>> = None;
 
         while let Some(config) = queue.pop() {
             if !seen.insert(config.clone()) {
@@ -352,61 +357,171 @@ impl SourceFileSystem {
             let directory = config
                 .rsplit_once('/')
                 .map_or("", |(directory, _)| directory);
+            let parent = full
+                .parent()
+                .map_or_else(|| root.to_path_buf(), Path::to_path_buf);
             let mut bases = Vec::new();
+            let mut kept = Vec::new();
 
-            for entry in entries {
-                match entry.as_bytes().first() {
+            for entry in &entries {
+                let base = match entry.as_bytes().first() {
                     Some(b'.') => {
-                        let target = join_relative(directory, &entry);
-                        if let Some(base) = self.read_base(source, root, &target)? {
-                            bases.push(base);
-                        } else {
-                            let place = normalize(&root.join(&target));
-                            let place = if self.directories.contains(&place) {
-                                place.join("tsconfig.json")
-                            } else {
-                                place
-                            };
-                            self.add_contents(place, EMPTY_TSCONFIG);
-                            unreadable.push(UnreadableBase {
-                                repository: repository_path(root, &target),
+                        let target = join_relative(directory, entry);
+                        self.read_base(source, root, &target)?.ok_or_else(|| {
+                            let file = self.expected_file(root, &target);
+                            UnreadableBase {
+                                repository: repository_path(root, &file),
                                 tsconfig: config.clone(),
-                                extends: entry,
-                                path: Some(target),
-                            });
-                        }
+                                extends: entry.clone(),
+                                path: Some(file),
+                            }
+                        })
                     }
-                    Some(b'/') => {
-                        self.add_contents(PathBuf::from(&entry), EMPTY_TSCONFIG);
-                        unreadable.push(UnreadableBase {
-                            tsconfig: config.clone(),
-                            extends: entry,
-                            path: None,
-                            repository: None,
+                    Some(b'#' | b'@' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_') => {
+                        let resolver = packages.get_or_insert_with(|| {
+                            ResolverGeneric::new_with_file_system(self.clone(), extends_options())
                         });
-                    }
-                    Some(b'#') | None => {}
-                    Some(_) => {
-                        let modules = full
-                            .parent()
-                            .map_or_else(|| root.to_path_buf(), Path::to_path_buf)
-                            .join("node_modules");
-                        let place = if has_extension(&entry, &["json"]) {
-                            modules.join(&entry)
-                        } else {
-                            modules.join(&entry).join("tsconfig.json")
-                        };
-                        if !self.contents.contains_key(&place) {
-                            self.add_contents(place, EMPTY_TSCONFIG);
+                        match self.read_resolved(source, root, resolver, &parent, entry)? {
+                            Some(base) => Ok(base),
+                            // An untracked package, or a `#` entry that maps to one, is skipped as
+                            // an import of an untracked package resolves to nothing.
+                            None if !entry.starts_with('#')
+                                || self.imports_package(&parent, entry) =>
+                            {
+                                continue;
+                            }
+                            None => Err(UnreadableBase {
+                                tsconfig: config.clone(),
+                                extends: entry.clone(),
+                                path: None,
+                                repository: None,
+                            }),
                         }
                     }
+                    // An empty entry, or an absolute path, which the plugin never reads.
+                    _ => Err(UnreadableBase {
+                        tsconfig: config.clone(),
+                        extends: entry.clone(),
+                        path: None,
+                        repository: None,
+                    }),
+                };
+                match base {
+                    Ok(base) => {
+                        bases.push(base);
+                        kept.push(entry.clone());
+                    }
+                    Err(base) => unreadable.push(base),
                 }
+            }
+            if kept.len() < entries.len() {
+                self.drop_bases(&full, &kept);
             }
             // The queue is a stack: the chain's first base is read first.
             queue.extend(bases.into_iter().rev());
         }
 
         Ok(unreadable)
+    }
+
+    /// The base the `#` or package `extends` entry `entry` of a tsconfig in the directory `parent`
+    /// names, as oxc resolves it with `resolver`, relative to the project root `root`, with its
+    /// contents loaded; `None` when it resolves to no file the resolver holds.
+    ///
+    /// # Errors
+    /// When the source cannot read a file it tracks.
+    fn read_resolved(
+        &mut self,
+        source: &dyn Source,
+        root: &Path,
+        resolver: &ResolverGeneric<Self>,
+        parent: &Path,
+        entry: &str,
+    ) -> Result<Option<String>> {
+        let Ok(resolution) = resolver.resolve(parent, entry) else {
+            return Ok(None);
+        };
+        let full = normalize(resolution.path());
+        let Some(relative) = full.strip_prefix(root).ok().and_then(relative_path) else {
+            return Ok(None);
+        };
+        if !self.contents.contains_key(&full) {
+            match source.bytes(&relative)? {
+                Some(bytes) => self.add_contents(full, &bytes),
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(relative))
+    }
+
+    /// Whether the `#` entry `entry` maps, in the `imports` of the nearest `package.json` above the
+    /// directory `parent`, only to packages: no target is a relative path.
+    fn imports_package(&self, parent: &Path, entry: &str) -> bool {
+        let Some(manifest) = parent
+            .ancestors()
+            .find_map(|directory| self.contents.get(&directory.join("package.json")))
+        else {
+            return false;
+        };
+        let Some(target) = serde_json::from_slice::<serde_json::Value>(manifest)
+            .ok()
+            .and_then(|manifest| manifest.get("imports")?.get(entry).cloned())
+        else {
+            return false;
+        };
+        let mut targets = Vec::new();
+        strings(&target, &mut targets);
+        !targets.is_empty() && targets.iter().all(|target| !target.starts_with('.'))
+    }
+
+    /// The file the compiler reads for the relative `extends` target `target` (relative to the
+    /// project root `root`), as a path from the project root: `target` when it ends in `.json`,
+    /// `target/tsconfig.json` when it is a directory, else `target.json`.
+    fn expected_file(&self, root: &Path, target: &str) -> String {
+        if Path::new(target)
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            target.to_owned()
+        } else if self.directories.contains(&normalize(&root.join(target))) {
+            format!("{target}/tsconfig.json")
+        } else {
+            format!("{target}.json")
+        }
+    }
+
+    /// Rewrites the tsconfig at `full` so that its `extends` names only `kept`, the bases that
+    /// can be read; the rest of it stays as written. A tsconfig that cannot be rewritten stays as
+    /// it is, and oxc reports what it cannot read.
+    fn drop_bases(&mut self, full: &Path, kept: &[String]) {
+        let Some(mut bytes) = self.contents.get(full).cloned() else {
+            return;
+        };
+        if bytes.starts_with(BYTE_ORDER_MARK) {
+            bytes[..BYTE_ORDER_MARK.len()].fill(b' ');
+        }
+        if json_strip_comments::strip_slice(&mut bytes).is_err() {
+            return;
+        }
+        let Ok(serde_json::Value::Object(mut tsconfig)) = serde_json::from_slice(&bytes) else {
+            return;
+        };
+        if kept.is_empty() {
+            tsconfig.remove("extends");
+        } else {
+            tsconfig.insert(
+                "extends".to_owned(),
+                serde_json::Value::Array(
+                    kept.iter()
+                        .cloned()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                ),
+            );
+        }
+        if let Ok(rewritten) = serde_json::to_vec(&tsconfig) {
+            self.contents.insert(full.to_path_buf(), rewritten);
+        }
     }
 
     /// The base the relative `extends` target `target` (relative to the project root `root`)
@@ -459,6 +574,36 @@ impl SourceFileSystem {
         } else {
             Err(io::ErrorKind::NotFound.into())
         }
+    }
+}
+
+/// The options oxc resolves a `#` or package `extends` entry with: the conditions `node` and
+/// `import`, the extension `.json`, and `tsconfig` as a directory's main file.
+fn extends_options() -> ResolveOptions {
+    ResolveOptions {
+        condition_names: ["node", "import"].map(str::to_owned).to_vec(),
+        extensions: vec![".json".to_owned()],
+        main_files: vec!["tsconfig".to_owned()],
+        symlinks: false,
+        ..ResolveOptions::default()
+    }
+}
+
+/// Every string in `value`, at any depth, into `strings_found`.
+fn strings(value: &serde_json::Value, strings_found: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) => strings_found.push(text.clone()),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                strings(item, strings_found);
+            }
+        }
+        serde_json::Value::Object(entries) => {
+            for item in entries.values() {
+                strings(item, strings_found);
+            }
+        }
+        _ => {}
     }
 }
 

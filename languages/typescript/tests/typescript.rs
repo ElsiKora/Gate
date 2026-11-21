@@ -616,7 +616,7 @@ fn a_tsconfig_base_above_the_project_is_read_through_the_source_and_its_paths_ap
 }
 
 #[test]
-fn a_tsconfig_base_the_source_cannot_read_stands_empty_and_is_listed() {
+fn a_tsconfig_base_the_source_cannot_read_is_left_out_and_listed() {
     let source = MemorySource::new(
         MONOREPO
             .iter()
@@ -653,20 +653,39 @@ fn a_tsconfig_base_the_source_cannot_read_stands_empty_and_is_listed() {
 }
 
 #[test]
-fn every_kind_of_unreadable_base_stands_empty_and_only_files_are_listed() {
-    let tsconfig = r#"{
+fn every_kind_of_unreadable_base_is_left_out_and_untracked_packages_are_not_listed() {
+    // The aliases come from a base reached through the `package.json` `imports`, so they resolve
+    // only when the readable bases stay in the chain once the others are left out.
+    let tsconfig = r##"{
  "extends": [
   "@tsconfig/strictest",
   "@tsconfig/node22/tsconfig.json",
   "../tsconfig.base.json",
   "../../outside.json",
   "/etc/base.json",
-  "./tsconfig.local"
- ],
- "compilerOptions": { "paths": { "@/*": ["./src/*"] } }
-}"#;
+  "./tsconfig.local",
+  "./src",
+  "",
+  "#missing",
+  "#package",
+  "#local"
+ ]
+}"##;
+    let manifest = r##"{
+ "name": "infra",
+ "imports": {
+  "#missing": "./config/missing.json",
+  "#package": "@tsconfig/node22/tsconfig.json",
+  "#local": "./config/base.json"
+ }
+}"##;
     let source = MemorySource::new([
         ("tsconfig.json", tsconfig),
+        ("package.json", manifest),
+        (
+            "config/base.json",
+            r#"{ "compilerOptions": { "baseUrl": "..", "paths": { "@/*": ["./src/*"] } } }"#,
+        ),
         ("src/app.ts", "export {};\n"),
         ("src/stack.ts", "export {};\n"),
     ]);
@@ -691,6 +710,7 @@ fn every_kind_of_unreadable_base_stands_empty_and_only_files_are_listed() {
             )
         })
         .collect();
+    // A relative base is named by the file the compiler would read for it.
     assert_eq!(
         listed,
         [
@@ -703,11 +723,46 @@ fn every_kind_of_unreadable_base_stands_empty_and_only_files_are_listed() {
             ("/etc/base.json", None, None),
             (
                 "./tsconfig.local",
-                Some("tsconfig.local"),
-                Some("infra/tsconfig.local")
+                Some("tsconfig.local.json"),
+                Some("infra/tsconfig.local.json")
             ),
+            (
+                "./src",
+                Some("src/tsconfig.json"),
+                Some("infra/src/tsconfig.json")
+            ),
+            ("", None, None),
+            ("#missing", None, None),
         ]
     );
+}
+
+#[test]
+fn a_directory_base_above_the_project_is_read_as_its_tsconfig_json() {
+    let source = MemorySource::new([
+        (
+            "../../configs/tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "..", "paths": { "@api/*": ["apps/api/src/*"] } } }"#,
+        ),
+        ("tsconfig.json", r#"{ "extends": "../../configs" }"#),
+        ("src/main.ts", "export {};\n"),
+        (
+            "src/orders/order.module.ts",
+            "export class OrderModule {}\n",
+        ),
+    ]);
+    let allocator = Allocator::default();
+    let typescript =
+        TypeScript::new(&source, Settings::default(), &allocator).in_project("apps/api");
+
+    assert_eq!(
+        typescript
+            .resolve("src/main.ts", "@api/orders/order.module")
+            .expect("resolves")
+            .as_deref(),
+        Some("src/orders/order.module.ts")
+    );
+    assert_eq!(typescript.unreadable_bases(), []);
 }
 
 #[test]

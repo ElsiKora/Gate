@@ -206,7 +206,8 @@ Each shared plugin keeps its own changelog next to its code.
   `frontend` and `typescript` rule that resolves imports with an environment error (exit 2). The
   TypeScript language library reads each base of the `extends` chain through the plugin's tree, so
   a base outside the project is read when it is tracked and granted with `reads`, and an
-  unreadable base is one finding of the call with the grant to add.
+  unreadable base (not granted, absolute, empty, or a `#` entry whose target cannot be read) is
+  left out of the chain and is one finding of the call with what to do.
 - **host:** a `[rules]` entry that sets only a level for a rule a preset turns on keeps the options
   the preset gives it: `extends = ["git/recommended"]` with `"git/branch-name" = "warning"` loads
   and runs with the preset's branch template. It used to be a configuration error (exit 2,

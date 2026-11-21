@@ -10,6 +10,7 @@
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Rule, Run, Span};
+use gate_typescript::call::TypeScriptCall;
 use gate_typescript::{Allocator, ReadSource, SOURCE_EXTENSIONS, Settings, TypeScript};
 
 /// The rule.
@@ -40,7 +41,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for Parse {
+impl Rule<TypeScriptCall> for Parse {
     type Options = Options;
 
     const NAME: &'static str = "parse";
@@ -48,7 +49,7 @@ impl Rule for Parse {
         "Every tracked TypeScript or JavaScript source file can be parsed into a syntax tree";
     const LANGUAGES: &'static [&'static str] = &["typescript"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, TypeScriptCall>) -> gate_sdk::Result<()> {
         if let Some(unknown) = run
             .options()
             .extensions
