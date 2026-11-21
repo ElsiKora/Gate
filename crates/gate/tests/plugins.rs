@@ -7358,3 +7358,156 @@ fn one_sync_lays_down_the_whole_standard_and_the_check_asks_only_for_content() {
         );
     }
 }
+
+/// A tracked decision index with the block of `ledger/decision-counts` and four rows.
+const TRACKED_INDEX: &str = "\
+# Decisions
+
+<!-- gate:begin decision-counts -->
+- Decision IDs: `0`
+<!-- gate:end decision-counts -->
+
+| ID | Status | Title | File |
+| --- | --- | --- | --- |
+| `D-ONE-001` | `accepted` | One | `decisions/one.md` |
+| `D-TWO-001` | `superseded by D-THREE-001` | Two | `decisions/two.md` |
+| `D-THREE-001` | `accepted` | Three | `decisions/three.md` |
+| `D-THREE-001` | `superseded` | Three again | `decisions/three.md` |
+";
+
+/// A tracked implementation ledger with three records.
+const TRACKED_IMPLEMENTATION: &str = "\
+# Implementation
+
+- `I-ONE-001`: One
+  - Status: `completed`
+- `I-TWO-001`: Two
+  - Status: `in progress`
+- `I-THREE-001`: Three
+  - Status: `planned`
+";
+
+/// A tracked roadmap with the block of `ledger/review-progress`, every count readable.
+const TRACKED_ROADMAP: &str = "\
+# Roadmap
+
+## Review Progress
+
+<!-- gate:begin review-progress -->
+stale
+<!-- gate:end review-progress -->
+
+## Feature Inventory
+
+#### F001: Alpha
+
+- Review: `implement`
+
+#### F002: Beta
+
+- Review: `awaiting answer`
+
+#### F003: Gamma
+
+- Review: `unreviewed`
+
+```md
+#### F004: Inside a fence
+```
+
+## Decision Journal
+
+### First choice
+
+Counts: 2 answers · F001
+
+### Process note
+
+Counts: 0 answers · PROCESS
+
+### Report shape
+
+Counts: 1 answer · REPORT
+
+## Accepted Execution Queue
+
+| Order | Slice | Record |
+| --- | --- | --- |
+| 1 | first | `I-ONE-001` |
+| 2 | second | `I-TWO-001` |
+| 3 | third | `I-THREE-001` |
+";
+
+/// A tracked manifest that lists the roadmap among its canonical files.
+const TRACKED_MANIFEST: &str = r#"{
+  "canonicalRoot": "docs/ledger",
+  "canonicalFiles": ["decision-index.md", "implementation-slices.md", "plans/roadmap.md"],
+  "idFamilies": {},
+  "forbiddenReferences": []
+}
+"#;
+
+/// `ledger/layout` next to `ledger/decision-counts` and `ledger/review-progress` over a tracked
+/// ledger: the files the other two write are tracked, so `ledger/layout` seeds none of them, and
+/// `gate sync` writes each path once. It seeds only the shared files the project lacks, and
+/// `sync --check` passes once that is committed.
+#[test]
+fn the_ledger_layout_seeds_no_tracked_file_another_ledger_generator_writes() {
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\n\n\
+             [plugins.ledger]\nsource = \"acme/rules:ledger@0.1.0\"\n\n\
+             [generate]\n\"ledger/layout\" = {{}}\n\"ledger/decision-counts\" = {{}}\n\
+             \"ledger/review-progress\" = {{ options = {{ path = \"docs/ledger/plans/roadmap.md\", \
+             cross-cutting-kinds = [\"RET\", \"REPORT\"], zero-answer-kinds = [\"PROCESS\"] }} }}\n"
+        ),
+    );
+    for (path, contents) in [
+        ("docs/ledger/manifest.json", TRACKED_MANIFEST),
+        ("docs/ledger/decision-index.md", TRACKED_INDEX),
+        (
+            "docs/ledger/implementation-slices.md",
+            TRACKED_IMPLEMENTATION,
+        ),
+        ("docs/ledger/plans/roadmap.md", TRACKED_ROADMAP),
+    ] {
+        repo.write(path, contents);
+    }
+    repo.commit("a tracked ledger");
+    let plugin = format!(
+        "ledger={}",
+        component("gate-plugin-ledger", "ledger").0.display()
+    );
+
+    let output = repo.gate(&["sync", "--plugin", &plugin]);
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_eq!(output.status.code(), Some(0), "{said}");
+    assert!(!said.contains("both write"), "{said}");
+    let read = |path: &str| std::fs::read_to_string(repo.path().join(path)).expect("written");
+    assert!(
+        read("docs/ledger/decision-index.md").contains("- Decision IDs: `4`"),
+        "decision-counts writes the tracked index"
+    );
+    assert!(
+        !read("docs/ledger/plans/roadmap.md").contains("stale"),
+        "review-progress writes the tracked roadmap"
+    );
+    assert_eq!(read("docs/ledger/manifest.json"), TRACKED_MANIFEST);
+    for (path, title) in [
+        ("docs/ledger/verification.md", "# Verification\n"),
+        ("docs/ledger/follow-ups.md", "# Follow-ups\n"),
+        (
+            "docs/ledger/production-blockers.md",
+            "# Production blockers\n",
+        ),
+    ] {
+        assert_eq!(read(path), title, "{path} is seeded");
+    }
+
+    repo.commit("the seeds and the blocks");
+    let output = repo.gate(&["sync", "--check", "--plugin", &plugin]);
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert_eq!(output.status.code(), Some(0), "{said}");
+}
