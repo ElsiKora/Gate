@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | reviewed (one fix round); its lane round follows |
+| Status | reviewed (one fix round); lane round 420 green; ready to merge |
 | Release | v0.3.0 |
 | Writer | Gate 001 |
 | Reviewer | a session that did not write it |
@@ -110,3 +110,7 @@ one fix round: prune judges only entries its check saw (`pruned_since`, test 2),
 check is repeated under the guard (test 3), the read, create and replace errors name the next step,
 and this note is current. Round 419 on `80d980cb` was withdrawn before it started (by its process
 group). Next: one lane round on the fixed tip, then the merge.
+2026-11-21T05:47:11+00:00: lane round 420 on `bd8896bb`: fmt, clippy, test, deny and release exit
+0; `gate-host` and `gate` compiled from this task's worktree; the three tests above pass; the guard
+mutation fails test 1 (exit 101), the `pruned_since` mutation fails test 2 (exit 101); the leak
+scan prints nothing. Next: the merge.
