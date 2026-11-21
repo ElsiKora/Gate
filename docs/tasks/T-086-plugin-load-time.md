@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | code written, for the lane round and an independent review |
+| Status | reviewed, round 429 green; waiting for the T-085 merge to rebase |
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | a session that did not write it |
@@ -211,8 +211,43 @@ The independent review of `1fa6135c` found one blocking item and five nits, all 
   the result cache is not loaded. `compiled_by` now empties the result cache too, and the two
   tests that expect typescript to compile turn on `typescript/parse` in spare, so it has a call;
   the expected counts are the ones they had.
+- Round 429 (`d0eeb001`, `T-086/lane/run-3.log`): fmt, clippy, test, deny, the release build and
+  the 13 wasm builds exit 0; the mutation fails the cached-run test, exit 101. `gate-runtime`,
+  `gate-host` and `gate` compiled from `T-086/wt` (round 423 for the first two; only tests changed
+  since).
+
+## Measured on the built tip
+
+The release `gate` of lane round 429 (`d0eeb001`; the code is that of `03cba6ab`, the commits
+after it change tests and this file), with the same plugin builds and trees as above.
+Commands: `gate check --timings` in the synthetic repository of nine pinned plugins (extending
+the presets that exist: ci, docker, docs, git, node), one repository per plugin (`each.sh`), and
+the copy of the trial's `single` tree and its cache; `/usr/bin/time -p` for CPU and wall time.
+Load average 31 to 39 throughout (`uptime`, 06:53 to 06:54 UTC).
+
+- Warm, the trial's `single` tree, nine plugins, every call `cached`, three runs after one
+  warm-up run: `load` 4, 3 and 3 ms of 106, 95 and 84 ms in all (before: `load` 659 to 849 ms of
+  983 to 1684 ms, at load average about 100). `--timings` says `not loaded, every call cached:
+  ci, docker, docs, git, markdown, nestjs, node, repository, typescript`.
+- Warm, the nine-plugin repository, three runs: `load` 3, 2 and 3 ms of 107, 97 and 109 ms; the
+  four plugins with no rule turned on are not listed as not loaded.
+- Warm, one plugin per repository, three runs each: `load` 1 ms for every plugin but nestjs, 3 ms
+  for nestjs (before: 12 to 282 ms, nestjs 554 to 1436 ms, at load average 250 to 330).
+- Cold, the nine-plugin repository: `load` 1417 ms of 1530 ms, 14.27 s of user CPU; `--timings`
+  says `9 compiled; 1347 ms compiling, not counted toward --warn-after and --fail-after`, so
+  `--warn-after 1` reports nothing. Again with `--warn-after 0.1` on a fresh cache: `warning
+  [gate/budget]: the run took 287 ms, not counting 3072 ms compiling 9 plugins, over --warn-after
+  100 ms`.
+- Cold, one plugin per repository: compile CPU 0.57 s (docs) to 5.57 s (nestjs), `load` 55 to
+  530 ms.
+- `gate doctor` before any run: `fix  compiled: 9 plugins are not compiled yet under gate 0.2.1
+  (...)`. On a fresh cache, `gate sync` took 1.56 s; then doctor says `ok   compiled`, and the
+  next check loads the five plugins with a call from the module cache: `modules: 5 from the
+  cache, 0 compiled`, `load` 2 ms.
+- `describe` prints as 0 ms: under a millisecond at this load (the line rounds down).
 
 ## Resume point
 
-2026-11-21T06:12:03+00:00: the three tests adjusted; next: one lane round on the new tip, then the
-measurements on the built tip.
+2026-11-21T06:55:08+00:00: lane round 429 green on `d0eeb001` (`T-086/lane/run-3.log`),
+measurements on the built tip in this file. Next: the T-085 rebase when the lead says so,
+`Loading::UpFront` in its `load` call, one round.
