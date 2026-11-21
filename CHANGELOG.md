@@ -230,6 +230,12 @@ Each shared plugin keeps its own changelog next to its code.
   directory is synced after the rename; a failed write leaves the old file and no temporary file.
   Before, a crash could leave an empty `gate.lock`, and `gate sync` and `gate init` wrote in place,
   so a `bin/gate` that ran meanwhile could read half a launcher.
+- **baseline:** `gate baseline write` and `gate baseline prune` replace `gate/baseline.json` whole,
+  through the same synced temporary file and rename, so a `gate check` never reads part of it. The
+  two take turns on an advisory lock on `gate.baseline.guard` in the worktree's git directory. A
+  prune reads the baseline again once it holds the lock, so a baseline another run wrote during its
+  check is what it prunes. Before, prune wrote over it from the baseline it had read earlier: an
+  entry the other run added was lost, or one it removed came back.
 
 ## [0.2.1](https://github.com/ElsiKora/Gate/compare/v0.2.0...v0.2.1) (2026-11-20)
 

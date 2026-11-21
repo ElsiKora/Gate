@@ -96,10 +96,18 @@ impl Baseline {
     /// Fails when the file is not the baseline format, or an entry's fingerprint does not match its
     /// fields (the file was edited by hand).
     pub fn load(snapshot: &Snapshot) -> Result<Self> {
-        let Some(text) = snapshot.text(BASELINE_FILE)? else {
-            return Ok(Self::default());
-        };
-        let file: BaselineFile = serde_json::from_str(&text).map_err(|error| {
+        match snapshot.text(BASELINE_FILE)? {
+            Some(text) => Self::parse(&text),
+            None => Ok(Self::default()),
+        }
+    }
+
+    /// The baseline in `text`, the contents of `gate/baseline.json`.
+    ///
+    /// # Errors
+    /// As [`Baseline::load`].
+    pub fn parse(text: &str) -> Result<Self> {
+        let file: BaselineFile = serde_json::from_str(text).map_err(|error| {
             Error::config(format!(
                 "{BASELINE_FILE}:{}:{}: {error}; rewrite it with gate baseline write",
                 error.line(),

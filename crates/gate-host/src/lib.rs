@@ -250,10 +250,12 @@ pub struct BaselineWritten {
 
 /// Runs a full check of the working tree and writes the fingerprints of its findings (after
 /// exceptions, without the core's own) to `gate/baseline.json`, replacing it: for the first
-/// baseline. Once findings are fixed, [`prune_baseline`] drops their entries and adds none.
+/// baseline. Once findings are fixed, [`prune_baseline`] drops their entries and adds none. The
+/// file is replaced whole while the run holds the baseline's guard ([`lock::Guard::take_baseline`]),
+/// so a reader never sees part of it and a prune running meanwhile never overwrites it.
 ///
 /// # Errors
-/// Fails like [`check`], and when the file cannot be written.
+/// Fails like [`check`], when the guard cannot be taken, and when the file cannot be written.
 pub fn write_baseline(start: &Path) -> Result<BaselineWritten> {
     let request = CheckRequest {
         source: Some(Source::WorkTree),
@@ -274,8 +276,9 @@ pub fn write_baseline(start: &Path) -> Result<BaselineWritten> {
             Error::environment(format!("cannot create {}: {error}", directory.display()))
         })?;
     }
-    std::fs::write(&path, baseline.to_json()?)
-        .map_err(|error| Error::environment(format!("cannot write {}: {error}", path.display())))?;
+    let guard = lock::Guard::take_baseline(run.workspace.snapshot().git())?;
+    files::replace(&path, baseline.to_json()?.as_bytes())?;
+    drop(guard);
     let tracked = !run
         .workspace
         .snapshot()
@@ -310,11 +313,14 @@ pub struct BaselinePruned {
 /// entry written without a key for a finding its plugin now keys is re-keyed, and the entries
 /// `gate check` reports as stale (they match no finding although their rule ran, an aspect set to
 /// `off` included) are removed. It never adds an entry, so a new finding stays reported. The file is
-/// rewritten only when an entry changes.
+/// rewritten only when an entry changes. The check runs first; then, holding the baseline's guard
+/// ([`lock::Guard::take_baseline`]), the run reads the file again, prunes what it reads and
+/// replaces it whole, so a baseline another run wrote meanwhile is pruned, never overwritten.
 ///
 /// # Errors
 /// Fails like [`check`], when the baseline does not load, when `gate/baseline.json` exists but git
-/// does not track it (gate would read none of it), and when the file cannot be written.
+/// does not track it (gate would read none of it), when the guard cannot be taken, and when the
+/// file cannot be written.
 pub fn prune_baseline(start: &Path) -> Result<BaselinePruned> {
     let request = CheckRequest {
         source: Some(Source::WorkTree),
@@ -339,10 +345,19 @@ pub fn prune_baseline(start: &Path) -> Result<BaselinePruned> {
         &Baseline::default(),
         &run.ran.per_scope,
     );
-    let pruned = run
-        .workspace
-        .baseline()
-        .pruned(&findings, &run.ran.per_scope);
+    // Read under the guard: a baseline another run wrote while this one checked is what is pruned.
+    let guard = lock::Guard::take_baseline(run.workspace.snapshot().git())?;
+    let current = match std::fs::read_to_string(&path) {
+        Ok(text) => Baseline::parse(&text)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Baseline::default(),
+        Err(error) => {
+            return Err(Error::environment(format!(
+                "cannot read {}: {error}",
+                path.display()
+            )));
+        }
+    };
+    let pruned = current.pruned(&findings, &run.ran.per_scope);
     let unaccepted = pruned
         .baseline
         .accept(&findings)
@@ -352,10 +367,9 @@ pub fn prune_baseline(start: &Path) -> Result<BaselinePruned> {
         .filter(|(accepted, finding)| !**accepted && !baseline::is_core(&finding.rule))
         .count();
     if !pruned.removed.is_empty() || !pruned.rekeyed.is_empty() {
-        std::fs::write(&path, pruned.baseline.to_json()?).map_err(|error| {
-            Error::environment(format!("cannot write {}: {error}", path.display()))
-        })?;
+        files::replace(&path, pruned.baseline.to_json()?.as_bytes())?;
     }
+    drop(guard);
 
     Ok(BaselinePruned {
         kept: pruned.baseline.len(),
