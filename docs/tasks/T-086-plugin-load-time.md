@@ -6,7 +6,7 @@
 | Release | v0.3.0 |
 | Writer | "Gate 002" |
 | Reviewer | a session that did not write it |
-| Depends on | `main` at `6b36eeac` |
+| Depends on | `main` at `f319843b` (T-085) |
 | Touches | `crates/gate-runtime/src/runtime.rs`, `crates/gate-host/src/plugins.rs`, `crates/gate-host/src/lib.rs`, `crates/gate-host/src/cli.rs`, `crates/gate-host/src/doctor/mod.rs`, `crates/gate/src/main.rs`, their tests, `docs/guide`, `CHANGELOG.md` |
 
 ## Goal
@@ -246,8 +246,19 @@ Load average 31 to 39 throughout (`uptime`, 06:53 to 06:54 UTC).
   cache, 0 compiled`, `load` 2 ms.
 - `describe` prints as 0 ms: under a millisecond at this load (the line rounds down).
 
+## Rebase onto T-085
+
+Rebased onto `main` at `f319843b`. Conflicts: `CHANGELOG.md` (both entries kept), the exports of
+`lib.rs` (both kept), and in `plugins.rs` the declaration read (T-085's `usable_declaration`, now
+read for every declared plugin), the call planning (T-085's `own` with this task's sha256) and
+the result store (T-085's `with_judged` with this task's key). T-085's `preset_settings` loads
+with `Loading::UpFront` and `Needed::Only` of no plugin: no plugin is wanted, so a stored
+declaration is used and the others are read from the cache, which its own check requires; nothing
+is downloaded. T-085's `record_judged` line put `Loaded::run` one line over clippy's limit again;
+the `enabled_rules` call is one line. `BUDGET_HELP` no longer speaks of compiling; the budget
+message says how much compiling was left out.
+
 ## Resume point
 
-2026-11-21T06:55:08+00:00: lane round 429 green on `d0eeb001` (`T-086/lane/run-3.log`),
-measurements on the built tip in this file. Next: the T-085 rebase when the lead says so,
-`Loading::UpFront` in its `load` call, one round.
+2026-11-21T07:51:59+00:00: rebased onto `f319843b`; next: one lane round on the pushed
+tip, then the lead merges.

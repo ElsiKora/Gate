@@ -1100,13 +1100,12 @@ impl Loaded {
                 .map(|project| project.root.clone());
             let own = own_config(workspace, project);
             for name in settings.plugins.keys() {
-                let (Some(sha256), Some(declaration)) =
+                let (Some(sha256), Some(declared)) =
                     (self.sha256_of(name), self.declarations.get(name))
                 else {
                     continue;
                 };
-                let mut rules =
-                    enabled_rules(&declaration.info, name, settings, workspace, project)?;
+                let mut rules = enabled_rules(&declared.info, name, settings, workspace, project)?;
                 rules.retain(|rule| {
                     filter.allows(&rule.id.to_string())
                         && (!message_run || self.reads_message(name, &rule.run.name))
