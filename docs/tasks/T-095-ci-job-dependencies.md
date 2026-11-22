@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design sent to the lead |
+| Status | in review |
 | Release | `v0.3.1` (additive; the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate 011" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
-| Depends on | `main` at `ec3b2c9` |
-| Touches | `crates/gate-host/src/config` (`[ci.github.jobs.<id>]` keys and their checks), `crates/gate-host/src/sync/github.rs` (the workflow), tests in `crates/gate/tests` and `crates/gate-host/tests`, `docs/guide/configuration.md`, `CHANGELOG.md`, `docs/plan.md`, this task file |
+| Depends on | `main` at `1f5012d` |
+| Touches | `crates/gate-host/src/config` (`[ci.github.jobs.<id>]` keys and their checks), `crates/gate-host/src/sync/github.rs` (the workflow), tests in `crates/gate/tests/cli.rs` and `crates/gate/tests/plugins.rs`, `Cargo.lock` (`url` 2.5.9), `docs/guide/configuration.md`, `CHANGELOG.md`, `docs/plan.md`, this task file |
 
 ## Goal
 
@@ -82,9 +82,35 @@ Configuration errors at load (exit 2), each after `[ci.github] jobs.<id>: `:
 
 ## Proof
 
-Not yet run.
+The lead approved the design as written, and asked the guide and the tests to state how a skipped or
+failed job in `needs` behaves, and the guide to say one job per cell in place of a matrix.
+
+`cargo deny check` failed on `main`'s lock (`1f5012d`): RUSTSEC-2026-0592, `url` 2.5.8. A commit of its
+own, `fix(deps): url 2.5.9`, runs `cargo update --offline -p url --precise 2.5.9` (`url` 2.5.9,
+`form_urlencoded` 1.2.3, nothing else).
+
+Lane round on `8122c6c`, `one-gate.sh` in Gate's lane, from 2026-11-22T20:46:01+00:00 to
+2026-11-22T21:06:22+00:00 (load 50 to 180), in a detached worktree of the commit, each workspace
+crate compiled from it:
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1606 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+| `cargo build --release --offline --locked -j 4` | 0 |
+
+The tests of this task in that run, each `ok`: `a_completed_job_runs_after_its_jobs_whatever_their_result_unless_the_run_is_cancelled`,
+`a_succeeded_job_runs_only_when_every_job_it_names_succeeded`,
+`a_job_with_needs_and_projects_needs_changes_first_and_keeps_the_projects_condition`,
+`the_aggregate_job_needs_a_job_with_needs_too`, `sync_check_reports_an_edited_needs_or_if_of_a_job_with_needs`,
+`a_needs_or_when_that_cannot_hold_is_a_configuration_error`, and `the_generated_workflow_meets_the_ci_standard`
+with a `needs`/`when` job under `ci/recommended`.
+
+The leak scan of the local rules printed nothing, for the tree and with `--branch origin/main`.
 
 ## Resume point
 
-2026-11-22T20:25:31+00:00: task file written on `task/T-095-ci-job-dependencies` off `main` at
-`ec3b2c9`; the design went to the lead. Next: wait for the lead's answer, then implement.
+2026-11-22T21:06:25+00:00: on `task/T-095-ci-job-dependencies`, rebased on `main` at `1f5012d`; every
+gate green on `8122c6c`. Next: the lead reads the change and names a reviewer; no merge here.
