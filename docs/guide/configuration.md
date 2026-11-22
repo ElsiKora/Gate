@@ -586,7 +586,8 @@ bin/gate check --commit-message "$1" --hook
 ```
 
 git passes the hook the file that holds the message being written as `$1`; `--commit-message`
-checks that message with the rules that read it, such as `git/commit-message`, besides the tree.
+checks only that message, with the rules that read it, such as `git/commit-message`; it checks no
+tree.
 
 `pre-push` (in Husky, `.husky/pre-push`):
 
@@ -719,6 +720,11 @@ configuration error and writes nothing. Anywhere else, `gate check` downloads th
 closed if it is not the pinned file; when the asset is not found, the error says to publish it or to
 admit the build with `--file`. A refused or missing credential keeps its own message, since the asset
 may be private.
+
+A repository that pins a plugin it builds itself adopts a core release that changes the plugin
+interface on one upgrade branch that moves the core, the shared plugins and its own plugin to a
+pre-release build together; see
+[writing-a-plugin.md](writing-a-plugin.md#adopting-a-core-release-that-changes-the-plugin-interface).
 
 ## ⏱ Time Budgets
 

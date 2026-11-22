@@ -289,6 +289,48 @@ itself. The release job:
 4. commits `gate.lock` as the release commit and tags it `plugin-todo-v<version>`;
 5. uploads the same file as the tag's asset.
 
+### Adopting a Core Release That Changes the Plugin Interface
+
+A Gate release that changes the plugin interface (its `CHANGELOG.md` names it, such as
+`gate:plugin@0.3.0`) loads only plugins built for it. A repository that pins a plugin it builds
+itself, say `acme/rules:product`, and moves that pin only in a release commit
+(`release-plugin = "acme/rules:product"` of
+[`git/main-history`](../../plugins/git/rules/main-history.md#releasing-a-plugin)) adopts such a release
+on one upgrade branch, so that every commit of `main` pins a set of core and plugins that loads
+together:
+
+1. On the upgrade branch, rebuild the plugin with the new release's `gate-sdk` and
+   `scripts/build-component.sh`, both from the new release's tag, and give it a pre-release version,
+   such as `1.4.0-rc.1`.
+2. Publish that build before the branch's CI runs: tag a commit of the branch
+   `plugin-product-v1.4.0-rc.1` and upload the build as the asset `product.wasm` of a published
+   GitHub release of that tag (a pre-release, not a draft).
+3. Move the core and the shared plugins: `[gate] version` and each `ElsiKora/Gate:<plugin>@<version>`
+   in `gate.toml`, keeping the plugin's own pin, then `bin/gate lock`.
+4. Move the plugin's own pin to the pre-release, `source = "acme/rules:product@1.4.0-rc.1"`, and pin
+   the build you published:
+
+   ```bash
+   bin/gate lock --set product=https://github.com/acme/rules/releases/download/plugin-product-v1.4.0-rc.1/product.wasm --file target/product.wasm
+   ```
+
+5. Commit `gate.toml` and `gate.lock` on the branch, let its required job pass, and merge it.
+
+The branch's own required job proves the set: the jobs `gate sync` generates run `gate check` with
+`--no-overrides` and fetch every pin from its `url`, so the pre-release asset must exist and be
+readable with the job's `GATE_GITHUB_TOKEN`. A missing asset or one that is not the pinned file fails
+the job, closed. A version takes `<major>.<minor>.<patch>[-<pre-release>]` in a `source` and in a
+`gate.lock` key alike.
+
+`git/main-history` judges the merge commit only by its form (`body`, `branch`, `sync` and `tree`),
+never by the pin files it brings in, so the branch moves every pin at once in an ordinary merge.
+
+The next release commit, `chore(release): 1.4.0`, moves the plugin's pin from the pre-release to the
+release: `source` to `acme/rules:product@1.4.0`, and its `gate.lock` entry with
+`bin/gate lock --set product=<the 1.4.0 asset URL> --file <the build>`, as in the release job above.
+`release-plugin` admits that move. Its `<file>#version` check reads only the version the pin moves
+to, which must be the release's, so the pre-release it moves from passes.
+
 ## 7. Pin It
 
 ```toml

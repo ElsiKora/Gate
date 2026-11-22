@@ -118,6 +118,8 @@ reference for every ported rule is the reference implementation, outside this re
 | T-091 | - | Gate checks itself with the released 0.3.0; the plan says what `v0.3.0` holds | done (merged at `9b7bdfd`) | T-090 |
 | T-092 | - | A rule option that fails a `oneOf` prints the validator's raw text (`... is not valid under any of the schemas listed in the 'oneOf' keyword`, seen on `"git/branch-name"` with `options = {}`); the same class as trial finding 5, which T-085 fixed for enums | open | none |
 | T-093 | - | `nestjs/wrappers`: the arguments of a message-factory call that is a Nest exception's message are static (a literal, an enum member or a class identifier, followed through the rule's provenance), so no error code is built from runtime data; a justified case is a rule exception | open (backlog, no release planned) | none |
+| T-094 | - | The guide says how a repository that pins a plugin of its own adopts a core release that changes the plugin interface (an upgrade branch with a pre-release build); the hooks text says `--commit-message` checks only the message | open | none |
+| T-096 | - | `git/main-history`: remove `release-all-pins` in a future release; the upgrade-branch path of T-094 covers an interface change, and the option admits the wide form in every release commit | open (backlog, no release planned) | T-094 |
 
 ## Open after rc.1
 
@@ -194,5 +196,5 @@ marks done names its merge commit on `main`, from `git log --merges`; T-001 to T
 merged before the public root (`59fb163`, `v0.1.0`).
 
 Under the `v0.3.0` tag, merged after `v0.2.1`: T-044, T-048, T-052, T-053, T-055, T-057, T-059, T-061, T-062, T-063, T-064, T-065, T-066, T-066b, T-067, T-068, T-069, T-071, T-071b, T-072, T-073, T-074, T-075, T-076, T-077, T-077b, T-078, T-079, T-079b, T-080, T-080b, T-081, T-082, T-083, T-084, T-085, T-086, T-087, T-088, T-088b, T-089 and T-090. After
-it: T-091 done (merged at `9b7bdfd`); T-092 open. The `nestjs` and `ledger` lines of the second
+it: T-091 done (merged at `9b7bdfd`); T-092 and T-094 open; T-093 and T-096 backlog. The `nestjs` and `ledger` lines of the second
 consumer's list stay backlog after `v0.3.0`. The task table above is the state.
