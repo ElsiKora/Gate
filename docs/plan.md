@@ -121,6 +121,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-094 | - | The guide says how a repository that pins a plugin of its own adopts a core release that changes the plugin interface (an upgrade branch with a pre-release build); the hooks text says `--commit-message` checks only the message | done (documents only, merged on `main` after `v0.3.0`) | none |
 | T-095 | v0.3.1 | A `[ci.github.jobs.<id>]` job runs after other generated jobs: `needs` and `when = "succeeded" \| "completed"`, written as GitHub `needs:` and `if:`; additive, the plugin interface stays `gate:plugin@0.3.0` | done (reviewed, one fix round; gates green on `21bdc78`; includes `url` 2.5.9 for RUSTSEC-2026-0592) | none |
 | T-096 | - | `git/main-history`: remove `release-all-pins` in a future release; the upgrade-branch path of T-094 covers an interface change, and the option admits the wide form in every release commit | open (backlog, no release planned) | T-094 |
+| T-097 | v0.3.1 | Version 0.3.1 for the core and its changelog; every plugin stays at 0.3.0 and the plugin interface at `gate:plugin@0.3.0` | in progress | T-095 |
 
 ## Open after rc.1
 
