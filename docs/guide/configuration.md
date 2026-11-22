@@ -25,7 +25,7 @@ project when it moves to another repository.
 `gate list --origin` prints every setting of every project with the file and section it came from.
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.0/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.1/gate.schema.json
 ```
 
 ## ✅ Validation
@@ -49,7 +49,7 @@ file, the key and what is expected, with exit code `2`:
 
 ```toml
 [gate]
-version = "0.3.0"
+version = "0.3.1"
 ```
 
 | Key | Meaning |

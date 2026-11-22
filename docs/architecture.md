@@ -275,10 +275,10 @@ between repositories.
 Root:
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.0/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.1/gate.schema.json
 
 [gate]
-version = "0.3.0"                     # the pinned core; checksums in gate.lock
+version = "0.3.1"                     # the pinned core; checksums in gate.lock
 
 [workspace]
 projects = "pnpm"                     # discover from pnpm-workspace.yaml; or a list of globs
