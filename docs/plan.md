@@ -117,6 +117,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-090 | v0.3.0 | Version 0.3.0 for the core and every plugin, and its changelog headings | done (merged at `3e285e1`) | T-089 |
 | T-091 | - | Gate checks itself with the released 0.3.0; the plan says what `v0.3.0` holds | done (merged at `9b7bdfd`) | T-090 |
 | T-092 | - | A rule option that fails a `oneOf` prints the validator's raw text (`... is not valid under any of the schemas listed in the 'oneOf' keyword`, seen on `"git/branch-name"` with `options = {}`); the same class as trial finding 5, which T-085 fixed for enums | open | none |
+| T-093 | - | `nestjs/wrappers`: the arguments of a message-factory call that is a Nest exception's message are static (a literal, an enum member or a class identifier, followed through the rule's provenance), so no error code is built from runtime data; a justified case is a rule exception | open (backlog, no release planned) | none |
 
 ## Open after rc.1
 
