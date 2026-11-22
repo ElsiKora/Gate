@@ -683,14 +683,24 @@ job, `--push` takes no value: the job passes the pull request's or the push's ra
 | `"completed"` | whenever they finished, whatever their result, unless the run was cancelled | `${{ !cancelled() }}` |
 
 The generated `needs:` holds `changes` first when the job lists `projects`, then the named jobs as
-written; with `projects`, the condition starts with the projects condition (below) instead of the
-bare `!cancelled()`. A job in `needs` that was skipped, because none of its `projects` changed, skips
+written; with `projects`, the condition starts with the job's projects condition instead of the
+bare `!cancelled()`:
+`!cancelled() && (needs.changes.result != 'success' || contains(fromJSON(needs.changes.outputs.projects), 'site'))`
+for `projects = ["site"]`, one `contains` per project. A job in `needs` that was skipped, because none of its `projects` changed, skips
 a `"succeeded"` job, since its result is not `success`, and does not stop a `"completed"` job, since
 `!cancelled()` still holds; a failed one does the same. So a reports job with `when = "completed"`
 runs after a red test suite. The aggregate job needs every job, a job with `needs` too. `needs`
 naming a job `[ci.github.jobs]` does not have, the job itself, `changes`, the `aggregate` id or a
 job twice, `needs` that form a cycle, and `when` without `needs` or `needs` without `when` are
 configuration errors.
+
+One combination can let a change through untested: a job with `projects` of its own and
+`when = "succeeded"` is skipped when a job in its `needs` was skipped because that job's projects did
+not change, even when the job's own projects did, and the aggregate job counts both skips as
+passing. With an `e2e` job of `projects = ["site"]` that needs a `build-api` job of
+`projects = ["api"]`, a change to `site` alone skips `build-api`, and so `e2e` too. When the later
+job must run whenever its own projects change, give it `when = "completed"`, or leave `projects` off
+the job it names.
 
 There is no matrix: a job that ran once per cell of a matrix becomes one job per cell, such as
 `unit-api` and `unit-site`, each with its own `run`, and a job that runs after all of them names

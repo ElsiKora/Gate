@@ -56,7 +56,7 @@ Configuration errors at load (exit 2), each after `[ci.github] jobs.<id>: `:
 - `needs names "changes", the generated job that lists the changed projects; list projects instead`
 - `needs names "<aggregate>", the aggregate job, which runs after every job; remove it`
 - `needs names "x" twice; name each job once`
-- `when is not set; with needs, write when = "succeeded" (every job in needs succeeded) or when = "completed" (they finished and the run was not cancelled)`
+- `when is not set; with needs, write when = "succeeded" (the job runs only when every job in needs succeeded) or when = "completed" (it runs whenever they finished and the run was not cancelled)`
 - `when is set without needs; name the jobs in needs or remove when`
 - `when = "x"`: refused by the parser, naming the two values
 - a cycle: `needs forms a cycle: a -> b -> a; remove one of these needs`
