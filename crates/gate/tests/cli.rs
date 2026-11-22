@@ -2295,15 +2295,9 @@ enum Value {
     List(Vec<String>),
 }
 
-/// The generated `${{ ... }}` condition evaluated for `run`, as GitHub evaluates it. It knows
-/// only what the generator may write (`!`, `&&`, `||`, parentheses, `==`, `!=`, `cancelled()`,
-/// `contains`, `fromJSON`, `needs.<id>.result`, `needs.changes.outputs.projects`) and panics on
-/// anything else, such as `success()` or `always()`.
-fn evaluate(condition: &str, run: &Run<'_>) -> bool {
-    let inner = condition
-        .strip_prefix("${{ ")
-        .and_then(|rest| rest.strip_suffix(" }}"))
-        .unwrap_or_else(|| panic!("not an expression: {condition}"));
+/// The tokens of a GitHub expression: operators, parentheses, commas, words, and strings with a
+/// leading `'`.
+fn tokenize(inner: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut chars = inner.chars().peekable();
     while let Some(&next) = chars.peek() {
@@ -2347,118 +2341,131 @@ fn evaluate(condition: &str, run: &Run<'_>) -> bool {
             }
         }
     }
+    tokens
+}
 
-    struct Parser<'t, 'r> {
-        tokens: &'t [String],
-        at: usize,
-        run: &'r Run<'r>,
+/// A parser of the tokens of a generated condition that evaluates it for `run` as it goes.
+struct Parser<'t, 'r> {
+    tokens: &'t [String],
+    at: usize,
+    run: &'r Run<'r>,
+}
+
+impl Parser<'_, '_> {
+    fn peek(&self) -> Option<&str> {
+        self.tokens.get(self.at).map(String::as_str)
     }
-
-    impl Parser<'_, '_> {
-        fn peek(&self) -> Option<&str> {
-            self.tokens.get(self.at).map(String::as_str)
+    fn take(&mut self) -> String {
+        let token = self.tokens[self.at].clone();
+        self.at += 1;
+        token
+    }
+    fn expect(&mut self, token: &str) {
+        assert_eq!(self.take(), token);
+    }
+    fn or(&mut self) -> Value {
+        let mut left = self.and();
+        while self.peek() == Some("||") {
+            self.take();
+            let right = self.and();
+            left = Value::Bool(left == Value::Bool(true) || right == Value::Bool(true));
         }
-        fn take(&mut self) -> String {
-            let token = self.tokens[self.at].clone();
-            self.at += 1;
-            token
+        left
+    }
+    fn and(&mut self) -> Value {
+        let mut left = self.comparison();
+        while self.peek() == Some("&&") {
+            self.take();
+            let right = self.comparison();
+            left = Value::Bool(left == Value::Bool(true) && right == Value::Bool(true));
         }
-        fn expect(&mut self, token: &str) {
-            assert_eq!(self.take(), token);
-        }
-        fn or(&mut self) -> Value {
-            let mut left = self.and();
-            while self.peek() == Some("||") {
+        left
+    }
+    fn comparison(&mut self) -> Value {
+        let left = self.unary();
+        match self.peek() {
+            Some("==") => {
                 self.take();
-                let right = self.and();
-                left = Value::Bool(left == Value::Bool(true) || right == Value::Bool(true));
+                Value::Bool(left == self.unary())
             }
-            left
-        }
-        fn and(&mut self) -> Value {
-            let mut left = self.comparison();
-            while self.peek() == Some("&&") {
+            Some("!=") => {
                 self.take();
-                let right = self.comparison();
-                left = Value::Bool(left == Value::Bool(true) && right == Value::Bool(true));
+                Value::Bool(left != self.unary())
             }
-            left
+            _ => left,
         }
-        fn comparison(&mut self) -> Value {
-            let left = self.unary();
-            match self.peek() {
-                Some("==") => {
-                    self.take();
-                    Value::Bool(left == self.unary())
+    }
+    fn unary(&mut self) -> Value {
+        if self.peek() == Some("!") {
+            self.take();
+            return Value::Bool(self.unary() != Value::Bool(true));
+        }
+        let token = self.take();
+        if token == "(" {
+            let value = self.or();
+            self.expect(")");
+            return value;
+        }
+        if let Some(text) = token.strip_prefix('\'') {
+            return Value::Text(text.to_owned());
+        }
+        match token.as_str() {
+            "cancelled" => {
+                self.expect("(");
+                self.expect(")");
+                Value::Bool(self.run.cancelled)
+            }
+            "contains" => {
+                self.expect("(");
+                let list = self.or();
+                self.expect(",");
+                let item = self.or();
+                self.expect(")");
+                match (list, item) {
+                    (Value::List(list), Value::Text(item)) => Value::Bool(list.contains(&item)),
+                    other => panic!("contains({other:?})"),
                 }
-                Some("!=") => {
-                    self.take();
-                    Value::Bool(left != self.unary())
-                }
-                _ => left,
             }
-        }
-        fn unary(&mut self) -> Value {
-            if self.peek() == Some("!") {
-                self.take();
-                return Value::Bool(self.unary() != Value::Bool(true));
-            }
-            let token = self.take();
-            if token == "(" {
+            "fromJSON" => {
+                self.expect("(");
                 let value = self.or();
                 self.expect(")");
-                return value;
+                value
             }
-            if let Some(text) = token.strip_prefix('\'') {
-                return Value::Text(text.to_owned());
-            }
-            match token.as_str() {
-                "cancelled" => {
-                    self.expect("(");
-                    self.expect(")");
-                    Value::Bool(self.run.cancelled)
-                }
-                "contains" => {
-                    self.expect("(");
-                    let list = self.or();
-                    self.expect(",");
-                    let item = self.or();
-                    self.expect(")");
-                    match (list, item) {
-                        (Value::List(list), Value::Text(item)) => Value::Bool(list.contains(&item)),
-                        other => panic!("contains({other:?})"),
-                    }
-                }
-                "fromJSON" => {
-                    self.expect("(");
-                    let value = self.or();
-                    self.expect(")");
-                    value
-                }
-                "needs.changes.outputs.projects" => Value::List(
-                    self.run
-                        .projects
-                        .iter()
-                        .map(|project| (*project).to_owned())
-                        .collect(),
-                ),
-                word => {
-                    let id = word
-                        .strip_prefix("needs.")
-                        .and_then(|rest| rest.strip_suffix(".result"))
-                        .unwrap_or_else(|| panic!("the generator writes no {word:?}"));
-                    let result = self
-                        .run
-                        .results
-                        .iter()
-                        .find(|(job, _)| *job == id)
-                        .map_or_else(|| panic!("no result for {id}"), |(_, result)| *result);
-                    Value::Text(result.to_owned())
-                }
+            "needs.changes.outputs.projects" => Value::List(
+                self.run
+                    .projects
+                    .iter()
+                    .map(|project| (*project).to_owned())
+                    .collect(),
+            ),
+            word => {
+                let id = word
+                    .strip_prefix("needs.")
+                    .and_then(|rest| rest.strip_suffix(".result"))
+                    .unwrap_or_else(|| panic!("the generator writes no {word:?}"));
+                let result = self
+                    .run
+                    .results
+                    .iter()
+                    .find(|(job, _)| *job == id)
+                    .map_or_else(|| panic!("no result for {id}"), |(_, result)| *result);
+                Value::Text(result.to_owned())
             }
         }
     }
+}
 
+/// The generated `${{ ... }}` condition evaluated for `run`, as GitHub evaluates it. It knows
+/// only what the generator may write (`!`, `&&`, `||`, parentheses, `==`, `!=`, `cancelled()`,
+/// `contains`, `fromJSON`, `needs.<id>.result`, `needs.changes.outputs.projects`) and panics on
+/// anything else, such as `success()` or `always()`.
+fn evaluate(condition: &str, run: &Run<'_>) -> bool {
+    let inner = condition
+        .strip_prefix("${{ ")
+        .and_then(|rest| rest.strip_suffix(" }}"))
+        .unwrap_or_else(|| panic!("not an expression: {condition}"));
+    let tokens = tokenize(inner);
     let mut parser = Parser {
         tokens: &tokens,
         at: 0,
