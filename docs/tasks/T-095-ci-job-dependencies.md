@@ -110,7 +110,37 @@ with a `needs`/`when` job under `ci/recommended`.
 
 The leak scan of the local rules printed nothing, for the tree and with `--branch origin/main`.
 
+### Review fix round
+
+An independent review of `37f7c3d` found nothing blocking; the lead asked for one fix round: a guide
+warning that a job with `projects` and `when = "succeeded"` is skipped with a named job whose
+projects did not change (the `e2e` / `build-api` example), the projects condition quoted where the
+guide refers to it, this file's when-not-set message matching the code, and a test that a
+configuration without `needs` or `when` generates the workflow 0.3.0 wrote.
+
+The expected bytes of that test come from the released core: a synthetic root (projects, `after`,
+`steps`, `services`, `setup`, `working-directory`, `fetch-depth`, `budget`, `environment`,
+`permissions`, `aggregate`) in a scratch repository with this repository's `bin/gate` and the core
+pins of `gate.lock`; `bin/gate --version` printed `gate 0.3.0`, `bin/gate sync` exited 0 and
+`bin/gate sync --check` exited 0. `shasum -a 256` of the workflow:
+`66faec8c3c72fba95e8448c7985229b7c3efe836f4d895d69a0398c64bc2d8f9`.
+
+Lane round on `21bdc78`, from 2026-11-22T21:14:58+00:00 to 2026-11-22T21:34:43+00:00 (load 60 to
+100), in a detached worktree of the commit, each workspace crate compiled from it. The round on
+`9af268b` before it stopped at clippy (two raw strings with a needless hash), fixed in `21bdc78`.
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1607 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+| `cargo build --release --offline --locked -j 4` | 0 |
+
+`a_configuration_without_needs_generates_the_workflow_0_3_0_generated` and the seven tests above
+were `ok` in that run. The leak scan printed nothing.
+
 ## Resume point
 
-2026-11-22T21:06:25+00:00: on `task/T-095-ci-job-dependencies`, rebased on `main` at `1f5012d`; every
-gate green on `8122c6c`. Next: the lead reads the change and names a reviewer; no merge here.
+2026-11-22T21:34:50+00:00: the review fix round is in, every gate green on `21bdc78`. Next: the lead
+decides; no merge here.
