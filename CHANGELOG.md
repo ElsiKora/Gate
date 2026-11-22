@@ -8,7 +8,12 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-## [0.3.1](https://github.com/ElsiKora/Gate/compare/v0.3.0...v0.3.1)
+# [0.3.1](https://github.com/ElsiKora/Gate/compare/v0.3.0...v0.3.1) (2026-11-22)
+
+The plugin interface stays `gate:plugin@0.3.0`, so every plugin built for 0.3.0 loads in a 0.3.1
+core, and all 13 plugins stay at 0.3.0. To upgrade, set `[gate] version = "0.3.1"` and run
+`gate lock`; a workflow 0.3.0 wrote from `[ci.github]` is not drift, since a configuration without
+`needs` generates the same bytes.
 
 ### Features
 
@@ -17,8 +22,22 @@ Each shared plugin keeps its own changelog next to its code.
   not cancelled) says how. The workflow gets GitHub `needs:` and an `if:` that starts with
   `!cancelled()` and keeps the job's projects condition; the aggregate job still needs every job.
   An unknown or repeated id, the job itself, `changes`, the aggregate id, a cycle, and `when`
-  without `needs` or the reverse are configuration errors. The plugin interface stays
-  `gate:plugin@0.3.0`.
+  without `needs` or the reverse are configuration errors. ([4c3f181](https://github.com/ElsiKora/Gate/commit/4c3f181101c11f9f44e98012c6005400a101c07d))
+
+### Bug Fixes
+
+- **deps:** `url` 2.5.9 and `form_urlencoded` 1.2.3, for RUSTSEC-2026-0592: `url` 2.5.8 recursed
+  without a limit in `Url::origin()` on nested `blob:` URLs. ([8122c6c](https://github.com/ElsiKora/Gate/commit/8122c6ca34366141ac528776638deb2a3a4f94cb))
+
+### Documentation
+
+- **docs:** a repository that pins a plugin it builds itself adopts a core release that changes
+  the plugin interface on one upgrade branch: the core and the shared plugins move to the release,
+  its own plugin to a published pre-release build pinned with `gate lock --set` and `--file`, and
+  the next release commit moves that pin to the release. The hooks text says a `--commit-message`
+  check checks only the message. ([4d07eb1](https://github.com/ElsiKora/Gate/commit/4d07eb152ca58a1b79b257fefb49f00a2ac266e0), [3037e57](https://github.com/ElsiKora/Gate/commit/3037e5731b734c5297647de232b9da4801cd9f26))
+- **plugin-git:** the `git/main-history` page points a release that changes the plugin interface
+  at the upgrade-branch path, and describes `release-all-pins` only by what it admits. ([b37c468](https://github.com/ElsiKora/Gate/commit/b37c4687d969a0fdfe15028835a00e57af443eb0))
 
 # [0.3.0](https://github.com/ElsiKora/Gate/compare/v0.2.1...v0.3.0) (2026-11-21)
 
