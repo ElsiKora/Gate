@@ -47,11 +47,20 @@ made none.
   (`judge` filters `moved != version`; `config` and `lock` record only the new version).
 - A merge is judged by `body`, `branch`, `sync` and `tree`: `plugins/git/rules/main-history.md`.
 - The generated job's `check` gets `--no-overrides`: `crates/gate-host/src/sync/github.rs`
-  (`command_words`); it passes `GATE_GITHUB_TOKEN`: `crates/gate/tests/cli.rs`.
+  (`command_words`); every `bin/gate` step gets `GATE_GITHUB_TOKEN`, the secret or else the job's
+  token: `crates/gate-host/src/sync/github.rs:56-67` (`TOKEN`, `gate_env`).
 - `gate lock --set` needs an existing lock and pins only the named plugin's declared source:
-  `crates/gate-host/src/lock/mod.rs` (`set`). A private asset is read by its tag through the
-  releases API, which serves a published pre-release and not a draft:
-  `crates/gate-host/src/fetch/mod.rs`.
+  `crates/gate-host/src/lock/mod.rs` (`set`). A private asset is read by its tag through
+  `/repos/<owner>/<repo>/releases/tags/<tag>`: `crates/gate-host/src/fetch/mod.rs`. That GitHub
+  serves a published pre-release there and not a draft is GitHub's API behaviour, not Gate's code.
+- A fetched asset with another sha256 fails closed with a checksum mismatch, and a missing asset
+  with an environment error: `crates/gate-host/src/fetch/mod.rs`, `crates/gate-host/src/plugins.rs`.
+- `git/main-history` loads the plugins a past commit pins: at a direct commit that changes a path
+  outside `documentation`, and at its parent for a removed path, it asks `sync_state`
+  (`plugins/git/src/main_history.rs`), which loads that commit's plugins
+  (`crates/gate-host/src/plugins.rs`, `commit_plugins`); so the pre-release asset stays published.
+- The example release workflow marks a tag whose version has a pre-release part `--prerelease`, so
+  the pinned file is the one its release job built and published.
 
 ## Done when
 
@@ -61,7 +70,8 @@ made none.
 
 ## Resume point
 
-2026-11-22T20:25:33+00:00: written on `task/T-094-core-upgrade-path` off `main` at `ec3b2c9`;
-first head `4d07eb1`. The lead accepted the lock-then-`--set` order and asked the rule page to stop
-recommending `release-all-pins`; that is the second commit. Next: the lead has the branch reviewed
-and merges it.
+2026-11-22T20:33:51+00:00: written on `task/T-094-core-upgrade-path` off `main` at `ec3b2c9`;
+first head `4d07eb1`, then `b37c468` for the rule page. The review's fix round (keep the
+pre-release published, publish it from the release job as `--prerelease`, pin the published file,
+the configuration wording, publish before the push, the toolchain and `gate-test`, the sources
+above) is the third commit. Next: the lead merges.

@@ -722,8 +722,8 @@ admit the build with `--file`. A refused or missing credential keeps its own mes
 may be private.
 
 A repository that pins a plugin it builds itself adopts a core release that changes the plugin
-interface on one upgrade branch that moves the core, the shared plugins and its own plugin to a
-pre-release build together; see
+interface on one upgrade branch that moves the core and the shared plugins to the release, and its
+own plugin to a pre-release build, together; see
 [writing-a-plugin.md](writing-a-plugin.md#adopting-a-core-release-that-changes-the-plugin-interface).
 
 ## ⏱ Time Budgets
