@@ -9,13 +9,13 @@ mod file;
 mod names;
 mod settings;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub use file::{
     Budget, CiGithub, CiJob, CiSection, CiStep, ConfigFile, DecisionPolicy, Exception,
-    ExceptionsFile, GateSection, GenerateEntry, HooksSection, PluginSpec, Profile, ProjectSection,
-    ProjectSources, RuleEntry, RunSection, Setting, Step, StepFiles, Suite, Tool, ToolTarget,
-    WorkspaceSection,
+    ExceptionsFile, GateSection, GenerateEntry, HooksSection, NeedsWhen, PluginSpec, Profile,
+    ProjectSection, ProjectSources, RuleEntry, RunSection, Setting, Step, StepFiles, Suite, Tool,
+    ToolTarget, WorkspaceSection,
 };
 pub use names::{
     CORE_PLUGIN, CORE_RULES, HOOKS, HookName, JobId, Name, PluginItem, PluginName, PluginSource,
@@ -957,7 +957,9 @@ impl Config {
             let fail =
                 |message: String| self.error(at, format!("[ci.github] jobs.{id}: {message}"));
             check_ci_job(job).map_err(fail)?;
+            check_job_needs(id, job, github).map_err(fail)?;
         }
+        check_needs_cycle(github).map_err(fail)?;
 
         Ok(())
     }
@@ -1353,6 +1355,100 @@ fn check_aggregate(github: &CiGithub) -> std::result::Result<(), String> {
         return Err(format!(
             "aggregate = \"{aggregate}\": the id is a job of [ci.github.jobs]; the aggregate is a job of its own, so choose an id no job has"
         ));
+    }
+    Ok(())
+}
+
+/// The `needs` and `when` of the job `id`: each name a job of `[ci.github.jobs]` other than the job
+/// itself, named once, and `when` set exactly when `needs` is. The error is the message after the
+/// job's name.
+fn check_job_needs(id: &JobId, job: &CiJob, github: &CiGithub) -> std::result::Result<(), String> {
+    match (job.needs.is_empty(), job.when) {
+        (false, None) => {
+            return Err(
+                "when is not set; with needs, write when = \"succeeded\" (the job runs only when every job in needs succeeded) or when = \"completed\" (it runs whenever they finished and the run was not cancelled)"
+                    .to_owned(),
+            );
+        }
+        (true, Some(_)) => {
+            return Err(
+                "when is set without needs; name the jobs in needs or remove when".to_owned(),
+            );
+        }
+        _ => {}
+    }
+    let mut named = BTreeSet::new();
+    for need in &job.needs {
+        if need.as_str() == CHANGES_JOB {
+            return Err(format!(
+                "needs names \"{need}\", the generated job that lists the changed projects; list projects instead"
+            ));
+        }
+        if github.aggregate.as_ref() == Some(need) {
+            return Err(format!(
+                "needs names \"{need}\", the aggregate job, which runs after every job; remove it"
+            ));
+        }
+        if need == id {
+            return Err("needs names the job itself; a job cannot run after itself".to_owned());
+        }
+        if !github.jobs.contains_key(need) {
+            return Err(format!(
+                "needs names \"{need}\", which is not a job of [ci.github.jobs]; name a job id the table has"
+            ));
+        }
+        if !named.insert(need) {
+            return Err(format!("needs names \"{need}\" twice; name each job once"));
+        }
+    }
+    Ok(())
+}
+
+/// The `needs` of `[ci.github.jobs]` form no cycle: GitHub refuses a workflow whose jobs wait on
+/// each other. Runs after [`check_job_needs`], so every name is a job of the table.
+fn check_needs_cycle(github: &CiGithub) -> std::result::Result<(), String> {
+    /// Depth-first from `id`; `path` holds the jobs being visited, `done` those with no cycle
+    /// below them. Returns the cycle's ids, first id repeated at the end.
+    fn visit<'a>(
+        id: &'a JobId,
+        github: &'a CiGithub,
+        path: &mut Vec<&'a JobId>,
+        done: &mut BTreeSet<&'a JobId>,
+    ) -> Option<Vec<&'a JobId>> {
+        if done.contains(id) {
+            return None;
+        }
+        if let Some(at) = path.iter().position(|seen| *seen == id) {
+            let mut cycle = path[at..].to_vec();
+            cycle.push(id);
+            return Some(cycle);
+        }
+        path.push(id);
+        let needs = github
+            .jobs
+            .get(id)
+            .map(|job| job.needs.as_slice())
+            .unwrap_or_default();
+        for need in needs {
+            if let Some(cycle) = visit(need, github, path, done) {
+                return Some(cycle);
+            }
+        }
+        path.pop();
+        done.insert(id);
+        None
+    }
+
+    let mut done = BTreeSet::new();
+    for id in github.jobs.keys() {
+        if let Some(cycle) = visit(id, github, &mut Vec::new(), &mut done) {
+            let cycle: Vec<&str> = cycle.iter().map(|id| id.as_str()).collect();
+            return Err(format!(
+                "jobs.{}: needs forms a cycle: {}; remove one of these needs",
+                cycle[0],
+                cycle.join(" -> ")
+            ));
+        }
     }
     Ok(())
 }

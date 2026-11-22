@@ -7725,6 +7725,14 @@ after = [
 ]
 run = ["run unit --push"]
 
+[ci.github.jobs.reports]
+name = "Reports"
+timeout-minutes = 10
+needs = ["lint", "unit"]
+when = "completed"
+projects = ["server"]
+run = ["check"]
+
 [ci.github.jobs.publish]
 name = "Publish"
 timeout-minutes = 15
@@ -7757,6 +7765,10 @@ fn the_generated_workflow_meets_the_ci_standard() {
         "the release is a comment after the pin: {workflow}"
     );
     assert!(workflow.contains("\npermissions: {}\n"), "{workflow}");
+    assert!(
+        workflow.contains("\n    needs:\n      - changes\n      - lint\n      - unit\n"),
+        "a job with needs: {workflow}"
+    );
     repo.commit("sync");
 
     let output = repo.gate(&["check", "--plugin", &ci]);
