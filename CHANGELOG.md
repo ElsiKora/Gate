@@ -8,6 +8,18 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+## [0.3.1](https://github.com/ElsiKora/Gate/compare/v0.3.0...v0.3.1)
+
+### Features
+
+- **host:** a `[ci.github.jobs.<id>]` job runs after other generated jobs: `needs` names them and
+  `when = "succeeded"` (every one succeeded) or `when = "completed"` (they finished and the run was
+  not cancelled) says how. The workflow gets GitHub `needs:` and an `if:` that starts with
+  `!cancelled()` and keeps the job's projects condition; the aggregate job still needs every job.
+  An unknown or repeated id, the job itself, `changes`, the aggregate id, a cycle, and `when`
+  without `needs` or the reverse are configuration errors. The plugin interface stays
+  `gate:plugin@0.3.0`.
+
 # [0.3.0](https://github.com/ElsiKora/Gate/compare/v0.2.1...v0.3.0) (2026-11-21)
 
 ### Breaking Changes

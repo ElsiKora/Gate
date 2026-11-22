@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 
 use super::hooks::LAUNCHER;
 use super::yaml::to_yaml;
-use crate::config::{Budget, CiGithub, CiJob, CiStep, RelativePath};
+use crate::config::{Budget, CiGithub, CiJob, CiStep, NeedsWhen, RelativePath};
 use crate::error::{Error, Result};
 use crate::projects::Projects;
 
@@ -190,11 +190,10 @@ fn checkout(github: &CiGithub, depth: Option<u64>) -> Value {
     json!({ "name": CHECKOUT_STEP, "uses": github.checkout, "with": with })
 }
 
-/// The `if` of a job that needs some projects: it runs when one of them changed, and also when the
-/// `changes` job did not succeed (a base the clone cannot reach, say), since then nobody knows
-/// what changed; a job skipped for that would count as passing.
-#[must_use]
-pub fn projects_condition(projects: &[String]) -> String {
+/// The condition of a job that needs some projects, without `${{ }}`: it runs when one of them
+/// changed, and also when the `changes` job did not succeed (a base the clone cannot reach, say),
+/// since then nobody knows what changed; a job skipped for that would count as passing.
+fn projects_terms(projects: &[String]) -> String {
     let changed = projects
         .iter()
         .map(|project| {
@@ -202,7 +201,35 @@ pub fn projects_condition(projects: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(" || ");
-    format!("${{{{ !cancelled() && (needs.{CHANGES_JOB}.result != 'success' || {changed}) }}}}")
+    format!("!cancelled() && (needs.{CHANGES_JOB}.result != 'success' || {changed})")
+}
+
+/// The `needs:` and `if:` of a job, `None` when it lists neither `projects` nor `needs`.
+///
+/// `needs:` holds `changes` first when the job lists projects, then the jobs of its `needs` as
+/// written. The condition starts with `!cancelled()`, so a failed or skipped job in `needs` never
+/// skips this one by GitHub's implicit `success()`; it adds the projects condition when the job
+/// lists projects, and with `when = "succeeded"` that every job of `needs` succeeded.
+#[must_use]
+pub fn needs_and_condition(job: &CiJob) -> Option<(Vec<String>, String)> {
+    if job.projects.is_empty() && job.needs.is_empty() {
+        return None;
+    }
+    let mut needs = Vec::new();
+    let mut terms = Vec::new();
+    if job.projects.is_empty() {
+        terms.push("!cancelled()".to_owned());
+    } else {
+        needs.push(CHANGES_JOB.to_owned());
+        terms.push(projects_terms(&job.projects));
+    }
+    for need in &job.needs {
+        needs.push(need.to_string());
+        if job.when == Some(NeedsWhen::Succeeded) {
+            terms.push(format!("needs.{need}.result == 'success'"));
+        }
+    }
+    Some((needs, format!("${{{{ {} }}}}", terms.join(" && "))))
 }
 
 /// The words of a job's gate command as the workflow runs it: `check` gets `--no-overrides` and
@@ -256,8 +283,10 @@ fn job_value(
                 )));
             }
         }
-        value.insert("needs".to_owned(), json!([CHANGES_JOB]));
-        value.insert("if".to_owned(), json!(projects_condition(&job.projects)));
+    }
+    if let Some((needs, condition)) = needs_and_condition(job) {
+        value.insert("needs".to_owned(), json!(needs));
+        value.insert("if".to_owned(), json!(condition));
     }
 
     if let Some(minutes) = job.timeout_minutes {

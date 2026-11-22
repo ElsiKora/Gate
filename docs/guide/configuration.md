@@ -646,6 +646,13 @@ name = "Unit tests"
 projects = ["server"]
 timeout-minutes = 30
 run = ["run unit --push"]
+
+[ci.github.jobs.reports]
+name = "Reports"
+needs = ["gate", "unit"]
+when = "completed"
+timeout-minutes = 10
+run = ["run reports"]
 ```
 
 | `[ci.github]` key | Meaning |
@@ -663,9 +670,41 @@ A job keeps the id and the `name` you give it and takes `run` (the gate commands
 time limit in minutes), `runs-on`, `permissions` (defaults to `{ contents = "read" }`), `environment`
 (the deployment environment whose protection rules guard what the job writes), `services`, `steps`
 (before the gate commands), `after` (after them, each with an optional `if`), `working-directory`,
-`fetch-depth`, `budget` and `projects`. A step is an action pinned by commit (`uses`, `with`, the
+`fetch-depth`, `budget`, `projects`, `needs` and `when`. A step is an action pinned by commit (`uses`, `with`, the
 release after ` # ` as for `checkout`) or a shell command (`run`, `env`, `working-directory`). In a
 job, `--push` takes no value: the job passes the pull request's or the push's range.
+
+`needs` names the jobs of `[ci.github.jobs]` a job runs after, each once, and `when`, required with
+`needs` and refused without it, says how:
+
+| `when` | The job runs | Generated `if:` |
+| --- | --- | --- |
+| `"succeeded"` | only when every job in `needs` succeeded | `${{ !cancelled() && needs.gate.result == 'success' && needs.unit.result == 'success' }}` |
+| `"completed"` | whenever they finished, whatever their result, unless the run was cancelled | `${{ !cancelled() }}` |
+
+The generated `needs:` holds `changes` first when the job lists `projects`, then the named jobs as
+written; with `projects`, the condition starts with the job's projects condition instead of the
+bare `!cancelled()`:
+`!cancelled() && (needs.changes.result != 'success' || contains(fromJSON(needs.changes.outputs.projects), 'site'))`
+for `projects = ["site"]`, one `contains` per project. A job in `needs` that was skipped, because none of its `projects` changed, skips
+a `"succeeded"` job, since its result is not `success`, and does not stop a `"completed"` job, since
+`!cancelled()` still holds; a failed one does the same. So a reports job with `when = "completed"`
+runs after a red test suite. The aggregate job needs every job, a job with `needs` too. `needs`
+naming a job `[ci.github.jobs]` does not have, the job itself, `changes`, the `aggregate` id or a
+job twice, `needs` that form a cycle, and `when` without `needs` or `needs` without `when` are
+configuration errors.
+
+One combination can let a change through untested: a job with `projects` of its own and
+`when = "succeeded"` is skipped when a job in its `needs` was skipped because that job's projects did
+not change, even when the job's own projects did, and the aggregate job counts both skips as
+passing. With an `e2e` job of `projects = ["site"]` that needs a `build-api` job of
+`projects = ["api"]`, a change to `site` alone skips `build-api`, and so `e2e` too. When the later
+job must run whenever its own projects change, give it `when = "completed"`, or leave `projects` off
+the job it names.
+
+There is no matrix: a job that ran once per cell of a matrix becomes one job per cell, such as
+`unit-api` and `unit-site`, each with its own `run`, and a job that runs after all of them names
+every cell in `needs`.
 
 The workflow meets the standard of the `ci` plugin's `ci/recommended` preset: top-level
 `permissions: {}` and each job its own, a timeout on every job (15 minutes for `changes`, 5 for the

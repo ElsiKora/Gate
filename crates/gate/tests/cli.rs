@@ -2227,3 +2227,784 @@ fn a_ci_job_without_timeout_minutes_or_with_an_empty_release_is_a_configuration_
         assert!(stderr(&output).contains(message), "{}", stderr(&output));
     }
 }
+
+/// `two_projects` with `jobs` (more `[ci.github.jobs.<id>]` tables) appended, and `aggregate`
+/// set when one is given.
+fn two_projects_with_jobs(jobs: &str, aggregate: Option<&str>) -> Repo {
+    let repo = match aggregate {
+        Some(id) => two_projects_with_aggregate(id),
+        None => two_projects(),
+    };
+    let configuration = format!("{}\n{jobs}", repo.read("gate.toml"));
+    repo.write("gate.toml", &configuration);
+    repo.commit("jobs with needs");
+    repo
+}
+
+/// The text of the job `id` of a generated workflow, from its `  <id>:` line to the next job.
+fn job_section<'a>(workflow: &'a str, id: &str) -> &'a str {
+    let start = workflow
+        .find(&format!("\n  {id}:\n"))
+        .unwrap_or_else(|| panic!("job {id}: {workflow}"))
+        + 1;
+    let rest = &workflow[start..];
+    let end = rest
+        .match_indices('\n')
+        .map(|(at, _)| at + 1)
+        .find(|at| {
+            rest[*at..]
+                .strip_prefix("  ")
+                .is_some_and(|line| line.starts_with(|first: char| first.is_ascii_lowercase()))
+        })
+        .unwrap_or(rest.len());
+    &rest[..end]
+}
+
+/// The `if:` and the `needs:` of the job `id` of a generated workflow.
+fn job_needs_and_if(workflow: &str, id: &str) -> (Vec<String>, String) {
+    let job = job_section(workflow, id);
+    let condition = job
+        .lines()
+        .find_map(|line| line.strip_prefix("    if: "))
+        .unwrap_or_else(|| panic!("job {id} has no if: {job}"))
+        .to_owned();
+    let needs = job
+        .split("\n    needs:\n")
+        .nth(1)
+        .unwrap_or_else(|| panic!("job {id} has no needs: {job}"))
+        .lines()
+        .map_while(|line| line.strip_prefix("      - "))
+        .map(str::to_owned)
+        .collect();
+    (needs, condition)
+}
+
+/// What a GitHub runner knows when it decides a job's `if`: whether the run was cancelled, the
+/// result of each needed job, and the projects the `changes` job listed.
+struct Run<'a> {
+    cancelled: bool,
+    results: &'a [(&'a str, &'a str)],
+    projects: &'a [&'a str],
+}
+
+/// A value of a GitHub expression, as far as the generated conditions use them.
+#[derive(Clone, Debug, PartialEq)]
+enum Value {
+    Bool(bool),
+    Text(String),
+    List(Vec<String>),
+}
+
+/// The tokens of a GitHub expression: operators, parentheses, commas, words, and strings with a
+/// leading `'`.
+fn tokenize(inner: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut chars = inner.chars().peekable();
+    while let Some(&next) = chars.peek() {
+        match next {
+            ' ' => {
+                chars.next();
+            }
+            '\'' => {
+                chars.next();
+                let text: String = chars.by_ref().take_while(|c| *c != '\'').collect();
+                tokens.push(format!("'{text}"));
+            }
+            '(' | ')' | ',' => {
+                tokens.push(next.to_string());
+                chars.next();
+            }
+            '!' | '=' | '&' | '|' => {
+                let mut operator = String::new();
+                while let Some(&c) = chars.peek() {
+                    if "!=&|".contains(c) && !(operator == "!" && c == '!') {
+                        operator.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                tokens.push(operator);
+            }
+            _ => {
+                let mut word = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                        word.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                assert!(!word.is_empty(), "unexpected {next:?} in {inner}");
+                tokens.push(word);
+            }
+        }
+    }
+    tokens
+}
+
+/// A parser of the tokens of a generated condition that evaluates it for `run` as it goes.
+struct Parser<'t, 'r> {
+    tokens: &'t [String],
+    at: usize,
+    run: &'r Run<'r>,
+}
+
+impl Parser<'_, '_> {
+    fn peek(&self) -> Option<&str> {
+        self.tokens.get(self.at).map(String::as_str)
+    }
+    fn take(&mut self) -> String {
+        let token = self.tokens[self.at].clone();
+        self.at += 1;
+        token
+    }
+    fn expect(&mut self, token: &str) {
+        assert_eq!(self.take(), token);
+    }
+    fn or(&mut self) -> Value {
+        let mut left = self.and();
+        while self.peek() == Some("||") {
+            self.take();
+            let right = self.and();
+            left = Value::Bool(left == Value::Bool(true) || right == Value::Bool(true));
+        }
+        left
+    }
+    fn and(&mut self) -> Value {
+        let mut left = self.comparison();
+        while self.peek() == Some("&&") {
+            self.take();
+            let right = self.comparison();
+            left = Value::Bool(left == Value::Bool(true) && right == Value::Bool(true));
+        }
+        left
+    }
+    fn comparison(&mut self) -> Value {
+        let left = self.unary();
+        match self.peek() {
+            Some("==") => {
+                self.take();
+                Value::Bool(left == self.unary())
+            }
+            Some("!=") => {
+                self.take();
+                Value::Bool(left != self.unary())
+            }
+            _ => left,
+        }
+    }
+    fn unary(&mut self) -> Value {
+        if self.peek() == Some("!") {
+            self.take();
+            return Value::Bool(self.unary() != Value::Bool(true));
+        }
+        let token = self.take();
+        if token == "(" {
+            let value = self.or();
+            self.expect(")");
+            return value;
+        }
+        if let Some(text) = token.strip_prefix('\'') {
+            return Value::Text(text.to_owned());
+        }
+        match token.as_str() {
+            "cancelled" => {
+                self.expect("(");
+                self.expect(")");
+                Value::Bool(self.run.cancelled)
+            }
+            "contains" => {
+                self.expect("(");
+                let list = self.or();
+                self.expect(",");
+                let item = self.or();
+                self.expect(")");
+                match (list, item) {
+                    (Value::List(list), Value::Text(item)) => Value::Bool(list.contains(&item)),
+                    other => panic!("contains({other:?})"),
+                }
+            }
+            "fromJSON" => {
+                self.expect("(");
+                let value = self.or();
+                self.expect(")");
+                value
+            }
+            "needs.changes.outputs.projects" => Value::List(
+                self.run
+                    .projects
+                    .iter()
+                    .map(|project| (*project).to_owned())
+                    .collect(),
+            ),
+            word => {
+                let id = word
+                    .strip_prefix("needs.")
+                    .and_then(|rest| rest.strip_suffix(".result"))
+                    .unwrap_or_else(|| panic!("the generator writes no {word:?}"));
+                let result = self
+                    .run
+                    .results
+                    .iter()
+                    .find(|(job, _)| *job == id)
+                    .map_or_else(|| panic!("no result for {id}"), |(_, result)| *result);
+                Value::Text(result.to_owned())
+            }
+        }
+    }
+}
+
+/// The generated `${{ ... }}` condition evaluated for `run`, as GitHub evaluates it. It knows
+/// only what the generator may write (`!`, `&&`, `||`, parentheses, `==`, `!=`, `cancelled()`,
+/// `contains`, `fromJSON`, `needs.<id>.result`, `needs.changes.outputs.projects`) and panics on
+/// anything else, such as `success()` or `always()`.
+fn evaluate(condition: &str, run: &Run<'_>) -> bool {
+    let inner = condition
+        .strip_prefix("${{ ")
+        .and_then(|rest| rest.strip_suffix(" }}"))
+        .unwrap_or_else(|| panic!("not an expression: {condition}"));
+    let tokens = tokenize(inner);
+    let mut parser = Parser {
+        tokens: &tokens,
+        at: 0,
+        run,
+    };
+    let value = parser.or();
+    assert_eq!(parser.at, tokens.len(), "trailing tokens in {inner}");
+    value == Value::Bool(true)
+}
+
+/// A `reports` job after `check` and `heavy` (which lists `api` and `site`), with `when` and
+/// optionally `projects`.
+fn reports_job(when: &str, projects: &str) -> String {
+    format!(
+        "[ci.github.jobs.reports]\nname = \"Reports\"\nneeds = [\"heavy\", \"check\"]\nwhen = \"{when}\"\n{projects}timeout-minutes = 10\nrun = [\"run reports\"]\n"
+    )
+}
+
+#[test]
+fn a_completed_job_runs_after_its_jobs_whatever_their_result_unless_the_run_is_cancelled() {
+    let repo = two_projects_with_jobs(&reports_job("completed", ""), None);
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+    let (needs, condition) = job_needs_and_if(&workflow, "reports");
+    assert_eq!(needs, ["heavy", "check"], "the named jobs as written");
+    assert_eq!(condition, "${{ !cancelled() }}");
+
+    for (check, heavy, projects, cancelled, runs, case) in [
+        (
+            "success",
+            "success",
+            &["api"][..],
+            false,
+            true,
+            "both succeeded",
+        ),
+        (
+            "failure",
+            "success",
+            &["api"][..],
+            false,
+            true,
+            "a red suite: reports still run",
+        ),
+        (
+            "success",
+            "failure",
+            &["api"][..],
+            false,
+            true,
+            "a red projects job",
+        ),
+        (
+            "success",
+            "skipped",
+            &[][..],
+            false,
+            true,
+            "heavy's projects did not change",
+        ),
+        (
+            "success",
+            "cancelled",
+            &["api"][..],
+            true,
+            false,
+            "the run was cancelled",
+        ),
+    ] {
+        let run = Run {
+            cancelled,
+            results: &[("check", check), ("heavy", heavy), ("changes", "success")],
+            projects,
+        };
+        assert_eq!(evaluate(&condition, &run), runs, "{case}");
+    }
+}
+
+#[test]
+fn a_succeeded_job_runs_only_when_every_job_it_names_succeeded() {
+    let repo = two_projects_with_jobs(&reports_job("succeeded", ""), None);
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+    let (needs, condition) = job_needs_and_if(&workflow, "reports");
+    assert_eq!(needs, ["heavy", "check"]);
+    assert_eq!(
+        condition,
+        "${{ !cancelled() && needs.heavy.result == 'success' && needs.check.result == 'success' }}"
+    );
+
+    for (check, heavy, projects, cancelled, runs, case) in [
+        (
+            "success",
+            "success",
+            &["api"][..],
+            false,
+            true,
+            "both succeeded",
+        ),
+        (
+            "failure",
+            "success",
+            &["api"][..],
+            false,
+            false,
+            "check failed",
+        ),
+        (
+            "success",
+            "skipped",
+            &[][..],
+            false,
+            false,
+            "heavy's projects did not change",
+        ),
+        (
+            "success",
+            "success",
+            &["api"][..],
+            true,
+            false,
+            "the run was cancelled",
+        ),
+    ] {
+        let run = Run {
+            cancelled,
+            results: &[("check", check), ("heavy", heavy), ("changes", "success")],
+            projects,
+        };
+        assert_eq!(evaluate(&condition, &run), runs, "{case}");
+    }
+}
+
+#[test]
+fn a_job_with_needs_and_projects_needs_changes_first_and_keeps_the_projects_condition() {
+    let projects = "projects = [\"site\"]\n";
+    for (when, runs_when_heavy_skipped) in [("completed", true), ("succeeded", false)] {
+        let repo = two_projects_with_jobs(&reports_job(when, projects), None);
+        let output = repo.gate(&["sync"]);
+        assert_eq!(output.status.code(), Some(0), "{when}: {}", stderr(&output));
+        let workflow = repo.read(".github/workflows/gate.yml");
+        let (needs, condition) = job_needs_and_if(&workflow, "reports");
+        assert_eq!(needs, ["changes", "heavy", "check"], "{when}");
+        let projects_condition = "!cancelled() && (needs.changes.result != 'success' || contains(fromJSON(needs.changes.outputs.projects), 'site'))";
+        let expected = if when == "completed" {
+            format!("${{{{ {projects_condition} }}}}")
+        } else {
+            format!(
+                "${{{{ {projects_condition} && needs.heavy.result == 'success' && needs.check.result == 'success' }}}}"
+            )
+        };
+        assert_eq!(condition, expected, "{when}");
+
+        let results =
+            |changes, heavy| [("changes", changes), ("check", "success"), ("heavy", heavy)];
+        for (changes, heavy, projects, runs, case) in [
+            ("success", "success", &["site"][..], true, "site changed"),
+            (
+                "success",
+                "success",
+                &["api"][..],
+                false,
+                "site did not change",
+            ),
+            (
+                "failure",
+                "success",
+                &[][..],
+                true,
+                "nobody knows what changed",
+            ),
+            (
+                "success",
+                "skipped",
+                &["site"][..],
+                runs_when_heavy_skipped,
+                "site changed, heavy's projects did not",
+            ),
+        ] {
+            let run = Run {
+                cancelled: false,
+                results: &results(changes, heavy),
+                projects,
+            };
+            assert_eq!(evaluate(&condition, &run), runs, "{when}: {case}");
+        }
+    }
+}
+
+#[test]
+fn the_aggregate_job_needs_a_job_with_needs_too() {
+    let repo = two_projects_with_jobs(&reports_job("completed", ""), Some("gate"));
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+    let (needs, condition) = job_needs_and_if(&workflow, "gate");
+    assert_eq!(needs, ["changes", "check", "heavy", "reports"]);
+    assert_eq!(condition, "${{ always() }}");
+}
+
+#[test]
+fn sync_check_reports_an_edited_needs_or_if_of_a_job_with_needs() {
+    let repo = two_projects_with_jobs(&reports_job("succeeded", ""), Some("gate"));
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    repo.commit("synced");
+    let output = repo.gate(&["sync", "--check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
+    let generated = repo.read(".github/workflows/gate.yml");
+
+    for (edit, from, to) in [
+        (
+            "needs reordered",
+            "    needs:\n      - heavy\n      - check\n",
+            "    needs:\n      - check\n      - heavy\n",
+        ),
+        (
+            "needs shortened",
+            "    needs:\n      - heavy\n      - check\n",
+            "    needs:\n      - heavy\n",
+        ),
+        (
+            "if",
+            "    if: ${{ !cancelled() && needs.heavy.result == 'success' && needs.check.result == 'success' }}\n",
+            "    if: ${{ success() }}\n",
+        ),
+    ] {
+        assert!(generated.contains(from), "{edit}: {generated}");
+        repo.write(
+            ".github/workflows/gate.yml",
+            &generated.replacen(from, to, 1),
+        );
+        let output = repo.gate(&["sync", "--check"]);
+        assert_eq!(output.status.code(), Some(1), "{edit}: {}", stdout(&output));
+        assert!(
+            stdout(&output).contains(
+                "error[gate/sync#ci] .github/workflows/gate.yml: .github/workflows/gate.yml differs from what gate sync writes"
+            ),
+            "{edit}: {}",
+            stdout(&output)
+        );
+    }
+}
+
+#[test]
+fn a_needs_or_when_that_cannot_hold_is_a_configuration_error() {
+    let job = |id: &str, keys: &str| {
+        format!(
+            "[ci.github.jobs.{id}]\nname = \"{id}\"\n{keys}timeout-minutes = 10\nrun = [\"check\"]\n"
+        )
+    };
+    for (jobs, message) in [
+        (
+            job("reports", "needs = [\"missing\"]\nwhen = \"completed\"\n"),
+            "[ci.github] jobs.reports: needs names \"missing\", which is not a job of [ci.github.jobs]; name a job id the table has",
+        ),
+        (
+            job("reports", "needs = [\"reports\"]\nwhen = \"completed\"\n"),
+            "[ci.github] jobs.reports: needs names the job itself; a job cannot run after itself",
+        ),
+        (
+            job("reports", "needs = [\"changes\"]\nwhen = \"completed\"\n"),
+            "[ci.github] jobs.reports: needs names \"changes\", the generated job that lists the changed projects; list projects instead",
+        ),
+        (
+            job("reports", "needs = [\"gate\"]\nwhen = \"completed\"\n"),
+            "[ci.github] jobs.reports: needs names \"gate\", the aggregate job, which runs after every job; remove it",
+        ),
+        (
+            job(
+                "reports",
+                "needs = [\"check\", \"check\"]\nwhen = \"completed\"\n",
+            ),
+            "[ci.github] jobs.reports: needs names \"check\" twice; name each job once",
+        ),
+        (
+            job("reports", "needs = [\"check\"]\n"),
+            "[ci.github] jobs.reports: when is not set; with needs, write when = \"succeeded\"",
+        ),
+        (
+            job("reports", "when = \"completed\"\n"),
+            "[ci.github] jobs.reports: when is set without needs; name the jobs in needs or remove when",
+        ),
+        (
+            job("reports", "needs = [\"check\"]\nwhen = \"always\"\n"),
+            "unknown variant `always`, expected `succeeded` or `completed`",
+        ),
+        (
+            format!(
+                "{}{}{}",
+                job("first", "needs = [\"third\"]\nwhen = \"completed\"\n"),
+                job("second", "needs = [\"first\"]\nwhen = \"succeeded\"\n"),
+                job(
+                    "third",
+                    "needs = [\"check\", \"second\"]\nwhen = \"completed\"\n"
+                ),
+            ),
+            "[ci.github] jobs.first: needs forms a cycle: first -> third -> second -> first; remove one of these needs",
+        ),
+    ] {
+        let repo = two_projects_with_jobs(&jobs, Some("gate"));
+        for command in [&["sync"][..], &["sync", "--check"], &["check"]] {
+            let output = repo.gate(command);
+            assert_eq!(output.status.code(), Some(2), "{message} {command:?}");
+            assert!(
+                stderr(&output).contains("configuration error")
+                    && stderr(&output).contains(message),
+                "{command:?}: {}",
+                stderr(&output)
+            );
+        }
+        assert!(
+            !repo.path().join(".github/workflows/gate.yml").exists(),
+            "{message}"
+        );
+    }
+}
+
+/// A root `gate.toml` without `needs` or `when` whose `[ci.github]` uses `projects`, `after`,
+/// `steps`, `services`, `setup`, `working-directory`, `fetch-depth`, `budget`, `environment`,
+/// `permissions` and `aggregate`; `{VERSION}` stands for the core's version.
+const WORKFLOW_0_3_0_ROOT: &str = r#"[gate]
+version = "{VERSION}"
+
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+name = "Gate"
+branches = ["main", "release/**"]
+checkout = "actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2"
+runs-on = "ubuntu-24.04"
+aggregate = "gate-passed"
+setup = [
+  { name = "Set up Node", uses = "actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v4.4.0", with = { node-version = "24" } },
+]
+
+[ci.github.jobs.check]
+name = "Check"
+timeout-minutes = 15
+budget = { warn-after = 120, fail-after = 300 }
+run = ["check --push"]
+
+[ci.github.jobs.unit]
+name = "Unit tests"
+projects = ["api", "site"]
+timeout-minutes = 30
+working-directory = "apps"
+fetch-depth = 1
+services = { postgres = { image = "postgres:17", ports = ["5432:5432"] } }
+steps = [{ name = "Install", run = "npm ci", env = { CI = "true" } }]
+after = [
+  { name = "Upload the reports", if = "always()", uses = "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567 # v4.6.2", with = { path = "reports/" } },
+  { name = "Summarize", if = "failure()", run = "cat reports/summary.txt", working-directory = "apps/api" },
+]
+run = ["run unit --push"]
+
+[ci.github.jobs.publish]
+name = "Publish"
+timeout-minutes = 10
+environment = "release"
+permissions = { contents = "write" }
+projects = ["api"]
+run = ["check"]
+"#;
+
+/// The workflow the released 0.3.0 core (`gate 0.3.0`, the core `gate.lock` pinned at `v0.3.0`)
+/// wrote for [`WORKFLOW_0_3_0_ROOT`] with `bin/gate sync`; its sha256 is
+/// `66faec8c3c72fba95e8448c7985229b7c3efe836f4d895d69a0398c64bc2d8f9`.
+const WORKFLOW_0_3_0: &str = r#"# Generated by gate sync from gate.toml [ci.github]; edit gate.toml, then run gate sync.
+name: Gate
+on:
+  push:
+    branches:
+      - main
+      - release/**
+  pull_request:
+    branches:
+      - main
+      - release/**
+permissions: {}
+concurrency:
+  group: .github/workflows/gate.yml@${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      projects: ${{ steps.changes.outputs.projects }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the generated files
+        run: bin/gate sync --check
+        env:
+          GATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GATE_GITHUB_TOKEN: ${{ secrets.GATE_GITHUB_TOKEN || github.token }}
+      - id: changes
+        name: List the changed projects
+        run: bin/gate check --list-changed-projects --format github-output --push "$GATE_RANGE" --target-ref "$GATE_TARGET_REF" >> "$GITHUB_OUTPUT"
+        env:
+          GATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GATE_GITHUB_TOKEN: ${{ secrets.GATE_GITHUB_TOKEN || github.token }}
+          GATE_RANGE: ${{ github.event.pull_request.base.sha || github.event.before || '0000000000000000000000000000000000000000' }}..${{ github.sha }}
+          GATE_TARGET_REF: ${{ github.base_ref && format('refs/heads/{0}', github.base_ref) || github.ref }}
+  check:
+    name: Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v4.4.0
+        with:
+          node-version: "24"
+      - name: gate check --push
+        run: bin/gate check --push "$GATE_RANGE" --target-ref "$GATE_TARGET_REF" --no-overrides --warn-after 120 --fail-after 300
+        env:
+          GATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GATE_GITHUB_TOKEN: ${{ secrets.GATE_GITHUB_TOKEN || github.token }}
+          GATE_RANGE: ${{ github.event.pull_request.base.sha || github.event.before || '0000000000000000000000000000000000000000' }}..${{ github.sha }}
+          GATE_TARGET_REF: ${{ github.base_ref && format('refs/heads/{0}', github.base_ref) || github.ref }}
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    needs:
+      - changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || contains(fromJSON(needs.changes.outputs.projects), 'api')) }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    environment: release
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v4.4.0
+        with:
+          node-version: "24"
+      - name: gate check
+        run: bin/gate check --no-overrides
+        env:
+          GATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GATE_GITHUB_TOKEN: ${{ secrets.GATE_GITHUB_TOKEN || github.token }}
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-24.04
+    needs:
+      - changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || contains(fromJSON(needs.changes.outputs.projects), 'api') || contains(fromJSON(needs.changes.outputs.projects), 'site')) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17
+        ports:
+          - "5432:5432"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+        working-directory: apps
+        env:
+          CI: "true"
+      - name: gate run unit --push
+        run: bin/gate run unit --push "$GATE_RANGE" --target-ref "$GATE_TARGET_REF"
+        env:
+          GATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GATE_GITHUB_TOKEN: ${{ secrets.GATE_GITHUB_TOKEN || github.token }}
+          GATE_RANGE: ${{ github.event.pull_request.base.sha || github.event.before || '0000000000000000000000000000000000000000' }}..${{ github.sha }}
+          GATE_TARGET_REF: ${{ github.base_ref && format('refs/heads/{0}', github.base_ref) || github.ref }}
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@0123456789abcdef0123456789abcdef01234567 # v4.6.2
+        with:
+          path: reports/
+      - name: Summarize
+        if: failure()
+        run: cat reports/summary.txt
+        working-directory: apps/api
+  gate-passed:
+    name: gate-passed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs:
+      - changes
+      - check
+      - publish
+      - unit
+    if: ${{ always() }}
+    permissions: {}
+    steps:
+      - name: Require every job to succeed or be skipped
+        run: failed=$(printf '%s' "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key) is \(.value.result)"'); if [ -n "$failed" ]; then printf 'jobs that neither succeeded nor were skipped:\n%s\n' "$failed"; exit 1; fi
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+"#;
+
+#[test]
+fn a_configuration_without_needs_generates_the_workflow_0_3_0_generated() {
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &WORKFLOW_0_3_0_ROOT.replace("{VERSION}", VERSION),
+    )
+    .write("apps/api/gate.toml", "[project]\nname = \"api\"\n")
+    .write("apps/api/main.ts", "export const api = 1;\n")
+    .write("apps/site/gate.toml", "[project]\nname = \"site\"\n")
+    .write("apps/site/index.ts", "export const site = 1;\n");
+    repo.commit("a configuration of 0.3.0");
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+    assert!(
+        workflow == WORKFLOW_0_3_0,
+        "the workflow differs from the one 0.3.0 wrote:\n{workflow}"
+    );
+}

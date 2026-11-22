@@ -773,6 +773,13 @@ pub struct CiJob {
     /// The projects the job needs: it is skipped when none of them changed. Empty: it always runs.
     #[serde(default)]
     pub projects: Vec<String>,
+    /// The jobs of `[ci.github.jobs]` this job runs after, each named once; `when` says whether
+    /// they must succeed or only finish. Empty: the job runs after `changes` alone, or at once.
+    #[serde(default)]
+    pub needs: Vec<JobId>,
+    /// Required with `needs`, refused without it: whether the job runs only when every job in
+    /// `needs` succeeded, or whenever they finished and the run was not cancelled.
+    pub when: Option<NeedsWhen>,
     /// The job's time limit in minutes; required, so a hung step never holds a runner for the
     /// six hours GitHub allows.
     #[schemars(required)]
@@ -781,6 +788,16 @@ pub struct CiJob {
     /// required by `ci/environment` for a job that writes `contents`, `deployments`, `id-token` or
     /// `packages`.
     pub environment: Option<String>,
+}
+
+/// When a job with `needs` runs.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NeedsWhen {
+    /// Only when every job in `needs` succeeded; a skipped or failed one skips this job.
+    Succeeded,
+    /// Whenever every job in `needs` finished, whatever its result, unless the run was cancelled.
+    Completed,
 }
 
 /// A step of a job: an action pinned by commit, or a shell command.
