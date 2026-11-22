@@ -193,13 +193,19 @@ that is not UTF-8 TOML at the parent or at the commit as `<file>#unreadable`. Th
 compared as parsed TOML, as `package.json` is compared as JSON, so a change of layout or comments
 alone is not seen. They are read at the parent and at the commit through the host's git interface.
 
-A plugin interface change moves every pin at once: the core's and every plugin's must move
-together, or main fails to load them. `release-all-pins = true` lets that release commit also move
-the core (`[gate] version`, and `gate.lock`'s `[core] version` with its targets' `url` and
-`sha256`) and each other plugin's pin, the version in its `source` and its lock key, with the
-entry's `url` and `sha256`, on the same terms: a `url` or `sha256` changes only with its version.
-Nothing else is admitted with it: options, rules, and a plugin or a second version of one added or
-removed stay `#beyond-pin`. It needs `release-plugin`.
+A core release that changes the plugin interface loads only plugins built for it, so the core's
+pin and every plugin's must move together. A repository adopts it on one upgrade branch that moves
+them all, its own plugin to a published pre-release build; the merge is judged by its form, and the
+next release commit moves the plugin's pin from the pre-release to the release. The guide describes
+the path:
+[Adopting a Core Release That Changes the Plugin Interface](../../../docs/guide/writing-a-plugin.md#adopting-a-core-release-that-changes-the-plugin-interface).
+
+`release-all-pins = true` lets the release commit also move the core (`[gate] version`, and
+`gate.lock`'s `[core] version` with its targets' `url` and `sha256`) and each other plugin's pin,
+the version in its `source` and its lock key, with the entry's `url` and `sha256`, on the same
+terms: a `url` or `sha256` changes only with its version. Nothing else is admitted with it:
+options, rules, and a plugin or a second version of one added or removed stay `#beyond-pin`. It
+needs `release-plugin`.
 
 `release-plugin` admits `gate.toml` and `gate.lock` limited to the pins, so naming either in
 `release-files` as well is an error, as is `release-all-pins` without `release-plugin` or a
@@ -214,7 +220,7 @@ code path.
 
 With it, the release commit `chore(release): 1.2.0` may change `source = "acme/rules:product@1.1.0"`
 to `@1.2.0` and the plugin's entry in `gate.lock`; one that also moves `ElsiKora/Gate:git` is
-reported, unless `release-all-pins = true`.
+reported as `<file>#beyond-pin`; `release-all-pins = true` admits that move too.
 
 ## Example finding
 

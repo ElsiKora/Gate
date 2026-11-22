@@ -7,7 +7,7 @@
 | Writer | "Gate 010" |
 | Reviewer | the lead reads the change |
 | Depends on | `main` at `ec3b2c9` |
-| Touches | `docs/guide/writing-a-plugin.md`, `docs/guide/configuration.md`, `docs/plan.md`, this task file |
+| Touches | `docs/guide/writing-a-plugin.md`, `docs/guide/configuration.md`, `plugins/git/rules/main-history.md`, `docs/plan.md`, this task file |
 
 ## Goal
 
@@ -30,7 +30,10 @@ not so since 0.3.0.
    moves the pin from the pre-release to the release under `release-plugin`.
 2. `docs/guide/configuration.md`: a link to that section from `gate.lock`; the hooks text says
    `--commit-message` checks only the message.
-3. `docs/plan.md`: rows for T-094 and for T-096, the backlog task that removes `release-all-pins`
+3. `plugins/git/rules/main-history.md`: an interface change links to that guide section instead of
+   recommending `release-all-pins`, which the page now describes only by what it admits, so the
+   guide and the rule page agree (the lead's review).
+4. `docs/plan.md`: rows for T-094 and for T-096, the backlog task that removes `release-all-pins`
    (T-095 is taken by another open branch).
 
 No CHANGELOG entry: `CHANGELOG.md` has no Unreleased section, and earlier documents-only tasks
@@ -58,5 +61,7 @@ made none.
 
 ## Resume point
 
-2026-11-22T20:25:33+00:00: written on `task/T-094-core-upgrade-path` off `main` at `ec3b2c9`.
-Next: the lead reads the change and merges it.
+2026-11-22T20:25:33+00:00: written on `task/T-094-core-upgrade-path` off `main` at `ec3b2c9`;
+first head `4d07eb1`. The lead accepted the lock-then-`--set` order and asked the rule page to stop
+recommending `release-all-pins`; that is the second commit. Next: the lead has the branch reviewed
+and merges it.
