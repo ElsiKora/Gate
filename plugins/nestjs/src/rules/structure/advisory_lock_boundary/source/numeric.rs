@@ -532,13 +532,19 @@ fn raw_literals(text: &str) -> Vec<f64> {
         }
     };
 
-    for start in 0..bytes.len() {
+    for (start, &first) in bytes.iter().enumerate() {
+        let body = start + usize::from(first == b'-');
+
+        // Every form begins with a digit at `body`, so the other positions are passed at once.
+        if !bytes[body..].first().is_some_and(u8::is_ascii_digit) {
+            continue;
+        }
+
         // A match resumes the search after its end, as `matchAll` does.
         if start < resume || (start > 0 && is_word(bytes[start - 1])) {
             continue;
         }
 
-        let body = start + usize::from(bytes[start] == b'-');
         let prefixed = |marks: [u8; 2], accepts: fn(u8) -> bool| {
             (bytes.get(body) == Some(&b'0')
                 && bytes.get(body + 1).is_some_and(|mark| marks.contains(mark)))

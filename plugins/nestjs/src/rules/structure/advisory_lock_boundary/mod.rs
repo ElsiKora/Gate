@@ -24,6 +24,8 @@ mod mint;
 mod source;
 mod sql;
 
+use std::borrow::Cow;
+
 use crate::shared::paths::{self, Form};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
@@ -288,7 +290,9 @@ impl Rule<crate::Nest> for AdvisoryLockBoundary {
                     continue;
                 };
 
-                let utf8 = std::str::from_utf8(&bytes).is_ok();
+                // The lossy text borrows the bytes exactly when they are UTF-8.
+                let text = String::from_utf8_lossy(&bytes);
+                let utf8 = matches!(text, Cow::Borrowed(_));
 
                 // A SQL, JSON or shell file that is not UTF-8 text is still read, with replacement
                 // characters; the loss is reported.
@@ -302,14 +306,7 @@ impl Rule<crate::Nest> for AdvisoryLockBoundary {
                     rejected.push(path.clone());
                 }
 
-                match scan(
-                    typescript,
-                    path,
-                    kind,
-                    &String::from_utf8_lossy(&bytes),
-                    utf8,
-                    &rules,
-                )? {
+                match scan(typescript, path, kind, &text, utf8, &rules)? {
                     Ok(statements) => {
                         if !statements.is_empty()
                             && (boundaries.migrations.contains(path)
