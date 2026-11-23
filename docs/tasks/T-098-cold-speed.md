@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | approved (`3736fa66`); steps 2 to 7 written, tested and measured; the workspace gates and each step's milliseconds running |
+| Status | approved (`3736fa66`); steps 2 to 7 written, tested and measured, gates green; each step's milliseconds waiting for the load |
 | Release | the next plugin release (the lead cuts it); no version moves here |
 | Writer | "Gate 098" |
 | Reviewer | a session that did not write it |
@@ -244,6 +244,13 @@ plugins, because a push run reads the configuration of the pushed commit, and th
 fuel; `git.sync-state` 6970 ms), unchanged by this task; (c), which is what the pre-push is held
 to, took 54.45 s.
 
+## Gates
+
+At `85f60fc3`, through the lane in a clean detached worktree, 2026-11-23T14:38:14+00:00 to
+14:54:30+00:00: `cargo build --release --locked` exit 0, `cargo fmt --all --check` exit 0,
+`cargo clippy --locked --all-targets -- -D warnings` exit 0, `cargo test --locked` exit 0 (124 test
+binaries ok), `cargo deny --locked check` exit 0. The commits after it change documents only.
+
 ## Plugin bytes
 
 Every plugin built as released (`scripts/build-component.sh <plugin> wasm32-wasip2`, one cargo run
@@ -266,7 +273,7 @@ build `gate-typescript`, whose bindings and line index changed.
 ## Resume point
 
 2026-11-23T14:39:21+00:00: the six runs are in "Measured": (d) cold counts 4075 ms at the median of eight
-(3115 to 6877 ms), under the 6 s bound, at the 4000 ms aim; findings are the 85 in every run. Running:
-the five workspace commands at `85f60fc3` through the lane, then each step's build alone three times
-at a load under 18 for its milliseconds. Step 1 (read-ahead) is a local draft only, out of the branch;
+(3115 to 6877 ms), under the 6 s bound, at the 4000 ms aim; findings are the 85 in every run. The five
+workspace commands exit 0 at `85f60fc3`. Waiting: each step's build alone three times at a load
+under 18 for its milliseconds (`steptime`). Step 1 (read-ahead) is a local draft only, out of the branch;
 the nestjs call's own reads are 283 to 857 ms of it, so the lead decides whether it comes in.
