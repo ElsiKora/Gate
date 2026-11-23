@@ -3,7 +3,7 @@
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Error, Run};
+use gate_sdk::{CallState, Error, Run};
 
 use crate::text::normal_path;
 
@@ -118,7 +118,7 @@ impl Settings {
     /// # Errors
     /// When they do not match their type, a path is not in normal form, a closed status is not
     /// lowercase, or the parity prefix is not uppercase letters and digits.
-    pub fn read<O>(run: &Run<'_, O>) -> gate_sdk::Result<Self> {
+    pub fn read<O, S: CallState>(run: &Run<'_, O, S>) -> gate_sdk::Result<Self> {
         Self::checked(run.plugin_options()?)
     }
 

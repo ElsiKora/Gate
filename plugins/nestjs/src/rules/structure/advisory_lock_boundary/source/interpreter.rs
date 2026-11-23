@@ -1,7 +1,6 @@
 //! The static reconstruction of one source: its variables and the texts an expression may hold.
 
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 
 use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::AstKind;
@@ -10,6 +9,7 @@ use gate_typescript::oxc_ast::ast::{
     ChainElement, Expression, ObjectPropertyKind, PropertyKey, PropertyKind,
 };
 use gate_typescript::oxc_span::Span;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use super::super::sql::{Text, units};
 use super::node::{
@@ -42,9 +42,9 @@ impl<'a> Interpreter<'a> {
         let mut interpreter = Self {
             text: file.source(),
             order: Vec::new(),
-            variables: HashMap::new(),
+            variables: HashMap::default(),
             identifiers: Vec::new(),
-            declarations: HashMap::new(),
+            declarations: HashMap::default(),
             unrebuilt: Cell::new(false),
         };
 
@@ -159,13 +159,13 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// The source text of a node.
-    pub(super) fn source(&self, node: Node<'a>) -> Text {
+    /// The source text of a node, as written: empty where its span is not the text's.
+    pub(super) fn source_text(&self, node: Node<'a>) -> &'a str {
         let span = node.span();
 
         self.text
             .get(span.start as usize..span.end as usize)
-            .map_or_else(Text::new, units)
+            .unwrap_or_default()
     }
 
     /// Every identifier-like name inside a node, the node itself included.
@@ -912,10 +912,10 @@ impl<'a> Interpreter<'a> {
     }
 
     pub(super) fn fresh_text(&self, node: Node<'a>) -> Outcome<Option<Text>> {
-        self.text(node, &mut Seen::new(), &mut 0, 0)
+        self.text(node, &mut Seen::default(), &mut 0, 0)
     }
 
     pub(super) fn fresh_candidates(&self, node: Node<'a>) -> Outcome<Vec<Text>> {
-        self.candidates(node, &Seen::new(), &mut 0, 0)
+        self.candidates(node, &Seen::default(), &mut 0, 0)
     }
 }

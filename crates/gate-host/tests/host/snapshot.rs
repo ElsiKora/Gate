@@ -153,6 +153,30 @@ fn a_path_behind_a_symlinked_directory_is_not_read() {
     assert_eq!(text(&snapshot, "src/a.ts").as_deref(), Some("a\n"));
 }
 
+#[cfg(unix)]
+#[test]
+fn every_file_behind_a_symlinked_directory_is_refused_after_a_sibling_was_read() {
+    let repo = Repo::new();
+    repo.write("src/b/c.ts", "inside c\n")
+        .write("src/b/d.ts", "inside d\n")
+        .write("src/a.ts", "a\n");
+    repo.commit("initial");
+    let snapshot = open(&repo, Source::WorkTree);
+    // `src` is asked and found a directory before `src/b` becomes a link.
+    assert_eq!(text(&snapshot, "src/a.ts").as_deref(), Some("a\n"));
+
+    let outside = tempfile::tempdir().expect("outside");
+    std::fs::write(outside.path().join("c.ts"), "outside c\n").expect("write");
+    std::fs::write(outside.path().join("d.ts"), "outside d\n").expect("write");
+    std::fs::remove_dir_all(repo.path().join("src/b")).expect("remove");
+    std::os::unix::fs::symlink(outside.path(), repo.path().join("src/b")).expect("symlink");
+
+    for path in ["src/b/c.ts", "src/b/d.ts"] {
+        let error = snapshot.text(path).expect_err(path).to_string();
+        assert!(error.contains("symbolic link"), "{path}: {error}");
+    }
+}
+
 #[test]
 fn a_touched_or_modified_filtered_file_has_the_size_of_the_blob_git_would_store() {
     let repo = Repo::new();

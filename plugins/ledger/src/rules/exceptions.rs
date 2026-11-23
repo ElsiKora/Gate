@@ -7,9 +7,8 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run, Scope, Tree};
 
-use crate::catalog::{At, Catalog, Findings};
+use crate::catalog::{At, Findings};
 use crate::index::{DecisionIndex, Refusal, refusal};
-use crate::records::Ledger;
 use crate::settings::{Settings, check_path};
 use crate::text::LineIndex;
 
@@ -89,13 +88,13 @@ fn exceptions(tree: &Tree<'_>, path: &str, rule: &str) -> gate_sdk::Result<Vec<L
 #[derive(Debug, Default)]
 pub struct ExceptionOwners;
 
-impl Rule for ExceptionOwners {
+impl Rule<crate::LedgerCall> for ExceptionOwners {
     type Options = Options;
 
     const NAME: &'static str = "exception-owners";
     const TITLE: &'static str = "The owner an exception names is an open implementation record";
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
         let path = run.options().exceptions.clone();
         judge_owners(run, &path, Self::NAME)
     }
@@ -105,14 +104,14 @@ impl Rule for ExceptionOwners {
 #[derive(Debug, Default)]
 pub struct RootExceptionOwners;
 
-impl Rule for RootExceptionOwners {
+impl Rule<crate::LedgerCall> for RootExceptionOwners {
     type Options = Options;
 
     const NAME: &'static str = "root-exception-owners";
     const TITLE: &'static str = "The owner a root exception names is an open implementation record";
     const SCOPE: Scope = Scope::Repository;
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
         match root_exceptions(run) {
             Some(path) => judge_owners(run, &path, Self::NAME),
             None => Ok(()),
@@ -123,7 +122,7 @@ impl Rule for RootExceptionOwners {
 /// The exceptions file beside the scope's own `gate.toml`, when the call has one: beside the root
 /// file in the repository call of a root that is not a project; `None` under a root project, whose
 /// root file the project rules read.
-fn root_exceptions(run: &Run<'_, Options>) -> Option<String> {
+fn root_exceptions(run: &Run<'_, Options, crate::LedgerCall>) -> Option<String> {
     let exceptions = &run.options().exceptions;
     let config = run.config_file()?;
     Some(match config.rsplit_once('/') {
@@ -134,77 +133,83 @@ fn root_exceptions(run: &Run<'_, Options>) -> Option<String> {
 
 /// Reports each exception of `path` whose owner is not an open implementation record: the one
 /// judgement of `ledger/exception-owners` and `ledger/root-exception-owners`.
-fn judge_owners(run: &mut Run<'_, Options>, path: &str, name: &str) -> gate_sdk::Result<()> {
-    let settings = Settings::read(run)?;
-    let tree = run.tree();
-    let exceptions = exceptions(&tree, path, name)?;
+fn judge_owners(
+    run: &mut Run<'_, Options, crate::LedgerCall>,
+    path: &str,
+    name: &str,
+) -> gate_sdk::Result<()> {
+    run.with_call(|run, shared| {
+        let settings = Settings::read(run)?;
+        let tree = run.tree();
+        let exceptions = exceptions(&tree, path, name)?;
 
-    if exceptions
-        .iter()
-        .all(|located| located.exception.owner.is_none())
-    {
-        return Ok(());
-    }
-
-    let ledger = Ledger::read(&Catalog::new(tree), &settings)?;
-    let implementation = settings.implementation.as_str();
-    let mut findings = Findings::default();
-
-    for Located { at, exception } in &exceptions {
-        let Some(owner) = exception.owner.as_deref().map(str::trim) else {
-            continue;
-        };
-        let rule = &exception.rule;
-        let record = ledger
-            .implementation
+        if exceptions
             .iter()
-            .find(|record| record.id == owner);
-
-        match record {
-            None => findings.emit_keyed(
-                "",
-                at,
-                format!("{rule}/{owner}#unlisted"),
-                format!(
-                    "the exception for {rule} names the owner {owner}, which {implementation} does not list; name an open implementation record, or remove the owner"
-                ),
-            ),
-            Some(record) => match record.status.as_deref() {
-                Some(status) if settings.is_open(status) => {}
-                status => {
-                    let state = status.map_or_else(
-                        || "which has no status".to_owned(),
-                        |status| format!("which is `{status}`"),
-                    );
-                    findings.emit_keyed(
-                        "",
-                        at,
-                        format!("{rule}/{owner}#closed"),
-                        format!(
-                            "the exception for {rule} names the owner {owner}, {state}; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
-                        ),
-                    );
-                }
-            },
+            .all(|located| located.exception.owner.is_none())
+        {
+            return Ok(());
         }
-    }
 
-    findings.write_all(run.report());
-    Ok(())
+        let ledger = shared.ledger(&settings)?;
+        let implementation = settings.implementation.as_str();
+        let mut findings = Findings::default();
+
+        for Located { at, exception } in &exceptions {
+            let Some(owner) = exception.owner.as_deref().map(str::trim) else {
+                continue;
+            };
+            let rule = &exception.rule;
+            let record = ledger
+                .implementation
+                .iter()
+                .find(|record| record.id == owner);
+
+            match record {
+                None => findings.emit_keyed(
+                    "",
+                    at,
+                    format!("{rule}/{owner}#unlisted"),
+                    format!(
+                        "the exception for {rule} names the owner {owner}, which {implementation} does not list; name an open implementation record, or remove the owner"
+                    ),
+                ),
+                Some(record) => match record.status.as_deref() {
+                    Some(status) if settings.is_open(status) => {}
+                    status => {
+                        let state = status.map_or_else(
+                            || "which has no status".to_owned(),
+                            |status| format!("which is `{status}`"),
+                        );
+                        findings.emit_keyed(
+                            "",
+                            at,
+                            format!("{rule}/{owner}#closed"),
+                            format!(
+                                "the exception for {rule} names the owner {owner}, {state}; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
+                            ),
+                        );
+                    }
+                },
+            }
+        }
+
+        findings.write_all(run.report());
+        Ok(())
+    })
 }
 
 /// The rule `ledger/exception-decisions`.
 #[derive(Debug, Default)]
 pub struct ExceptionDecisions;
 
-impl Rule for ExceptionDecisions {
+impl Rule<crate::LedgerCall> for ExceptionDecisions {
     type Options = Options;
 
     const NAME: &'static str = "exception-decisions";
     const TITLE: &'static str =
         "The decision an exception names is an accepted decision of the index";
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
         let path = run.options().exceptions.clone();
         judge_decisions(run, &path, Self::NAME)
     }
@@ -215,7 +220,7 @@ impl Rule for ExceptionDecisions {
 #[derive(Debug, Default)]
 pub struct RootExceptionDecisions;
 
-impl Rule for RootExceptionDecisions {
+impl Rule<crate::LedgerCall> for RootExceptionDecisions {
     type Options = Options;
 
     const NAME: &'static str = "root-exception-decisions";
@@ -223,7 +228,7 @@ impl Rule for RootExceptionDecisions {
         "The decision a root exception names is an accepted decision of the index";
     const SCOPE: Scope = Scope::Repository;
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
         match root_exceptions(run) {
             Some(path) => judge_decisions(run, &path, Self::NAME),
             None => Ok(()),
@@ -233,7 +238,11 @@ impl Rule for RootExceptionDecisions {
 
 /// Reports each exception of `path` whose decision the index does not list as accepted: the one
 /// judgement of `ledger/exception-decisions` and `ledger/root-exception-decisions`.
-fn judge_decisions(run: &mut Run<'_, Options>, path: &str, name: &str) -> gate_sdk::Result<()> {
+fn judge_decisions(
+    run: &mut Run<'_, Options, crate::LedgerCall>,
+    path: &str,
+    name: &str,
+) -> gate_sdk::Result<()> {
     let settings = Settings::read(run)?;
     let tree = run.tree();
     let exceptions = exceptions(&tree, path, name)?;

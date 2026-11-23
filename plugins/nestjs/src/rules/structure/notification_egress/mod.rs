@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
-use gate_typescript::owners::{Owner, Sources};
+use gate_typescript::owners::Owner;
 
 use self::scan::Scan;
 use crate::layout::{PluginOptions, folder_prefix};
@@ -240,8 +240,7 @@ impl Rule<crate::Nest> for NotificationEgress {
                     None => ("gate.toml".to_owned(), String::new()),
                 };
                 let owner_lines = element_lines(&text, "owners");
-                let typescript = shared.typescript()?;
-                let sources = Sources::new(typescript, &layout.source_root)?;
+                let sources = shared.contexts(&layout.source_root)?;
                 let mut findings = Findings::default();
                 let scan = Scan {
                     sources: &sources,

@@ -130,8 +130,7 @@ impl Rule<crate::Nest> for ControllerOwners {
             let registry = run
                 .options_file()
                 .map_or_else(|| "gate.toml".to_owned(), str::to_owned);
-            let typescript = shared.typescript()?;
-            let sources = Sources::new(typescript, &layout.source_root)?;
+            let sources = shared.contexts(&layout.source_root)?;
             let mut findings = Findings::default();
 
             contract::validate(&contracts, &external, |key, message| {

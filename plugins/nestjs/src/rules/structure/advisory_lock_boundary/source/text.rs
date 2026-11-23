@@ -206,28 +206,28 @@ pub(super) fn fold(unit: u16) -> u16 {
     }
 }
 
-pub(super) fn contains_folded(text: &[u16], needle: &str) -> bool {
-    let needle = units(needle);
+pub(super) fn contains_folded<U: Copy + Into<u16>>(text: &[U], needle: &str) -> bool {
+    let needle = needle.as_bytes();
 
     text.windows(needle.len()).any(|window| {
         window
             .iter()
-            .zip(&needle)
-            .all(|(&unit, &expected)| fold(unit) == expected)
+            .zip(needle)
+            .all(|(&unit, &expected)| fold(unit.into()) == u16::from(expected))
     })
 }
 
 /// Whether a text holds `bit\s*\(\s*64\s*\)`, ignoring case.
-pub(super) fn contains_bit_64(text: &[u16]) -> bool {
+pub(super) fn contains_bit_64<U: Copy + Into<u16>>(text: &[U]) -> bool {
     let skip = |mut index: usize| {
-        while text.get(index).copied().is_some_and(is_space) {
+        while text.get(index).is_some_and(|&unit| is_space(unit.into())) {
             index += 1;
         }
         index
     };
     let at = |index: usize, unit: u8| {
         text.get(index)
-            .is_some_and(|&found| fold(found) == u16::from(unit))
+            .is_some_and(|&found| fold(found.into()) == u16::from(unit))
     };
 
     (0..text.len()).any(|start| {
@@ -252,22 +252,32 @@ pub(super) fn contains_bit_64(text: &[u16]) -> bool {
 }
 
 /// `/pg_|advisory_|hashtext|bit\s*\(\s*64\s*\)/iu`, an advisory fragment.
-pub(super) fn is_fragment(text: &[u16]) -> bool {
+pub(super) fn is_fragment<U: Copy + Into<u16>>(text: &[U]) -> bool {
     contains_folded(text, "pg_") || is_declaration_fragment(text)
 }
 
 /// The advisory fragment without a bare `pg_`, which any `pg_catalog` SQL holds: the evidence of a
 /// function or class declaration a sink argument names.
-pub(super) fn is_declaration_fragment(text: &[u16]) -> bool {
+pub(super) fn is_declaration_fragment<U: Copy + Into<u16>>(text: &[U]) -> bool {
     contains_folded(text, "advisory_") || contains_folded(text, "hashtext") || contains_bit_64(text)
 }
 
 /// `/pg_(?:try_)?advisory_|hashtext|bit\s*\(\s*64\s*\)/iu`, advisory evidence.
-pub(super) fn is_advisory(text: &[u16]) -> bool {
+pub(super) fn is_advisory<U: Copy + Into<u16>>(text: &[U]) -> bool {
     contains_folded(text, "pg_advisory_")
         || contains_folded(text, "pg_try_advisory_")
         || contains_folded(text, "hashtext")
         || contains_bit_64(text)
+}
+
+/// Whether `wide` holds for a source text read as its UTF-16 code units, as JavaScript reads it;
+/// the bytes of an ASCII text are its code units, so `narrow` reads them without encoding.
+pub(super) fn in_source(source: &str, wide: fn(&[u16]) -> bool, narrow: fn(&[u8]) -> bool) -> bool {
+    if source.is_ascii() {
+        narrow(source.as_bytes())
+    } else {
+        wide(&units(source))
+    }
 }
 
 pub(super) fn joined(parts: &[Text], delimiter: &[u16]) -> Outcome<Text> {

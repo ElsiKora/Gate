@@ -305,7 +305,7 @@ impl Rule<crate::Nest> for FieldInventory {
                 };
                 let names = Names::new(&layout, options);
                 let typescript = shared.typescript()?;
-                let sources = Sources::new(typescript, &layout.source_root)?;
+                let sources = shared.contexts(&layout.source_root)?;
                 let read = Read {
                     sources: &sources,
                     names: &names,

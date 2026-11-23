@@ -5,7 +5,8 @@
 mod tokens;
 
 use crate::shared::paths::{self, Form};
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 use gate_sdk::schemars::JsonSchema;
@@ -223,6 +224,7 @@ impl Rule<crate::Nest> for AssetStorage {
                 patterns: &patterns,
                 source,
                 typescript,
+                tokens: RefCell::new(HashMap::new()),
             };
             let mut findings = Findings::default();
 
@@ -306,7 +308,12 @@ struct Assets<'r, 'a> {
     patterns: &'r Patterns,
     source: &'r dyn Source,
     typescript: &'r TypeScript<'a>,
+    /// The parse and tokens of each file the run asked for ([`Assets::tokens`]).
+    tokens: RefCell<HashMap<String, Parsed<'a>>>,
 }
+
+/// A parsed file and its tokens, or `None` for a file without a syntax tree.
+type Parsed<'a> = Option<(Rc<SourceFile<'a>>, Rc<Tokens<'a>>)>;
 
 impl<'a> Assets<'_, 'a> {
     /// The files with the `.ts` extension below `directory`, compared case-sensitively, in every
@@ -321,12 +328,21 @@ impl<'a> Assets<'_, 'a> {
             .collect()
     }
 
-    fn tokens(&self, path: &str) -> gate_sdk::Result<Option<(Rc<SourceFile<'a>>, Tokens)>> {
-        Ok(project::parsed(self.typescript, path)?.map(|file| {
+    /// The syntax tree and tokens of `path`, each computed once per run: several checks walk the
+    /// same files. A file that cannot be read is not kept, so every check that asks fails alike.
+    fn tokens(&self, path: &str) -> gate_sdk::Result<Parsed<'a>> {
+        if let Some(known) = self.tokens.borrow().get(path) {
+            return Ok(known.clone());
+        }
+        let parsed = project::parsed(self.typescript, path)?.map(|file| {
             let mut tokens = Tokens::default();
             tokens.visit_program(file.program());
-            (file, tokens)
-        }))
+            (file, Rc::new(tokens))
+        });
+        self.tokens
+            .borrow_mut()
+            .insert(path.to_owned(), parsed.clone());
+        Ok(parsed)
     }
 
     /// The domain plane of the modules.
@@ -395,11 +411,11 @@ impl<'a> Assets<'_, 'a> {
     }
 
     fn external_sdk_placement(&self, findings: &mut Findings) -> gate_sdk::Result<()> {
-        let loads = |tokens: &Tokens, package: &str| {
+        let loads = |tokens: &Tokens<'_>, package: &str| {
             tokens
                 .modules
                 .iter()
-                .any(|module| module == package || module.starts_with(&format!("{package}/")))
+                .any(|module| *module == package || module.starts_with(&format!("{package}/")))
         };
         let infrastructure = folder_prefix(&self.layout.infrastructure_folder);
 
@@ -512,10 +528,11 @@ impl<'a> Assets<'_, 'a> {
             }
         }
 
-        let aliases: BTreeSet<&String> = tokens
+        let aliases: BTreeSet<&str> = tokens
             .identifiers
             .iter()
-            .filter(|name| self.patterns.http_status_alias.is_match(name.as_str()))
+            .copied()
+            .filter(|name| self.patterns.http_status_alias.is_match(*name))
             .collect();
 
         for alias in aliases {
@@ -523,13 +540,16 @@ impl<'a> Assets<'_, 'a> {
                 "s3-sdk-enum",
                 adapter,
                 None,
-                alias.as_str(),
+                alias,
                 format!("{adapter} declares {alias}; use HttpStatus enum members"),
             );
         }
 
         for [object, property] in &self.options.required_members {
-            if !tokens.members.contains(&(object.clone(), property.clone())) {
+            if !tokens
+                .members
+                .contains(&(object.as_str(), property.as_str()))
+            {
                 findings.push_keyed(
                     "s3-sdk-enum",
                     adapter,
@@ -545,8 +565,9 @@ impl<'a> Assets<'_, 'a> {
 
     fn central_admission_placement(&self, findings: &mut Findings) -> gate_sdk::Result<()> {
         let options = self.options;
-        let asset_command =
-            |tokens: &Tokens| tokens.any_name(|name| self.patterns.asset_command.is_match(name));
+        let asset_command = |tokens: &Tokens<'_>| {
+            tokens.any_name(|name| self.patterns.asset_command.is_match(name))
+        };
 
         for plane in self.layout.planes_without_domain() {
             for path in self.under(&format!(
@@ -578,7 +599,7 @@ impl<'a> Assets<'_, 'a> {
                 if tokens
                     .strings
                     .iter()
-                    .any(|text| self.patterns.image_route.is_match(text.as_str()))
+                    .any(|text| self.patterns.image_route.is_match(*text))
                 {
                     findings.push_keyed(
                         "central-admission",

@@ -12,6 +12,7 @@
 //! tests call through [`PLUGIN`].
 
 mod block;
+mod call;
 mod catalog;
 pub mod generators;
 mod index;
@@ -21,6 +22,7 @@ pub mod rules;
 mod settings;
 mod text;
 
+pub use self::call::LedgerCall;
 pub use self::generators::decision_counts::DecisionCounts;
 pub use self::generators::layout::Layout;
 pub use self::generators::review_progress::ReviewProgress;
@@ -72,6 +74,7 @@ gate_sdk::plugin! {
     name: "ledger",
     version: env!("CARGO_PKG_VERSION"),
     options: Settings,
+    call: LedgerCall,
     rules: [
         Blockers,
         ClosingNotes,

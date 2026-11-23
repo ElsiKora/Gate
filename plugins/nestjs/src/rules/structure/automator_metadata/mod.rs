@@ -49,7 +49,7 @@ impl Rule<crate::Nest> for AutomatorMetadata {
             let layout = PluginOptions::read(run)?.layout;
             let policy = Policy::new(run.options(), &layout);
             let typescript = shared.typescript()?;
-            let sources = Sources::new(typescript, &layout.source_root)?;
+            let sources = shared.contexts(&layout.source_root)?;
             let bases = entity_bases(&sources, &policy);
             let mut entities = Vec::new();
             let mut dtos = Vec::new();

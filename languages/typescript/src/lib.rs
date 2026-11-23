@@ -338,12 +338,14 @@ pub fn parse_source<'a>(
     })?;
     let source = allocator.alloc_str(text);
     let parsed = Parser::new(allocator, source, source_type).parse();
-    let lines = LineIndex::new(source);
+    // Built when a line is first asked for: most files report nothing.
+    let lines = OnceCell::new();
     let errors = parsed
         .diagnostics
         .iter()
         .map(|diagnostic| {
             let offset = diagnostic.labels.first().map(oxc_span::LabeledSpan::offset);
+            let lines = lines.get_or_init(|| LineIndex::new(source));
             SyntaxError {
                 line: offset.map(|offset| lines.line(offset)),
                 column: offset.map(|offset| lines.column(source, offset)),
@@ -370,7 +372,7 @@ pub struct SourceFile<'a> {
     program: &'a Program<'a>,
     fatal: bool,
     errors: Vec<SyntaxError>,
-    lines: LineIndex,
+    lines: OnceCell<LineIndex>,
     semantic: OnceCell<Semantic<'a>>,
 }
 
@@ -420,14 +422,19 @@ impl<'a> SourceFile<'a> {
     /// The one-based line of a byte offset, such as a span start.
     #[must_use]
     pub fn line(&self, offset: u32) -> u32 {
-        self.lines.line(offset)
+        self.lines().line(offset)
     }
 
     /// The byte range of one-based `line` including its terminator; `None` past the last line.
     #[must_use]
     pub fn line_bounds(&self, line: u32) -> Option<(u32, u32)> {
-        self.lines
+        self.lines()
             .bounds(line, u32::try_from(self.source.len()).unwrap_or(u32::MAX))
+    }
+
+    /// The line index of the text, built on first use.
+    fn lines(&self) -> &LineIndex {
+        self.lines.get_or_init(|| LineIndex::new(self.source))
     }
 
     /// The one-based line and column range of a syntax node's span, for a finding; columns count

@@ -146,7 +146,7 @@ impl<'a> File<'a> {
                 let Some(binding) = self.binding(
                     Node::Expression(&tagged.tag),
                     &self.sinks.tags,
-                    &Seen::new(),
+                    &Seen::default(),
                     &mut 0,
                     0,
                 )?
@@ -165,7 +165,7 @@ impl<'a> File<'a> {
                 let mut binding = self.binding(
                     Node::Expression(&call.callee),
                     &self.sinks.methods,
-                    &Seen::new(),
+                    &Seen::default(),
                     &mut 0,
                     0,
                 )?;
@@ -177,7 +177,7 @@ impl<'a> File<'a> {
                     && (equals(&name, "call") || equals(&name, "apply"))
                 {
                     binding =
-                        self.binding(receiver, &self.sinks.methods, &Seen::new(), &mut 0, 0)?;
+                        self.binding(receiver, &self.sinks.methods, &Seen::default(), &mut 0, 0)?;
                     argument = call.arguments.get(1).map(argument_node);
 
                     if equals(&name, "apply")
@@ -185,7 +185,7 @@ impl<'a> File<'a> {
                     {
                         argument = Some(
                             self.interpreter
-                                .array_elements(applied, &mut Seen::new(), &mut 0, 0)?
+                                .array_elements(applied, &mut Seen::default(), &mut 0, 0)?
                                 .and_then(|elements| elements.first().copied())
                                 .unwrap_or(applied),
                         );

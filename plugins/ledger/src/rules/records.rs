@@ -5,7 +5,6 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Need, Rule, Run};
 
-use crate::catalog::Catalog;
 use crate::input::{self, INPUT};
 use crate::records::{PENDING_PATTERNS, PENDING_VALUES, Tracking, analyse};
 use crate::settings::Settings;
@@ -53,7 +52,7 @@ impl Default for RecordsOptions {
     }
 }
 
-impl Rule for Records {
+impl Rule<crate::LedgerCall> for Records {
     type Options = RecordsOptions;
 
     const NAME: &'static str = "records";
@@ -71,38 +70,40 @@ impl Rule for Records {
         "record-unique",
     ];
 
-    fn check(&self, run: &mut Run<'_, RecordsOptions>) -> gate_sdk::Result<()> {
-        let settings = Settings::read(run)?;
-        let tree = run.tree();
-        let pending_patterns = run
-            .options()
-            .pending_patterns
-            .iter()
-            .map(|source| {
-                pattern(source).map_err(|error| {
-                    Error::config(format!(
-                        "ledger/records option pending-patterns has the invalid pattern {source:?}: {error}; fix or remove it"
-                    ))
+    fn check(&self, run: &mut Run<'_, RecordsOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let settings = Settings::read(run)?;
+            let tree = run.tree();
+            let pending_patterns = run
+                .options()
+                .pending_patterns
+                .iter()
+                .map(|source| {
+                    pattern(source).map_err(|error| {
+                        Error::config(format!(
+                            "ledger/records option pending-patterns has the invalid pattern {source:?}: {error}; fix or remove it"
+                        ))
+                    })
                 })
-            })
-            .collect::<gate_sdk::Result<Vec<_>>>()?;
+                .collect::<gate_sdk::Result<Vec<_>>>()?;
 
-        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
-            return Ok(());
-        }
+            if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
+                return Ok(());
+            }
 
-        let options = run.options();
-        let tracking = Tracking {
-            settings: &settings,
-            pending_values: &options.pending_values,
-            pending_patterns,
-            blocker_phases: &options.blocker_phases,
-            allowed: None,
-            unfinished_commit_pending: options.unfinished_commit_pending,
-        };
-        let findings = analyse(&Catalog::new(tree), &tracking)?;
-        findings.write(run.report(), |aspect| aspect != STATUS, |aspect| aspect);
-        Ok(())
+            let options = run.options();
+            let tracking = Tracking {
+                settings: &settings,
+                pending_values: &options.pending_values,
+                pending_patterns,
+                blocker_phases: &options.blocker_phases,
+                allowed: None,
+                unfinished_commit_pending: options.unfinished_commit_pending,
+            };
+            let findings = analyse(shared.catalog(), &tracking)?;
+            findings.write(run.report(), |aspect| aspect != STATUS, |aspect| aspect);
+            Ok(())
+        })
     }
 }
 
@@ -126,7 +127,7 @@ pub struct RecordStatusOptions {
     pub allowed: Option<Vec<String>>,
 }
 
-impl Rule for RecordStatus {
+impl Rule<crate::LedgerCall> for RecordStatus {
     type Options = RecordStatusOptions;
 
     const NAME: &'static str = "record-status";
@@ -139,31 +140,36 @@ impl Rule for RecordStatus {
         why: "the rule compares the statuses of the paired plan, implementation and verification records: set parity to the plan whose headings pair with them",
     }];
 
-    fn check(&self, run: &mut Run<'_, RecordStatusOptions>) -> gate_sdk::Result<()> {
-        let settings = Settings::read(run)?;
-        let tree = run.tree();
+    fn check(
+        &self,
+        run: &mut Run<'_, RecordStatusOptions, crate::LedgerCall>,
+    ) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let settings = Settings::read(run)?;
+            let tree = run.tree();
 
-        if run.options().allowed.as_ref().is_some_and(Vec::is_empty) {
-            return Err(Error::config(
-                "ledger/record-status option allowed is empty; list the allowed statuses or remove the option",
-            ));
-        }
+            if run.options().allowed.as_ref().is_some_and(Vec::is_empty) {
+                return Err(Error::config(
+                    "ledger/record-status option allowed is empty; list the allowed statuses or remove the option",
+                ));
+            }
 
-        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
-            return Ok(());
-        }
+            if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
+                return Ok(());
+            }
 
-        let options = run.options();
-        let tracking = Tracking {
-            settings: &settings,
-            pending_values: &[],
-            pending_patterns: Vec::new(),
-            blocker_phases: &[],
-            allowed: options.allowed.as_deref(),
-            unfinished_commit_pending: false,
-        };
-        let findings = analyse(&Catalog::new(tree), &tracking)?;
-        findings.write(run.report(), |aspect| aspect == STATUS, |_| "");
-        Ok(())
+            let options = run.options();
+            let tracking = Tracking {
+                settings: &settings,
+                pending_values: &[],
+                pending_patterns: Vec::new(),
+                blocker_phases: &[],
+                allowed: options.allowed.as_deref(),
+                unfinished_commit_pending: false,
+            };
+            let findings = analyse(shared.catalog(), &tracking)?;
+            findings.write(run.report(), |aspect| aspect == STATUS, |_| "");
+            Ok(())
+        })
     }
 }

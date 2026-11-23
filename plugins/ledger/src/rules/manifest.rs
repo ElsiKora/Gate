@@ -66,7 +66,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for Manifest {
+impl Rule<crate::LedgerCall> for Manifest {
     type Options = Options;
 
     const NAME: &'static str = "manifest";
@@ -80,38 +80,40 @@ impl Rule for Manifest {
         "record-unique",
     ];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let tree = run.tree();
-        check_path("ledger/manifest option manifest", &run.options().manifest)?;
-        let inputs = [Input::own("manifest", &run.options().manifest)];
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let tree = run.tree();
+            check_path("ledger/manifest option manifest", &run.options().manifest)?;
+            let inputs = [Input::own("manifest", &run.options().manifest)];
 
-        if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
-            return Ok(());
-        }
+            if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
+                return Ok(());
+            }
 
-        let options = run.options();
-        let path = options.manifest.as_str();
+            let options = run.options();
+            let path = options.manifest.as_str();
 
-        let catalog = Catalog::new(tree);
-        let mut findings = Findings::default();
-        let manifest_text = catalog.read(path);
-        let checker = Checker {
-            catalog: &catalog,
-            manifest: path,
-        };
+            let catalog = shared.catalog();
+            let mut findings = Findings::default();
+            let manifest_text = catalog.read(path);
+            let checker = Checker {
+                catalog,
+                manifest: path,
+            };
 
-        match serde_json::from_str::<Value>(&manifest_text) {
-            Err(error) => findings.emit_keyed(
-                "manifest-shape",
-                &At::file(path),
-                "json".to_owned(),
-                format!("{path} is not valid JSON: {error}"),
-            ),
-            Ok(manifest) => checker.check(&manifest, options, &mut findings),
-        }
+            match serde_json::from_str::<Value>(&manifest_text) {
+                Err(error) => findings.emit_keyed(
+                    "manifest-shape",
+                    &At::file(path),
+                    "json".to_owned(),
+                    format!("{path} is not valid JSON: {error}"),
+                ),
+                Ok(manifest) => checker.check(&manifest, options, &mut findings),
+            }
 
-        findings.write_all(run.report());
-        Ok(())
+            findings.write_all(run.report());
+            Ok(())
+        })
     }
 }
 

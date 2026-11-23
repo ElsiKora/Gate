@@ -1,8 +1,9 @@
 //! The TypeScript sources of one plugin call as its rules share them ([`TypeScriptCall`]): the
 //! tracked files of the call's tree, each read from the host once per call whichever rule asks
 //! first, and one TypeScript view with the `[languages.typescript]` settings that parses each file
-//! once and resolves each import once. A plugin names [`TypeScriptCall`] as its call state, and a
-//! rule reaches the [`Sources`] through [`gate_sdk::Run::with_call`].
+//! once and resolves each import once, and the import bindings of a source root
+//! ([`crate::owners::Sources`]) built once. A plugin names [`TypeScriptCall`] as its call state,
+//! and a rule reaches the [`Sources`] through [`gate_sdk::Run::with_call`].
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -44,6 +45,7 @@ impl CallState for TypeScriptCall {
                 Err(error) => Err(error.clone()),
             },
             reported: Cell::new(false),
+            contexts: RefCell::new(HashMap::new()),
         }
     }
 
@@ -138,6 +140,8 @@ pub struct Sources<'o> {
     typescript: gate_sdk::Result<TypeScript<'o>>,
     /// Whether a rule of the call reported the tsconfig bases the resolver could not read.
     reported: Cell<bool>,
+    /// The import bindings of each source root a rule asked for ([`Sources::contexts`]).
+    contexts: RefCell<HashMap<String, Rc<crate::owners::Sources<'o>>>>,
 }
 
 impl std::fmt::Debug for Owned<'_> {
@@ -175,20 +179,30 @@ impl<'o> Sources<'o> {
         self.typescript.as_ref().map_err(Clone::clone)
     }
 
-    /// The bytes of a tracked file, as [`Tree::bytes`] reads them but once per call; a file the
-    /// view parsed answers from its parsed text.
+    /// The contexts of the sources below `root` ([`crate::owners::Sources::new`]), built once per
+    /// call and root: the rules of a call share the bindings, and the owners they chase, as they
+    /// share the parse. A root whose contexts cannot be built is not kept, so each rule that asks
+    /// gets the error.
+    ///
+    /// # Errors
+    /// As [`crate::owners::Sources::new`], and when the `[languages.typescript]` settings do not
+    /// match.
+    pub fn contexts(&self, root: &str) -> gate_sdk::Result<Rc<crate::owners::Sources<'o>>> {
+        if let Some(known) = self.contexts.borrow().get(root) {
+            return Ok(Rc::clone(known));
+        }
+        let built = Rc::new(crate::owners::Sources::new(self.typescript()?, root)?);
+        self.contexts
+            .borrow_mut()
+            .insert(root.to_owned(), Rc::clone(&built));
+        Ok(built)
+    }
+
+    /// The bytes of a tracked file, as [`Tree::bytes`] reads them but once per call.
     #[must_use]
     pub fn bytes(&self, path: &str) -> Option<Vec<u8>> {
         if let Some(known) = self.source.read.borrow().get(path) {
             return known.as_deref().map(<[u8]>::to_vec);
-        }
-        if let Some(file) = self
-            .typescript
-            .as_ref()
-            .ok()
-            .and_then(|typescript| typescript.parsed(path))
-        {
-            return Some(file.source().as_bytes().to_vec());
         }
         self.source.read(path).map(|bytes| bytes.to_vec())
     }
@@ -201,8 +215,9 @@ impl<'o> Sources<'o> {
     }
 }
 
-/// The call's tracked files, each read from the host once: what a rule reads stays for the other
-/// rules, and what the view parses is dropped once parsed, since the parsed file keeps the text.
+/// The call's tracked files, each read from the host once: what a rule reads or the view parses
+/// stays for the other rules, which then never ask the host for it again, whichever way they read
+/// it (through [`Sources::bytes`] or the call's [`Source`]).
 struct CallSource<'h> {
     tree: Tree<'h>,
     paths: Vec<String>,
@@ -245,27 +260,6 @@ impl Source for CallSource<'_> {
             return Ok(known.clone());
         }
         Ok(self.read(path))
-    }
-
-    fn bytes_for_parse(&self, path: &str) -> crate::Result<Option<Rc<[u8]>>> {
-        let known = self.read.borrow().get(path).cloned();
-        let bytes = match known {
-            Some(bytes) => bytes,
-            None => self.tree.bytes(path).map(Rc::from),
-        };
-        // The parsed file keeps a UTF-8 file's text; a file that is not UTF-8 keeps its bytes here
-        // for a rule that reads them.
-        match &bytes {
-            Some(contents) if std::str::from_utf8(contents).is_err() => {
-                self.read
-                    .borrow_mut()
-                    .insert(path.to_owned(), bytes.clone());
-            }
-            _ => {
-                self.read.borrow_mut().remove(path);
-            }
-        }
-        Ok(bytes)
     }
 
     fn contains(&self, path: &str) -> bool {

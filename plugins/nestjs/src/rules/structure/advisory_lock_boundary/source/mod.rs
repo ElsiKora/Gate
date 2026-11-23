@@ -19,13 +19,13 @@
 //! names, where the fragment must be more than a bare `pg_`. An assignment to a parenthesised name
 //! (`(sql) = …`) is followed.
 
-use std::collections::HashSet;
-
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_typescript::SourceFile;
+use rustc_hash::FxHashSet as HashSet;
 
 use self::evidence::File;
+use self::interpreter::Interpreter;
 pub use self::shell::Patterns as ShellPatterns;
 use super::sql::{self, SqlError, Text, units};
 
@@ -130,8 +130,12 @@ pub struct Extraction<'s> {
 /// # Errors
 /// Fails where a sink argument with advisory evidence cannot be
 /// rebuilt, its SQL cannot be read, or a reconstruction exceeds its budget.
-pub fn statements(file: &SourceFile<'_>, extraction: &Extraction<'_>) -> Result<Vec<Text>, Fail> {
-    let reading = File::new(file, extraction.sinks.clone())?;
+pub fn statements<'a>(
+    file: &SourceFile<'a>,
+    reconstruction: Reconstruction<'a>,
+    extraction: &Extraction<'_>,
+) -> Result<Vec<Text>, Fail> {
+    let reading = File::new(file, reconstruction.0, extraction.sinks.clone())?;
     let unresolved = || {
         Fail::new(&format!(
             "{} contains unresolved executable advisory SQL.",
@@ -154,7 +158,8 @@ pub fn statements(file: &SourceFile<'_>, extraction: &Extraction<'_>) -> Result<
                 .any(|name| reading.mutated.contains(name));
 
             if extraction.canonical {
-                let candidates = reading.complete_candidates(argument, &Seen::new(), &mut 0, 0)?;
+                let candidates =
+                    reading.complete_candidates(argument, &Seen::default(), &mut 0, 0)?;
                 let Some(candidates) = candidates.filter(|_| !mutated) else {
                     return Err(unresolved());
                 };
@@ -208,12 +213,27 @@ pub fn statements(file: &SourceFile<'_>, extraction: &Extraction<'_>) -> Result<
 ///
 /// # Errors
 /// Fails where an evaluation exceeds its budget.
-pub fn registered_ids(
+pub fn registered_ids<'a>(
     text: &str,
-    file: Option<&SourceFile<'_>>,
+    file: Option<(&SourceFile<'a>, &Reconstruction<'a>)>,
     registered: &[i64],
 ) -> Result<Vec<i64>, Fail> {
-    numeric::registered_ids(text, file, registered)
+    numeric::registered_ids(
+        text,
+        file.map(|(file, reconstruction)| (file, &reconstruction.0)),
+        registered,
+    )
+}
+
+/// The variables and identifiers of one parsed source, read once for both [`registered_ids`] and
+/// [`statements`].
+pub struct Reconstruction<'a>(Interpreter<'a>);
+
+impl<'a> Reconstruction<'a> {
+    #[must_use]
+    pub fn new(file: &SourceFile<'a>) -> Self {
+        Self(Interpreter::new(file))
+    }
 }
 
 /// Checks the shell commands of a shell script, JSON file or `package.json` for advisory SQL.

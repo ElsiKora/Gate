@@ -24,6 +24,8 @@ mod mint;
 mod source;
 mod sql;
 
+use std::borrow::Cow;
+
 use crate::shared::paths::{self, Form};
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
@@ -288,7 +290,9 @@ impl Rule<crate::Nest> for AdvisoryLockBoundary {
                     continue;
                 };
 
-                let utf8 = std::str::from_utf8(&bytes).is_ok();
+                // The lossy text borrows the bytes exactly when they are UTF-8.
+                let text = String::from_utf8_lossy(&bytes);
+                let utf8 = matches!(text, Cow::Borrowed(_));
 
                 // A SQL, JSON or shell file that is not UTF-8 text is still read, with replacement
                 // characters; the loss is reported.
@@ -302,14 +306,7 @@ impl Rule<crate::Nest> for AdvisoryLockBoundary {
                     rejected.push(path.clone());
                 }
 
-                match scan(
-                    typescript,
-                    path,
-                    kind,
-                    &String::from_utf8_lossy(&bytes),
-                    utf8,
-                    &rules,
-                )? {
+                match scan(typescript, path, kind, &text, utf8, &rules)? {
                     Ok(statements) => {
                         if !statements.is_empty()
                             && (boundaries.migrations.contains(path)
@@ -510,18 +507,30 @@ fn scan(
         Kind::Sql | Kind::Shell => None,
     };
     let tree = parsed.as_deref().filter(|file| !file.fatal());
+    // Built once, for the inventory and the statements, whichever reads it first.
+    let mut reconstruction = None;
 
     if let Some((registered, allowed)) = &rules.inventory {
         // Every file is read as TypeScript for its identifiers; a JavaScript or TypeScript source
         // keeps its own syntax tree here.
         let allocator = Allocator::default();
         let present = match kind {
-            Kind::Ast => source::registered_ids(text, tree, registered),
+            Kind::Ast => source::registered_ids(
+                text,
+                tree.map(|file| {
+                    (
+                        file,
+                        &*reconstruction.insert(source::Reconstruction::new(file)),
+                    )
+                }),
+                registered,
+            ),
             Kind::Sql | Kind::Shell => {
                 let file = parse_source(&allocator, "registered-id-inventory.ts", text)
                     .ok()
                     .filter(|file| !file.fatal());
-                source::registered_ids(text, file.as_ref(), registered)
+                let reconstruction = file.as_ref().map(source::Reconstruction::new);
+                source::registered_ids(text, file.as_ref().zip(reconstruction.as_ref()), registered)
             }
         };
 
@@ -582,8 +591,11 @@ fn scan(
                 )));
             }
 
+            let reconstruction =
+                reconstruction.unwrap_or_else(|| source::Reconstruction::new(&file));
             source::statements(
                 &file,
+                reconstruction,
                 &Extraction {
                     path,
                     canonical: path == rules.boundaries.executor,
