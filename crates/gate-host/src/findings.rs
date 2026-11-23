@@ -498,18 +498,30 @@ impl RulesRan {
     }
 }
 
-/// `gate check --rule`: the rules a run is narrowed to, each `<plugin>/<rule>` or `<plugin>/*`.
-/// Empty: every rule. The core's own rules always run.
+/// `gate check --rule` and `--skip-rule`: the rules a run is narrowed to, and the rules it leaves
+/// out after that, each `<plugin>/<rule>` or `<plugin>/*`. No `--rule` key: every rule; no
+/// `--skip-rule` key: none left out. The core's own rules always run.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RuleFilter {
     keys: Vec<RuleKey>,
+    skip: Vec<RuleKey>,
 }
 
 impl RuleFilter {
-    /// A filter of `keys`; no key: every rule.
+    /// A filter of `keys` (`--rule`); no key: every rule. Nothing is skipped.
     #[must_use]
     pub fn new(keys: Vec<RuleKey>) -> Self {
-        Self { keys }
+        Self {
+            keys,
+            skip: Vec::new(),
+        }
+    }
+
+    /// The filter with `skip` (`--skip-rule`) left out of the rules it allows, after `--rule`.
+    #[must_use]
+    pub fn skipping(mut self, skip: Vec<RuleKey>) -> Self {
+        self.skip = skip;
+        self
     }
 
     /// Parses one `--rule` value: `<plugin>/<rule>` or `<plugin>/*`.
@@ -517,42 +529,82 @@ impl RuleFilter {
     /// # Errors
     /// Fails, saying what is expected, for an aspect or anything that is not such a key.
     pub fn parse(value: &str) -> Result<RuleKey, String> {
-        if value.contains('#') {
-            return Err(format!(
-                "{value:?}: --rule narrows a run to whole rules; write <plugin>/<rule> or <plugin>/*, without #<aspect>"
-            ));
-        }
-        RuleKey::parse(value)
+        parse_key(value, "--rule narrows a run to whole rules")
     }
 
-    /// The keys, as given.
+    /// Parses one `--skip-rule` value: `<plugin>/<rule>` or `<plugin>/*`.
+    ///
+    /// # Errors
+    /// Fails, saying what is expected, for an aspect or anything that is not such a key.
+    pub fn parse_skip(value: &str) -> Result<RuleKey, String> {
+        parse_key(value, "--skip-rule leaves whole rules out of a run")
+    }
+
+    /// The `--rule` keys, as given.
     #[must_use]
     pub fn keys(&self) -> &[RuleKey] {
         &self.keys
     }
 
-    /// Whether the run is narrowed at all.
+    /// The `--skip-rule` keys, as given.
+    #[must_use]
+    pub fn skip_keys(&self) -> &[RuleKey] {
+        &self.skip
+    }
+
+    /// Whether the run is narrowed by `--rule`.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
 
-    /// Whether `rule` (`<plugin>/<rule>`) runs.
+    /// Whether `rule` (`<plugin>/<rule>`) runs: `--rule` allows it and no `--skip-rule` key
+    /// matches it. A core rule always runs.
     #[must_use]
     pub fn allows(&self, rule: &str) -> bool {
         let plugin = rule.split_once('/').map_or(rule, |(plugin, _)| plugin);
-        self.keys.is_empty()
-            || plugin == CORE_PLUGIN
-            || self.keys.iter().any(|key| match key {
-                RuleKey::Family(family) => family == plugin,
-                RuleKey::Rule(id) => id.to_string() == rule,
-            })
+        plugin == CORE_PLUGIN
+            || (self.narrowed_to(rule) && !self.skip.iter().any(|key| key_matches(key, rule)))
     }
 
-    /// Whether any rule of `plugin` runs.
+    /// Whether `--rule` alone allows `rule`, whatever `--skip-rule` says.
+    #[must_use]
+    pub fn narrowed_to(&self, rule: &str) -> bool {
+        self.keys.is_empty() || self.keys.iter().any(|key| key_matches(key, rule))
+    }
+
+    /// Whether `key` matches `rule` (`<plugin>/<rule>`).
+    #[must_use]
+    pub fn matches(key: &RuleKey, rule: &str) -> bool {
+        key_matches(key, rule)
+    }
+
+    /// Whether any rule of `plugin` may run: `--rule` names the plugin or is not given, and
+    /// `--skip-rule <plugin>/*` does not leave the whole plugin out.
     #[must_use]
     pub fn allows_plugin(&self, plugin: &str) -> bool {
-        self.keys.is_empty() || self.keys.iter().any(|key| key.plugin() == plugin)
+        (self.keys.is_empty() || self.keys.iter().any(|key| key.plugin() == plugin))
+            && !self
+                .skip
+                .iter()
+                .any(|key| matches!(key, RuleKey::Family(family) if family == plugin))
+    }
+}
+
+fn parse_key(value: &str, what: &str) -> Result<RuleKey, String> {
+    if value.contains('#') {
+        return Err(format!(
+            "{value:?}: {what}; write <plugin>/<rule> or <plugin>/*, without #<aspect>"
+        ));
+    }
+    RuleKey::parse(value)
+}
+
+fn key_matches(key: &RuleKey, rule: &str) -> bool {
+    let plugin = rule.split_once('/').map_or(rule, |(plugin, _)| plugin);
+    match key {
+        RuleKey::Family(family) => family == plugin,
+        RuleKey::Rule(id) => id.to_string() == rule,
     }
 }
 

@@ -467,18 +467,27 @@ fn check_reads_history(arguments: &[&str], generators: &dyn Generators) -> bool 
         return true;
     }
     let mut keys = Vec::new();
+    let mut skip = Vec::new();
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
-        let value = if *word == "--rule" {
-            words.next().copied()
-        } else {
-            word.strip_prefix("--rule=")
+        let (list, value) = match *word {
+            "--rule" => (&mut keys, words.next().copied()),
+            "--skip-rule" => (&mut skip, words.next().copied()),
+            _ => {
+                if let Some(value) = word.strip_prefix("--rule=") {
+                    (&mut keys, Some(value))
+                } else if let Some(value) = word.strip_prefix("--skip-rule=") {
+                    (&mut skip, Some(value))
+                } else {
+                    continue;
+                }
+            }
         };
         if let Some(key) = value.and_then(|value| RuleFilter::parse(value).ok()) {
-            keys.push(key);
+            list.push(key);
         }
     }
-    generators.reads_history(&RuleFilter::new(keys))
+    generators.reads_history(&RuleFilter::new(keys).skipping(skip))
 }
 
 /// Generated files that are tracked and are no longer an output: a hook whose `[hooks]` entry was

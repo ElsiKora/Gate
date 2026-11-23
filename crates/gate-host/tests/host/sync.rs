@@ -745,3 +745,61 @@ fn the_aggregate_passes_on_success_and_skipped_and_fails_naming_any_other_result
         assert!(!left, "{needs}: the command wrote a file");
     }
 }
+
+#[test]
+fn a_job_that_skips_every_history_rule_does_not_check_out_the_history() {
+    let repo = monorepo();
+    repo.write(
+        "gate.toml",
+        &format!(
+            r#"{ROOT}
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+checkout = "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+
+[ci.github.jobs.skips]
+name = "All but the history rule"
+timeout-minutes = 10
+run = ["check --skip-rule history/commits"]
+
+[ci.github.jobs.equals]
+name = "All but the history rule, the other spelling"
+timeout-minutes = 10
+run = ["check --skip-rule=history/commits"]
+
+[ci.github.jobs.other]
+name = "All but another rule"
+timeout-minutes = 10
+run = ["check --skip-rule layers/imports"]
+"#
+        ),
+    );
+    repo.commit("ci");
+    let workspace = Workspace::open(repo.path(), Source::WorkTree).expect("open");
+    let outputs = plan(&workspace, &OneHistoryRule).expect("plan");
+    let workflow = String::from_utf8(
+        outputs
+            .iter()
+            .find(|output| output.item == "ci")
+            .expect("workflow")
+            .contents
+            .clone(),
+    )
+    .expect("utf-8");
+
+    for (id, deep) in [("skips", false), ("equals", false), ("other", true)] {
+        let header = format!("  {id}:");
+        let job = workflow
+            .lines()
+            .skip_while(|line| *line != header)
+            .enumerate()
+            .take_while(|(index, line)| *index == 0 || line.starts_with("   "))
+            .fold(String::new(), |mut job, (_, line)| {
+                job.push_str(line);
+                job.push('\n');
+                job
+            });
+        assert!(!job.is_empty(), "{id}: {workflow}");
+        assert_eq!(job.contains("fetch-depth: 0\n"), deep, "{id}: {job}");
+    }
+}

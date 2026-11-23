@@ -310,8 +310,8 @@ option.
 
 An exception is reported only by a run that judged what it covers:
 
-- A rule that did not run in the exception's scope (it is off, `--rule` leaves it out, or the change
-  selection skips the project) judged nothing there.
+- A rule that did not run in the exception's scope (it is off, `--rule` or `--skip-rule` leaves it
+  out, or the change selection skips the project) judged nothing there.
 - Most rules judge their whole scope whenever they run, so each of their exceptions is checked.
 - A rule whose subjects change from run to run judges only those subjects, and says so. Examples
   are the commits a push adds and the branch that is checked out. Its rule page lists them. An
@@ -623,6 +623,50 @@ while a plain `gate check` and a CI job, which check `main` out, pass. `set -e` 
 with the first failing check's code, so git stops the commit or the push.
 `[hooks] budget = { warn-after = 3, fail-after = 10 }` corresponds to `--warn-after 3 --fail-after 10`
 before `--hook`, and `pre-commit = ["check --staged"]` to `bin/gate check --staged --hook`.
+
+### Leaving Rules Out of a Hook
+
+`--rule <id>` narrows a `check` to the rules it names; `--skip-rule <id>` leaves the rules it names
+out. Each is repeatable, and each takes `<plugin>/<rule>` or every rule of a plugin, `<plugin>/*`.
+The skip applies after `--rule`: `gate check --rule 'git/*' --skip-rule git/main-history` runs every
+enabled `git` rule but `git/main-history`. A hook entry and a CI job's `check` entry take both
+flags, as `gate check` does, with single rules only: an entry holds no shell syntax, `*`
+included, since it is written into the hook and the workflow unquoted. A hand-written hook quotes
+a `<plugin>/*` key.
+
+The history rules, `git/main-history` and `git/no-ci-skip`, run in every mode, `--staged`
+included, and a cold run of them on a large tree takes seconds. There is no switch that turns
+history off. A `pre-commit` hook under a tight budget names them instead, and leaves them to the
+`pre-push` hook and CI:
+
+```toml
+[hooks]
+pre-commit = ["check --staged --skip-rule git/main-history --skip-rule git/no-ci-skip"]
+pre-push = ["check --push"]
+budget = { warn-after = 3, fail-after = 6 }
+```
+
+`gate sync` writes the entry as `bin/gate check --staged --skip-rule git/main-history --skip-rule
+git/no-ci-skip --warn-after 3 --fail-after 6 --hook`, and a hand-written hook (Husky, for example)
+calls the same line. The run's summary names what it left out: `gate check (staged): 12 rules
+(skipped git/main-history, git/no-ci-skip), 0 errors, 0 warnings; ...`, and the JSON report lists
+the same ids under `skipped-rules`. The list covers every scope of the configuration, so a mode
+or a change selection that would not have run a rule still names it as skipped: a `commit-msg`
+hook's `check --commit-message --skip-rule git/main-history` runs only the rules that read the
+message, and its summary still says `(skipped git/main-history)`.
+
+- A skipped rule's exceptions and baseline entries are not due in that run, as for a rule
+  `--rule` leaves out.
+- A skip must leave something out. A key that names no configured rule, that matches no rule
+  enabled in some scope, or that matches none of the rules `--rule` leaves to run fails the run
+  with exit `2` and says to remove the key or turn the rule on; so does a `--rule` key whose every
+  enabled rule a skip removes. A hook whose skip no longer matches the configuration fails rather
+  than check less than it says.
+- A plugin whose every rule is left out gets no call, as with `--rule`. Once the cache holds what
+  the plugin declares, it is not fetched or loaded in that run; on a fresh cache, after a clone
+  or a core upgrade, the first run still fetches and loads it to read its declaration, which
+  `gate sync` also stores. `gate.toml` and `gate.lock` are still checked against each other, and
+  the configuration against what every declared plugin declares: a skip is no way around a pin.
 
 ## `[ci.github]`
 

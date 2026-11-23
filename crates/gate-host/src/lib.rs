@@ -156,7 +156,8 @@ pub struct CheckRequest {
     pub commit_message: Option<String>,
     /// A git hook started the run (`--hook`, which the generated hooks pass).
     pub hook: bool,
-    /// The rules the run is narrowed to (`--rule`); empty: every rule.
+    /// The rules the run is narrowed to (`--rule`), and those it leaves out after that
+    /// (`--skip-rule`); empty: every rule.
     pub rules: RuleFilter,
 }
 
@@ -207,8 +208,8 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
     let mut timings = run.timings;
     let workspace = run.workspace;
     let selection = run.selection;
-    // Rules outside --rule never count as run, and their findings are dropped, whatever a plugin
-    // reports.
+    // Rules outside --rule or under --skip-rule never count as run, and their findings are
+    // dropped, whatever a plugin reports.
     let mut ran = run.ran.per_scope.clone();
     ran.retain_rules(&request.rules);
     let mut found = run.findings;
@@ -229,6 +230,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
         baselined: finished.baselined,
         selection,
         overrides: run.overrides,
+        skipped_rules: run.ran.skipped,
     };
     timings.push(Timing {
         phase: "total".to_owned(),
@@ -484,7 +486,7 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     let at = Instant::now();
     let ran = match loaded {
         None => {
-            // No plugin is loaded: --rule knows only the rules [rules] names.
+            // No plugin is loaded: --rule and --skip-rule know only the rules [rules] names.
             workspace.check_rule_filter(&request.rules, &|_, _, _| None)?;
             plugins::Ran::default()
         }

@@ -46,6 +46,8 @@ pub struct Report {
     pub selection: Selection,
     /// The plugins replaced for this run by `--plugin`, each as `<name>=<path> sha256 <hex>`.
     pub overrides: Vec<String>,
+    /// The enabled rules `--skip-rule` left out of the run, by id, sorted.
+    pub skipped_rules: Vec<String>,
 }
 
 impl Report {
@@ -69,6 +71,7 @@ impl Report {
     }
 
     /// `gate check (<mode>): N rules, E errors, W warnings; projects: ran a, b; skipped c`, with
+    /// ` (skipped <rule>, <rule>)` after the rules when `--skip-rule` left any out,
     /// `, B findings held back by gate/baseline.json` after the warnings when the baseline held
     /// any back, then `; override <name>=<path> sha256 <hex>` for each `--plugin`.
     #[must_use]
@@ -97,8 +100,13 @@ impl Report {
                 plural(self.baselined, "finding", "findings")
             )
         };
+        let skipped = if self.skipped_rules.is_empty() {
+            String::new()
+        } else {
+            format!(" (skipped {})", self.skipped_rules.join(", "))
+        };
         format!(
-            "gate check ({}): {} {}, {} {}, {} {}{baselined}; projects: ran {}; skipped {}{overrides}",
+            "gate check ({}): {} {}{skipped}, {} {}, {} {}{baselined}; projects: ran {}; skipped {}{overrides}",
             self.mode,
             self.rules,
             plural(self.rules, "rule", "rules"),
@@ -171,6 +179,7 @@ impl Report {
             "warnings": self.count(Level::Warning),
             "notes": self.count(Level::Note),
             "baselined": self.baselined,
+            "skipped-rules": self.skipped_rules,
             "projects": self.selection,
             "findings": findings,
             "summary": self.summary(),

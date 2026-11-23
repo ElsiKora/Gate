@@ -25,8 +25,8 @@ use crate::cache::answers::{Answer, Answers, Question};
 use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
-    Config, LevelSetting, PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting,
-    SettingOrigin, Settings, Sourced,
+    Config, LevelSetting, PluginItem, PluginName, PluginSource, RuleId, RuleKey, SchemaValidator,
+    Setting, SettingOrigin, Settings, Sourced,
 };
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
@@ -245,6 +245,16 @@ pub(crate) struct Ran {
     pub(crate) cache_warning: Option<String>,
     /// How the plugins loaded.
     pub(crate) loads: Loads,
+    /// The enabled rules `--skip-rule` left out, by id, sorted.
+    pub(crate) skipped: Vec<String>,
+}
+
+impl Ran {
+    /// The run with `skipped`, the rules `--skip-rule` left out, for the summary.
+    fn skipping(mut self, skipped: Vec<String>) -> Self {
+        self.skipped = skipped;
+        self
+    }
 }
 
 /// The first cache write of a run that failed. A write is best effort: the findings do not depend
@@ -706,12 +716,12 @@ fn lasting_load_failure(kind: gate_runtime::ErrorKind) -> bool {
 }
 
 impl Loaded {
-    /// Checks the configuration and the `--rule` keys of `filter` against what the loaded plugins
-    /// declare.
+    /// Checks the configuration and the `--rule` and `--skip-rule` keys of `filter` against what
+    /// the loaded plugins declare.
     ///
     /// # Errors
-    /// Fails on the first configuration error, naming the file, line and section, or the first key
-    /// that names no configured rule.
+    /// Fails on the first configuration error, naming the file, line and section, the first key
+    /// that names no configured rule, or a skip that leaves nothing out.
     pub(crate) fn validate(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
         self.validate_except(workspace, filter, &BTreeSet::new())
     }
@@ -772,7 +782,8 @@ impl Loaded {
         self.check_needs(workspace, filter)?;
         self.check_decisions(workspace)?;
         self.check_generators(workspace)?;
-        workspace.check_rule_filter(filter, &declaration)
+        workspace.check_rule_filter(filter, &declaration)?;
+        self.skipped_rules(workspace, filter).map(drop)
     }
 
     /// Checks that every `extends` entry of every scope names a preset its plugin declares, that
@@ -945,6 +956,76 @@ impl Loaded {
             }
         }
         Ok(())
+    }
+
+    /// The rules `--skip-rule` leaves out of the run, by id, sorted: the rules enabled in some
+    /// scope of the configuration, whatever the change selection runs, that `--rule` allows and a
+    /// skip key matches. Checks that each skip key leaves out at least one of them, and that no
+    /// `--rule` key is left with none of its enabled rules to run.
+    ///
+    /// # Errors
+    /// Fails on the first `--skip-rule` key that matches no enabled rule, or none `--rule` leaves
+    /// to run, and on the first `--rule` key whose every enabled rule a skip removes; each error
+    /// says what to remove or turn on.
+    fn skipped_rules(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<Vec<String>> {
+        if filter.skip_keys().is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut enabled = BTreeSet::new();
+        for (project, settings) in scopes(workspace) {
+            for (name, declared) in &self.declarations {
+                if !settings.plugins.contains_key(name) {
+                    continue;
+                }
+                for rule in enabled_rules(&declared.info, name, settings, workspace, project)? {
+                    enabled.insert(rule.id.to_string());
+                }
+            }
+        }
+        for key in filter.skip_keys() {
+            let matched: Vec<&String> = enabled
+                .iter()
+                .filter(|rule| RuleFilter::matches(key, rule))
+                .collect();
+            if matched.is_empty() {
+                let (what, fix) = match key {
+                    RuleKey::Family(plugin) => (
+                        format!("no rule of plugin {plugin} is enabled in any scope"),
+                        "turn one of its rules on",
+                    ),
+                    RuleKey::Rule(_) => ("it is off in every scope".to_owned(), "turn the rule on"),
+                };
+                return Err(Error::config(format!(
+                    "--skip-rule {key} matches no enabled rule: {what}, so it leaves nothing out; remove --skip-rule {key}, or {fix}"
+                )));
+            }
+            if !matched.iter().any(|rule| filter.narrowed_to(rule)) {
+                let named = filter
+                    .keys()
+                    .iter()
+                    .map(|key| format!("--rule {key}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(Error::config(format!(
+                    "--skip-rule {key} matches no rule {named} leaves to run, so it leaves nothing out; remove --skip-rule {key}, or name its rules with --rule"
+                )));
+            }
+        }
+        for key in filter.keys() {
+            let mut matched = enabled
+                .iter()
+                .filter(|rule| RuleFilter::matches(key, rule))
+                .peekable();
+            if matched.peek().is_some() && !matched.any(|rule| filter.allows(rule)) {
+                return Err(Error::config(format!(
+                    "--rule {key}: --skip-rule leaves none of its rules to run, so the run checks nothing it names; remove --rule {key}, or the --skip-rule that matches it"
+                )));
+            }
+        }
+        Ok(enabled
+            .into_iter()
+            .filter(|rule| filter.narrowed_to(rule) && !filter.allows(rule))
+            .collect())
     }
 
     /// Checks that every `[generate]` key names a generator its plugin declares. A key whose
@@ -1168,7 +1249,7 @@ impl Loaded {
         }
         git_history.finish(&mut ran);
         ran.loads = self.loads(&planned.iter().map(|call| call.2).collect());
-        Ok(ran)
+        Ok(ran.skipping(self.skipped_rules(workspace, filter)?))
     }
 
     /// The sha256 of the plugin `name` this command runs, loaded or on call; `None` when the

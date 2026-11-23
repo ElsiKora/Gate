@@ -70,6 +70,7 @@ fn report(findings: Vec<Finding>) -> Report {
             repository: true,
         },
         overrides: Vec::new(),
+        skipped_rules: Vec::new(),
     }
 }
 
@@ -1123,4 +1124,153 @@ fn a_family_filter_takes_every_rule_of_its_plugin_and_the_core_always_runs() {
             .expect_err("aspect")
             .contains("without #<aspect>")
     );
+}
+
+/// A filter of `keys` (`--rule`) that skips `skip` (`--skip-rule`).
+fn skipping(keys: &[&str], skip: &[&str]) -> gate_host::RuleFilter {
+    filter(keys).skipping(
+        skip.iter()
+            .map(|key| gate_host::RuleFilter::parse_skip(key).expect("key"))
+            .collect(),
+    )
+}
+
+#[test]
+fn a_skip_leaves_its_rules_out_after_the_rule_filter() {
+    // Without --rule: every rule but the skipped ones.
+    let one = skipping(&[], &["layers/relation"]);
+    assert!(!one.allows("layers/relation"));
+    assert!(one.allows("layers/barrel-exports"));
+    assert!(one.allows("a/rule"));
+    assert!(one.allows("gate/exceptions"), "the core always runs");
+    assert!(one.allows_plugin("layers"), "layers keeps a rule to run");
+    assert!(one.narrowed_to("layers/relation"), "--rule alone allows it");
+
+    let family = skipping(&[], &["layers/*"]);
+    assert!(!family.allows("layers/relation"));
+    assert!(!family.allows("layers/barrel-exports"));
+    assert!(family.allows("a/rule"));
+    assert!(!family.allows_plugin("layers"), "no rule of layers runs");
+    assert!(family.allows_plugin("a"));
+
+    // With --rule: the skip applies to what --rule leaves.
+    let both = skipping(&["layers/*", "a/rule"], &["layers/relation"]);
+    assert!(!both.allows("layers/relation"));
+    assert!(both.allows("layers/barrel-exports"));
+    assert!(both.allows("a/rule"));
+    assert!(!both.allows("b/rule"), "--rule leaves b out");
+    assert!(both.allows_plugin("layers"));
+    assert!(!both.allows_plugin("b"));
+
+    // The same key in both: the skip wins.
+    let emptied = skipping(&["layers/relation"], &["layers/*"]);
+    assert!(!emptied.allows("layers/relation"));
+    assert!(!emptied.allows_plugin("layers"));
+
+    assert!(
+        gate_host::RuleFilter::parse_skip("layers/relation#nullable")
+            .expect_err("aspect")
+            .contains("--skip-rule leaves whole rules out of a run")
+    );
+}
+
+#[test]
+fn a_skipped_rule_s_exceptions_and_baseline_entries_are_not_due() {
+    let relation = finding(
+        "layers/relation",
+        "",
+        Level::Error,
+        "apps/x.ts",
+        3,
+        "relation",
+    );
+    let other = finding("a/rule", "", Level::Error, "apps/x.ts", 4, "other");
+    let gone = finding("a/rule", "", Level::Error, "apps/y.ts", 1, "fixed");
+    let unused = exception("a/rule", "src/gone.ts:Gone.field");
+    let baseline = Baseline::from_findings(&[gone]);
+
+    // Without the skip, the exception is unused and the baseline entry stale.
+    let mut sink = Findings::new();
+    sink.extend([relation.clone(), other.clone()]);
+    let rules: Vec<String> = sink
+        .finish(std::slice::from_ref(&unused), &baseline, &ran_all())
+        .into_iter()
+        .map(|found| found.rule)
+        .collect();
+    assert_eq!(
+        rules,
+        [
+            "gate/exceptions",
+            "layers/relation",
+            "a/rule",
+            "gate/baseline"
+        ]
+    );
+
+    // The runtime reported a/rule anyway; the core holds the run to the skip.
+    let skip = skipping(&[], &["a/rule"]);
+    let mut ran = ran_all();
+    ran.retain_rules(&skip);
+    let mut sink = Findings::new();
+    sink.extend([relation.clone(), other]);
+    sink.retain_rules(&skip);
+    let kept = sink.finish(std::slice::from_ref(&unused), &baseline, &ran);
+    assert_eq!(
+        kept,
+        [relation],
+        "no a/rule finding, and neither its exception nor its baseline entry is due"
+    );
+}
+
+#[test]
+fn a_rule_the_skip_leaves_to_run_still_reports_its_unused_exceptions_and_stale_entries() {
+    let other = finding("a/rule", "", Level::Error, "apps/x.ts", 4, "other");
+    let gone = finding("layers/relation", "", Level::Error, "apps/y.ts", 1, "fixed");
+    let skipped_gone = finding("a/rule", "", Level::Error, "apps/z.ts", 2, "fixed too");
+    let unused = exception("layers/relation", "src/gone.ts:Gone.field");
+    let skipped_unused = exception("a/rule", "src/gone.ts:Gone.field");
+    let baseline = Baseline::from_findings(&[gone, skipped_gone]);
+
+    // a/rule is skipped in the same run; layers/relation still runs and reported nothing.
+    let skip = skipping(&[], &["a/rule"]);
+    let mut ran = ran_all();
+    ran.retain_rules(&skip);
+    let mut sink = Findings::new();
+    sink.push(other);
+    sink.retain_rules(&skip);
+    let kept = sink.finish(&[unused, skipped_unused], &baseline, &ran);
+    let reported: Vec<(&str, &str)> = kept
+        .iter()
+        .map(|found| (found.rule.as_str(), found.message.as_str()))
+        .collect();
+    assert_eq!(kept.len(), 2, "{reported:?}");
+    assert_eq!(kept[0].rule, "gate/exceptions", "{reported:?}");
+    assert!(
+        kept[0].message.contains("layers/relation"),
+        "the unused exception is layers/relation's: {reported:?}"
+    );
+    assert_eq!(
+        kept[1].message, "the baseline entry for layers/relation at apps/y.ts matches no finding",
+        "{reported:?}"
+    );
+}
+
+#[test]
+fn the_summary_names_the_rules_a_skip_left_out() {
+    let mut report = report(Vec::new());
+    report.skipped_rules = vec!["git/main-history".to_owned(), "git/no-ci-skip".to_owned()];
+    assert_eq!(
+        report.summary(),
+        "gate check (tree): 2 rules (skipped git/main-history, git/no-ci-skip), 0 errors, 0 warnings; projects: ran server; skipped none"
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&report.render(Format::Json).expect("render")).expect("json");
+    assert_eq!(
+        json["skipped-rules"],
+        serde_json::json!(["git/main-history", "git/no-ci-skip"])
+    );
+    report.skipped_rules.clear();
+    let json: serde_json::Value =
+        serde_json::from_str(&report.render(Format::Json).expect("render")).expect("json");
+    assert_eq!(json["skipped-rules"], serde_json::json!([]));
 }

@@ -385,14 +385,14 @@ all = ["lint", "unit"]
   their plugin, `extends` entries that name no preset of their plugin, options that fail the rule's
   schema, `[plugins.<name>] options` that fail the schema the plugin declares (a missing required
   option, an unknown one, a wrong type), and exceptions without a reason are configuration errors
-  that name the file and key, raised before anything runs, in every run, whatever `--rule` and the
-  change selection leave to run.
+  that name the file and key, raised before anything runs, in every run, whatever `--rule`,
+  `--skip-rule` and the change selection leave to run.
 - A plugin option an enabled rule declares it reads (`NEEDS` in the SDK) missing from
   `[plugins.<name>] options` is a configuration error too, raised before anything runs, for the
-  rules `--rule` leaves to run: a need belongs to the rules that run, so it follows `--rule`, and
-  does so again when a `sync-state` answer checks the run's configuration. A plugin option only
-  some rules read stays optional in the plugin's schema; the rule that reads it declares it, with
-  the options it reads it under, so the error names that rule.
+  rules `--rule` and `--skip-rule` leave to run: a need belongs to the rules that run, so it
+  follows them, and does so again when a `sync-state` answer checks the run's configuration. A
+  plugin option only some rules read stays optional in the plugin's schema; the rule that reads it
+  declares it, with the options it reads it under, so the error names that rule.
 - A rule that is `off` in every aspect needs no options, so a rule a preset enables can always be turned
   off; options it does carry are still validated against its schema.
 - The core's own rules (`gate/*`) take `norm` and `norms` like any rule; their level is fixed, and
@@ -428,17 +428,17 @@ all = ["lint", "unit"]
 
 - Plugin modules are compiled once per (plugin sha256, wasmtime version) and stored in the cache;
   later runs load the compiled module.
-- A check runs only the plugins declared in a scope the change selection runs that `--rule`
-  allows; only those are fetched and compiled. Validation is never narrowed: every run checks the
-  whole configuration against what every declared plugin declares. What a plugin declares (its
-  rules with their scopes, aspects and options schemas, its presets, its option schema and its
-  generators) is stored in the cache whenever the plugin loads, under the plugin's sha256, the
-  plugin interface and the core version. A plugin the run does not run answers from that entry,
-  and is loaded for it when the cache holds none. A `sync-state` answer that falls back to the
-  run's configuration loads the plugins of its `[generate]` entries when it first needs them.
-  A stored declaration is trusted as a compiled module and a stored result are: what the cache
-  holds decides what a run checks, so a cache directory shared between users or machines must be
-  as trusted as the checkout.
+- A check runs only the plugins declared in a scope the change selection runs that `--rule` and
+  `--skip-rule` leave a rule to run; only those are fetched and compiled. Validation is never
+  narrowed: every run checks the whole configuration against what every declared plugin declares.
+  What a plugin declares (its rules with their scopes, aspects and options schemas, its presets,
+  its option schema and its generators) is stored in the cache whenever the plugin loads, under
+  the plugin's sha256, the plugin interface and the core version. A plugin the run does not run
+  answers from that entry, and is fetched and loaded for it when the cache holds none. A
+  `sync-state` answer that falls back to the run's configuration loads the plugins of its
+  `[generate]` entries when it first needs them. A stored declaration is trusted as a compiled
+  module and a stored result are: what the cache holds decides what a run checks, so a cache
+  directory shared between users or machines must be as trusted as the checkout.
 - `gate sync` loads every declared plugin. It is the command every clone runs before its first
   hook, since it sets `core.hooksPath`, so after it every plugin is in the module cache and its
   declaration is stored, and no check compiles a plugin it does not run.
@@ -507,8 +507,25 @@ all = ["lint", "unit"]
   `budget = { warn-after, fail-after }` passes exactly those); `--fail-fast` stops at the first
   error.
 - `--rule <id>` (repeatable, `<plugin>/*` allowed) narrows a run to those rules; exceptions and
-  baseline entries of the other rules are not due in that run. There is no history switch: a history
-  rule is turned off by its level, and its git answers are cached by commit id.
+  baseline entries of the other rules are not due in that run. `--skip-rule <id>` (repeatable,
+  `<plugin>/*` allowed) leaves rules out of a run, after `--rule`: a rule runs when `--rule`
+  allows it (every rule without `--rule`) and no `--skip-rule` key matches it, whatever the order
+  of the flags. The exceptions and baseline entries of a skipped rule are not due either. A
+  `--skip-rule` key must leave something out: a key that matches no rule enabled in some scope
+  (any scope, whatever the change selection runs), or none `--rule` leaves to run, is a
+  configuration error, and so is a `--rule` key whose every enabled rule a skip removes. The
+  summary line names the enabled rules a skip left out in any scope (`12 rules (skipped
+  git/main-history, git/no-ci-skip)`), so a hook's output says what it did not check. A plugin
+  whose every rule `--rule` or `--skip-rule` leaves out gets no call; once the cache holds its
+  declaration, it is not fetched or loaded in that run, and on a fresh cache the first run still
+  fetches and loads it to read what it declares. `gate.toml` and `gate.lock` are still checked
+  against each other and the configuration against what the plugin declares, so a skip is never
+  a way around a pin. Both flags are accepted in hook
+  and CI-job `check` entries, with single rule ids (an entry holds no shell syntax, `*` included).
+  There is no history switch: a history rule is turned off by its level, and its git answers are
+  cached by commit id. A hook that must not pay for the history rules leaves them out by name,
+  `check --staged --skip-rule git/main-history --skip-rule git/no-ci-skip`, and the pre-push hook
+  and CI still run them.
 
 ## 10. Generated files
 

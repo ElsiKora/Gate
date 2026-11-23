@@ -124,6 +124,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-096 | - | `git/main-history`: remove `release-all-pins` in a future release; the upgrade-branch path of T-094 covers an interface change, and the option admits the wide form in every release commit | open (backlog, no release planned) | T-094 |
 | T-097 | v0.3.1 | Version 0.3.1 for the core and its changelog; every plugin stays at 0.3.0 and the plugin interface at `gate:plugin@0.3.0` | done (gates green on `38bd6fe`; the `v0.3.1` tag) | T-095 |
 | T-099 | next | The generated CI can keep the Gate cache between runs (`[ci.github] cache = true`, opt-in; the core and tools never cached, plugins verified by sha256), cancels superseded runs of every ref but the default branch, and takes `[ci.github] aggregate-name`; a plugin kept in the repository it checks is published before its pin | done (reviewed, one fix round, gates green on `08d1c7f`; merged for the next release) | none |
+| T-100 | next | `gate check --skip-rule <id>` (repeatable, `<plugin>/*` on the command line), also in hook and CI-job `check` entries by single rule id: leaves rules out of a run after `--rule`; a key that matches no enabled rule is an error; the summary names the skipped rules. There is still no history switch | done (reviewed, one fix round, gates green on `f65ecee`; merged for the next release) | none |
 
 ## Open after rc.1
 

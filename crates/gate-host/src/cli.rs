@@ -57,6 +57,10 @@ pub struct CheckArgs {
     /// Run only this rule, <plugin>/<rule>, or every rule of a plugin, <plugin>/*. Repeatable.
     #[arg(long = "rule", value_name = "ID", value_parser = RuleFilter::parse)]
     pub rules: Vec<RuleKey>,
+    /// Leave this rule, <plugin>/<rule>, or every rule of a plugin, <plugin>/*, out of the run,
+    /// after --rule. Repeatable; a key that matches no enabled rule is an error.
+    #[arg(long = "skip-rule", value_name = "ID", value_parser = RuleFilter::parse_skip)]
+    pub skip_rules: Vec<RuleKey>,
     #[command(flatten)]
     pub run: RunArgs,
 }
