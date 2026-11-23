@@ -128,17 +128,38 @@ sha256 continues, a different one fails.
 
 ## Measurement
 
-Gate's own CI runs the released core, whose `sync --check` would report the new workflow as drift.
-The measurement uses a branch of its own, `task/T-099-ci-measure`, cut from this branch, whose
-workflow this branch's `gate sync` writes with `cache = true` and `branches` widened to that branch; its `changes` job is
-expected to fail at `sync --check` under the released core `gate.lock` pins (0.3.0), which does not stop the `gate` job (it lists no
-projects). Two pushes: the first run's `gate` job is cold, the second, on a new commit, restores the
-first's entry.
+Gate's own CI runs the released core `gate.lock` pins (0.3.0), which reads neither `cache` nor the new
+workflow. The measurement ran on a branch of its own, `task/T-099-ci-measure`, cut from `3d70ac9`: its
+workflow is the one this branch's core (`target/debug/gate`, built from `294a67a`) writes for Gate's
+`gate.toml` with `cache = true` and the branch added to `branches`, and its committed `gate.toml` leaves
+`cache` out so that the released core can read it. Its `changes` job fails at `sync --check`, as
+expected (the released core reports the new workflow as drift), and so does the aggregate; the `gate`
+job, which lists no projects, runs either way. Each measuring commit changes one document, so the
+`gate` job's `check --push` runs all 7 rules on project `.`. Before the cold run every cache entry of
+the branch was deleted (`gh cache delete`). Times are from the jobs' API timestamps and, for the step,
+from its log lines (`gh run view <run> --log --job <job>`).
 
-| Run | Run id | `gate` job | Restored entry |
-| --- | --- | --- | --- |
-| cold | - | - | - |
-| warm | - | - | - |
+| Run | Run id | Commit | `Restore the Gate cache` | `gate check --push` step | `Gate` job |
+| --- | --- | --- | --- | --- | --- |
+| cold | 45121494956 | `77901f0` | `Cache not found` | 6.61 s (06:02:32.758 to 06:02:39.372) | 13 s (06:02:29 to 06:02:42) |
+| warm | 45121572438 | `d069ccf` | restored the cold run's `gate/Linux/59670ce.../gate/77901f0...`, 11.2 MB in 1.5 s | 0.66 s (06:03:19.556 to 06:03:20.215) | 10 s (06:03:14 to 06:03:24) |
+
+Both runs' `gate check --push` printed `7 rules, 0 errors, 0 warnings; projects: ran .`. The step is
+ten times faster warm; for a repository as small as Gate, restoring and saving an 11 MB entry (about
+3 s together) takes most of what the job saves, so the gain grows with the plugins' compile time and
+the tree. An entry of Gate's `gate` job is 11 to 21 MB (`gh cache list`).
+
+Seen on the way, and recorded because they bear on the design:
+
+- Run 45120749553 (`479618d`): the `gate` job's checkout failed to reach github.com for 5 minutes and
+  retried; by then the `changes` job had saved its entry, and the `gate` job restored it through the
+  second restore-key (`gate/<os>/<lock>/`, any job): `Cache hit for restore-key: .../changes/479618d...`.
+- Run 45121377078 (`5977290`) was `cancelled` by the push of `bdb6acb` a few seconds later: a
+  superseded run of a branch that is not the default one, cancelled by the new `cancel-in-progress`.
+
+The branch was deleted on the remote afterwards (`git ls-remote --heads origin task/T-099-ci-measure`
+prints nothing), and its cache entries with it (`gh cache list --ref refs/heads/task/T-099-ci-measure`
+prints `[]`). Nothing of it is merged.
 
 ## Done when
 
