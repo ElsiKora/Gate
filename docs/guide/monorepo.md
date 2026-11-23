@@ -28,7 +28,7 @@ The root `gate.toml`:
 
 ```toml
 [gate]
-version = "0.3.1"
+version = "0.3.2"
 
 [workspace]
 projects = "pnpm"
@@ -49,7 +49,7 @@ release-subject = '^chore\(release\): (\d+\.\d+\.\d+)$'
 projects = ["apps/*", "packages/*"]
 
 [profiles.plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.1" }
 
 [profiles.rules]
 "typescript/parse" = "error"
@@ -70,7 +70,7 @@ The project file of `apps/server`, for what only that project needs:
 name = "server"
 
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", reads = ["tsconfig.base.json"] }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.1", reads = ["tsconfig.base.json"] }
 
 [rules]
 "nestjs/import-direction" = { level = "error", options = { contracts = [{ source-directory = "src/modules/domain", aspect = "domain-direction", forbidden-owner-paths = ["src/modules/public"], forbidden-packages = ["@nestjs/swagger"] }] } }

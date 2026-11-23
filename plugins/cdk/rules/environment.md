@@ -31,7 +31,7 @@ None of its own; it reads `regions` from `[plugins.cdk] options`.
 
 ```toml
 [plugins.cdk]
-source = "ElsiKora/Gate:cdk@0.3.0"
+source = "ElsiKora/Gate:cdk@0.3.1"
 options = { regions = ["eu-central-1", "us-east-1"] }
 ```
 

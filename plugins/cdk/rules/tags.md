@@ -27,7 +27,7 @@ None of its own; it reads `extra-tags` from `[plugins.cdk] options`.
 
 ```toml
 [plugins.cdk]
-source = "ElsiKora/Gate:cdk@0.3.0"
+source = "ElsiKora/Gate:cdk@0.3.1"
 options = { extra-tags = [{ name = "CostCenter", job = "the budget the resource is billed to" }] }
 ```
 

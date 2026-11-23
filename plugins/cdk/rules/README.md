@@ -72,7 +72,7 @@ A value that breaks these is a configuration error (exit 2) that names the key a
 
 ```toml
 [plugins.cdk]
-source = "ElsiKora/Gate:cdk@0.3.0"
+source = "ElsiKora/Gate:cdk@0.3.1"
 options = { regions = ["eu-central-1", "us-east-1"], extra = [{ name = "monitoring", job = "the alarms and dashboards" }] }
 reads = ["tsconfig.base.json"]
 ```

@@ -58,7 +58,7 @@ the repository call, where paths are relative to the repository root.
 
 ```toml
 [plugins.ledger]
-source = "ElsiKora/Gate:ledger@0.3.0"
+source = "ElsiKora/Gate:ledger@0.3.1"
 options = { parity = { plan = "docs/ledger/plans/core.md", prefix = "CORE", label = "Core", reference = "Upstream reference", fields = ["Parity evidence"], active-status = "in progress" } }
 ```
 
