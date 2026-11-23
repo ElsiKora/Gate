@@ -809,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "gate"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "gate-host",
@@ -820,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "gate-agents-format"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "pulldown-cmark",
  "regex",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "gate-host"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "gate-runtime",
@@ -862,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-cdk"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gate-sdk",
  "gate-typescript",
@@ -897,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-frontend"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gate-sdk",
  "gate-typescript",
@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-hello"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "gate-sdk",
  "gate-test",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-ledger"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gate-sdk",
  "regex",
@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-nestjs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gate-sdk",
  "gate-typescript",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-typescript"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gate-sdk",
  "gate-typescript",
@@ -987,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "gate-runtime"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytes",
  "gate-sdk",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "gate-runtime-probe"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "gate-sdk",
  "serde",
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "gate-sdk"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "schemars",
  "serde",
@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "gate-test"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "gate-sdk",
  "serde",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "gate-typescript"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "gate-sdk",
  "json-strip-comments",
