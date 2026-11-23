@@ -153,6 +153,7 @@ fn a_path_behind_a_symlinked_directory_is_not_read() {
     assert_eq!(text(&snapshot, "src/a.ts").as_deref(), Some("a\n"));
 }
 
+#[cfg(unix)]
 #[test]
 fn every_file_behind_a_symlinked_directory_is_refused_after_a_sibling_was_read() {
     let repo = Repo::new();
