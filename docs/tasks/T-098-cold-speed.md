@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | approved (`3736fa66`); steps 2 to 7 being written, then measured |
+| Status | approved (`3736fa66`); steps 2 to 7 written and tested, being measured |
 | Release | the next plugin release (the lead cuts it); no version moves here |
 | Writer | "Gate 098" |
 | Reviewer | a session that did not write it |
@@ -139,16 +139,32 @@ used in (d) only once T-100 is merged.
 
 ## Progress
 
-- Written, not yet measured on the core: step 2 (`Directories` in `snapshot.rs`), steps 3 and 4
-  (`TypeScriptCall` keeps parsed bytes; `Sources::contexts` shares one `owners::Sources` per root,
-  used by the six rule sites), step 5 (the features), step 6 (the registered-identifier scan looks
-  identifiers up in a set of the values' bits, with `-0` as `0`; raw literals are scanned as bytes;
-  `asset-storage` keeps each file's tokens for the run), step 7 (`LedgerCall`: one catalog and one
-  `Ledger::read` per call).
-- A native run of the nestjs rules on the consumer's tree (private harness, never committed): host
-  reads from 15265 to 10787 for 10786 distinct files, the same 301 findings per rule.
+Each step's own gain, measured on the consumer's tree with the released 0.3.0 core and the plugin
+alone (`gate check --format json --timings --plugin <name>=<wasm> --rule '<name>/*'`, results
+emptied before the run), the wasm built as released (`scripts/build-component.sh`) at each step's
+commit. Fuel is deterministic, so it is the measure while the machine's load is high; the
+milliseconds of each step follow once the load is under 18.
+
+| Step | Commit | Plugin | Fuel | Host reads | Change in fuel |
+| --- | --- | --- | --- | --- | --- |
+| base | `3736fa66` | nestjs | 57.04e9 | 15267 | |
+| 3, 4: bytes kept, bindings shared | `688017a9` | nestjs | 53.58e9 | 10789 | -3.46e9 (-6.1 %) |
+| 5: regex engines | `e0c0a0d1` | nestjs | 46.11e9 | 10789 | -7.46e9 (-13.1 %) |
+| 6: registered identifiers, byte scan, tokens once | `ac0e1bc0` | nestjs | 43.91e9 | 10789 | -2.20e9 (-3.9 %) |
+| base | `3736fa66` | ledger | 38.83e9 | 13020 | |
+| 7: ledger call state | `59adf9a7` | ledger | 21.04e9 | 11585 | -17.79e9 (-45.8 %) |
+
+The JSON findings of every step are byte-identical to the base's but for the summary line that
+names the override. The ledger's remaining reads are `ledger/manifest`'s scan of every text file
+for forbidden references, one read each. The ledger wasm is the same through step 6 and the nestjs
+wasm the same at step 7.
+
+At the base's ratio (6572 ms for 57.0e9 fuel and 1111 ms of reads), nestjs at step 6 still counts
+about 4.2 s before its reads: steps 2 to 7 alone do not reach 4000 ms, so the next rules of the
+fuel list are profiled again.
 
 ## Resume point
 
-2026-11-23T07:04:00+00:00: steps 2 to 7 written; waiting for the lane's clippy pass, then one commit
-per step and the wasm builds per step.
+2026-11-23T07:44:00+00:00: steps 2 to 7 pushed, clippy and tests of the four packages green in the
+lane; per-step fuel measured. Next: profile nestjs again (advisory-lock-boundary first), then the
+milliseconds per step at a load under 18, then decide on step 1.
