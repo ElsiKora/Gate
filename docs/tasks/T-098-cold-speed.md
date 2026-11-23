@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | approved (`3736fa66`); steps 2 to 7 written, tested and measured, gates green; each step's milliseconds waiting for the load |
+| Status | approved (`3736fa66`); steps 2 to 7 written, tested and measured; review fix round done, gates green at `a15a3180`; each step's milliseconds waiting for the load |
 | Release | the next plugin release (the lead cuts it); no version moves here |
 | Writer | "Gate 098" |
 | Reviewer | a session that did not write it |
@@ -267,23 +267,31 @@ to, took 54.45 s.
 At `85f60fc3`, through the lane in a clean detached worktree, 2026-11-23T14:38:14+00:00 to
 14:54:30+00:00: `cargo build --release --locked` exit 0, `cargo fmt --all --check` exit 0,
 `cargo clippy --locked --all-targets -- -D warnings` exit 0, `cargo test --locked` exit 0 (124 test
-binaries ok), `cargo deny --locked check` exit 0. The commits after it change documents only.
+binaries ok), `cargo deny --locked check` exit 0.
+
+After the review's fix round, at `a15a3180`, the same way, 2026-11-23T15:04:08+00:00 to
+15:18:19+00:00: build exit 0, fmt exit 0, clippy exit 0, test exit 0 (124 test binaries ok), deny
+exit 0.
 
 ## Plugin bytes
 
 Every plugin built as released (`scripts/build-component.sh <plugin> wasm32-wasip2`, one cargo run
-each) at `main` (`03ab4b7`) and at the branch (`b0756793`); `shasum -a 256` and `stat -f %z` of each
-wasm. `git diff --stat b0756793 352c10fe` names only `docs/plan.md` and this file, so the bytes at
-`352c10fe` are those at `b0756793`. This is the final list for the release: the plugins whose bytes
-change, from this task's code and from the `regex-automata` features alike, are exactly these five:
+each) at `main` (`03ab4b7`) and at the branch after the review's fix round (`a15a3180`);
+`shasum -a 256` and `stat -f %z` of each wasm. This is the final list for the release: the plugins
+whose bytes change, from this task's code and from the `regex-automata` features alike, are exactly
+these five. The fix round changed the bytes of `cdk`, `frontend`, `nestjs` and `typescript` (the
+dead branch of `Sources::bytes` removed) and not of `ledger` (indentation only). With these builds
+pinned, one untimed cold (d) gives the same 85 findings, byte-identical, and nestjs uses 34.07e9
+fuel (34069453098, 3.2e6 less than at `85f60fc3`); the milliseconds in "Measured" are of the
+`85f60fc3` builds.
 
-| Plugin | sha256 at `main` | sha256 at the branch | Bytes at `main` | Bytes at the branch | Growth |
+| Plugin | sha256 at `main` | sha256 at `a15a3180` | Bytes at `main` | Bytes at `a15a3180` | Growth |
 | --- | --- | --- | --- | --- | --- |
-| cdk | `f4c170ef4eef797ba1a03a9883babab14de47a79be4f813717f8414e13fc8a49` | `03f150fa8287f5f26c35e1272f642bb58408b583c6984703244f9d5dd18554b4` | 1992818 | 1994786 | +1968 (+0.10 %) |
-| frontend | `dc99a84f5edcd4ff293322753f2391060915657498f986b4d17b4225854c7b2f` | `4f0eaf93a7a67749dd14245ad9db8b5da3964f17bda757477e6d7b71d88c626a` | 2904217 | 3304234 | +400017 (+13.77 %) |
+| cdk | `f4c170ef4eef797ba1a03a9883babab14de47a79be4f813717f8414e13fc8a49` | `103b562a4d0c184d017639eb84c34f908a284b02121299a325adb440294aa9ab` | 1992818 | 1995094 | +2276 (+0.11 %) |
+| frontend | `dc99a84f5edcd4ff293322753f2391060915657498f986b4d17b4225854c7b2f` | `9a86853a63e6e7a5e9a3e0b1053045e2dec583d86c08190243235951551382fa` | 2904217 | 3304534 | +400317 (+13.78 %) |
 | ledger | `f1f6cfed330222ad697751afd98aa0a3eae007d978b051201d628e8a6bbd38c8` | `cd6ee588bd1c7fbfd0f9230761cfac4fcfebe0535b2611f48153a000e1ce68b6` | 2239701 | 2246402 | +6701 (+0.30 %) |
-| nestjs | `d633c48ae6653b87a3e4c51d98b8cb4c8ec9d6dba1fa710b2d950fa3816933bc` | `4f1c15093470094b36696c7715841a227bb781ca5bc256b557fba4dbbdac3008` | 6296190 | 6715679 | +419489 (+6.66 %) |
-| typescript | `f94cd3626b32e22990c34a4671d285a413fb7f1724d420022a75c254e6ff099f` | `b743834c519b6c291acf1d18de7f54225e51e9e9aae4609ce78458b1cb5bf29a` | 2749805 | 2754425 | +4620 (+0.17 %) |
+| nestjs | `d633c48ae6653b87a3e4c51d98b8cb4c8ec9d6dba1fa710b2d950fa3816933bc` | `92a9d4829909b0b3c1c2477ab9a7f1df484a54b03c03ed706ffbc2fb7a8b8c7b` | 6296190 | 6715344 | +419154 (+6.66 %) |
+| typescript | `f94cd3626b32e22990c34a4671d285a413fb7f1724d420022a75c254e6ff099f` | `0b4395a79ff8cef34b96553096c0078e77ee109b3d4702b355b8f2e5e975e9a5` | 2749805 | 2754691 | +4886 (+0.18 %) |
 
 The same bytes at both: `agents`, `ci`, `docker`, `docs`, `git`, `markdown`, `node`, `repository`.
 `frontend` grows most: it uses the meta regex (`regex-automata`), which now carries the faster
@@ -292,8 +300,9 @@ build `gate-typescript`, whose bindings and line index changed.
 
 ## Resume point
 
-2026-11-23T14:39:21+00:00: the six runs are in "Measured": (d) cold counts 4075 ms at the median of eight
-(3115 to 6877 ms), under the 6 s bound, at the 4000 ms aim; findings are the 85 in every run. The five
-workspace commands exit 0 at `85f60fc3`. Waiting: each step's build alone three times at a load
-under 18 for its milliseconds (`steptime`). Step 1 (read-ahead) is a local draft only, out of the branch;
-the nestjs call's own reads are 283 to 857 ms of it, so the lead decides whether it comes in.
+2026-11-23T15:23:43+00:00: the review's fix round is in at `a15a3180` and the five workspace commands exit 0
+there; the final plugin bytes are in "Plugin bytes", and the final builds give the same 85
+findings. (d) cold counts 4075 ms at the median of eight (3114 to 6877 ms; only the first over 6 s),
+measured with the `85f60fc3` builds. Read-ahead (step 1) stays out, as the lead decided; its draft
+is local only. Waiting: each step's build alone three times at a load under 18 for its
+milliseconds (`steptime`); this file only, when they come.
