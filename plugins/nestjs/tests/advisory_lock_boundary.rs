@@ -204,6 +204,83 @@ fn registered_identifiers_and_structural_keys_stay_in_their_files() {
 }
 
 #[test]
+fn a_registered_identifier_is_found_in_any_numeric_form_and_only_at_its_exact_value() {
+    // The executor's `$1` is the contextual resource AUDIT: left out of the inventory here, and
+    // renumbered 0 in the manifest of the second check.
+    let options = r#"{
+        "executor": "src/common/advisory-lock/function/execute.function.ts",
+        "contextual-resources": [{ "group": "STOCK", "name": "AUDIT", "id": 1 }],
+        "inventory": ["src/common/advisory-lock/registry.manifest.json"]
+    }"#;
+    let zero_options = r#"{
+        "executor": "src/common/advisory-lock/function/execute.function.ts",
+        "inventory": ["src/common/advisory-lock/registry.manifest.json"]
+    }"#;
+    let zero = MANIFEST_TEXT.replace("\"resourceId\": 1,", "\"resourceId\": 0,");
+    fn files<'a>(manifest: &'a str, extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+        let mut files = vec![(MANIFEST, manifest), (EXECUTOR, EXECUTOR_TEXT)];
+        files.extend_from_slice(extra);
+        files
+    }
+    let inventory = |path: &str| {
+        row(
+            "inventory",
+            path,
+            None,
+            &format!("{path} contains registered numeric IDs outside the exact source allowlist."),
+        )
+    };
+
+    let found = check(
+        RULE,
+        options,
+        &files(
+            MANIFEST_TEXT,
+            &[
+                ("src/a/hex.ts", "export const FAMILY = 0x1004;\n"),
+                ("src/a/accent.ts", "export const A = \"\u{e9}4100\";\n"),
+                ("src/a/word.ts", "export const A = \"x4100 4200n9\";\n"),
+                ("src/a/exponent.ts", "export const RESOURCE = 42e2;\n"),
+                ("src/a/sum.ts", "export const RESOURCE = 4199.5 + 0.5;\n"),
+                (
+                    "src/a/near.ts",
+                    "export const A = 4.1005e3;\nexport const B = 0x1005;\nexport const C = 0 / 0;\n",
+                ),
+            ],
+        ),
+    );
+    assert_eq!(
+        found,
+        [
+            inventory("src/a/accent.ts"),
+            inventory("src/a/exponent.ts"),
+            inventory("src/a/hex.ts"),
+            inventory("src/a/sum.ts"),
+        ]
+    );
+
+    let found = check(
+        RULE,
+        zero_options,
+        &files(
+            &zero,
+            &[
+                ("src/a/negative.ts", "export const ZERO = -0;\n"),
+                ("src/a/product.ts", "export const ZERO = -1 * 0;\n"),
+                ("src/a/none.ts", "export const ONE = 2;\n"),
+            ],
+        ),
+    );
+    assert_eq!(
+        found,
+        [
+            inventory("src/a/negative.ts"),
+            inventory("src/a/product.ts")
+        ]
+    );
+}
+
+#[test]
 fn migrations_need_the_ledger_and_required_boundaries_must_be_observed() {
     let options = r#"{
         "executor": "src/common/advisory-lock/function/execute.function.ts",

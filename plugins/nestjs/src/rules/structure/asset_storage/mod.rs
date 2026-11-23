@@ -5,7 +5,8 @@
 mod tokens;
 
 use crate::shared::paths::{self, Form};
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 use gate_sdk::schemars::JsonSchema;
@@ -223,6 +224,7 @@ impl Rule<crate::Nest> for AssetStorage {
                 patterns: &patterns,
                 source,
                 typescript,
+                tokens: RefCell::new(HashMap::new()),
             };
             let mut findings = Findings::default();
 
@@ -306,7 +308,12 @@ struct Assets<'r, 'a> {
     patterns: &'r Patterns,
     source: &'r dyn Source,
     typescript: &'r TypeScript<'a>,
+    /// The parse and tokens of each file the run asked for ([`Assets::tokens`]).
+    tokens: RefCell<HashMap<String, Parsed<'a>>>,
 }
+
+/// A parsed file and its tokens, or `None` for a file without a syntax tree.
+type Parsed<'a> = Option<(Rc<SourceFile<'a>>, Rc<Tokens>)>;
 
 impl<'a> Assets<'_, 'a> {
     /// The files with the `.ts` extension below `directory`, compared case-sensitively, in every
@@ -321,12 +328,21 @@ impl<'a> Assets<'_, 'a> {
             .collect()
     }
 
-    fn tokens(&self, path: &str) -> gate_sdk::Result<Option<(Rc<SourceFile<'a>>, Tokens)>> {
-        Ok(project::parsed(self.typescript, path)?.map(|file| {
+    /// The syntax tree and tokens of `path`, each computed once per run: several checks walk the
+    /// same files. A file that cannot be read is not kept, so every check that asks fails alike.
+    fn tokens(&self, path: &str) -> gate_sdk::Result<Parsed<'a>> {
+        if let Some(known) = self.tokens.borrow().get(path) {
+            return Ok(known.clone());
+        }
+        let parsed = project::parsed(self.typescript, path)?.map(|file| {
             let mut tokens = Tokens::default();
             tokens.visit_program(file.program());
-            (file, tokens)
-        }))
+            (file, Rc::new(tokens))
+        });
+        self.tokens
+            .borrow_mut()
+            .insert(path.to_owned(), parsed.clone());
+        Ok(parsed)
     }
 
     /// The domain plane of the modules.

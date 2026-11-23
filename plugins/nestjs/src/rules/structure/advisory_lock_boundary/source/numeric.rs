@@ -501,67 +501,69 @@ impl<'a> Interpreter<'a> {
     }
 }
 
-/// Whether a code point is one of `[A-Za-z0-9_]`.
-fn is_word(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '_'
+/// Whether a byte is one of `[A-Za-z0-9_]`.
+fn is_word(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 /// The values of the raw numeric literals of a text, as
 /// `/(?<![A-Za-z0-9_])-?(?:0[xX]…|0[bB]…|0[oO]…|\d(?:_?\d)*)n?(?![A-Za-z0-9_])/gu` finds them.
+///
+/// The text is scanned as bytes: every character the pattern tests is ASCII, and each byte of a
+/// character that is not is at least `0x80`, so it is neither a digit nor a word character, as
+/// the character is not; the matches are the matches of the code points.
 fn raw_literals(text: &str) -> Vec<f64> {
-    let characters: Vec<char> = text.chars().collect();
+    let bytes = text.as_bytes();
     let mut values = Vec::new();
     let mut resume = 0;
-    let digits = |from: usize, accepts: fn(char) -> bool| {
+    let digits = |from: usize, accepts: fn(u8) -> bool| {
         // One digit, then digits each optionally preceded by one separator.
-        if !characters.get(from).copied().is_some_and(accepts) {
+        if !bytes.get(from).copied().is_some_and(accepts) {
             return None;
         }
 
         let mut end = from + 1;
 
         loop {
-            match characters.get(end) {
+            match bytes.get(end) {
                 Some(&digit) if accepts(digit) => end += 1,
-                Some('_') if characters.get(end + 1).copied().is_some_and(accepts) => end += 2,
+                Some(b'_') if bytes.get(end + 1).copied().is_some_and(accepts) => end += 2,
                 _ => return Some(end),
             }
         }
     };
 
-    for start in 0..characters.len() {
+    for start in 0..bytes.len() {
         // A match resumes the search after its end, as `matchAll` does.
-        if start < resume || (start > 0 && is_word(characters[start - 1])) {
+        if start < resume || (start > 0 && is_word(bytes[start - 1])) {
             continue;
         }
 
-        let body = start + usize::from(characters[start] == '-');
-        let prefixed = |marks: [char; 2], accepts: fn(char) -> bool| {
-            (characters.get(body) == Some(&'0')
-                && characters
-                    .get(body + 1)
-                    .is_some_and(|mark| marks.contains(mark)))
+        let body = start + usize::from(bytes[start] == b'-');
+        let prefixed = |marks: [u8; 2], accepts: fn(u8) -> bool| {
+            (bytes.get(body) == Some(&b'0')
+                && bytes.get(body + 1).is_some_and(|mark| marks.contains(mark)))
             .then(|| digits(body + 2, accepts))
             .flatten()
         };
-        let end = prefixed(['x', 'X'], |digit| digit.is_ascii_hexdigit())
-            .or_else(|| prefixed(['b', 'B'], |digit| matches!(digit, '0' | '1')))
-            .or_else(|| prefixed(['o', 'O'], |digit| matches!(digit, '0'..='7')))
+        let end = prefixed([b'x', b'X'], |digit| digit.is_ascii_hexdigit())
+            .or_else(|| prefixed([b'b', b'B'], |digit| matches!(digit, b'0' | b'1')))
+            .or_else(|| prefixed([b'o', b'O'], |digit| matches!(digit, b'0'..=b'7')))
             .or_else(|| digits(body, |digit| digit.is_ascii_digit()));
         let Some(mut end) = end else {
             continue;
         };
 
-        if characters.get(end) == Some(&'n') {
+        if bytes.get(end) == Some(&b'n') {
             end += 1;
         }
 
-        if characters.get(end).copied().is_some_and(is_word) {
+        if bytes.get(end).copied().is_some_and(is_word) {
             continue;
         }
 
-        let token: String = characters[start..end].iter().collect();
-        values.push(literal_value(&token));
+        // The match is ASCII, so it is whole characters of the text.
+        values.push(literal_value(&text[start..end]));
         resume = end;
     }
 
@@ -609,6 +611,13 @@ pub(super) fn registered_ids(
         values.extend(super::recovery::recovered(text)?);
     }
 
+    // Each identifier is looked up among the text's values as a double: a value equals it exactly
+    // when their bits are the same, once both zeros are one and NaN, equal to nothing, is left out.
+    let values: HashSet<u64> = values
+        .into_iter()
+        .filter(|value| !value.is_nan())
+        .map(double_key)
+        .collect();
     #[expect(
         clippy::cast_precision_loss,
         reason = "registered identifiers are 32-bit integers, exact as doubles"
@@ -616,8 +625,13 @@ pub(super) fn registered_ids(
     let present = registered
         .iter()
         .copied()
-        .filter(|&id| values.contains(&(id as f64)))
+        .filter(|&id| values.contains(&double_key(id as f64)))
         .collect();
 
     Ok(present)
+}
+
+/// The key under which a double that is not NaN equals another: its bits, with `-0` as `0`.
+fn double_key(value: f64) -> u64 {
+    if value == 0.0 { 0.0_f64 } else { value }.to_bits()
 }
