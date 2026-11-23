@@ -284,15 +284,33 @@ gives the job its toolchain and target.
 
 ### A Plugin Kept in the Repository It Checks
 
-When a repository keeps its own plugin next to the code it checks, the pin moves in the release commit
-itself. The release job:
+When a repository keeps its own plugin next to the code it checks, its `main` pins the plugin in
+`gate.lock`, and every run that does not have the file in its cache fetches it from the pinned `url`.
+So the asset is published first and the pin is committed after it: a `main` that pins an asset not
+uploaded yet fails every run that has to fetch it.
 
-1. builds the plugin with `scripts/build-component.sh`;
-2. runs `bin/gate lock --set todo=<release asset URL> --file <the built todo.wasm>`, which pins the
-   build's sha256 and puts the build in the cache;
-3. runs `bin/gate check`, which runs exactly that file before the asset is published;
-4. commits `gate.lock` as the release commit and tags it `plugin-todo-v<version>`;
-5. uploads the same file as the tag's asset.
+1. Tag the commit that holds the plugin's new version `plugin-todo-v<version>` and push the tag
+   only. The release job builds the plugin with `scripts/build-component.sh`.
+2. In its own checkout, the job runs `bin/gate lock --set todo=<release asset URL> --file <the built
+   todo.wasm>`, which pins the build's sha256 and puts the build in the cache, and `bin/gate check`,
+   which runs exactly that file. Nothing of this is committed.
+3. It uploads the file as the tag's asset. A rerun never replaces an asset: when the release already
+   holds `todo.wasm`, the job downloads it and compares its sha256 with the build's. The same sha256
+   continues to the next step; a different one fails the job and changes nothing, since the published
+   file may already be pinned or cached elsewhere.
+4. Only then is the pin committed: the release commit moves `source` to `@<version>` and pins the
+   published file as it was downloaded, never a build of your own (another build has another
+   sha256, and every run that fetches the asset would fail closed with a checksum mismatch):
+
+   ```bash
+   gh release download plugin-todo-v<version> --pattern todo.wasm --dir published
+   bin/gate lock --set todo=<release asset URL> --file published/todo.wasm
+   ```
+
+   Commit `gate.toml` and `gate.lock` as the release commit and push it to `main`.
+
+Between steps 3 and 4 the asset exists and nothing pins it yet, which is harmless: `main` still pins
+the previous release, whose asset stays published.
 
 ### Adopting a Core Release That Changes the Plugin Interface
 
@@ -341,8 +359,8 @@ fetches it from its `url`, and a deleted asset fails that run with an environmen
 
 The next release commit, `chore(release): 1.4.0`, moves the plugin's pin from the pre-release to the
 release: `source` to `acme/rules:product@1.4.0`, and its `gate.lock` entry with
-`bin/gate lock --set product=<the 1.4.0 asset URL> --file <the build it publishes>`, as in the release
-job above.
+`bin/gate lock --set product=<the 1.4.0 asset URL> --file published/product.wasm`, after the
+release job published that asset, as in [A Plugin Kept in the Repository It Checks](#a-plugin-kept-in-the-repository-it-checks).
 `release-plugin` admits that move. Its `<file>#version` check reads only the version the pin moves
 to, which must be the release's, so the pre-release it moves from passes.
 
