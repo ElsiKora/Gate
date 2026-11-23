@@ -26,7 +26,7 @@ None of its own; it reads `extra` from `[plugins.cdk] options`.
 
 ```toml
 [plugins.cdk]
-source = "ElsiKora/Gate:cdk@0.3.0"
+source = "ElsiKora/Gate:cdk@0.3.1"
 options = { extra = [{ name = "monitoring", job = "the alarms and dashboards" }] }
 ```
 

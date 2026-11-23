@@ -3,6 +3,31 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
+## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.0...plugin-nestjs-v0.3.1) (2026-11-23)
+
+Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core. The
+findings are the same as 0.3.0's; only the time changes.
+
+### Performance
+
+- The TypeScript call state the rules share keeps a parsed file's bytes, so a rule that reads a
+  parsed file's bytes gets them from memory instead of a second host read, and a parsed file builds
+  its line index when a line is first asked for, so a file that reports nothing and has no syntax
+  error never builds it. A source root's import bindings are built once per call and shared by the
+  six rule sites that used to build their own. ([5f34882](https://github.com/ElsiKora/Gate/commit/5f348825ab0d8f9b0db44381f7725a606ec7346a), [80518fe](https://github.com/ElsiKora/Gate/commit/80518fe35472aa6a90cbdf8da5a190b5de16cfa2), [a15a318](https://github.com/ElsiKora/Gate/commit/a15a3180e86866a2bb59ecb7d673d32f442f64c7))
+- Its regular expressions run on `regex-automata` built with its faster engines (the lazy DFA,
+  the bounded backtracker, the one-pass DFA and literal prefilters), which report the same matches.
+  ([45eda36](https://github.com/ElsiKora/Gate/commit/45eda36e3e5c54bb11ab6885169898c87b76df34))
+- The costliest rules lose repeated work: `advisory-lock-boundary` tests registered identifiers
+  against a set of the file's numbers, builds each file's interpreter once, passes non-digits at
+  once in its literal scan and checks UTF-8 once, with FxHash for its sets and maps;
+  `module-registry` reads each chapter's source map once; `raw-config-access` uses FxHash for its
+  maps; `asset-storage` computes a file's tokens once and borrows the names of the syntax tree.
+  ([b836856](https://github.com/ElsiKora/Gate/commit/b836856eafa493edce988bbcfbfe9465ca274a07), [9f0054f](https://github.com/ElsiKora/Gate/commit/9f0054fbf1db231a96dfd5574776bed2c858ea23), [60a1469](https://github.com/ElsiKora/Gate/commit/60a14694129ec2c93a967e350761511d763ceab6), [55d7322](https://github.com/ElsiKora/Gate/commit/55d7322013572620470073407d652c6c5e102d27), [542150f](https://github.com/ElsiKora/Gate/commit/542150f1ee1faa9ba4cfb3a9f4282bc33417b0c4), [570c94a](https://github.com/ElsiKora/Gate/commit/570c94a3e61fd85db496988b451b580c811ea7e4), [fbb2fa4](https://github.com/ElsiKora/Gate/commit/fbb2fa44ef4919caf08ec676a6da99ae036d292b))
+- On a large tree (about 11 thousand tracked files) the plugin's fuel went from 57.04e9 to 34.07e9
+  (-40.3 %) and its host reads from 15267 to 10789; its call, the critical path of a cold check
+  without the history rules, took 2843 to 3960 ms in seven cold runs against 6572 ms on 0.3.0.
+
 # [0.3.0](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.2.1...plugin-nestjs-v0.3.0) (2026-11-21)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.

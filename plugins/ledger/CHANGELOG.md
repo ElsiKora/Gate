@@ -8,6 +8,21 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
+## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.0...plugin-ledger-v0.3.1) (2026-11-23)
+
+Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core. The
+findings are the same as 0.3.0's; only the time changes.
+
+### Performance
+
+- One catalog and one record read per call: each ledger file is read and fenced-blanked once, and
+  the ledger's records are computed once, shared by every rule of the call instead of once per
+  rule. On a large tree the plugin's fuel went from 38.83e9 to 21.04e9 (-45.8 %) and its host reads
+  from 13020 to 11585. ([e8eade1](https://github.com/ElsiKora/Gate/commit/e8eade14021b9eaf80cdb40dd94f1b5592e1c696))
+- Its regular expressions run on `regex-automata` built with its faster engines (the lazy DFA,
+  the bounded backtracker, the one-pass DFA and literal prefilters), which report the same matches.
+  ([45eda36](https://github.com/ElsiKora/Gate/commit/45eda36e3e5c54bb11ab6885169898c87b76df34))
+
 # [0.3.0](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.2.0...plugin-ledger-v0.3.0) (2026-11-21)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.

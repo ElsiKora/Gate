@@ -8,7 +8,7 @@ for each job.
 
 ```toml
 [plugins.frontend]
-source = "ElsiKora/Gate:frontend@0.3.0"
+source = "ElsiKora/Gate:frontend@0.3.1"
 options = { pack = "nextjs" }
 reads = ["tsconfig.base.json"]
 

@@ -8,6 +8,51 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+## [0.3.2](https://github.com/ElsiKora/Gate/compare/v0.3.1...v0.3.2) (2026-11-23)
+
+The plugin interface stays `gate:plugin@0.3.0`, so every plugin built for 0.3.0 loads in a 0.3.2
+core. `cdk`, `frontend`, `ledger`, `nestjs` and `typescript` are released at 0.3.1, faster with the
+same findings; the other eight plugins stay at 0.3.0. To upgrade, set `[gate] version = "0.3.2"`,
+move the pins of those five plugins you use to 0.3.1 and run `gate lock`; a repository with
+`[ci.github]` runs `gate sync` once, since the generated workflow's `cancel-in-progress` line
+changes.
+
+### Features
+
+- **host:** `gate check --skip-rule <id>` (repeatable, `<plugin>/*` on the command line) leaves
+  rules out of a run after `--rule`, in hook and CI-job `check` entries too (by single rule id).
+  The exceptions and baseline entries of a skipped rule are not due. A skip that leaves nothing out
+  is a configuration error. The summary and the JSON report (`skipped-rules`) name the rules it
+  left out. A plugin whose every rule is skipped is not fetched or loaded, and `gate.lock` is still
+  checked against `gate.toml`. There is still no history switch: a hook leaves the history rules
+  out by name. ([03ab4b7](https://github.com/ElsiKora/Gate/commit/03ab4b74493f995eb2186d1e79d353cc6261a5f2))
+- **host:** the generated CI can keep the Gate cache between runs: with `[ci.github] cache = true`
+  (off by default) each job that runs `bin/gate` restores and saves its cache directory with
+  `actions/cache`, keyed by the runner, `gate.lock`, the job and the commit; the core and the tools
+  are never cached, and plugins are verified by sha256 as on a cold run. `[ci.github]
+  aggregate-name` names the aggregate job, which is the check branch protection requires. ([89d58cb](https://github.com/ElsiKora/Gate/commit/89d58cbb7ee46d9117f0f6f167a3d98e0aad6cce))
+
+### Bug Fixes
+
+- **host:** the generated workflow cancels a superseded run of every ref but the default branch, a
+  pushed branch without a pull request included; a push to the default branch never cancels a
+  running check there. ([89d58cb](https://github.com/ElsiKora/Gate/commit/89d58cbb7ee46d9117f0f6f167a3d98e0aad6cce))
+
+### Performance
+
+- **host, plugins:** a cold `gate check` without the history rules on a large tree (about 11
+  thousand tracked files) counts about 4 s (4075 ms at the median of eight runs) against 6973 ms on
+  0.3.0, with the same findings: the core asks the file system once per directory whether it is a
+  symbolic link; the TypeScript call state keeps a parsed file's bytes, shares a source root's
+  import bindings among the call's rules and builds a file's line index when a line is first asked
+  for; `regex-automata` is built with its faster engines; `ledger` builds its catalog and reads its
+  records once per call; and `nestjs` takes its costliest rules' repeated work out. ([3f4009a](https://github.com/ElsiKora/Gate/commit/3f4009a9cfbd9dd96a227cf7dccb853bf8eb98eb))
+
+### Documentation
+
+- **docs:** a plugin kept in the repository it checks is published before its pin is committed;
+  the guides describe the CI cache, clearing a bad cache entry and branch-run cancelling. ([89d58cb](https://github.com/ElsiKora/Gate/commit/89d58cbb7ee46d9117f0f6f167a3d98e0aad6cce))
+
 ## [0.3.1](https://github.com/ElsiKora/Gate/compare/v0.3.0...v0.3.1) (2026-11-22)
 
 The plugin interface stays `gate:plugin@0.3.0`, so every plugin built for 0.3.0 loads in a 0.3.1

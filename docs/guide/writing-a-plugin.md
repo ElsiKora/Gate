@@ -55,11 +55,11 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-gate-sdk = { git = "https://github.com/ElsiKora/Gate", tag = "v0.3.1" }
+gate-sdk = { git = "https://github.com/ElsiKora/Gate", tag = "v0.3.2" }
 regex = "1"
 
 [dev-dependencies]
-gate-test = { git = "https://github.com/ElsiKora/Gate", tag = "v0.3.1" }
+gate-test = { git = "https://github.com/ElsiKora/Gate", tag = "v0.3.2" }
 ```
 
 `gate-sdk` and `gate-test` are not published to crates.io: they are crates of the Gate repository, so
@@ -131,7 +131,7 @@ only on the source, `Cargo.lock`, the toolchain and the runner image:
 
 ```bash
 mkdir -p scripts
-curl -fsSL https://raw.githubusercontent.com/ElsiKora/Gate/v0.3.1/scripts/build-component.sh -o scripts/build-component.sh
+curl -fsSL https://raw.githubusercontent.com/ElsiKora/Gate/v0.3.2/scripts/build-component.sh -o scripts/build-component.sh
 sh scripts/build-component.sh plugin-todo wasm32-wasip2
 cp target/wasm32-wasip2/release/plugin_todo.wasm todo.wasm
 ```

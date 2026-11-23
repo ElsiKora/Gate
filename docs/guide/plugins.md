@@ -58,7 +58,7 @@ language library, which other plugins link; see [writing-a-rule.md](writing-a-ru
 
 ```toml
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.3.0" }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.1" }
 
 [rules]
 "typescript/parse" = "error"
@@ -240,7 +240,7 @@ project's, and the `root-` rules report nothing.
 name = "docs"
 
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.3.0", options = { decisions = "ledger/decision-index.md" } }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.1", options = { decisions = "ledger/decision-index.md" } }
 
 [rules]
 "ledger/decisions" = "error"
@@ -283,8 +283,8 @@ TypeScript language library.
 name = "server"
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.3.0", reads = ["tsconfig.base.json"] }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.0", options = { layout = { source-root = "src" } }, reads = ["tsconfig.base.json"] }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.1", reads = ["tsconfig.base.json"] }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.1", options = { layout = { source-root = "src" } }, reads = ["tsconfig.base.json"] }
 
 [rules]
 "nestjs/barrel-exports" = "error"
@@ -413,8 +413,8 @@ name = "infrastructure"
 extends = ["cdk/recommended"]
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.3.0", reads = ["tsconfig.base.json"] }
-cdk = { source = "ElsiKora/Gate:cdk@0.3.0", options = { regions = ["eu-central-1", "us-east-1"] }, reads = ["tsconfig.base.json"] }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.1", reads = ["tsconfig.base.json"] }
+cdk = { source = "ElsiKora/Gate:cdk@0.3.1", options = { regions = ["eu-central-1", "us-east-1"] }, reads = ["tsconfig.base.json"] }
 ```
 
 In a monorepo the app's `tsconfig.json` extends the root's base, so the plugin is granted it with
@@ -441,8 +441,8 @@ name = "web"
 extends = ["frontend/recommended"]
 
 [plugins]
-typescript = { source = "ElsiKora/Gate:typescript@0.3.0", reads = ["tsconfig.base.json"] }
-frontend = { source = "ElsiKora/Gate:frontend@0.3.0", options = { pack = "nextjs" }, reads = ["tsconfig.base.json"] }
+typescript = { source = "ElsiKora/Gate:typescript@0.3.1", reads = ["tsconfig.base.json"] }
+frontend = { source = "ElsiKora/Gate:frontend@0.3.1", options = { pack = "nextjs" }, reads = ["tsconfig.base.json"] }
 ```
 
 In a monorepo the app's `tsconfig.json` extends the root's base, so the plugin is granted it with

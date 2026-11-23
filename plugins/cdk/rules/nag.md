@@ -37,7 +37,7 @@ None of its own; it reads `nag-packs` from `[plugins.cdk] options`.
 
 ```toml
 [plugins.cdk]
-source = "ElsiKora/Gate:cdk@0.3.0"
+source = "ElsiKora/Gate:cdk@0.3.1"
 options = { nag-packs = ["AwsSolutionsChecks", "ServerlessChecks"] }
 ```
 
