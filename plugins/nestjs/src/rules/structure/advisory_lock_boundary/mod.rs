@@ -510,18 +510,30 @@ fn scan(
         Kind::Sql | Kind::Shell => None,
     };
     let tree = parsed.as_deref().filter(|file| !file.fatal());
+    // Built once, for the inventory and the statements, whichever reads it first.
+    let mut reconstruction = None;
 
     if let Some((registered, allowed)) = &rules.inventory {
         // Every file is read as TypeScript for its identifiers; a JavaScript or TypeScript source
         // keeps its own syntax tree here.
         let allocator = Allocator::default();
         let present = match kind {
-            Kind::Ast => source::registered_ids(text, tree, registered),
+            Kind::Ast => source::registered_ids(
+                text,
+                tree.map(|file| {
+                    (
+                        file,
+                        &*reconstruction.insert(source::Reconstruction::new(file)),
+                    )
+                }),
+                registered,
+            ),
             Kind::Sql | Kind::Shell => {
                 let file = parse_source(&allocator, "registered-id-inventory.ts", text)
                     .ok()
                     .filter(|file| !file.fatal());
-                source::registered_ids(text, file.as_ref(), registered)
+                let reconstruction = file.as_ref().map(source::Reconstruction::new);
+                source::registered_ids(text, file.as_ref().zip(reconstruction.as_ref()), registered)
             }
         };
 
@@ -582,8 +594,11 @@ fn scan(
                 )));
             }
 
+            let reconstruction =
+                reconstruction.unwrap_or_else(|| source::Reconstruction::new(&file));
             source::statements(
                 &file,
+                reconstruction,
                 &Extraction {
                     path,
                     canonical: path == rules.boundaries.executor,

@@ -571,7 +571,14 @@ fn raw_literals(text: &str) -> Vec<f64> {
 
 /// Every value a syntax node of a parsed source evaluates to.
 pub(super) fn evaluated(file: &SourceFile<'_>) -> Outcome<Vec<f64>> {
-    let interpreter = Interpreter::new(file);
+    evaluated_with(file, &Interpreter::new(file))
+}
+
+/// [`evaluated`] with the file's reconstruction already built.
+pub(super) fn evaluated_with<'a>(
+    file: &SourceFile<'a>,
+    interpreter: &Interpreter<'a>,
+) -> Outcome<Vec<f64>> {
     // A name evaluated from the top depends on the name alone, so each is evaluated once.
     let mut names: HashSet<&str> = HashSet::default();
     let mut values = Vec::new();
@@ -594,19 +601,19 @@ pub(super) fn evaluated(file: &SourceFile<'_>) -> Outcome<Vec<f64>> {
 /// The registered identifiers a text holds, in the order of `registered`: every raw numeric
 /// literal and every value a syntax node evaluates to, or, where the text does not parse, every
 /// value the recovery reads.
-pub(super) fn registered_ids(
+pub(super) fn registered_ids<'a>(
     text: &str,
-    file: Option<&SourceFile<'_>>,
+    file: Option<(&SourceFile<'a>, &Interpreter<'a>)>,
     registered: &[i64],
 ) -> Outcome<Vec<i64>> {
     let mut values = raw_literals(text);
 
-    if let Some(file) = file {
-        values.extend(evaluated(file)?);
+    if let Some((file, interpreter)) = file {
+        values.extend(evaluated_with(file, interpreter)?);
     }
 
     // A text with syntax errors may hold values only the compiler's recovery reached.
-    if file.is_none_or(|file| !file.errors().is_empty()) {
+    if file.is_none_or(|(file, _)| !file.errors().is_empty()) {
         values.extend(super::recovery::recovered(text)?);
     }
 

@@ -13,7 +13,7 @@ use rustc_hash::FxHashSet as HashSet;
 use super::super::sql::Text;
 use super::interpreter::Interpreter;
 use super::node::{Node, argument_node, element_node};
-use super::text::{WORK_LIMIT, is_advisory, is_declaration_fragment, is_fragment};
+use super::text::{WORK_LIMIT, in_source, is_advisory, is_declaration_fragment, is_fragment};
 use super::{Fail, Outcome, Seen, SqlSinks};
 
 /// The direct children of a node the advisory-evidence search reads, as `ts.forEachChild` yields
@@ -211,10 +211,16 @@ pub(super) struct File<'a> {
     pub(super) mutated: HashSet<&'a str>,
 }
 
+/// The fragment variables of a file and the names inside the initializers of each variable.
+type Fragments<'a> = (HashSet<&'a str>, Vec<(&'a str, HashSet<&'a str>)>);
+
 impl<'a> File<'a> {
-    pub(super) fn new(file: &SourceFile<'a>, sinks: SqlSinks) -> Outcome<Self> {
-        let interpreter = Interpreter::new(file);
-        let fragments = Self::fragments(&interpreter)?;
+    pub(super) fn new(
+        file: &SourceFile<'a>,
+        interpreter: Interpreter<'a>,
+        sinks: SqlSinks,
+    ) -> Outcome<Self> {
+        let (fragments, dependencies) = Self::fragments(&interpreter)?;
         let mut unreconstructible = HashSet::default();
 
         for node in file.semantic().nodes().iter() {
@@ -233,7 +239,7 @@ impl<'a> File<'a> {
             .into_iter()
             .filter(|name| fragments.contains(name))
             .collect();
-        let mutated = Self::dependents(&interpreter, seeds);
+        let mutated = Self::dependents(&dependencies, seeds);
 
         Ok(Self {
             sinks,
@@ -243,8 +249,9 @@ impl<'a> File<'a> {
         })
     }
 
-    /// The variables whose value may hold an advisory fragment, directly or through another.
-    pub(super) fn fragments(interpreter: &Interpreter<'a>) -> Outcome<HashSet<&'a str>> {
+    /// The variables whose value may hold an advisory fragment, directly or through another, and
+    /// the names inside the initializers of each variable, in the order of the variables.
+    pub(super) fn fragments(interpreter: &Interpreter<'a>) -> Outcome<Fragments<'a>> {
         let mut fragments = HashSet::default();
         let mut dependencies: Vec<(&'a str, HashSet<&'a str>)> = Vec::new();
 
@@ -254,8 +261,11 @@ impl<'a> File<'a> {
             for &initializer in interpreter.get(name) {
                 let candidates = interpreter.fresh_candidates(initializer)?;
 
-                if is_fragment(&interpreter.source(initializer))
-                    || candidates.iter().any(|candidate| is_fragment(candidate))
+                if in_source(
+                    interpreter.source_text(initializer),
+                    is_fragment,
+                    is_fragment,
+                ) || candidates.iter().any(|candidate| is_fragment(candidate))
                 {
                     fragments.insert(name);
                 }
@@ -283,12 +293,13 @@ impl<'a> File<'a> {
             }
         }
 
-        Ok(fragments)
+        Ok((fragments, dependencies))
     }
 
-    /// The seeds and every variable whose initializer names one of them, transitively.
+    /// The seeds and every variable whose initializer names one of them, transitively, from the
+    /// names inside the initializers of each variable ([`File::fragments`]).
     pub(super) fn dependents(
-        interpreter: &Interpreter<'a>,
+        dependencies: &[(&'a str, HashSet<&'a str>)],
         seeds: HashSet<&'a str>,
     ) -> HashSet<&'a str> {
         let mut dependents = seeds;
@@ -297,14 +308,11 @@ impl<'a> File<'a> {
         while changed {
             changed = false;
 
-            for &name in &interpreter.order {
+            for (name, names) in dependencies {
                 if !dependents.contains(name)
-                    && interpreter.get(name).iter().any(|initializer| {
-                        interpreter
-                            .names(*initializer)
-                            .iter()
-                            .any(|dependency| dependents.contains(dependency))
-                    })
+                    && names
+                        .iter()
+                        .any(|dependency| dependents.contains(dependency))
                 {
                     dependents.insert(name);
                     changed = true;
@@ -316,7 +324,7 @@ impl<'a> File<'a> {
     }
 
     pub(super) fn contains_fragment(&self, node: Node<'a>) -> bool {
-        is_fragment(&self.interpreter.source(node))
+        in_source(self.interpreter.source_text(node), is_fragment, is_fragment)
             || self
                 .interpreter
                 .names(node)
@@ -339,7 +347,11 @@ impl<'a> File<'a> {
         // by text across the file, so either would reach every function the file declares.
         for name in interpreter.names(node) {
             for span in interpreter.declarations.get(name).into_iter().flatten() {
-                if is_declaration_fragment(&interpreter.source(Node::Opaque(*span))) {
+                if in_source(
+                    interpreter.source_text(Node::Opaque(*span)),
+                    is_declaration_fragment,
+                    is_declaration_fragment,
+                ) {
                     return Ok(true);
                 }
             }
@@ -400,7 +412,11 @@ impl<'a> File<'a> {
         }
 
         if let Node::Opaque(_) = node {
-            return Ok(is_fragment(&interpreter.source(node)));
+            return Ok(in_source(
+                interpreter.source_text(node),
+                is_fragment,
+                is_fragment,
+            ));
         }
 
         let reconstructed = if self.contains_fragment(node) {
@@ -409,7 +425,7 @@ impl<'a> File<'a> {
             Vec::new()
         };
 
-        if is_advisory(&interpreter.source(node))
+        if in_source(interpreter.source_text(node), is_advisory, is_advisory)
             || reconstructed.iter().any(|text| is_advisory(text))
         {
             return Ok(true);

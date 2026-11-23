@@ -119,6 +119,51 @@ fn advisory_sql_outside_the_executor_or_malformed_in_it_is_reported() {
 }
 
 #[test]
+fn advisory_evidence_is_read_in_any_text_with_javascripts_case_folding() {
+    // An argument that cannot be rebuilt is unresolved when a variable it reads holds advisory
+    // evidence, read as `/iu` reads it: the long s (`\u{17f}`) folds to `s`, and `\u{15d}` to
+    // nothing ASCII, whatever else the text holds.
+    let sink = |key: &str| {
+        format!(
+            "export const run = (db: {{ query(sql: string): void }}, name: string) => {{ const key = \"SELECT {key}(\" + name; return db.query(key); }};\n"
+        )
+    };
+    let (ascii, folded, other) = (
+        sink("HASHTEXT"),
+        sink("ha\u{17f}htext\u{e9}"),
+        sink("ha\u{15d}htext\u{e9}"),
+    );
+    let found = check(
+        RULE,
+        OPTIONS,
+        &with_manifest(
+            MANIFEST_TEXT,
+            &[
+                ("src/stock/ascii.ts", &ascii),
+                ("src/stock/folded.ts", &folded),
+                ("src/stock/other.ts", &other),
+            ],
+        ),
+    );
+    let unresolved = |path: &str| {
+        row(
+            "unresolved",
+            path,
+            None,
+            &format!("{path} contains unresolved executable advisory SQL."),
+        )
+    };
+
+    assert_eq!(
+        found,
+        [
+            unresolved("src/stock/ascii.ts"),
+            unresolved("src/stock/folded.ts")
+        ]
+    );
+}
+
+#[test]
 fn shell_commands_and_package_scripts_run_no_advisory_sql() {
     let found = check(
         RULE,

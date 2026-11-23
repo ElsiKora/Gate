@@ -159,13 +159,13 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// The source text of a node.
-    pub(super) fn source(&self, node: Node<'a>) -> Text {
+    /// The source text of a node, as written: empty where its span is not the text's.
+    pub(super) fn source_text(&self, node: Node<'a>) -> &'a str {
         let span = node.span();
 
         self.text
             .get(span.start as usize..span.end as usize)
-            .map_or_else(Text::new, units)
+            .unwrap_or_default()
     }
 
     /// Every identifier-like name inside a node, the node itself included.
