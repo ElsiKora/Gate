@@ -3,6 +3,18 @@
 The plugin is versioned on its own; its source is `ElsiKora/Gate:cdk@<version>`. A rule id, aspect,
 option or finding message that changes is a breaking change.
 
+## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-cdk-v0.3.0...plugin-cdk-v0.3.1) (2026-11-23)
+
+Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core. The
+findings are the same as 0.3.0's; only the time changes.
+
+### Performance
+
+- The TypeScript call state the rules share keeps a parsed file's bytes, so a rule that reads a
+  parsed file's bytes gets them from memory instead of a second host read, and a parsed file builds
+  its line index when a line is first asked for, so a file that reports nothing and has no syntax
+  error never builds it. ([5f34882](https://github.com/ElsiKora/Gate/commit/5f348825ab0d8f9b0db44381f7725a606ec7346a), [80518fe](https://github.com/ElsiKora/Gate/commit/80518fe35472aa6a90cbdf8da5a190b5de16cfa2), [a15a318](https://github.com/ElsiKora/Gate/commit/a15a3180e86866a2bb59ecb7d673d32f442f64c7))
+
 # 0.3.0 (2026-11-21)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads only in a 0.3.0 core.
