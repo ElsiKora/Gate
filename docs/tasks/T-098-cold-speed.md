@@ -137,6 +137,29 @@ whose wasm bytes change is listed with its growth, and `cargo deny` stays clean 
 `regex-automata` features. No change to fuel, limits, the plugin interface or git. `--skip-rule` is
 used in (d) only once T-100 is merged.
 
+## Step 1, before it is written: the paths, and what a wrong guess costs
+
+- **Where the paths come from.** In `calls()` of `plugins.rs`, after the result cache was asked
+  and before the missed calls start: every tracked path of the run's snapshot (`Tree::paths`, the
+  sorted list the listings already search) that the grant of at least one missed call allows
+  (`Grant::allows`), in path order, each once. The core does not guess what a rule will read: it
+  takes what the calls may read. Nothing comes from an earlier run or from the result cache, so the
+  read-ahead depends only on the snapshot and the grants. A run whose calls all come from the
+  result cache has no missed call and reads nothing ahead.
+- **How they are read.** A few threads take paths from that list and read each one through the
+  snapshot as `Snapshot::read` does (the same function, the same symbolic-link check, the same
+  content cache), with one difference: nothing is recorded as asked. A path whose size (which the
+  snapshot knows from the index for a clean file, without reading it) is over 1 MiB is skipped, and
+  every path once 256 MiB were read ahead. A failed read is dropped, so the plugin's own read meets
+  the error as today. The content cache keeps the first bytes read for a path, so every plugin of a
+  run sees one content per path. The read-ahead stops when the calls end.
+- **What a wrong guess costs.** A path the grants allow but no plugin reads costs one `open` and
+  `read` on a read-ahead thread and its bytes in memory until the run ends, at most 256 MiB in
+  all. It costs no correctness: the read set a call records, and so the result-cache key and what
+  is stored under it, come from the plugin's own reads only. On a runner with few cores the
+  read-ahead threads take CPU the calls could use, so their number follows the machine's
+  parallelism.
+
 ## Progress
 
 Each step's own gain, measured on the consumer's tree with the released 0.3.0 core and the plugin
