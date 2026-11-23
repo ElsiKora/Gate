@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | approved (`3736fa66`); steps 2 to 7 written and tested, being measured |
+| Status | approved (`3736fa66`); steps 2 to 7 written, tested and measured; the workspace gates and each step's milliseconds running |
 | Release | the next plugin release (the lead cuts it); no version moves here |
 | Writer | "Gate 098" |
 | Reviewer | a session that did not write it |
@@ -209,6 +209,41 @@ At the base's ratio (6572 ms for 57.0e9 fuel and 1111 ms of reads), nestjs at `6
 counts about 3.8 s before its reads, so the next rules of the fuel list are taken next; the
 milliseconds follow at a load under 18.
 
+## Measured
+
+The six runs at `85f60fc3` (no plugin code changed since `80518fe3`): the core built with
+`cargo build --release --locked -p gate` (gate 0.3.1), every plugin built as released and pinned
+with `gate lock --set` in a copy of the consumer's tree, one run at a time through the lane,
+2026-11-23T14:21:34+00:00 to 14:37:42+00:00, 1-minute load 16.35 to 20.03 (each run started under
+18). Counted is the total of `--timings` less its compiling line; the findings were compared as
+the JSON findings array (`jq -S`) without the `gate/budget` line.
+
+| Run | Total | Compiling (exempt) | Counted | Findings |
+| --- | --- | --- | --- | --- |
+| (a) full check with history, cold | 16326 ms | 2117 ms | 14209 ms | the 85 |
+| (b) the same, warm | 578 ms | 0 | 578 ms | the 85 |
+| (c) the reference tool, full | 54.45 s | | 54.45 s | its own (0 errors) |
+| (d) cold, no history rules, `--warn-after 3 --fail-after 6` | 9300 ms | 2422 ms | 6877 ms | the 85 and `gate/budget` |
+| (d2) warm after (d) | 1016 ms | 0 | 1016 ms | the 85 |
+| (e) cold pre-push of the consumer's last merge | 21028 ms | 2457 ms | 18571 ms | the 85 and 2 (below) |
+
+(d) was then run cold seven times more, one after another: counted 4115, 4182, 4259, 4017, 4035,
+4006 and 3115 ms, each with the 85 findings and a `gate/budget` warning (over 3 s, under 6 s). Over
+the eight runs the median is 4075 ms, seven of eight within 3115 to 4259 ms. In every run the nestjs
+call is the critical path at 34.07e9 fuel: 2843 to 3960 ms in the seven, 6209 ms in the first, with
+the same fuel and the same 10789 reads (283 to 857 ms of them in the host). The machine has 6
+faster and 12 slower cores (`sysctl hw.perflevel0.logicalcpu hw.perflevel1.logicalcpu`); the
+first run's nestjs call took 1.6 to 2.2 times the others' with the same work, which a call kept on
+a slower core would explain; which core it ran on was not recorded.
+Against 0.3.0's counted 6973 ms (nestjs 6572 ms at 57.0e9), (d) counts 42 % less at the median.
+
+(e) ran with the push range ending at a scratch commit in the copy that pins this branch's core and
+plugins, because a push run reads the configuration of the pushed commit, and the consumer's pins
+0.3.0. The 2 findings past the 85 are `git/main-history` on that scratch commit, which changes
+`gate.toml` and `gate.lock` on main directly. Of its 18571 ms, the git call is 15490 ms (36.34e9
+fuel; `git.sync-state` 6970 ms), unchanged by this task; (c), which is what the pre-push is held
+to, took 54.45 s.
+
 ## Plugin bytes
 
 Every plugin built as released (`scripts/build-component.sh <plugin> wasm32-wasip2`, one cargo run
@@ -230,8 +265,8 @@ build `gate-typescript`, whose bindings and line index changed.
 
 ## Resume point
 
-2026-11-23T09:13:32+00:00: nestjs 34.07e9 fuel at `80518fe3`, findings unchanged. An
-untimed cold (d) with the branch core and plugins pinned by `gate lock --set` (load 33 to 50) gave
-the same 85 findings as 0.3.0's and counted 6724 ms, the nestjs call 6348 ms; the six timed runs wait
-for a load under 18. Step 1 (read-ahead) is a local draft only, out of the branch, until (d) asks
-for it.
+2026-11-23T14:39:21+00:00: the six runs are in "Measured": (d) cold counts 4075 ms at the median of eight
+(3115 to 6877 ms), under the 6 s bound, at the 4000 ms aim; findings are the 85 in every run. Running:
+the five workspace commands at `85f60fc3` through the lane, then each step's build alone three times
+at a load under 18 for its milliseconds. Step 1 (read-ahead) is a local draft only, out of the branch;
+the nestjs call's own reads are 283 to 857 ms of it, so the lead decides whether it comes in.
