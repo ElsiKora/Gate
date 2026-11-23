@@ -1,6 +1,7 @@
 # `ci/concurrency`
 
-Every workflow has a concurrency group, and a newer run cancels only a pull request's.
+Every workflow has a concurrency group, and `cancel-in-progress` is never a literal `true` in a
+workflow that runs on anything but pull requests and merge queues.
 
 ## What it checks and why
 
@@ -18,7 +19,10 @@ file the `workflows` glob matches and reports:
   other than `pull_request`, `pull_request_target` or `merge_group`.
 
 An expression in `cancel-in-progress` is not evaluated and passes: the workflow `gate sync` writes
-cancels with `${{ github.event_name == 'pull_request' }}`. A workflow that is not valid YAML stops
+cancels with `${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}`,
+so a newer run cancels a pull request's run or a pushed branch's, `release/*` and every other
+long-lived branch included, but never one of the default branch, and
+`${{ github.event_name == 'pull_request' }}` passes alike. A workflow that is not valid YAML stops
 the run with the parser's message.
 
 Scope: repository. Reads history: no. Aspects: `missing`, `cancel`.

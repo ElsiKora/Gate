@@ -7819,6 +7819,46 @@ fn the_generated_workflow_meets_the_ci_standard() {
 }
 
 #[test]
+fn a_cached_workflow_with_an_aggregate_name_meets_the_ci_standard() {
+    let ci = format!("ci={}", ci_component().0.display());
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &ci_standard_root().replace(
+            "aggregate = \"gate-passed\"\n",
+            "aggregate = \"gate-passed\"\naggregate-name = \"Gate passed\"\ncache = true\n",
+        ),
+    );
+    repo.write(".nvmrc", "24\n");
+    repo.write("apps/index.ts", "export const one = 1;\n");
+    repo.commit("configure");
+    let output = repo.gate(&["sync", "--plugin", &ci]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let workflow = std::fs::read_to_string(repo.path().join(".github/workflows/gate.yml"))
+        .expect("the generated workflow");
+    assert!(
+        workflow.contains("\n        name: Restore the Gate cache\n")
+            && workflow.contains("\n    name: Gate passed\n"),
+        "{workflow}"
+    );
+    repo.commit("sync");
+
+    let output = repo.gate(&["check", "--plugin", &ci]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert!(
+        !text(&output.stdout).contains("[ci/"),
+        "{}",
+        text(&output.stdout)
+    );
+}
+
+#[test]
 fn a_monorepo_root_takes_the_ci_standard_through_its_rules() {
     let ci = format!("ci={}", ci_component().0.display());
     let repo = Repo::empty();

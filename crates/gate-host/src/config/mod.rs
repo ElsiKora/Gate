@@ -32,7 +32,7 @@ use toml::Spanned;
 use crate::error::{Error, Result};
 use crate::projects::ProjectGlobs;
 use crate::snapshot::Snapshot;
-use crate::sync::github::CHANGES_JOB;
+use crate::sync::github::{CHANGES_JOB, CHANGES_NAME};
 
 /// The file name of every configuration file.
 pub const FILE_NAME: &str = "gate.toml";
@@ -1344,8 +1344,33 @@ fn check_pinned(uses: &str) -> std::result::Result<(), String> {
 /// of `[ci.github.jobs]`.
 fn check_aggregate(github: &CiGithub) -> std::result::Result<(), String> {
     let Some(aggregate) = &github.aggregate else {
+        if github.aggregate_name.is_some() {
+            return Err(
+                "aggregate-name is set without aggregate; set aggregate to the job's id, or remove aggregate-name"
+                    .to_owned(),
+            );
+        }
         return Ok(());
     };
+    if github
+        .aggregate_name
+        .as_ref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err("aggregate-name is empty; name the aggregate job or remove the key".to_owned());
+    }
+    if let Some(name) = &github.aggregate_name {
+        if name == CHANGES_NAME {
+            return Err(format!(
+                "aggregate-name = {name:?} is the name of the generated changes job; GitHub would show two checks of that name, so choose another aggregate-name"
+            ));
+        }
+        if let Some((id, _)) = github.jobs.iter().find(|(_, job)| &job.name == name) {
+            return Err(format!(
+                "aggregate-name = {name:?} is the name of jobs.{id}; GitHub would show two checks of that name, so choose another aggregate-name or rename the job"
+            ));
+        }
+    }
     if aggregate.as_str() == CHANGES_JOB {
         return Err(format!(
             "aggregate = \"{aggregate}\": the id is the generated job that lists the changed projects; choose another id"
