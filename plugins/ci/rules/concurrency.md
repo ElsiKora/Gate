@@ -18,7 +18,9 @@ file the `workflows` glob matches and reports:
   other than `pull_request`, `pull_request_target` or `merge_group`.
 
 An expression in `cancel-in-progress` is not evaluated and passes: the workflow `gate sync` writes
-cancels with `${{ github.event_name == 'pull_request' }}`. A workflow that is not valid YAML stops
+cancels with `${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}`,
+so a newer run cancels a pull request's or a branch's run but never one of the default branch, and
+`${{ github.event_name == 'pull_request' }}` passes alike. A workflow that is not valid YAML stops
 the run with the parser's message.
 
 Scope: repository. Reads history: no. Aspects: `missing`, `cancel`.
