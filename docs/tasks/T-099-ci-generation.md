@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress (design approved) |
+| Status | in review |
 | Release | the next core release (additive; the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate T-099" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -180,8 +180,39 @@ prints `[]`). Nothing of it is merged.
 
 ## Proof
 
+Lane round on `3d70ac9`, `one-gate.sh` in Gate's lane, from 2026-11-23T06:00:10+00:00 to
+2026-11-23T06:18:28+00:00 (load 38 to 150), in a detached worktree of the commit, each workspace crate
+compiled from it (the round's log check):
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1612 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+| `cargo build --release --offline --locked -j 4` | 0 |
+
+The tests of this task in that run, each `ok`:
+`a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bin_gate` (the steps,
+key, restore-keys, the five paths and no `core`/`tools`/`tmp`, `GATE_CACHE_DIR` on each `bin/gate`
+step and no other, the workflow without them byte for byte the uncached one, drift),
+`a_tampered_plugin_in_a_restored_cache_is_never_run` (fails closed when the asset cannot be fetched,
+replaced by the pinned file when it can),
+`the_workflow_cancels_superseded_runs_except_on_the_default_branch`,
+`a_configuration_without_the_new_keys_generates_the_0_3_0_workflow_but_its_cancel_line` (the 0.3.0
+bytes with only `cancel-in-progress` moved), `aggregate_name_names_the_aggregate_job_and_changes_nothing_else`,
+`an_aggregate_name_without_an_aggregate_or_empty_is_a_configuration_error`,
+`a_cached_workflow_with_an_aggregate_name_meets_the_ci_standard` and
+`the_generated_workflow_meets_the_ci_standard` under `ci/recommended`.
+
+A focused round before it, on `294a67a` (clippy and the touched tests), failed one test of this task:
+the fail-closed case asks the fixture once (a 404), which the download count of the replacing case
+had not left out; fixed in `3d70ac9`. The commits after `3d70ac9` change documents only.
+
+The leak scan of the local rules printed nothing, for the tree and with `--branch origin/main`.
+
 ## Resume point
 
-2026-11-23T05:55Z: design approved; code and tests in `294a67a`, guide written; a focused lane round
-(clippy, the touched tests) is queued. Waiting for the lead on the `gate/<os>/` restore-key. Next:
-the full lane round, the measurement branch, then the report.
+2026-11-23T06:20Z: design approved (restore-keys within one `gate.lock`), code, tests, guide and the
+CI measurement done, every lane gate green on `3d70ac9`, the measuring branch deleted. Next: the
+lead's review; no merge here.
