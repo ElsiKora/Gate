@@ -86,6 +86,8 @@ pub struct Snapshot {
     shared: Arc<Shared>,
     /// The contents of working-tree files, by path.
     contents: Mutex<HashMap<String, Arc<[u8]>>>,
+    /// The working tree's directories that are symbolic links, as far as reads asked.
+    directories: Directories,
     /// The paths asked for while recording, tracked or not; `None` once taken.
     asked: Mutex<Option<BTreeSet<String>>>,
 }
@@ -158,6 +160,7 @@ impl Snapshot {
             filtered,
             shared: Arc::clone(shared),
             contents: Mutex::new(HashMap::new()),
+            directories: Directories::default(),
             asked: Mutex::new(Some(BTreeSet::new())),
         })
     }
@@ -236,7 +239,8 @@ impl Snapshot {
             if let Some(cached) = lock(&self.contents).get(path) {
                 return Ok(Some(Arc::clone(cached)));
             }
-            let contents: Arc<[u8]> = Arc::from(read_work_tree(&self.git, path)?);
+            let contents: Arc<[u8]> =
+                Arc::from(read_work_tree(&self.git, &self.directories, path)?);
             lock(&self.contents).insert(path.to_owned(), Arc::clone(&contents));
             return Ok(Some(contents));
         }
@@ -288,7 +292,7 @@ impl Snapshot {
             if let Some(cached) = lock(&self.contents).get(path) {
                 return Ok(Some(length(cached)));
             }
-            return work_tree_size(&self.git, path).map(Some);
+            return work_tree_size(&self.git, &self.directories, path).map(Some);
         }
 
         self.blob_size(blob, path).map(Some)
@@ -458,9 +462,10 @@ fn work_tree_entries(git: &Git) -> Result<WorkTreeListing> {
     to_hash.extend(converted.iter().cloned());
 
     let mut regular = Vec::new();
+    let directories = Directories::default();
 
     for path in to_hash {
-        if behind_symlink(git.root(), &path) {
+        if directories.behind_symlink(git.root(), &path) {
             // A directory on the way is a symbolic link: the file is not in the repository.
             entries.remove(&path);
             continue;
@@ -475,7 +480,7 @@ fn work_tree_entries(git: &Git) -> Result<WorkTreeListing> {
             entries.remove(&path);
         } else if metadata.file_type().is_symlink() {
             symlinks.insert(path.clone());
-            let target = read_work_tree(git, &path)?;
+            let target = read_work_tree(git, &directories, &path)?;
             let oid =
                 git.output_with_input(&["hash-object", "--no-filters", "--stdin"], &target)?;
             entries.insert(path, BlobId(trimmed_oid(&oid)?));
@@ -593,21 +598,32 @@ fn commit_entries(git: &Git, commit: &str) -> Result<BTreeMap<String, BlobId>> {
     Ok(entries)
 }
 
-/// Whether a directory on the way from `root` to `path` is a symbolic link.
-fn behind_symlink(root: &std::path::Path, path: &str) -> bool {
-    let mut current = root.to_path_buf();
-    let mut parts: Vec<&str> = path.split('/').collect();
-    parts.pop();
-    parts.into_iter().any(|part| {
-        current.push(part);
-        current
-            .symlink_metadata()
-            .is_ok_and(|metadata| metadata.file_type().is_symlink())
-    })
+/// Which directories of a working tree are symbolic links, each asked of the file system once:
+/// the snapshot is one moment of the tree, so a directory's answer holds for its life.
+#[derive(Debug, Default)]
+struct Directories(Mutex<HashMap<String, bool>>);
+
+impl Directories {
+    /// Whether a directory on the way from `root` to `path` is a symbolic link. A directory that
+    /// cannot be read is not one, as before the answers were kept.
+    fn behind_symlink(&self, root: &std::path::Path, path: &str) -> bool {
+        path.match_indices('/').any(|(end, _)| {
+            let directory = &path[..end];
+            if let Some(&linked) = lock(&self.0).get(directory) {
+                return linked;
+            }
+            let linked = root
+                .join(directory)
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.file_type().is_symlink());
+            lock(&self.0).insert(directory.to_owned(), linked);
+            linked
+        })
+    }
 }
 
-fn read_work_tree(git: &Git, path: &str) -> Result<Vec<u8>> {
-    if behind_symlink(git.root(), path) {
+fn read_work_tree(git: &Git, directories: &Directories, path: &str) -> Result<Vec<u8>> {
+    if directories.behind_symlink(git.root(), path) {
         return Err(Error::environment(format!(
             "cannot read {path}: a directory on its way is a symbolic link, which leads outside the tracked tree; restore the directory or git rm the path"
         )));
@@ -634,8 +650,8 @@ fn length(contents: &[u8]) -> u64 {
 }
 
 /// The size of a working-tree file, as [`read_work_tree`] would read it.
-fn work_tree_size(git: &Git, path: &str) -> Result<u64> {
-    if behind_symlink(git.root(), path) {
+fn work_tree_size(git: &Git, directories: &Directories, path: &str) -> Result<u64> {
+    if directories.behind_symlink(git.root(), path) {
         return Err(Error::environment(format!(
             "cannot read {path}: a directory on its way is a symbolic link, which leads outside the tracked tree; restore the directory or git rm the path"
         )));
