@@ -88,32 +88,3 @@ fn package_bindings_follow_imports_aliases_destructuring_require_import_and_chai
     );
     assert!(ImportBindings::new(&file, "other", false).is_none());
 }
-
-#[test]
-fn a_package_named_only_through_an_escape_or_a_template_is_still_named() {
-    let named = |path: &'static str, text: &'static str| {
-        let source = MemorySource::new([(path, text)]);
-        let allocator = Allocator::default();
-        let typescript = TypeScript::new(&source, Settings::default(), &allocator);
-        let file = typescript.parse(path).expect("parses").expect("tracked");
-        ImportBindings::new(&file, "pkg", false).is_some()
-    };
-
-    assert!(named(
-        "src/escape.ts",
-        "import { A } from \"p\\u006bg\";\nA;\n"
-    ));
-    assert!(named(
-        "src/template.ts",
-        "const P = require(`pkg`);\nP.A;\n"
-    ));
-    assert!(named(
-        "src/view.tsx",
-        "export const V = () => <a title=\"pkg\" />;\n"
-    ));
-    assert!(!named("src/other.ts", "import { A } from \"pk\";\nA;\n"));
-    assert!(!named(
-        "src/escaped.ts",
-        "import { A } from \"p\\u006b\";\nA;\n"
-    ));
-}

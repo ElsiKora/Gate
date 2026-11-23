@@ -31,19 +31,6 @@ pub struct ImportBindings<'s, 'a> {
     reached: RefCell<Option<String>>,
 }
 
-/// Whether a string literal of `file` may have the value `module`, read from the text alone. Without
-/// a backslash in the text, the value of a string and the cooked value of a template are the text
-/// between their delimiters, but for a template's line breaks, which `module` must not hold; JSX,
-/// whose attribute strings oxc may decode, is always read. `false` only when no literal can name it.
-fn may_name(file: &SourceFile<'_>, module: &str) -> bool {
-    let source = file.source();
-
-    source.contains(module)
-        || source.contains('\\')
-        || module.contains(['\r', '\n'])
-        || file.program().source_type.is_jsx()
-}
-
 /// What an expression is with respect to `node:module`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Loader {
@@ -60,9 +47,6 @@ impl<'s, 'a> ImportBindings<'s, 'a> {
     /// can denote the package. `type_only` also follows type-only imports.
     #[must_use]
     pub fn new(file: &'s SourceFile<'a>, module: &'s str, type_only: bool) -> Option<Self> {
-        if !may_name(file, module) {
-            return None;
-        }
         let named = file
             .semantic()
             .nodes()
