@@ -12,8 +12,8 @@
 mod reads;
 
 use crate::shared::paths::{self, Form};
+use rustc_hash::FxHashMap as HashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use gate_sdk::schemars::JsonSchema;
@@ -335,9 +335,9 @@ impl<'g, 'a> Graph<'g, 'a> {
                 .map(|(index, (path, _))| (*path, index))
                 .collect(),
             raw,
-            targets: RefCell::new(HashMap::new()),
-            tables: RefCell::new(HashMap::new()),
-            answers: RefCell::new(HashMap::new()),
+            targets: RefCell::default(),
+            tables: RefCell::default(),
+            answers: RefCell::default(),
         }
     }
 
