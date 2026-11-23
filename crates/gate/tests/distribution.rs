@@ -1523,6 +1523,111 @@ fn another_file_under_the_pinned_sha256_is_refused_and_nothing_runs() {
     server.stop();
 }
 
+/// The parts of the cache a generated CI job with `[ci.github] cache = true` restores; `core/` and
+/// `tools/` never are (`crates/gate/tests/cli.rs` checks the generated paths).
+const RESTORED: [&str; 5] = ["blobs", "modules", "results", "declarations", "git"];
+
+/// A copy of the parts of `cache` a CI job restores, in a new directory, as `actions/cache` puts
+/// them in a fresh job.
+fn restored(cache: &Path) -> tempfile::TempDir {
+    let copy = tempfile::tempdir().expect("restored cache");
+    for part in RESTORED {
+        let from = cache.join(part);
+        if !from.exists() {
+            continue;
+        }
+        for file in files(&from) {
+            let to = copy.path().join(part).join(&file);
+            std::fs::create_dir_all(to.parent().expect("parent")).expect("directories");
+            std::fs::copy(from.join(&file), &to).expect("copy");
+        }
+    }
+    copy
+}
+
+#[test]
+fn a_tampered_plugin_in_a_restored_cache_is_never_run() {
+    let server = Server::start();
+    let wasm = git_component();
+    let route = format!("/acme/releases/download/plugin-git-v{VERSION}/git.wasm");
+    let url = server.url(&route);
+    let repo = git_pinned(&url, &"b".repeat(64));
+    let build = tempfile::tempdir().expect("build");
+    let file = build.path().join("git.wasm");
+    std::fs::write(&file, &wasm).expect("build");
+    let hash = sha256(&wasm);
+    let output = repo.gate(
+        &[
+            "lock",
+            "--set",
+            &format!("git={url}"),
+            "--file",
+            path(&file),
+        ],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit();
+    // A first job fills the cache: the plugin, its compiled module, its declaration, its results.
+    let output = repo.gate(&["check"], None, &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        repo.cache.path().join("modules").exists() && repo.cache.path().join("results").exists(),
+        "the first run filled the cache"
+    );
+    // A later commit, so the call is not answered from the result cache and the plugin must load.
+    repo.write("later.txt", "a later commit\n");
+    repo.commit();
+    let tampered = b"\0asm a plugin someone put into the cache entry";
+
+    // A later job restores the cache, in which another step of the branch replaced the plugin. The
+    // asset is not published, so the run cannot fetch the pinned file: it fails closed.
+    let first = restored(repo.cache.path());
+    let entry = first.path().join("blobs/sha256").join(&hash);
+    std::fs::write(&entry, tampered).expect("tamper with the restored plugin");
+    let output = repo.gate(&["check"], None, &[("GATE_CACHE_DIR", path(first.path()))]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert!(
+        !text(&output.stdout).contains("gate check"),
+        "no rule ran: {}",
+        text(&output.stdout)
+    );
+    assert!(!entry.exists(), "the tampered entry is gone");
+
+    // With the asset published, the run fetches the pinned file in place of the tampered one.
+    server.serve(&route, wasm.clone());
+    let second = restored(repo.cache.path());
+    let entry = second.path().join("blobs/sha256").join(&hash);
+    std::fs::write(&entry, tampered).expect("tamper with the restored plugin");
+    let output = repo.gate(&["check"], None, &[("GATE_CACHE_DIR", path(second.path()))]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(&entry).expect("the entry"),
+        wasm,
+        "the entry is the pinned file again"
+    );
+    assert_eq!(
+        server.requests().len(),
+        1,
+        "one download: {:?}",
+        server.requests()
+    );
+    server.stop();
+}
+
 #[test]
 fn a_pin_whose_blob_is_missing_and_cannot_be_downloaded_fails_closed_and_says_what_to_do() {
     let server = Server::start();

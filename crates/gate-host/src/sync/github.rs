@@ -46,9 +46,37 @@ fn concurrency_group(path: &str) -> String {
     format!("{path}@${{{{ github.ref }}}}")
 }
 
-/// Whether a newer run of the group cancels the one in progress: for a pull request, whose older
-/// commits no longer matter; never for a push, so a push to main never cancels a running main check.
-const CANCEL_IN_PROGRESS: &str = "${{ github.event_name == 'pull_request' }}";
+/// Whether a newer run of the group cancels the one in progress: for every ref but the default
+/// branch, since a superseded commit of a pull request or a branch is never the one that merges;
+/// never on the default branch, so a push there never cancels a running check of it.
+pub const CANCEL_IN_PROGRESS: &str =
+    "${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}";
+
+/// The action that restores the Gate cache, pinned by commit with its release.
+pub const CACHE_RESTORE: &str =
+    "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0";
+
+/// The action that saves the Gate cache: the same commit as [`CACHE_RESTORE`].
+pub const CACHE_SAVE: &str = "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0";
+
+/// The Gate cache of a job with `[ci.github] cache`, given to its `bin/gate` steps as
+/// `GATE_CACHE_DIR`. `runner.temp` is emptied at the start and end of every job, so the directory
+/// holds what the restore step put there and nothing else. GitHub does not allow the `runner`
+/// context in a job's `env`, so the variable sits on the steps.
+pub const CACHE_DIR: &str = "${{ runner.temp }}/gate-cache";
+
+/// The parts of the Gate cache a job restores and saves. `blobs` is hashed again against its pin on
+/// every read; `modules`, `results`, `declarations` and `git` are derived and trusted as restored,
+/// which is why the cache is opt-in. Never `core` or `tools`: `bin/gate` and the tools check what
+/// is unpacked there against a sha256 recorded in the cache itself, not against `gate.lock`, so
+/// each job downloads and verifies them again.
+pub const CACHED: [&str; 5] = ["blobs", "modules", "results", "declarations", "git"];
+
+/// The id of the step that restores the Gate cache, whose outputs the save step reads.
+const CACHE_STEP_ID: &str = "gate-cache";
+
+/// The start of every key of the Gate cache: `/` separates the parts, since no job id holds one.
+const CACHE_KEY_PREFIX: &str = "gate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/";
 
 /// The token a `bin/gate` step reads private plugin releases with: the repository secret
 /// `GATE_GITHUB_TOKEN` when it is set, else the job's own token. Only `bin/gate` steps get it; other
@@ -59,11 +87,14 @@ const TOKEN: &str = "${{ secrets.GATE_GITHUB_TOKEN || github.token }}";
 /// pushed branch. Passed through the environment, never written into a command line.
 const BRANCH: &str = "${{ github.head_ref || github.ref_name }}";
 
-/// The environment of a `bin/gate` step: the token and the branch, and with `pushed` the range and
-/// the remote ref of `--push`.
-fn gate_env(pushed: bool) -> Value {
+/// The environment of a `bin/gate` step: the token and the branch, with `cached` the Gate cache's
+/// directory, and with `pushed` the range and the remote ref of `--push`.
+fn gate_env(cached: bool, pushed: bool) -> Value {
     let mut env = Map::new();
     env.insert("GATE_BRANCH".to_owned(), json!(BRANCH));
+    if cached {
+        env.insert("GATE_CACHE_DIR".to_owned(), json!(CACHE_DIR));
+    }
     env.insert("GATE_GITHUB_TOKEN".to_owned(), json!(TOKEN));
     if pushed {
         env.insert("GATE_RANGE".to_owned(), json!(RANGE));
@@ -88,7 +119,30 @@ pub fn workflow(
         github.branches.iter().map(String::as_str).collect()
     };
     let runner = github.runs_on.as_deref().unwrap_or(DEFAULT_RUNNER);
+    let cached = github.cache;
 
+    let mut steps = vec![checkout(github, Some(0))];
+    if cached {
+        steps.push(cache_restore(CHANGES_JOB));
+    }
+    steps.extend([
+        json!({
+            "name": "Check the generated files",
+            "run": format!("{LAUNCHER} sync --check"),
+            "env": gate_env(cached, false),
+        }),
+        json!({
+            "id": "changes",
+            "name": "List the changed projects",
+            "run": format!(
+                "{LAUNCHER} check --list-changed-projects --format github-output --push \"$GATE_RANGE\" --target-ref \"$GATE_TARGET_REF\" >> \"$GITHUB_OUTPUT\""
+            ),
+            "env": gate_env(cached, true),
+        }),
+    ]);
+    if cached {
+        steps.push(cache_save());
+    }
     let mut jobs = Map::new();
     jobs.insert(
         CHANGES_JOB.to_owned(),
@@ -98,22 +152,7 @@ pub fn workflow(
             "timeout-minutes": CHANGES_TIMEOUT_MINUTES,
             "permissions": { "contents": "read" },
             "outputs": { "projects": "${{ steps.changes.outputs.projects }}" },
-            "steps": [
-                checkout(github, Some(0)),
-                {
-                    "name": "Check the generated files",
-                    "run": format!("{LAUNCHER} sync --check"),
-                    "env": gate_env(false),
-                },
-                {
-                    "id": "changes",
-                    "name": "List the changed projects",
-                    "run": format!(
-                        "{LAUNCHER} check --list-changed-projects --format github-output --push \"$GATE_RANGE\" --target-ref \"$GATE_TARGET_REF\" >> \"$GITHUB_OUTPUT\""
-                    ),
-                    "env": gate_env(true),
-                },
-            ],
+            "steps": steps,
         }),
     );
 
@@ -129,10 +168,11 @@ pub fn workflow(
 
     if let Some(aggregate) = &github.aggregate {
         let needs: Vec<String> = jobs.keys().cloned().collect();
-        jobs.insert(
-            aggregate.to_string(),
-            aggregate_value(aggregate.as_str(), runner, &needs),
-        );
+        let name = github
+            .aggregate_name
+            .as_deref()
+            .unwrap_or(aggregate.as_str());
+        jobs.insert(aggregate.to_string(), aggregate_value(name, runner, &needs));
     }
 
     let document = json!({
@@ -158,10 +198,11 @@ pub const AGGREGATE_SCRIPT: &str = r#"failed=$(printf '%s' "$NEEDS" | jq -r 'to_
 
 /// The aggregate job: it needs every job in `needs` and runs even when one of them failed or was
 /// cancelled, so it fails then instead of being skipped. It checks out nothing and holds no token
-/// permission. Its name is its id, the check name branch protection requires.
-fn aggregate_value(id: &str, runner: &str, needs: &[String]) -> Value {
+/// permission. Its `name`, the check name branch protection requires, is `aggregate-name`, else
+/// its id.
+fn aggregate_value(name: &str, runner: &str, needs: &[String]) -> Value {
     json!({
-        "name": id,
+        "name": name,
         "runs-on": runner,
         "timeout-minutes": AGGREGATE_TIMEOUT_MINUTES,
         "needs": needs,
@@ -174,6 +215,48 @@ fn aggregate_value(id: &str, runner: &str, needs: &[String]) -> Value {
                 "env": { "NEEDS": "${{ toJSON(needs) }}" },
             },
         ],
+    })
+}
+
+/// The paths of the Gate cache a job restores and saves, one per line, as `actions/cache` reads
+/// them: the parts of [`CACHED`], each under [`CACHE_DIR`].
+#[must_use]
+pub fn cache_paths() -> String {
+    CACHED
+        .iter()
+        .map(|part| format!("{CACHE_DIR}/{part}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The step that restores the Gate cache of the job `id`: the entry of this commit, else the newest
+/// of the job under the same `gate.lock`, else the newest of any job under it. Every entry restored
+/// was written under the same core archive and plugins, so a stale part is unused, never wrong.
+fn cache_restore(id: &str) -> Value {
+    json!({
+        "id": CACHE_STEP_ID,
+        "name": "Restore the Gate cache",
+        "uses": CACHE_RESTORE,
+        "with": {
+            "path": cache_paths(),
+            "key": format!("{CACHE_KEY_PREFIX}{id}/${{{{ github.sha }}}}"),
+            "restore-keys": format!("{CACHE_KEY_PREFIX}{id}/\n{CACHE_KEY_PREFIX}"),
+        },
+    })
+}
+
+/// The step that saves the Gate cache under the key the restore step tried, last in the job: also
+/// after a red check, whose results are as valid as a green one's; not when the run was cancelled
+/// or the job timed out, and not when the restore step found this very key (a rerun).
+fn cache_save() -> Value {
+    json!({
+        "name": "Save the Gate cache",
+        "if": format!("${{{{ !cancelled() && steps.{CACHE_STEP_ID}.outputs.cache-hit != 'true' }}}}"),
+        "uses": CACHE_SAVE,
+        "with": {
+            "path": cache_paths(),
+            "key": format!("${{{{ steps.{CACHE_STEP_ID}.outputs.cache-primary-key }}}}"),
+        },
     })
 }
 
@@ -317,6 +400,9 @@ fn job_value(
 
     let directory = job.working_directory.as_ref().map(RelativePath::as_str);
     let mut steps = vec![checkout(github, depth)];
+    if github.cache {
+        steps.push(cache_restore(id));
+    }
     steps.extend(github.setup.iter().map(|step| step_value(step, None)));
     steps.extend(job.steps.iter().map(|step| step_value(step, directory)));
 
@@ -325,10 +411,13 @@ fn job_value(
         steps.push(json!({
             "name": format!("gate {command}"),
             "run": format!("{LAUNCHER} {}", words.join(" ")),
-            "env": gate_env(pushed),
+            "env": gate_env(github.cache, pushed),
         }));
     }
     steps.extend(job.after.iter().map(|step| step_value(step, directory)));
+    if github.cache {
+        steps.push(cache_save());
+    }
     value.insert("steps".to_owned(), Value::Array(steps));
 
     Ok(Value::Object(value))

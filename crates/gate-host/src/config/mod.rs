@@ -1344,8 +1344,21 @@ fn check_pinned(uses: &str) -> std::result::Result<(), String> {
 /// of `[ci.github.jobs]`.
 fn check_aggregate(github: &CiGithub) -> std::result::Result<(), String> {
     let Some(aggregate) = &github.aggregate else {
+        if github.aggregate_name.is_some() {
+            return Err(
+                "aggregate-name is set without aggregate; set aggregate to the job's id, or remove aggregate-name"
+                    .to_owned(),
+            );
+        }
         return Ok(());
     };
+    if github
+        .aggregate_name
+        .as_ref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err("aggregate-name is empty; name the aggregate job or remove the key".to_owned());
+    }
     if aggregate.as_str() == CHANGES_JOB {
         return Err(format!(
             "aggregate = \"{aggregate}\": the id is the generated job that lists the changed projects; choose another id"

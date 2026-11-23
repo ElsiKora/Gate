@@ -1201,7 +1201,7 @@ fn every_generated_checkout_keeps_no_credentials() {
 }
 
 #[test]
-fn the_workflow_cancels_superseded_pull_request_runs_and_never_main() {
+fn the_workflow_cancels_superseded_runs_except_on_the_default_branch() {
     let repo = with_root(&format!(
         "\n[ci.github]\nworkflow = \".github/workflows/gate.yml\"\ncheckout = \"actions/checkout@{ACTION}\"\n\n[ci.github.jobs.lint]\nname = \"Lint\"\ntimeout-minutes = 10\nrun = [\"check --push\"]\n"
     ));
@@ -1210,7 +1210,7 @@ fn the_workflow_cancels_superseded_pull_request_runs_and_never_main() {
     let workflow = repo.read(".github/workflows/gate.yml");
 
     // It runs on pushes and pull requests, and its runs share one group per workflow file and ref;
-    // a newer run cancels the one in progress for a pull request only.
+    // a newer run cancels the one in progress for every ref but the default branch.
     assert!(
         workflow.contains("\non:\n  push:\n    branches:\n      - main\n  pull_request:\n    branches:\n      - main\n"),
         "{workflow}"
@@ -1218,12 +1218,30 @@ fn the_workflow_cancels_superseded_pull_request_runs_and_never_main() {
     let concurrency = concat!(
         "\nconcurrency:\n",
         "  group: .github/workflows/gate.yml@${{ github.ref }}\n",
-        "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
+        "  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}\n",
         "jobs:\n",
     );
     assert_eq!(workflow.matches(concurrency).count(), 1, "{workflow}");
     assert_eq!(workflow.matches("concurrency:").count(), 1, "{workflow}");
     repo.commit("workflow");
+
+    // A workflow 0.3.1 wrote, which cancelled superseded pull request runs only, is drift.
+    let earlier = workflow.replace(
+        "${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}",
+        "${{ github.event_name == 'pull_request' }}",
+    );
+    assert_ne!(earlier, workflow);
+    repo.write(".github/workflows/gate.yml", &earlier);
+    repo.commit("a workflow from 0.3.1");
+    let output = repo.gate(&["sync", "--check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("[gate/sync#ci] .github/workflows/gate.yml"),
+        "{}",
+        stdout(&output)
+    );
+    repo.write(".github/workflows/gate.yml", &workflow);
+    repo.commit("the workflow again");
 
     // A workflow written before the group, by 0.2.0, is drift.
     let earlier = workflow.replace(concurrency, "\njobs:\n");
@@ -2988,23 +3006,200 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
 "#;
 
-#[test]
-fn a_configuration_without_needs_generates_the_workflow_0_3_0_generated() {
+/// The `cancel-in-progress` line 0.3.0 and 0.3.1 wrote, and the one this core writes.
+const CANCEL_0_3_0: &str = "cancel-in-progress: ${{ github.event_name == 'pull_request' }}";
+const CANCEL: &str = "cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}";
+
+/// [`WORKFLOW_0_3_0`] as this core writes it for the same configuration: only the
+/// `cancel-in-progress` line differs.
+fn workflow_0_3_0_now() -> String {
+    assert_eq!(WORKFLOW_0_3_0.matches(CANCEL_0_3_0).count(), 1);
+    WORKFLOW_0_3_0.replace(CANCEL_0_3_0, CANCEL)
+}
+
+/// A repository with [`WORKFLOW_0_3_0_ROOT`] and its projects, `[ci.github]` given `extra` lines.
+fn workflow_0_3_0_repo(extra: &str) -> Repo {
     let repo = Repo::new();
     repo.write(
         "gate.toml",
-        &WORKFLOW_0_3_0_ROOT.replace("{VERSION}", VERSION),
+        &WORKFLOW_0_3_0_ROOT.replace("{VERSION}", VERSION).replace(
+            "aggregate = \"gate-passed\"\n",
+            &format!("aggregate = \"gate-passed\"\n{extra}"),
+        ),
     )
     .write("apps/api/gate.toml", "[project]\nname = \"api\"\n")
     .write("apps/api/main.ts", "export const api = 1;\n")
     .write("apps/site/gate.toml", "[project]\nname = \"site\"\n")
     .write("apps/site/index.ts", "export const site = 1;\n");
     repo.commit("a configuration of 0.3.0");
+    repo
+}
+
+#[test]
+fn a_configuration_without_the_new_keys_generates_the_0_3_0_workflow_but_its_cancel_line() {
+    let repo = workflow_0_3_0_repo("");
     let output = repo.gate(&["sync"]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let workflow = repo.read(".github/workflows/gate.yml");
+    // Only the `cancel-in-progress` line moved since 0.3.0: no cache steps, the aggregate job named
+    // by its id.
     assert!(
-        workflow == WORKFLOW_0_3_0,
-        "the workflow differs from the one 0.3.0 wrote:\n{workflow}"
+        workflow == workflow_0_3_0_now(),
+        "the workflow differs from the one 0.3.0 wrote, beyond cancel-in-progress:\n{workflow}"
     );
+}
+
+/// The cache of a job with `[ci.github] cache = true`: what it restores, under which keys.
+const CACHE_PATH: &str = r#""${{ runner.temp }}/gate-cache/blobs\n${{ runner.temp }}/gate-cache/modules\n${{ runner.temp }}/gate-cache/results\n${{ runner.temp }}/gate-cache/declarations\n${{ runner.temp }}/gate-cache/git""#;
+const CACHE_RESTORE: &str =
+    "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0";
+const CACHE_SAVE: &str = "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0";
+const CACHE_ENV: &str = "          GATE_CACHE_DIR: ${{ runner.temp }}/gate-cache\n";
+
+/// The restore step of the job `id`.
+fn cache_restore_step(id: &str) -> String {
+    format!(
+        "      - id: gate-cache\n        name: Restore the Gate cache\n        uses: {CACHE_RESTORE}\n        with:\n          path: {CACHE_PATH}\n          key: gate/${{{{ runner.os }}}}/${{{{ hashFiles('gate.lock') }}}}/{id}/${{{{ github.sha }}}}\n          restore-keys: \"gate/${{{{ runner.os }}}}/${{{{ hashFiles('gate.lock') }}}}/{id}/\\ngate/${{{{ runner.os }}}}/${{{{ hashFiles('gate.lock') }}}}/\"\n"
+    )
+}
+
+/// The save step, the same in every job.
+fn cache_save_step() -> String {
+    format!(
+        "      - name: Save the Gate cache\n        if: ${{{{ !cancelled() && steps.gate-cache.outputs.cache-hit != 'true' }}}}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
+    )
+}
+
+#[test]
+fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bin_gate() {
+    let repo = workflow_0_3_0_repo("cache = true\n");
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+
+    // Each job that runs bin/gate restores right after its checkout, before setup, and saves last.
+    for id in ["changes", "check", "publish", "unit"] {
+        let text = job(&workflow, id);
+        let restore = cache_restore_step(id);
+        let at = text
+            .find(&restore)
+            .unwrap_or_else(|| panic!("{id}: {text}"));
+        assert!(
+            text[..at].ends_with("          persist-credentials: false\n"),
+            "{id}: the restore step follows the checkout: {text}"
+        );
+        assert!(
+            text.ends_with(&cache_save_step()),
+            "{id}: the save step is last: {text}"
+        );
+        assert_eq!(
+            text.matches("uses: actions/cache/").count(),
+            2,
+            "{id}: {text}"
+        );
+    }
+    // The aggregate job runs no bin/gate and touches no cache.
+    assert!(
+        !job(&workflow, "gate-passed").contains("cache"),
+        "{workflow}"
+    );
+
+    // The cached parts are exactly the five; the core and the tools are downloaded and verified in
+    // every job.
+    assert_eq!(
+        workflow.matches(&format!("path: {CACHE_PATH}\n")).count(),
+        8
+    );
+    for never in ["gate-cache/core", "gate-cache/tools", "gate-cache/tmp"] {
+        assert!(!workflow.contains(never), "{never}: {workflow}");
+    }
+
+    // Every bin/gate step, and no other, gets GATE_CACHE_DIR, between the branch and the token.
+    let runs = workflow.matches("        run: bin/gate ").count();
+    assert_eq!(runs, 5, "{workflow}");
+    assert_eq!(
+        workflow
+            .matches(&format!(
+                "          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n{CACHE_ENV}          GATE_GITHUB_TOKEN: "
+            ))
+            .count(),
+        runs,
+        "{workflow}"
+    );
+    assert_eq!(workflow.matches(CACHE_ENV).count(), runs, "{workflow}");
+
+    // Without its cache steps and variable, the workflow is the one without `cache`, byte for byte.
+    let mut stripped = workflow
+        .replace(CACHE_ENV, "")
+        .replace(&cache_save_step(), "");
+    for id in ["changes", "check", "publish", "unit"] {
+        stripped = stripped.replace(&cache_restore_step(id), "");
+    }
+    assert!(stripped == workflow_0_3_0_now(), "{stripped}");
+
+    // An edited key is drift.
+    repo.commit("synced");
+    let output = repo.gate(&["sync", "--check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
+    repo.write(
+        ".github/workflows/gate.yml",
+        &workflow.replacen("/check/${{ github.sha }}", "/check/", 1),
+    );
+    let output = repo.gate(&["sync", "--check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("[gate/sync#ci] .github/workflows/gate.yml"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn aggregate_name_names_the_aggregate_job_and_changes_nothing_else() {
+    let repo = workflow_0_3_0_repo("aggregate-name = \"Gate passed\"\n");
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+    let named = "  gate-passed:\n    name: Gate passed\n";
+    assert!(workflow.contains(named), "{workflow}");
+    assert!(
+        workflow.replace(named, "  gate-passed:\n    name: gate-passed\n") == workflow_0_3_0_now(),
+        "{workflow}"
+    );
+}
+
+#[test]
+fn an_aggregate_name_without_an_aggregate_or_empty_is_a_configuration_error() {
+    for (configuration, message) in [
+        (
+            WORKFLOW_0_3_0_ROOT.replace(
+                "aggregate = \"gate-passed\"\n",
+                "aggregate-name = \"Gate passed\"\n",
+            ),
+            "[ci.github] aggregate-name is set without aggregate; set aggregate to the job's id, or remove aggregate-name",
+        ),
+        (
+            WORKFLOW_0_3_0_ROOT.replace(
+                "aggregate = \"gate-passed\"\n",
+                "aggregate = \"gate-passed\"\naggregate-name = \" \"\n",
+            ),
+            "[ci.github] aggregate-name is empty; name the aggregate job or remove the key",
+        ),
+    ] {
+        let repo = Repo::new();
+        repo.write("gate.toml", &configuration.replace("{VERSION}", VERSION))
+            .write("apps/api/gate.toml", "[project]\nname = \"api\"\n")
+            .write("apps/site/gate.toml", "[project]\nname = \"site\"\n");
+        repo.commit("configure");
+        for command in [&["sync"][..], &["sync", "--check"], &["check"]] {
+            let output = repo.gate(command);
+            assert_eq!(output.status.code(), Some(2), "{message} {command:?}");
+            assert!(
+                stderr(&output).contains("configuration error")
+                    && stderr(&output).contains(message),
+                "{command:?}: {}",
+                stderr(&output)
+            );
+        }
+    }
 }

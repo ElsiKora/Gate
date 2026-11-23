@@ -736,6 +736,15 @@ pub struct CiGithub {
     /// The id of one more generated job that needs every other job and fails unless each of them
     /// succeeded or was skipped: the single check branch protection requires. None: no such job.
     pub aggregate: Option<JobId>,
+    /// The aggregate job's display name, which GitHub names its check by; defaults to its id.
+    /// Needs `aggregate`.
+    pub aggregate_name: Option<String>,
+    /// Whether every generated job that runs `bin/gate` restores the Gate cache from GitHub's cache
+    /// and saves it again (`actions/cache`): the downloaded plugins, the compiled modules, the
+    /// result cache, the declarations and the git answers. Off by default: the restored compiled
+    /// modules and answers are trusted as they are, and any job of the branch can write them.
+    #[serde(default)]
+    pub cache: bool,
 }
 
 /// A job of the generated workflow.
