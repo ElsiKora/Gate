@@ -227,9 +227,23 @@ the JSON findings array (`jq -S`) without the `gate/budget` line.
 | (d2) warm after (d) | 1016 ms | 0 | 1016 ms | the 85 |
 | (e) cold pre-push of the consumer's last merge | 21028 ms | 2457 ms | 18571 ms | the 85 and 2 (below) |
 
-(d) was then run cold seven times more, one after another: counted 4115, 4182, 4259, 4017, 4035,
-4006 and 3115 ms, each with the 85 findings and a `gate/budget` warning (over 3 s, under 6 s). Over
-the eight runs the median is 4075 ms, seven of eight within 3115 to 4259 ms. In every run the nestjs
+(d) was then run cold seven times more, one after another: counted 4115, 4182, 4259, 4016, 4035,
+4006 and 3114 ms (as the `gate/budget` line gives them). Over the eight runs the median is 4075 ms,
+seven of eight within 3114 to 4259 ms. Which runs carried `gate/budget`, and at what level:
+
+| Run | Counted | `gate/budget` |
+| --- | --- | --- |
+| 1, the (d) of the six | 6877 ms | error: over `--fail-after 6` |
+| 2 | 4115 ms | warning: over `--warn-after 3` |
+| 3 | 4182 ms | warning |
+| 4 | 4259 ms | warning |
+| 5 | 4016 ms | warning |
+| 6 | 4035 ms | warning |
+| 7 | 4006 ms | warning |
+| 8 | 3114 ms | warning |
+
+Only the first carried the error; every run carried the 85 findings besides. The untimed check run
+before the six, at a load of 33 to 50, also carried the error (6723 ms). In every run the nestjs
 call is the critical path at 34.07e9 fuel: 2843 to 3960 ms in the seven, 6209 ms in the first, with
 the same fuel and the same 10789 reads (283 to 857 ms of them in the host). The machine has 6
 faster and 12 slower cores (`sysctl hw.perflevel0.logicalcpu hw.perflevel1.logicalcpu`); the
@@ -255,7 +269,9 @@ binaries ok), `cargo deny --locked check` exit 0. The commits after it change do
 
 Every plugin built as released (`scripts/build-component.sh <plugin> wasm32-wasip2`, one cargo run
 each) at `main` (`03ab4b7`) and at the branch (`b0756793`); `shasum -a 256` and `stat -f %z` of each
-wasm. The plugins whose bytes change:
+wasm. `git diff --stat b0756793 352c10fe` names only `docs/plan.md` and this file, so the bytes at
+`352c10fe` are those at `b0756793`. This is the final list for the release: the plugins whose bytes
+change, from this task's code and from the `regex-automata` features alike, are exactly these five:
 
 | Plugin | sha256 at `main` | sha256 at the branch | Bytes at `main` | Bytes at the branch | Growth |
 | --- | --- | --- | --- | --- | --- |
