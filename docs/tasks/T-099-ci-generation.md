@@ -38,9 +38,12 @@ constants (`actions/cache/restore@55cc834... # v6.1.0` and `actions/cache/save@5
 
 - `Restore the Gate cache` (`id: gate-cache`), right after the checkout, before `setup`;
 - `Save the Gate cache`, last, with
-  `if: ${{ !cancelled() && steps.gate-cache.outputs.cache-hit != 'true' }}` and the key the restore
-  step tried (`steps.gate-cache.outputs.cache-primary-key`): a red check still saves, a cancelled or
-  timed-out job does not, and a rerun of the same commit does not save twice.
+  `if: ${{ !cancelled() && steps.<last>.outcome != 'skipped' && steps.gate-cache.outputs.cache-hit != 'true' }}`
+  and the key the restore step tried (`steps.gate-cache.outputs.cache-primary-key`): a red check still
+  saves, a cancelled or timed-out job does not, a job whose last `bin/gate` step never ran does not
+  (else a rerun would find that key and never save fresh results), and a rerun of the same commit
+  does not save twice. `<last>` is the id of the job's last `bin/gate` step: `gate-run`, given with
+  `cache = true` only, and `changes` in the `changes` job.
 
 The directory is `${{ runner.temp }}/gate-cache`, given to each `bin/gate` step as `GATE_CACHE_DIR`
 beside `GATE_GITHUB_TOKEN` and `GATE_BRANCH`; no other step gets it. `runner.temp` is emptied at the
@@ -48,9 +51,9 @@ start and end of every job, also on a self-hosted runner. GitHub does not allow 
 in a job's `env`, which is why the variable sits on the steps.
 
 ```text
-key:          gate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/<job id>/${{ github.sha }}
-restore-keys: gate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/<job id>/
-              gate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/
+key:          gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/<job id>/${{ github.sha }}
+restore-keys: gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/<job id>/
+              gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/
 ```
 
 `/` separates the parts, since no job id holds one. A GitHub cache entry never changes once saved, so
@@ -85,6 +88,10 @@ What is cached:
 | `tools/` | **never** | the same: the unpacked tool is checked against a record in the cache |
 | `tmp/` | no | downloads in progress |
 
+The CI cache is never pruned by Gate. An entry that went bad is carried forward, since each job saves
+what it restored under the next commit's key, until `gate.lock` changes; the guide gives the remedy:
+`gh cache delete` the job's entries, on the default branch too, or change `gate.lock`.
+
 The `path` lists the five cached parts rather than excluding the others, so a part added to the cache
 later is not restored until someone decides it may be.
 
@@ -109,7 +116,10 @@ The aggregate job of a cancelled run shows red on the superseded commit.
 `[ci.github] aggregate-name`: the aggregate job's `name:`, which branch protection then requires.
 Without it the name is the id, byte for byte as before. Configuration errors at load (exit 2):
 `[ci.github] aggregate-name is set without aggregate; set aggregate to the job's id, or remove aggregate-name`,
-and `[ci.github] aggregate-name is empty; name the aggregate job or remove the key`.
+`[ci.github] aggregate-name is empty; name the aggregate job or remove the key`, and a name another
+check would have:
+`[ci.github] aggregate-name = "Changes" is the name of the generated changes job; GitHub would show two checks of that name, so choose another aggregate-name`,
+`[ci.github] aggregate-name = "Unit tests" is the name of jobs.unit; GitHub would show two checks of that name, so choose another aggregate-name or rename the job`.
 
 ### Where a configuration's generated workflow changes bytes
 
@@ -211,8 +221,39 @@ had not left out; fixed in `3d70ac9`. The commits after `3d70ac9` change documen
 
 The leak scan of the local rules printed nothing, for the tree and with `--branch origin/main`.
 
+### Review fix round
+
+The independent review of `6d11daf` found nothing blocking; the lead asked for one fix round of seven:
+the three documents that still said `cancel-in-progress` held for pull requests only
+(`docs/architecture.md`, the ci rule list of `docs/guide/plugins.md`, the first line of
+`plugins/ci/rules/concurrency.md`); the remedy for a bad cache entry and that the CI cache is never
+pruned; no save when the job's last `bin/gate` step never ran; `runner.arch` in the key; an
+`aggregate-name` equal to `Changes` or a job's name refused; the release-order text matched to its
+example workflow; a test of `cache = true` with a `needs`/`when` job. Code in `08d1c7f`, documents in
+`10b7832`.
+
+The rule's own summary in the `ci` plugin's code, `plugins/ci/src/concurrency.rs:22`, still says
+"a newer run cancels only a pull request's", as do its help text (line 82) and its crate doc
+(`plugins/ci/src/lib.rs:4`); changing them changes the plugin's bytes, so they wait for a plugin
+release and the lead's word.
+
+Lane round on `08d1c7f`, from 2026-11-23T06:36:05+00:00 to 2026-11-23T06:56:08+00:00 (load 45 to 125),
+in a detached worktree of the commit, each workspace crate compiled from it:
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1613 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+| `cargo build --release --offline --locked -j 4` | 0 |
+
+`a_cached_job_with_needs_and_when_keeps_its_needs_and_condition` (new), the updated
+`a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bin_gate` and
+`an_aggregate_name_without_an_aggregate_or_empty_is_a_configuration_error` (the two collisions), and
+the other tests of this task were `ok` in that run. The leak scan printed nothing.
+
 ## Resume point
 
-2026-11-23T06:20Z: design approved (restore-keys within one `gate.lock`), code, tests, guide and the
-CI measurement done, every lane gate green on `3d70ac9`, the measuring branch deleted. Next: the
-lead's review; no merge here.
+2026-11-23T06:57Z: the review fix round is in, every gate green on `08d1c7f`; the commits after it
+change documents only. Next: the lead decides; no merge here.
