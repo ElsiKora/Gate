@@ -181,6 +181,7 @@ milliseconds of each step follow once the load is under 18.
 | 6: FxHash in `raw-config-access` | `542150f1` | nestjs | 35.35e9 | 10789 | -0.96e9 (-2.7 %) |
 | 6: `asset-storage` tokens borrowed | `570c94a3` | nestjs | 34.82e9 | 10789 | -0.53e9 (-1.5 %) |
 | 6: `advisory-lock-boundary` literal scan passes non-digits, UTF-8 checked once | `fbb2fa44` | nestjs | 34.31e9 | 10789 | -0.51e9 (-1.5 %) |
+| 6: line index built on first use (`gate-typescript`) | `80518fe3` | nestjs | 34.07e9 | 10789 | -0.24e9 (-0.7 %) |
 | base | `3736fa66` | ledger | 38.83e9 | 13020 | |
 | 7: ledger call state | `59adf9a7` | ledger | 21.04e9 | 11585 | -17.79e9 (-45.8 %) |
 
