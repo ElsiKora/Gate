@@ -17,28 +17,28 @@ use gate_typescript::oxc_syntax::scope::ScopeFlags;
 /// One `key: "literal"` object property: its key, the string it holds after type assertions and
 /// parentheses, and the offset of the property.
 #[derive(Debug)]
-pub struct Assignment {
-    pub key: String,
-    pub value: String,
+pub struct Assignment<'a> {
+    pub key: &'a str,
+    pub value: &'a str,
     pub offset: u32,
 }
 
 /// The names one file uses, as the TypeScript compiler's node kinds group them.
 #[derive(Debug, Default)]
-pub struct Tokens {
+pub struct Tokens<'a> {
     /// Every identifier: references, bindings, property and label names.
-    pub identifiers: Vec<String>,
+    pub identifiers: Vec<&'a str>,
     /// Every string literal and template literal without substitutions.
-    pub strings: Vec<String>,
+    pub strings: Vec<&'a str>,
     /// Every module specifier an import, export, `import = require`, `require()` or `import()`
     /// loads.
-    pub modules: BTreeSet<String>,
+    pub modules: BTreeSet<&'a str>,
     /// `object.property` accesses whose object is an identifier.
-    pub members: BTreeSet<(String, String)>,
-    pub assignments: Vec<Assignment>,
+    pub members: BTreeSet<(&'a str, &'a str)>,
+    pub assignments: Vec<Assignment<'a>>,
 }
 
-impl Tokens {
+impl Tokens<'_> {
     /// Whether an identifier or string literal satisfies `predicate`.
     pub fn any_name(&self, predicate: impl Fn(&str) -> bool) -> bool {
         self.identifiers
@@ -48,21 +48,21 @@ impl Tokens {
     }
 }
 
-impl<'a> Visit<'a> for Tokens {
+impl<'a> Visit<'a> for Tokens<'a> {
     fn visit_identifier_name(&mut self, it: &IdentifierName<'a>) {
-        self.identifiers.push(it.name.to_string());
+        self.identifiers.push(it.name.as_str());
     }
 
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
-        self.identifiers.push(it.name.to_string());
+        self.identifiers.push(it.name.as_str());
     }
 
     fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
-        self.identifiers.push(it.name.to_string());
+        self.identifiers.push(it.name.as_str());
     }
 
     fn visit_label_identifier(&mut self, it: &LabelIdentifier<'a>) {
-        self.identifiers.push(it.name.to_string());
+        self.identifiers.push(it.name.as_str());
     }
 
     /// A constructor has no name node for the compiler, so its `constructor` key is skipped.
@@ -76,7 +76,7 @@ impl<'a> Visit<'a> for Tokens {
     }
 
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
-        self.strings.push(it.value.to_string());
+        self.strings.push(it.value.as_str());
     }
 
     fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
@@ -88,23 +88,23 @@ impl<'a> Visit<'a> for Tokens {
     }
 
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
-        self.modules.insert(it.source.value.to_string());
+        self.modules.insert(it.source.value.as_str());
         walk::walk_import_declaration(self, it);
     }
 
     fn visit_export_from_declaration(&mut self, it: &ExportFromDeclaration<'a>) {
-        self.modules.insert(it.source.value.to_string());
+        self.modules.insert(it.source.value.as_str());
         walk::walk_export_from_declaration(self, it);
     }
 
     fn visit_export_all_declaration(&mut self, it: &ExportAllDeclaration<'a>) {
-        self.modules.insert(it.source.value.to_string());
+        self.modules.insert(it.source.value.as_str());
         walk::walk_export_all_declaration(self, it);
     }
 
     fn visit_ts_import_equals_declaration(&mut self, it: &TSImportEqualsDeclaration<'a>) {
         if let TSModuleReference::ExternalModuleReference(reference) = &it.module_reference {
-            self.modules.insert(reference.expression.value.to_string());
+            self.modules.insert(reference.expression.value.as_str());
         }
 
         walk::walk_ts_import_equals_declaration(self, it);
@@ -137,7 +137,7 @@ impl<'a> Visit<'a> for Tokens {
     }
 
     fn visit_ts_index_signature_name(&mut self, it: &TSIndexSignatureName<'a>) {
-        self.identifiers.push(it.name.to_string());
+        self.identifiers.push(it.name.as_str());
         walk::walk_ts_index_signature_name(self, it);
     }
 
@@ -155,7 +155,7 @@ impl<'a> Visit<'a> for Tokens {
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
         if let Expression::Identifier(object) = &it.object {
             self.members
-                .insert((object.name.to_string(), it.property.name.to_string()));
+                .insert((object.name.as_str(), it.property.name.as_str()));
         }
 
         walk::walk_static_member_expression(self, it);
@@ -164,8 +164,8 @@ impl<'a> Visit<'a> for Tokens {
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
         if it.kind == PropertyKind::Init && !it.method && !it.shorthand && !it.computed {
             let key = match &it.key {
-                PropertyKey::StaticIdentifier(name) => Some(name.name.to_string()),
-                PropertyKey::StringLiteral(literal) => Some(literal.value.to_string()),
+                PropertyKey::StaticIdentifier(name) => Some(name.name.as_str()),
+                PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
                 _ => None,
             };
             let mut value = &it.value;
@@ -193,12 +193,12 @@ impl<'a> Visit<'a> for Tokens {
     }
 }
 
-impl Tokens {
-    fn heritage(&mut self, name: &TSTypeName<'_>) {
+impl<'a> Tokens<'a> {
+    fn heritage(&mut self, name: &TSTypeName<'a>) {
         if let TSTypeName::QualifiedName(qualified) = name {
             if let TSTypeName::IdentifierReference(object) = &qualified.left {
                 self.members
-                    .insert((object.name.to_string(), qualified.right.name.to_string()));
+                    .insert((object.name.as_str(), qualified.right.name.as_str()));
             }
 
             self.heritage(&qualified.left);
@@ -207,22 +207,19 @@ impl Tokens {
 }
 
 /// The text of a string literal or of a template literal without substitutions.
-fn module_name(expression: &Expression<'_>) -> Option<String> {
+fn module_name<'a>(expression: &Expression<'a>) -> Option<&'a str> {
     match expression {
-        Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+        Expression::StringLiteral(literal) => Some(literal.value.as_str()),
         Expression::TemplateLiteral(template) => plain_template(template),
         _ => None,
     }
 }
 
-fn plain_template(template: &TemplateLiteral<'_>) -> Option<String> {
+fn plain_template<'a>(template: &TemplateLiteral<'a>) -> Option<&'a str> {
     match template.quasis.as_slice() {
-        [quasi] if template.expressions.is_empty() => Some(
-            quasi
-                .value
-                .cooked
-                .map_or_else(String::new, |cooked| cooked.to_string()),
-        ),
+        [quasi] if template.expressions.is_empty() => {
+            Some(quasi.value.cooked.map_or("", |cooked| cooked.as_str()))
+        }
         _ => None,
     }
 }
