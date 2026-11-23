@@ -71,8 +71,9 @@ core and plugin sha256. The check found them keyed this way:
 Results and declarations are keyed by the core's version, not its sha256, so an entry is wrong only
 for two different core builds of one version: a replaced release archive pinned again with
 `gate lock`. The writer stopped and reported it; without `gate/<os>/` every restored entry was saved
-under the same `gate.lock`, so the same core archive and plugins. The lead's answer on that
-restore-key is recorded under Proof.
+under the same `gate.lock`, so the same core archive and plugins. The lead chose to leave
+`gate/<os>/` out: a change to `gate.lock` starts one cold run per job, and keying results and
+declarations by the core's sha256 is a possible backlog item, not for this release.
 
 What is cached:
 

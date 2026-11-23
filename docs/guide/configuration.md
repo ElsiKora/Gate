@@ -767,9 +767,10 @@ GitHub empties `runner.temp` at the start and end of every job, also on a self-h
 finds there only what it restored. A GitHub cache entry never changes once saved, so each job and
 commit saves its own; a job restores the entry of its commit (a rerun), else the newest of the same job
 under the same `gate.lock`, else the newest of any job under it. Every entry it can restore was saved
-under the same `gate.lock`, so by the same core and the same plugins. The save step runs after a red
-check too, whose results are as valid as a green one's, but not in a cancelled run or a job that timed
-out, and not when the restore step found the commit's own entry. Each entry counts against the
+under the same `gate.lock`, so by the same core and the same plugins; a change to `gate.lock` starts one
+cold run per job. The save step runs after a red check too, whose results are as valid as a green
+one's, but not in a cancelled run or a job that timed out, and not when the restore step found the
+commit's own entry. Each entry counts against the
 repository's GitHub cache limit (10 GB by default), where GitHub evicts the least recently used entries
 and those unused for 7 days, including other caches of the repository.
 
