@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design approved by the lead (2026-11-23); implemented, lane round pending |
+| Status | in review: design approved by the lead (2026-11-23); gates green on `3447b7a` |
 | Release | the next core release (additive; the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate T-100" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -107,10 +107,28 @@ exclusion selector replaces that list; there is still no history switch.
 
 ## Proof
 
-(none yet)
+Lane round on `3447b7a`, `one-gate.sh` in Gate's lane, from 2026-11-23T06:56:10+00:00 to
+2026-11-23T07:17:39+00:00, in a detached worktree of the commit, each workspace crate compiled from
+it (the round's log check found none compiled from elsewhere):
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1617 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+
+Earlier rounds on this branch, each fixed by the commit after it:
+
+- `55fb235`, `bcfdb22`, `602bba4`: clippy `too_many_lines`. `run` in `lib.rs` and `Loaded::run`
+  are at the limit of 100 lines on `main`; `944953c` keeps both at the line count they have there.
+- `944953c`: fmt, clippy and deny 0; test 101 (1614 passed, 3 failed, all new tests). A hook or
+  job entry refuses `*` and `#` as shell syntax, and `probe/aspects` reports two findings.
+  `3447b7a` fixes the tests and the documents.
+
+`leak-scan.sh` on the worktree and with `--branch origin/main`: no output, exit 0.
 
 ## Resume point
 
-2026-11-23T05:49:39+00:00: design approved; code, tests and documents pushed on
-`task/T-100-skip-rule`. Next: one lane round on the pushed tip, its exit codes into Proof, then
-the head commit to the lead.
+2026-11-23T07:17:39+00:00: gates green on `3447b7a` (Proof). The branch is pushed and the head
+sent to the lead; next is the independent review.
