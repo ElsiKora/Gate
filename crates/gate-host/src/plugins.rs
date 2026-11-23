@@ -245,6 +245,8 @@ pub(crate) struct Ran {
     pub(crate) cache_warning: Option<String>,
     /// How the plugins loaded.
     pub(crate) loads: Loads,
+    /// The enabled rules `--skip-rule` left out, by id, sorted.
+    pub(crate) skipped: Vec<String>,
 }
 
 /// The first cache write of a run that failed. A write is best effort: the findings do not depend
@@ -956,11 +958,7 @@ impl Loaded {
     /// Fails on the first `--skip-rule` key that matches no enabled rule, or none `--rule` leaves
     /// to run, and on the first `--rule` key whose every enabled rule a skip removes; each error
     /// says what to remove or turn on.
-    pub(crate) fn skipped_rules(
-        &self,
-        workspace: &Workspace,
-        filter: &RuleFilter,
-    ) -> Result<Vec<String>> {
+    fn skipped_rules(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<Vec<String>> {
         if filter.skip_keys().is_empty() {
             return Ok(Vec::new());
         }
@@ -1137,6 +1135,8 @@ impl Loaded {
         filter: &RuleFilter,
         findings: &mut Findings,
     ) -> Result<Ran> {
+        // A skip that leaves nothing out fails before any call.
+        let skipped = self.skipped_rules(workspace, filter)?;
         // A run with the commit message being written checks only that message: the rules that
         // declare reads-message. The tree is the other hooks' and CI's to check.
         let message_run = run_git.message.is_some();
@@ -1210,7 +1210,10 @@ impl Loaded {
             .collect();
         let outcomes = self.calls(&calls, &tree, &history, &inputs, &git_history.writes)?;
 
-        let mut ran = Ran::default();
+        let mut ran = Ran {
+            skipped,
+            ..Ran::default()
+        };
         for ((project, settings, name, rules, _, _, _), looked) in planned.iter().zip(outcomes) {
             let outcome = looked.outcome.map_err(|error| {
                 call_failed(

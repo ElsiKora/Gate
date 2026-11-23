@@ -230,7 +230,7 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
         baselined: finished.baselined,
         selection,
         overrides: run.overrides,
-        skipped_rules: run.skipped_rules,
+        skipped_rules: run.ran.skipped,
     };
     timings.push(Timing {
         phase: "total".to_owned(),
@@ -412,8 +412,6 @@ struct Run {
     mode: String,
     overrides: Vec<String>,
     timings: Vec<Timing>,
-    /// The enabled rules `--skip-rule` left out, by id, sorted.
-    skipped_rules: Vec<String>,
 }
 
 fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
@@ -486,7 +484,6 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
     };
     phase("load", at);
     let at = Instant::now();
-    let mut skipped_rules = Vec::new();
     let ran = match loaded {
         None => {
             // No plugin is loaded: --rule and --skip-rule know only the rules [rules] names.
@@ -495,7 +492,6 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
         }
         Some(loaded) => {
             loaded.validate(&workspace, &request.rules)?;
-            skipped_rules = loaded.skipped_rules(&workspace, &request.rules)?;
             let range = commit_range(&git, &source, &request.changes, pushed)?;
             loaded.run(
                 &workspace,
@@ -527,7 +523,6 @@ fn run(start: &Path, request: &CheckRequest) -> Result<Run> {
         mode,
         overrides,
         timings,
-        skipped_rules,
     })
 }
 
