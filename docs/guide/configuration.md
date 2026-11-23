@@ -664,6 +664,8 @@ run = ["run reports"]
 | `runs-on` | the runner of the generated jobs; defaults to `ubuntu-24.04` |
 | `setup` | steps every job runs after the checkout, such as installing a toolchain |
 | `aggregate` | the id of one more generated job that needs every other job, always runs, and fails unless each of them succeeded or was skipped: the single check branch protection requires |
+| `aggregate-name` | the aggregate job's display name, which is the check name branch protection requires; defaults to the `aggregate` id, and needs `aggregate` |
+| `cache` | `true` keeps the Gate cache between runs with `actions/cache` (see [The Gate cache in CI](#the-gate-cache-in-ci)); defaults to `false` |
 
 A job keeps the id and the `name` you give it and takes `run` (the gate commands: `check ...`,
 `run <step or suite> [--staged | --push]` or `sync --check`), `timeout-minutes` (required: the job's
@@ -709,7 +711,7 @@ every cell in `needs`.
 The workflow meets the standard of the `ci` plugin's `ci/recommended` preset: top-level
 `permissions: {}` and each job its own, a timeout on every job (15 minutes for `changes`, 5 for the
 aggregate job), named steps, the aggregate job named by its id, which is the check name branch
-protection requires. What it cannot decide for you the preset reports: an unnamed step of `setup`,
+protection requires unless `aggregate-name` gives it another. What it cannot decide for you the preset reports: an unnamed step of `setup`,
 `steps` or `after` (`ci/names#step`); a pin without its release (`ci/actions-pinned#version-comment`);
 a job that writes `contents`, `deployments`, `id-token` or `packages` without an `environment`
 (`ci/environment`); a `workflow` file whose name is not the kebab case of `name`, such as
@@ -725,18 +727,70 @@ the workflow; `gate sync --check` reports drift. Root file only.
 
 The workflow's runs share a `concurrency` group per workflow file and ref
 (`<workflow>@${{ github.ref }}`), so no other workflow shares it whatever its name. A newer run of a
-pull request cancels the one still in progress for its older commit; a push to a branch never cancels
-a running check of that branch, it waits for it. GitHub keeps one waiting run per group, so a third
-push while one run works and one waits replaces the waiting run. There is no setting for this. The
-`aggregate` job of a cancelled run still runs, since it runs always, and fails naming the cancelled
-jobs: the superseded commit shows a red check, the new head does not. It runs always because a
-skipped aggregate would count as passing.
+pull request, or of a push to any branch but the repository's default branch, cancels the run still in
+progress for the older commit:
+`cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}`.
+That holds for every long-lived branch other than the default one too, such as a `release/*` in
+`branches`: its superseded pushes are cancelled. A push to the default branch never cancels a running
+check of it, it waits for it. GitHub keeps one waiting run per group, so a third push while one run
+works and one waits replaces the waiting run. There is no setting for this. The `aggregate` job of a
+cancelled run still runs, since it runs always, and fails naming the cancelled jobs: the superseded
+commit shows a red check, the new head does not. It runs always because a skipped aggregate would count
+as passing.
 
 The `bin/gate` steps of the workflow get `GATE_GITHUB_TOKEN`, the repository secret `GATE_GITHUB_TOKEN`
-when it is set, else the job's own token, and `GATE_BRANCH`, the branch under test (a pull request's
-checkout is a detached `HEAD`). Set the secret to a token that can read the releases of private
+when it is set, else the job's own token, `GATE_BRANCH`, the branch under test (a pull request's
+checkout is a detached `HEAD`), and with `cache = true` `GATE_CACHE_DIR`. Set the secret to a token that can read the releases of private
 plugins. Actions and other steps get neither, and a `[steps]` command gets no `GATE_GITHUB_TOKEN` or
 `GITHUB_TOKEN` unless its `env` sets one.
+
+### The Gate Cache in CI
+
+Without `cache`, every generated job starts on an empty Gate cache: it downloads the core and the
+plugins, compiles the plugins and runs every rule again. `cache = true` keeps the cache between runs.
+Each job that runs `bin/gate` (`changes` and each job of `[ci.github.jobs]`; not the aggregate job)
+restores it right after the checkout, with `actions/cache/restore`, and saves it as its last step,
+with `actions/cache/save`, both pinned by commit:
+
+```yaml
+- id: gate-cache
+  name: Restore the Gate cache
+  uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+  with:
+    path: "${{ runner.temp }}/gate-cache/blobs\n${{ runner.temp }}/gate-cache/modules\n${{ runner.temp }}/gate-cache/results\n${{ runner.temp }}/gate-cache/declarations\n${{ runner.temp }}/gate-cache/git"
+    key: gate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/check/${{ github.sha }}
+    restore-keys: "gate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/check/\ngate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/"
+```
+
+The cache is `${{ runner.temp }}/gate-cache`, which each `bin/gate` step gets as `GATE_CACHE_DIR`;
+GitHub empties `runner.temp` at the start and end of every job, also on a self-hosted runner, so a job
+finds there only what it restored. A GitHub cache entry never changes once saved, so each job and
+commit saves its own; a job restores the entry of its commit (a rerun), else the newest of the same job
+under the same `gate.lock`, else the newest of any job under it. Every entry it can restore was saved
+under the same `gate.lock`, so by the same core and the same plugins. The save step runs after a red
+check too, whose results are as valid as a green one's, but not in a cancelled run or a job that timed
+out, and not when the restore step found the commit's own entry. Each entry counts against the
+repository's GitHub cache limit (10 GB by default), where GitHub evicts the least recently used entries
+and those unused for 7 days, including other caches of the repository.
+
+What is kept, and what is never trusted:
+
+| Under `GATE_CACHE_DIR` | Kept | Why |
+| --- | --- | --- |
+| `blobs/` (plugins, tool archives) | yes | hashed again on every read: a file that is not the sha256 `gate.lock` pins is removed and fetched again, and the run fails closed when it cannot be |
+| `modules/`, `results/`, `declarations/`, `git/` | yes | derived, and trusted as restored: see below |
+| `core/`, `tools/` | never | `bin/gate` and the tools check what is unpacked there against a sha256 recorded in the cache itself, not in `gate.lock`, so each job downloads the core and unpacks the tools again, verified |
+
+The derived parts are the reason `cache` is off by default. `modules/` holds the plugins compiled to
+native code, which the runtime loads without checking them again; `results/`, `declarations/` and
+`git/` hold answers the core computed, which a run reuses without computing them again. Each is keyed
+by what produced it (the core's version, the plugin's sha256, the commits asked about), so a stale
+entry goes unused, but a forged one is believed. GitHub scopes a cache entry to the branch whose run
+saved it, and every branch can also read the default branch's entries. So any step of any job on a
+branch, not only the save step, can write an entry that later runs of that branch, and with the
+default branch every branch, restore and trust: a test suite's dependency, say. A pull request from a
+fork cannot write the base branch's entries. Turn `cache` on when every job of the repository's
+branches runs code you trust as much as the gate itself.
 
 ## `gate.lock`
 
