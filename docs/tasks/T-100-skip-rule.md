@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | fix round: the review at `9105478` found nothing blocking; fixes 1 to 5 and 7 made, lane round pending |
+| Status | fix round done: gates green on `f65ecee`; the lead decides |
 | Release | the next core release (additive; the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate T-100" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -124,6 +124,19 @@ exclusion selector replaces that list; there is still no history switch.
 
 ## Proof
 
+Fix round: lane round on `f65ecee`, `one-gate.sh` in Gate's lane, from 2026-11-23T07:26:29+00:00
+to 2026-11-23T07:46:47+00:00, in a detached worktree of the commit, each workspace crate compiled
+from it (the round's log check found none compiled from elsewhere):
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1619 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+
+Before the review:
+
 Lane round on `3447b7a`, `one-gate.sh` in Gate's lane, from 2026-11-23T06:56:10+00:00 to
 2026-11-23T07:17:39+00:00, in a detached worktree of the commit, each workspace crate compiled from
 it (the round's log check found none compiled from elsewhere):
@@ -147,5 +160,5 @@ Earlier rounds on this branch, each fixed by the commit after it:
 
 ## Resume point
 
-2026-11-23T07:23:30+00:00: fix round committed and pushed; next is one lane round on that head,
-its exit codes into Proof, and the head to the lead.
+2026-11-23T07:46:47+00:00: the fix round is green on `f65ecee` (Proof); the head that records it
+is sent to the lead, who decides.
