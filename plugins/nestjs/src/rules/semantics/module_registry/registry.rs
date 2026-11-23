@@ -1,7 +1,9 @@
 //! The registry page as the rule reads it: table rows outside fenced blocks and HTML comments,
 //! after the header and its delimiter row, and the source map section of each linked chapter.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::rc::Rc;
 
 use gate_typescript::javascript::{is_space, trim};
 
@@ -62,6 +64,9 @@ pub struct Registry {
     source_map_heading: String,
     /// The source root with a trailing slash; empty for the project root.
     source_prefix: String,
+    /// The source map entries of each chapter page read, `None` for a page that cannot be read:
+    /// several rows link one chapter, which is read and searched once.
+    source_maps: RefCell<HashMap<String, Option<Rc<[String]>>>>,
 }
 
 impl Registry {
@@ -84,6 +89,7 @@ impl Registry {
             header: options.table_header.clone(),
             source_map_heading: options.source_map_heading.clone(),
             source_prefix: folder(source_root),
+            source_maps: RefCell::default(),
         }
     }
 
@@ -274,9 +280,9 @@ impl Registry {
         let message = if page == self.chapter_index {
             format!("{registry}:{number} must link a substantive module chapter: {path}")
         } else if page.starts_with(&self.chapter_root) && modules.contains(path) {
-            match chapter(&page) {
+            match self.source_map(&page, chapter) {
                 None => format!("{registry}:{number} links missing module chapter: {destination}"),
-                Some(text) if !self.source_map_contains(&text, path) => {
+                Some(entries) if !entries.iter().any(|entry| wildcard_match(entry, path)) => {
                     format!("{registry}:{number} chapter does not map source module: {path}")
                 }
                 Some(_) => return None,
@@ -319,12 +325,30 @@ impl Registry {
         .then_some(path)
     }
 
-    /// Whether a backticked source entry of the chapter's source map section matches the module
-    /// path, `*` standing for any characters but line terminators. The section starts at the
-    /// first line that is the heading and white space, and ends before the next line that starts
-    /// with the heading's level marker and a space; lines end at every JavaScript line
-    /// terminator.
-    fn source_map_contains(&self, chapter: &str, module: &str) -> bool {
+    /// The backticked source entries of the source map section of chapter `page`, read once per
+    /// page; `None` when `chapter` cannot read the page. A module is mapped when an entry matches
+    /// its path, `*` standing for any characters but line terminators.
+    fn source_map(
+        &self,
+        page: &str,
+        chapter: &impl Fn(&str) -> Option<String>,
+    ) -> Option<Rc<[String]>> {
+        if let Some(known) = self.source_maps.borrow().get(page) {
+            return known.clone();
+        }
+        let entries: Option<Rc<[String]>> =
+            chapter(page).map(|text| self.source_map_entries(&text).into());
+        self.source_maps
+            .borrow_mut()
+            .insert(page.to_owned(), entries.clone());
+        entries
+    }
+
+    /// The source entries of the source map section of a chapter's text; none without the
+    /// section. The section starts at the first line that is the heading and white space, and ends
+    /// before the next line that starts with the heading's level marker and a space; lines end at
+    /// every JavaScript line terminator.
+    fn source_map_entries(&self, chapter: &str) -> Vec<String> {
         let heading = self.source_map_heading.as_str();
         let level = heading.len() - heading.trim_start_matches('#').len();
         let next = format!("{} ", "#".repeat(level));
@@ -345,7 +369,7 @@ impl Registry {
                 .strip_prefix(heading)
                 .is_some_and(|rest| rest.chars().all(is_space))
         }) else {
-            return false;
+            return Vec::new();
         };
         let section_start = starts[found] + line_at(starts[found]).len();
         let section_end = starts[found + 1..]
@@ -356,7 +380,8 @@ impl Registry {
 
         self.entries(&chapter[section_start..section_end])
             .into_iter()
-            .any(|entry| wildcard_match(entry, module))
+            .map(str::to_owned)
+            .collect()
     }
 
     /// The source entries of a section: each `` `<source root>/…` `` code span, read left to right
