@@ -198,20 +198,11 @@ impl<'o> Sources<'o> {
         Ok(built)
     }
 
-    /// The bytes of a tracked file, as [`Tree::bytes`] reads them but once per call; a file the
-    /// view parsed answers from its parsed text.
+    /// The bytes of a tracked file, as [`Tree::bytes`] reads them but once per call.
     #[must_use]
     pub fn bytes(&self, path: &str) -> Option<Vec<u8>> {
         if let Some(known) = self.source.read.borrow().get(path) {
             return known.as_deref().map(<[u8]>::to_vec);
-        }
-        if let Some(file) = self
-            .typescript
-            .as_ref()
-            .ok()
-            .and_then(|typescript| typescript.parsed(path))
-        {
-            return Some(file.source().as_bytes().to_vec());
         }
         self.source.read(path).map(|bytes| bytes.to_vec())
     }

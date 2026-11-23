@@ -71,12 +71,48 @@ impl Rule<TypeScriptCall> for Read {
     }
 }
 
+/// Asks for the contexts of two roots, and of the first again, and reports the files of each.
+#[derive(Default)]
+struct Roots;
+
+impl Rule<TypeScriptCall> for Roots {
+    type Options = NoOptions;
+    const NAME: &'static str = "roots";
+    const TITLE: &'static str = "Asks for the contexts of two roots";
+
+    fn check(&self, run: &mut Run<'_, NoOptions, TypeScriptCall>) -> Result<()> {
+        run.with_call(|run, shared| {
+            let src = shared.contexts("src")?;
+            let lib = shared.contexts("lib")?;
+            let again = shared.contexts("src")?;
+            for (root, contexts) in [("src", &src), ("lib", &lib), ("src again", &again)] {
+                let paths: Vec<&str> = contexts
+                    .iter()
+                    .map(|context| context.path.as_str())
+                    .collect();
+                run.report()
+                    .finding("", Location::file(root), paths.join(" "));
+            }
+            run.report().finding(
+                "",
+                Location::file("src"),
+                format!(
+                    "kept {}, apart {}",
+                    std::rc::Rc::ptr_eq(&src, &again),
+                    !std::rc::Rc::ptr_eq(&src, &lib)
+                ),
+            );
+            Ok(())
+        })
+    }
+}
+
 gate_sdk::plugin! {
     name: "probe",
     version: "0.0.0",
     options: NoOptions,
     call: TypeScriptCall,
-    rules: [Parse, Read],
+    rules: [Parse, Read, Roots],
     generators: [],
     presets: [],
 }
@@ -125,6 +161,7 @@ fn call(rules: &[&str]) -> (Vec<String>, BTreeMap<String, usize>) {
             ("src/b.ts", b"export const b = 1;\n".as_slice()),
             // Not UTF-8: the view cannot parse it, and its bytes are still the file's.
             ("src/c.ts", b"export const c = '\xff';\n".as_slice()),
+            ("lib/d.ts", b"export const d = 1;\n".as_slice()),
         ]),
         reads: RefCell::new(BTreeMap::new()),
     };
@@ -168,14 +205,37 @@ fn a_file_parsed_by_one_rule_and_read_by_another_is_read_from_the_host_once() {
             [1, 1, 1],
             "{order:?}: {reads:?}"
         );
-        let (alone, _) = call(&order[..1]);
-        assert!(
-            alone.iter().all(|finding| findings.contains(finding)),
-            "{order:?}: {findings:?} lacks {alone:?}"
-        );
+        // Each rule's findings appear in the combined run exactly as often as when it runs alone,
+        // so a finding reported twice fails.
+        for rule in order {
+            let (mut alone, _) = call(&[rule]);
+            let mut combined: Vec<String> = findings
+                .iter()
+                .filter(|finding| finding.starts_with(&format!("{rule} ")))
+                .cloned()
+                .collect();
+            alone.sort();
+            combined.sort();
+            assert_eq!(combined, alone, "{order:?}: {rule}");
+        }
         assert!(
             findings.contains(&"read src/c.ts: 22 bytes".to_owned()),
             "{findings:?}"
         );
     }
+}
+
+#[test]
+fn the_contexts_of_two_roots_in_one_call_are_each_their_own() {
+    let (findings, _) = call(&["roots"]);
+    assert_eq!(
+        findings,
+        [
+            "roots src: src/a.ts src/b.ts",
+            "roots lib: lib/d.ts",
+            "roots src again: src/a.ts src/b.ts",
+            "roots src: kept true, apart true",
+        ],
+        "{findings:?}"
+    );
 }
