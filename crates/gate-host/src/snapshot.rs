@@ -600,6 +600,11 @@ fn commit_entries(git: &Git, commit: &str) -> Result<BTreeMap<String, BlobId>> {
 
 /// Which directories of a working tree are symbolic links, each asked of the file system once:
 /// the snapshot is one moment of the tree, so a directory's answer holds for its life.
+///
+/// The refusal therefore holds for the tree as first seen: a directory found a directory stays
+/// one for the snapshot, and a file behind it that is read later is read through whatever is
+/// there then. A directory swapped for a link while the run reads the tree is out of scope, as a
+/// file's contents changing mid-run are: each path's contents are kept from their first read too.
 #[derive(Debug, Default)]
 struct Directories(Mutex<HashMap<String, bool>>);
 

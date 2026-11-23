@@ -75,6 +75,10 @@ changes what a rule reads (the read set), what it finds, or in what order.
    ahead, so a warm run stays as it is.
 2. **Core: the symbolic-link check once per directory.** The check that no directory on the way
    is a symbolic link (`behind_symlink`) is remembered per directory for the snapshot's life.
+   The refusal holds for the tree as first seen: a directory swapped for a link while the run
+   reads the tree is followed on a later sibling read, where `main` refused it; such a swap is out
+   of scope, as a file's contents changing mid-run are, since each path's contents are kept from
+   their first read (review of `352c10fe`).
 3. **TypeScript call state: a file's bytes stay with the call (`gate-typescript`).** `CallSource`
    keeps the bytes of a parsed file, so the call source answers a rule from memory instead of a
    second host read. The memory is the size of the parsed sources, once.
