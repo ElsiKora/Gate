@@ -174,6 +174,8 @@ milliseconds of each step follow once the load is under 18.
 | 3, 4: bytes kept, bindings shared | `688017a9` | nestjs | 53.58e9 | 10789 | -3.46e9 (-6.1 %) |
 | 5: regex engines | `e0c0a0d1` | nestjs | 46.11e9 | 10789 | -7.46e9 (-13.1 %) |
 | 6: registered identifiers, byte scan, tokens once | `ac0e1bc0` | nestjs | 43.91e9 | 10789 | -2.20e9 (-3.9 %) |
+| 6: FxHash in `advisory-lock-boundary` | `9f0054fb` | nestjs | 41.81e9 | 10789 | -2.10e9 (-4.8 %) |
+| 6: one interpreter per file, fragments read in place | `60a14694` | nestjs | 39.82e9 | 10789 | -2.00e9 (-4.8 %) |
 | base | `3736fa66` | ledger | 38.83e9 | 13020 | |
 | 7: ledger call state | `59adf9a7` | ledger | 21.04e9 | 11585 | -17.79e9 (-45.8 %) |
 
@@ -182,12 +184,20 @@ names the override. The ledger's remaining reads are `ledger/manifest`'s scan of
 for forbidden references, one read each. The ledger wasm is the same through step 6 and the nestjs
 wasm the same at step 7.
 
-At the base's ratio (6572 ms for 57.0e9 fuel and 1111 ms of reads), nestjs at step 6 still counts
-about 4.2 s before its reads: steps 2 to 7 alone do not reach 4000 ms, so the next rules of the
-fuel list are profiled again.
+Where `advisory-lock-boundary` spends its fuel, by ablation: the rule alone (`--rule
+nestjs/advisory-lock-boundary`) at `9f0054fb` is 16.16e9, and a private build that skips one part
+(never committed) gives that part's share: the executable-statement scan 5.91e9, the
+registered-identifier inventory 3.98e9 (of it the numeric evaluation 1.62e9 and the SQL, JSON and
+shell files 0.22e9), the shell commands 0.16e9, the mint check 0.13e9; the rest, about 6.0e9, is
+reading and parsing its files and the raw-literal and recovery scans.
+
+At the base's ratio (6572 ms for 57.0e9 fuel and 1111 ms of reads), nestjs at `60a14694` (39.82e9)
+counts about 3.8 s before its reads, so the next rules of the fuel list are taken next; the
+milliseconds follow at a load under 18.
 
 ## Resume point
 
-2026-11-23T07:44:00+00:00: steps 2 to 7 pushed, clippy and tests of the four packages green in the
-lane; per-step fuel measured. Next: profile nestjs again (advisory-lock-boundary first), then the
-milliseconds per step at a load under 18, then decide on step 1.
+2026-11-23T08:29:26+00:00: rebased onto `main` at `03ab4b7`; nestjs 39.82e9 fuel at `60a14694`,
+findings unchanged. Next: the next nestjs rules of the fuel list (`module-registry`,
+`raw-config-access`), then (d) at a load under 18 with `--skip-rule git/main-history --skip-rule
+git/no-ci-skip`. Step 1 (read-ahead) is a local draft only, out of the branch, until (d) asks for it.
