@@ -54,7 +54,9 @@ exclusion selector replaces that list; there is still no history switch.
    the line.
 6. **Hook and CI-job entries.** A `check` entry of `[hooks]` or of a CI job is parsed with the same
    `CheckArgs`, so `--skip-rule` is accepted there exactly where `--rule` is, and an entry that
-   writes a bad value fails when the configuration loads. Whether a generated CI job needs the
+   writes a bad value fails when the configuration loads. As for `--rule`, an entry names single
+   rules: an entry holds no shell syntax (`*`, `#`), since it is written unquoted (found by the
+   lane round on `944953c`). Whether a generated CI job needs the
    history (`check_reads_history`) reads `--skip-rule` beside `--rule`, so a job that skips every
    history rule does not fetch the history for them.
 7. **Result cache.** A call's key is over its request, which lists the rules the call runs; a

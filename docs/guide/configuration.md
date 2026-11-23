@@ -628,9 +628,11 @@ before `--hook`, and `pre-commit = ["check --staged"]` to `bin/gate check --stag
 
 `--rule <id>` narrows a `check` to the rules it names; `--skip-rule <id>` leaves the rules it names
 out. Each is repeatable, and each takes `<plugin>/<rule>` or every rule of a plugin, `<plugin>/*`.
-A hook entry and a CI job's `check` entry take both, as `gate check` does. The skip applies after
-`--rule`: `check --rule git/* --skip-rule git/main-history` runs every enabled `git` rule but
-`git/main-history`.
+The skip applies after `--rule`: `gate check --rule 'git/*' --skip-rule git/main-history` runs every
+enabled `git` rule but `git/main-history`. A hook entry and a CI job's `check` entry take both
+flags, as `gate check` does, with single rules only: an entry holds no shell syntax, `*`
+included, since it is written into the hook and the workflow unquoted. A hand-written hook quotes
+a `<plugin>/*` key.
 
 The history rules, `git/main-history` and `git/no-ci-skip`, run in every mode, `--staged`
 included, and a cold run of them on a large tree takes seconds. There is no switch that turns

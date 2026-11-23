@@ -875,8 +875,8 @@ fn a_check_entry_that_gate_check_would_refuse_is_a_configuration_error() {
         ("check --warn-after 1e20", "\"1e20\": too many seconds"),
         ("check --staged --push", "cannot be used with"),
         (
-            "check --staged --skip-rule git/main-history#merge",
-            "--skip-rule leaves whole rules out of a run; write <plugin>/<rule> or <plugin>/*",
+            "check --staged --skip-rule",
+            "\"check --staged --skip-rule\": a value is required for '--skip-rule <ID>' but none was supplied",
         ),
     ] {
         let hooks = error(&[(
@@ -899,7 +899,7 @@ fn a_check_entry_that_gate_check_would_refuse_is_a_configuration_error() {
     repo.write(
         "gate.toml",
         &root_with(
-            "\n[hooks]\npre-commit = [\"check --staged --warn-after=3 --fail-after 6 --skip-rule git/main-history --skip-rule=ci/*\"]\ncommit-msg = [\"check --commit-message\"]\npre-push = [\"check --push --format json\"]\n",
+            "\n[hooks]\npre-commit = [\"check --staged --warn-after=3 --fail-after 6 --skip-rule git/main-history --skip-rule=git/no-ci-skip\"]\ncommit-msg = [\"check --commit-message\"]\npre-push = [\"check --push --format json\"]\n",
         ),
     )
     .add();

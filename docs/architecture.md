@@ -519,10 +519,11 @@ all = ["lint", "unit"]
   `--rule` or `--skip-rule` leaves out gets no call, so it is not fetched or loaded in that run;
   `gate.toml` and `gate.lock` are still checked against each other and the configuration against
   what the plugin declares, so a skip is never a way around a pin. Both flags are accepted in hook
-  and CI-job `check` entries. There is no history switch: a history rule is turned off by its
-  level, and its git answers are cached by commit id. A hook that must not pay for the history
-  rules leaves them out by name, `check --staged --skip-rule git/main-history --skip-rule
-  git/no-ci-skip`, and the pre-push hook and CI still run them.
+  and CI-job `check` entries, with single rule ids (an entry holds no shell syntax, `*` included).
+  There is no history switch: a history rule is turned off by its level, and its git answers are
+  cached by commit id. A hook that must not pay for the history rules leaves them out by name,
+  `check --staged --skip-rule git/main-history --skip-rule git/no-ci-skip`, and the pre-push hook
+  and CI still run them.
 
 ## 10. Generated files
 

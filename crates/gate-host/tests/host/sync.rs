@@ -762,20 +762,15 @@ name = "All but the history rule"
 timeout-minutes = 10
 run = ["check --skip-rule history/commits"]
 
-[ci.github.jobs.family]
-name = "All but the history plugin"
+[ci.github.jobs.equals]
+name = "All but the history rule, the other spelling"
 timeout-minutes = 10
-run = ["check --skip-rule=history/*"]
+run = ["check --skip-rule=history/commits"]
 
 [ci.github.jobs.other]
 name = "All but another rule"
 timeout-minutes = 10
 run = ["check --skip-rule layers/imports"]
-
-[ci.github.jobs.after]
-name = "The history plugin but its one history rule"
-timeout-minutes = 10
-run = ["check --rule history/* --skip-rule history/commits"]
 "#
         ),
     );
@@ -792,12 +787,7 @@ run = ["check --rule history/* --skip-rule history/commits"]
     )
     .expect("utf-8");
 
-    for (id, deep) in [
-        ("skips", false),
-        ("family", false),
-        ("other", true),
-        ("after", false),
-    ] {
+    for (id, deep) in [("skips", false), ("equals", false), ("other", true)] {
         let header = format!("  {id}:");
         let job = workflow
             .lines()

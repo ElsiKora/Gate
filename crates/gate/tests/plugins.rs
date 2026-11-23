@@ -8600,7 +8600,7 @@ fn a_skip_leaves_its_rules_out_with_and_without_a_rule_filter() {
         let (code, messages, summary, _) = skip_check(&repo, arguments);
         assert_eq!((code, &messages), (Some(1), &aspects), "{arguments:?}");
         assert!(
-            summary.starts_with("gate check (tree): 1 rule (skipped probe/norms), 1 error, "),
+            summary.starts_with("gate check (tree): 1 rule (skipped probe/norms), 2 errors, "),
             "{arguments:?}: {summary}"
         );
     }
