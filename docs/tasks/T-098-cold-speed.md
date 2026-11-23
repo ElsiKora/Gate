@@ -209,10 +209,29 @@ At the base's ratio (6572 ms for 57.0e9 fuel and 1111 ms of reads), nestjs at `6
 counts about 3.8 s before its reads, so the next rules of the fuel list are taken next; the
 milliseconds follow at a load under 18.
 
+## Plugin bytes
+
+Every plugin built as released (`scripts/build-component.sh <plugin> wasm32-wasip2`, one cargo run
+each) at `main` (`03ab4b7`) and at the branch (`b0756793`); `shasum -a 256` and `stat -f %z` of each
+wasm. The plugins whose bytes change:
+
+| Plugin | sha256 at `main` | sha256 at the branch | Bytes at `main` | Bytes at the branch | Growth |
+| --- | --- | --- | --- | --- | --- |
+| cdk | `f4c170ef4eef797ba1a03a9883babab14de47a79be4f813717f8414e13fc8a49` | `03f150fa8287f5f26c35e1272f642bb58408b583c6984703244f9d5dd18554b4` | 1992818 | 1994786 | +1968 (+0.10 %) |
+| frontend | `dc99a84f5edcd4ff293322753f2391060915657498f986b4d17b4225854c7b2f` | `4f0eaf93a7a67749dd14245ad9db8b5da3964f17bda757477e6d7b71d88c626a` | 2904217 | 3304234 | +400017 (+13.77 %) |
+| ledger | `f1f6cfed330222ad697751afd98aa0a3eae007d978b051201d628e8a6bbd38c8` | `cd6ee588bd1c7fbfd0f9230761cfac4fcfebe0535b2611f48153a000e1ce68b6` | 2239701 | 2246402 | +6701 (+0.30 %) |
+| nestjs | `d633c48ae6653b87a3e4c51d98b8cb4c8ec9d6dba1fa710b2d950fa3816933bc` | `4f1c15093470094b36696c7715841a227bb781ca5bc256b557fba4dbbdac3008` | 6296190 | 6715679 | +419489 (+6.66 %) |
+| typescript | `f94cd3626b32e22990c34a4671d285a413fb7f1724d420022a75c254e6ff099f` | `b743834c519b6c291acf1d18de7f54225e51e9e9aae4609ce78458b1cb5bf29a` | 2749805 | 2754425 | +4620 (+0.17 %) |
+
+The same bytes at both: `agents`, `ci`, `docker`, `docs`, `git`, `markdown`, `node`, `repository`.
+`frontend` grows most: it uses the meta regex (`regex-automata`), which now carries the faster
+engines of step 5, as `nestjs` and `ledger` do; `cdk`, `frontend`, `nestjs` and `typescript` also
+build `gate-typescript`, whose bindings and line index changed.
+
 ## Resume point
 
-2026-11-23T08:45:19+00:00: nestjs 34.82e9 fuel at `570c94a3`, findings unchanged; lane clippy
-and the tests of the changed nestjs rules exit 0. Next: a native profile of
-`advisory-lock-boundary` (14.07e9 alone), its largest parts taken, then (d) at a load under 18 with
-`--skip-rule git/main-history --skip-rule git/no-ci-skip`. Step 1 (read-ahead) is a local draft only,
-out of the branch, until (d) asks for it.
+2026-11-23T09:13:32+00:00: nestjs 34.07e9 fuel at `80518fe3`, findings unchanged. An
+untimed cold (d) with the branch core and plugins pinned by `gate lock --set` (load 33 to 50) gave
+the same 85 findings as 0.3.0's and counted 6724 ms, the nestjs call 6348 ms; the six timed runs wait
+for a load under 18. Step 1 (read-ahead) is a local draft only, out of the branch, until (d) asks
+for it.
