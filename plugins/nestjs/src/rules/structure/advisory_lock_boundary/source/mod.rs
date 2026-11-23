@@ -19,11 +19,10 @@
 //! names, where the fragment must be more than a bare `pg_`. An assignment to a parenthesised name
 //! (`(sql) = …`) is followed.
 
-use std::collections::HashSet;
-
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_typescript::SourceFile;
+use rustc_hash::FxHashSet as HashSet;
 
 use self::evidence::File;
 pub use self::shell::Patterns as ShellPatterns;
@@ -154,7 +153,8 @@ pub fn statements(file: &SourceFile<'_>, extraction: &Extraction<'_>) -> Result<
                 .any(|name| reading.mutated.contains(name));
 
             if extraction.canonical {
-                let candidates = reading.complete_candidates(argument, &Seen::new(), &mut 0, 0)?;
+                let candidates =
+                    reading.complete_candidates(argument, &Seen::default(), &mut 0, 0)?;
                 let Some(candidates) = candidates.filter(|_| !mutated) else {
                     return Err(unresolved());
                 };

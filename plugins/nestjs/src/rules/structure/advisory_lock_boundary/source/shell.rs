@@ -7,10 +7,9 @@
 //! executables with a `pg_` and an advisory lock or unlock in its letters is advisory SQL. The
 //! regular expressions read JavaScript whitespace and code points.
 
-use std::collections::HashMap;
-
 use gate_sdk::serde_json::{self, Value};
 use regex_automata::meta::Regex;
+use rustc_hash::FxHashMap as HashMap;
 
 use super::super::sql::units;
 use super::text::{DEPTH_LIMIT, validate};
@@ -97,7 +96,7 @@ fn checked(text: &str) -> Outcome<()> {
 
 /// The static assignments of a shell source, the last of a name winning.
 fn assignments(patterns: &Patterns, source: &str) -> Outcome<HashMap<String, String>> {
-    let mut assignments = HashMap::new();
+    let mut assignments = HashMap::default();
 
     for captures in patterns.assignment.captures_iter(source) {
         let value = captures

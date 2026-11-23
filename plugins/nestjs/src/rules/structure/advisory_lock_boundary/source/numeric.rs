@@ -6,8 +6,6 @@
 //! and their compound assignments, and every assignment of a variable, as JavaScript numbers,
 //! within depth, work and candidate budgets.
 
-use std::collections::HashSet;
-
 use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
@@ -15,6 +13,7 @@ use gate_typescript::oxc_ast::ast::{
     Expression, UnaryOperator,
 };
 use gate_typescript::oxc_span::Span;
+use rustc_hash::FxHashSet as HashSet;
 
 use super::interpreter::Interpreter;
 use super::node::{Node, argument_node};
@@ -574,7 +573,7 @@ fn raw_literals(text: &str) -> Vec<f64> {
 pub(super) fn evaluated(file: &SourceFile<'_>) -> Outcome<Vec<f64>> {
     let interpreter = Interpreter::new(file);
     // A name evaluated from the top depends on the name alone, so each is evaluated once.
-    let mut names: HashSet<&str> = HashSet::new();
+    let mut names: HashSet<&str> = HashSet::default();
     let mut values = Vec::new();
 
     for node in file.semantic().nodes().iter() {
@@ -586,7 +585,7 @@ pub(super) fn evaluated(file: &SourceFile<'_>) -> Outcome<Vec<f64>> {
             _ => {}
         }
 
-        values.extend(interpreter.numbers(shape, &Seen::new(), &mut 0, 0)?);
+        values.extend(interpreter.numbers(shape, &Seen::default(), &mut 0, 0)?);
     }
 
     Ok(values)

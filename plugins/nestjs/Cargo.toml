@@ -17,6 +17,7 @@ gate-sdk.workspace = true
 gate-typescript.workspace = true
 pulldown-cmark.workspace = true
 regex-automata.workspace = true
+rustc-hash.workspace = true
 
 [dev-dependencies]
 # The speed tests count the parses of a call.

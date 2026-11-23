@@ -1,8 +1,6 @@
 //! The advisory evidence of a sink argument that cannot be rebuilt: the file's fragment and
 //! mutated variables and the evidence search behind variables.
 
-use std::collections::HashSet;
-
 use gate_typescript::SourceFile;
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
@@ -10,6 +8,7 @@ use gate_typescript::oxc_ast::ast::{
     ObjectExpression, ObjectPropertyKind, PropertyKey, SimpleAssignmentTarget,
 };
 use gate_typescript::oxc_span::GetSpan;
+use rustc_hash::FxHashSet as HashSet;
 
 use super::super::sql::Text;
 use super::interpreter::Interpreter;
@@ -216,7 +215,7 @@ impl<'a> File<'a> {
     pub(super) fn new(file: &SourceFile<'a>, sinks: SqlSinks) -> Outcome<Self> {
         let interpreter = Interpreter::new(file);
         let fragments = Self::fragments(&interpreter)?;
-        let mut unreconstructible = HashSet::new();
+        let mut unreconstructible = HashSet::default();
 
         for node in file.semantic().nodes().iter() {
             if let AstKind::AssignmentExpression(assignment) = node.kind()
@@ -246,11 +245,11 @@ impl<'a> File<'a> {
 
     /// The variables whose value may hold an advisory fragment, directly or through another.
     pub(super) fn fragments(interpreter: &Interpreter<'a>) -> Outcome<HashSet<&'a str>> {
-        let mut fragments = HashSet::new();
+        let mut fragments = HashSet::default();
         let mut dependencies: Vec<(&'a str, HashSet<&'a str>)> = Vec::new();
 
         for &name in &interpreter.order {
-            let mut names = HashSet::new();
+            let mut names = HashSet::default();
 
             for &initializer in interpreter.get(name) {
                 let candidates = interpreter.fresh_candidates(initializer)?;
@@ -346,7 +345,7 @@ impl<'a> File<'a> {
             }
         }
 
-        self.evidence(node, &Seen::new(), &mut Seen::new(), &mut 0)
+        self.evidence(node, &Seen::default(), &mut Seen::default(), &mut 0)
     }
 
     /// The evidence search of one node. `path` guards the reconstruction against cycles: it is
@@ -378,7 +377,7 @@ impl<'a> File<'a> {
             // The initializer is read with its own name alone as the cycle guard, not with the
             // names on the way to it: its result must not depend on the path that reached it
             // first, or following it once would lose what another path finds.
-            let next = Seen::from([name]);
+            let next: Seen<'a> = std::iter::once(name).collect();
 
             for initializer in initializers {
                 if self.evidence(*initializer, &next, followed, work)? {

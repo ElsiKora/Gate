@@ -953,6 +953,7 @@ dependencies = [
  "gate-typescript",
  "pulldown-cmark",
  "regex-automata",
+ "rustc-hash",
 ]
 
 [[package]]
