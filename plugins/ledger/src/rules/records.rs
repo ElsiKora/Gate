@@ -5,7 +5,6 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Need, Rule, Run};
 
-use crate::catalog::Catalog;
 use crate::input::{self, INPUT};
 use crate::records::{PENDING_PATTERNS, PENDING_VALUES, Tracking, analyse};
 use crate::settings::Settings;

@@ -97,7 +97,7 @@ impl Rule<crate::LedgerCall> for Manifest {
             let mut findings = Findings::default();
             let manifest_text = catalog.read(path);
             let checker = Checker {
-                catalog: &catalog,
+                catalog,
                 manifest: path,
             };
 

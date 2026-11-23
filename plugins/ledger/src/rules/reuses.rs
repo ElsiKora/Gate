@@ -8,7 +8,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run, Tree};
 use regex::Regex;
 
-use crate::catalog::{At, Catalog, Findings};
+use crate::catalog::{At, Findings};
 use crate::index::DecisionIndex;
 use crate::input::{self, INPUT, Input};
 use crate::records::{Ledger, Record, compile};

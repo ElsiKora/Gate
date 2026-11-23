@@ -2,6 +2,7 @@
 //! aspect's fail, the options that change what is reported, and option errors.
 
 mod blockers;
+mod call;
 mod closing_notes;
 mod decisions;
 mod exceptions;

@@ -123,7 +123,7 @@ impl Rule<crate::LedgerCall> for Decisions {
             true,
             &mut findings,
         );
-        let linked = linked_ids(&catalog, options, &patterns, &mut findings);
+        let linked = linked_ids(catalog, options, &patterns, &mut findings);
         let mut ids: Vec<&String> = Vec::new();
 
         for id in index.order.iter().chain(&coverage.order) {

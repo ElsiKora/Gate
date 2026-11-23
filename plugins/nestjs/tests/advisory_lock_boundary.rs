@@ -46,6 +46,13 @@ fn with(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static s
     files
 }
 
+/// The executor, the manifest `manifest` and the `extra` files.
+fn with_manifest<'a>(manifest: &'a str, extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    let mut files = vec![(MANIFEST, manifest), (EXECUTOR, EXECUTOR_TEXT)];
+    files.extend_from_slice(extra);
+    files
+}
+
 #[test]
 fn the_executor_alone_passes_and_a_missing_executor_is_an_options_error() {
     assert_eq!(check(RULE, OPTIONS, &base()), []);
@@ -217,11 +224,6 @@ fn a_registered_identifier_is_found_in_any_numeric_form_and_only_at_its_exact_va
         "inventory": ["src/common/advisory-lock/registry.manifest.json"]
     }"#;
     let zero = MANIFEST_TEXT.replace("\"resourceId\": 1,", "\"resourceId\": 0,");
-    fn files<'a>(manifest: &'a str, extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
-        let mut files = vec![(MANIFEST, manifest), (EXECUTOR, EXECUTOR_TEXT)];
-        files.extend_from_slice(extra);
-        files
-    }
     let inventory = |path: &str| {
         row(
             "inventory",
@@ -234,7 +236,7 @@ fn a_registered_identifier_is_found_in_any_numeric_form_and_only_at_its_exact_va
     let found = check(
         RULE,
         options,
-        &files(
+        &with_manifest(
             MANIFEST_TEXT,
             &[
                 ("src/a/hex.ts", "export const FAMILY = 0x1004;\n"),
@@ -262,7 +264,7 @@ fn a_registered_identifier_is_found_in_any_numeric_form_and_only_at_its_exact_va
     let found = check(
         RULE,
         zero_options,
-        &files(
+        &with_manifest(
             &zero,
             &[
                 ("src/a/negative.ts", "export const ZERO = -0;\n"),

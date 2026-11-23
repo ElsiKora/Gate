@@ -6,9 +6,9 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run};
 use regex::Regex;
 
-use crate::catalog::{Catalog, Findings};
+use crate::catalog::Findings;
 use crate::input::{self, INPUT};
-use crate::records::{Ledger, Record, compile};
+use crate::records::{Record, compile};
 use crate::settings::Settings;
 
 /// The rule.

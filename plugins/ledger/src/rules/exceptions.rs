@@ -7,9 +7,8 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run, Scope, Tree};
 
-use crate::catalog::{At, Catalog, Findings};
+use crate::catalog::{At, Findings};
 use crate::index::{DecisionIndex, Refusal, refusal};
-use crate::records::Ledger;
 use crate::settings::{Settings, check_path};
 use crate::text::LineIndex;
 

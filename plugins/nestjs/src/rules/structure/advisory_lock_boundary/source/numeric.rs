@@ -546,9 +546,9 @@ fn raw_literals(text: &str) -> Vec<f64> {
             .then(|| digits(body + 2, accepts))
             .flatten()
         };
-        let end = prefixed([b'x', b'X'], |digit| digit.is_ascii_hexdigit())
-            .or_else(|| prefixed([b'b', b'B'], |digit| matches!(digit, b'0' | b'1')))
-            .or_else(|| prefixed([b'o', b'O'], |digit| matches!(digit, b'0'..=b'7')))
+        let end = prefixed(*b"xX", |digit| digit.is_ascii_hexdigit())
+            .or_else(|| prefixed(*b"bB", |digit| matches!(digit, b'0' | b'1')))
+            .or_else(|| prefixed(*b"oO", |digit| matches!(digit, b'0'..=b'7')))
             .or_else(|| digits(body, |digit| digit.is_ascii_digit()));
         let Some(mut end) = end else {
             continue;

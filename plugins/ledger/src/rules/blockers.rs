@@ -4,7 +4,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Rule, Run};
 
-use crate::catalog::{Catalog, Findings};
+use crate::catalog::Findings;
 use crate::input::{self, INPUT};
 use crate::records::{Ledger, Record, compile};
 use crate::settings::Settings;

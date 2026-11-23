@@ -74,7 +74,7 @@ gate_sdk::plugin! {
     name: "ledger",
     version: env!("CARGO_PKG_VERSION"),
     options: Settings,
-    call: crate::LedgerCall,
+    call: LedgerCall,
     rules: [
         Blockers,
         ClosingNotes,
