@@ -35,7 +35,7 @@ pub struct Options {
     pub entry_label_letters: Vec<String>,
 }
 
-impl Rule for ClosingNotes {
+impl Rule<crate::LedgerCall> for ClosingNotes {
     type Options = Options;
 
     const NAME: &'static str = "closing-notes";
@@ -43,7 +43,8 @@ impl Rule for ClosingNotes {
         "A temporary difference whose exact closer is closed carries a dated closing note";
     const ASPECTS: &'static [&'static str] = &[INPUT];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let settings = Settings::read(run)?;
         let tree = run.tree();
         let products = settings
@@ -65,7 +66,7 @@ impl Rule for ClosingNotes {
         }
 
         let name = entry_name(&run.options().field);
-        let ledger = Ledger::read(&Catalog::new(tree), &settings)?;
+        let ledger = shared.ledger(&settings)?;
         let mut findings = Findings::default();
 
         for record in ledger.implementation.iter().chain(&ledger.plan) {
@@ -109,6 +110,7 @@ impl Rule for ClosingNotes {
 
         findings.write_all(run.report());
         Ok(())
+        })
     }
 }
 

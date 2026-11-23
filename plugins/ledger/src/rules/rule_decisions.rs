@@ -13,14 +13,14 @@ use crate::settings::Settings;
 #[derive(Debug, Default)]
 pub struct RuleDecisions;
 
-impl Rule for RuleDecisions {
+impl Rule<crate::LedgerCall> for RuleDecisions {
     type Options = NoOptions;
 
     const NAME: &'static str = "rule-decisions";
     const TITLE: &'static str =
         "The decision a rule entry names is an accepted decision of the index";
 
-    fn check(&self, run: &mut Run<'_, NoOptions>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, NoOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
         judge(run)
     }
 }
@@ -30,7 +30,7 @@ impl Rule for RuleDecisions {
 #[derive(Debug, Default)]
 pub struct RootRuleDecisions;
 
-impl Rule for RootRuleDecisions {
+impl Rule<crate::LedgerCall> for RootRuleDecisions {
     type Options = NoOptions;
 
     const NAME: &'static str = "root-rule-decisions";
@@ -38,7 +38,7 @@ impl Rule for RootRuleDecisions {
         "The decision a root rule entry names is an accepted decision of the index";
     const SCOPE: Scope = Scope::Repository;
 
-    fn check(&self, run: &mut Run<'_, NoOptions>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, NoOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
         judge(run)
     }
 }
@@ -46,7 +46,7 @@ impl Rule for RootRuleDecisions {
 /// Reports each decision of the call that the index does not list as accepted: the one judgement
 /// of `ledger/rule-decisions` and `ledger/root-rule-decisions`. The host decides which file's
 /// decisions a call carries, so both rules judge whatever their call holds.
-fn judge(run: &mut Run<'_, NoOptions>) -> gate_sdk::Result<()> {
+fn judge(run: &mut Run<'_, NoOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
     let settings = Settings::read(run)?;
     let decisions = run.rule_decisions();
 

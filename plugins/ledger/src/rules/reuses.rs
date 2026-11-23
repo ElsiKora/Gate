@@ -51,7 +51,7 @@ fn generic_reasons() -> String {
     r"(?i)^(?:not applicable|n/?a|none|nothing|no reuse|nothing to reuse|no shared mechanism|no catalog entry applies)$".to_owned()
 }
 
-impl Rule for Reuses {
+impl Rule<crate::LedgerCall> for Reuses {
     type Options = Options;
 
     const NAME: &'static str = "reuses";
@@ -65,77 +65,79 @@ impl Rule for Reuses {
         "reuses-unknown",
     ];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
-        let settings = Settings::read(run)?;
-        let options = run.options();
-        let tree = run.tree();
-        let generic = pattern(&options.generic_reasons).map_err(|error| {
-            Error::config(format!(
-                "ledger/reuses option generic-reasons is not a valid pattern: {error}; fix it"
-            ))
-        })?;
-        if options.catalog.trim().is_empty() {
-            return Err(Error::config(
-                "ledger/reuses option catalog is empty; name the catalog of shared mechanisms",
-            ));
-        }
-        check_path("ledger/reuses option catalog", &options.catalog)?;
-        for excluded in &options.exclude {
-            check_path(
-                "ledger/reuses option exclude",
-                excluded.strip_suffix('/').unwrap_or(excluded),
-            )?;
-        }
-
-        let mut inputs = input::records(&settings);
-        inputs.push(Input::own("catalog", &options.catalog));
-        inputs.push(Input::shared("decisions", &settings.decisions));
-        if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
-            return Ok(());
-        }
-
-        let options = run.options();
-        let ledger = Ledger::read(&Catalog::new(tree), &settings)?;
-        let patterns = Patterns::new(generic)?;
-        let mut findings = Findings::default();
-        let decisions = DecisionIndex::load(&tree, &settings.decisions)?;
-        let scope = Scope {
-            path: &options.catalog,
-            mechanisms: catalog(
-                &CatalogInput {
-                    tree: &tree,
-                    path: &options.catalog,
-                    ledger: &ledger,
-                    settings: &settings,
-                    decisions: decisions.as_ref(),
-                },
-                &patterns,
-                &mut findings,
-            ),
-            patterns: &patterns,
-            reason_words: options.reason_words,
-        };
-
-        for record in &ledger.implementation {
-            let open = record
-                .status
-                .as_deref()
-                .is_some_and(|status| settings.is_open(status));
-            let excluded = options.exclude.iter().any(|directory| {
-                record
-                    .location
-                    .path
-                    .strip_prefix(directory.trim_end_matches('/'))
-                    .is_some_and(|rest| rest.starts_with('/'))
-            });
-
-            if open && !excluded {
-                scope.reuses(record, &mut findings);
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
+            let settings = Settings::read(run)?;
+            let options = run.options();
+            let tree = run.tree();
+            let generic = pattern(&options.generic_reasons).map_err(|error| {
+                Error::config(format!(
+                    "ledger/reuses option generic-reasons is not a valid pattern: {error}; fix it"
+                ))
+            })?;
+            if options.catalog.trim().is_empty() {
+                return Err(Error::config(
+                    "ledger/reuses option catalog is empty; name the catalog of shared mechanisms",
+                ));
             }
-        }
+            check_path("ledger/reuses option catalog", &options.catalog)?;
+            for excluded in &options.exclude {
+                check_path(
+                    "ledger/reuses option exclude",
+                    excluded.strip_suffix('/').unwrap_or(excluded),
+                )?;
+            }
 
-        findings.write_all(run.report());
-        Ok(())
+            let mut inputs = input::records(&settings);
+            inputs.push(Input::own("catalog", &options.catalog));
+            inputs.push(Input::shared("decisions", &settings.decisions));
+            if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
+                return Ok(());
+            }
+
+            let options = run.options();
+            let ledger = shared.ledger(&settings)?;
+            let patterns = Patterns::new(generic)?;
+            let mut findings = Findings::default();
+            let decisions = DecisionIndex::load(&tree, &settings.decisions)?;
+            let scope = Scope {
+                path: &options.catalog,
+                mechanisms: catalog(
+                    &CatalogInput {
+                        tree: &tree,
+                        path: &options.catalog,
+                        ledger: &ledger,
+                        settings: &settings,
+                        decisions: decisions.as_ref(),
+                    },
+                    &patterns,
+                    &mut findings,
+                ),
+                patterns: &patterns,
+                reason_words: options.reason_words,
+            };
+
+            for record in &ledger.implementation {
+                let open = record
+                    .status
+                    .as_deref()
+                    .is_some_and(|status| settings.is_open(status));
+                let excluded = options.exclude.iter().any(|directory| {
+                    record
+                        .location
+                        .path
+                        .strip_prefix(directory.trim_end_matches('/'))
+                        .is_some_and(|rest| rest.starts_with('/'))
+                });
+
+                if open && !excluded {
+                    scope.reuses(record, &mut findings);
+                }
+            }
+
+            findings.write_all(run.report());
+            Ok(())
+        })
     }
 }
 

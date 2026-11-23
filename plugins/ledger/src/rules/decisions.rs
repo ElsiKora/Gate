@@ -69,7 +69,7 @@ impl Default for Options {
     }
 }
 
-impl Rule for Decisions {
+impl Rule<crate::LedgerCall> for Decisions {
     type Options = Options;
 
     const NAME: &'static str = "decisions";
@@ -85,7 +85,8 @@ impl Rule for Decisions {
         "record-unique",
     ];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let settings = Settings::read(run)?;
         let options = run.options();
         let tree = run.tree();
@@ -106,7 +107,7 @@ impl Rule for Decisions {
         }
 
         let options = run.options();
-        let catalog = Catalog::new(tree);
+        let catalog = shared.catalog();
         let patterns = Patterns::new()?;
         let mut findings = Findings::default();
         let index_path = settings.decisions.as_str();
@@ -192,6 +193,7 @@ impl Rule for Decisions {
 
         findings.write_all(run.report());
         Ok(())
+        })
     }
 }
 

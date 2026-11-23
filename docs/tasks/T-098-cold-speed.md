@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | design, waiting for the lead's word |
+| Status | approved (`3736fa66`); steps 2 to 7 being written, then measured |
 | Release | the next plugin release (the lead cuts it); no version moves here |
 | Writer | "Gate 098" |
 | Reviewer | a session that did not write it |
@@ -127,6 +127,28 @@ runs the lead asked for, (a) full check with history cold, (b) warm, (c) the ref
 pre-push against (c), each with `--timings` and its count of rules, in a private report outside
 the repository.
 
+## The lead's conditions
+
+Approved with these conditions: steps 2 to 7 first, in that order of risk, then (d) measured; step 1
+(read-ahead) only if (d) still counts over 4000 ms, and then only after this file says where the
+core gets the paths to read ahead and what a wrong prediction costs, with a test that the result
+cache key is the same with read-ahead on and off. Each step's own gain is recorded here, every plugin
+whose wasm bytes change is listed with its growth, and `cargo deny` stays clean with the new
+`regex-automata` features. No change to fuel, limits, the plugin interface or git. `--skip-rule` is
+used in (d) only once T-100 is merged.
+
+## Progress
+
+- Written, not yet measured on the core: step 2 (`Directories` in `snapshot.rs`), steps 3 and 4
+  (`TypeScriptCall` keeps parsed bytes; `Sources::contexts` shares one `owners::Sources` per root,
+  used by the six rule sites), step 5 (the features), step 6 (the registered-identifier scan looks
+  identifiers up in a set of the values' bits, with `-0` as `0`; raw literals are scanned as bytes;
+  `asset-storage` keeps each file's tokens for the run), step 7 (`LedgerCall`: one catalog and one
+  `Ledger::read` per call).
+- A native run of the nestjs rules on the consumer's tree (private harness, never committed): host
+  reads from 15265 to 10787 for 10786 distinct files, the same 301 findings per rule.
+
 ## Resume point
 
-2026-11-23T06:15:22+00:00: profiled, design written; waiting for the lead's word before any code.
+2026-11-23T07:04:00+00:00: steps 2 to 7 written; waiting for the lane's clippy pass, then one commit
+per step and the wasm builds per step.

@@ -19,7 +19,7 @@ pub struct Blockers;
 #[schemars(crate = "gate_sdk::schemars")]
 pub struct Options {}
 
-impl Rule for Blockers {
+impl Rule<crate::LedgerCall> for Blockers {
     type Options = Options;
 
     const NAME: &'static str = "blockers";
@@ -27,7 +27,8 @@ impl Rule for Blockers {
         "A planned record names no closed blocker and a started record no blocker";
     const ASPECTS: &'static [&'static str] = &["closed-blocker", INPUT, "started-blocker"];
 
-    fn check(&self, run: &mut Run<'_, Options>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let settings = Settings::read(run)?;
         let tree = run.tree();
 
@@ -35,7 +36,7 @@ impl Rule for Blockers {
             return Ok(());
         }
 
-        let ledger = Ledger::read(&Catalog::new(tree), &settings)?;
+        let ledger = shared.ledger(&settings)?;
         let identifier = compile(r"\b((?:I|V|F)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b")?;
         let none = compile(r"^none\.?$")?;
         let mut findings = Findings::default();
@@ -69,6 +70,7 @@ impl Rule for Blockers {
 
         findings.write_all(run.report());
         Ok(())
+        })
     }
 }
 

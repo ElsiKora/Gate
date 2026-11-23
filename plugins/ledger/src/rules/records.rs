@@ -53,7 +53,7 @@ impl Default for RecordsOptions {
     }
 }
 
-impl Rule for Records {
+impl Rule<crate::LedgerCall> for Records {
     type Options = RecordsOptions;
 
     const NAME: &'static str = "records";
@@ -71,7 +71,8 @@ impl Rule for Records {
         "record-unique",
     ];
 
-    fn check(&self, run: &mut Run<'_, RecordsOptions>) -> gate_sdk::Result<()> {
+    fn check(&self, run: &mut Run<'_, RecordsOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let settings = Settings::read(run)?;
         let tree = run.tree();
         let pending_patterns = run
@@ -100,9 +101,10 @@ impl Rule for Records {
             allowed: None,
             unfinished_commit_pending: options.unfinished_commit_pending,
         };
-        let findings = analyse(&Catalog::new(tree), &tracking)?;
+        let findings = analyse(shared.catalog(), &tracking)?;
         findings.write(run.report(), |aspect| aspect != STATUS, |aspect| aspect);
         Ok(())
+        })
     }
 }
 
@@ -126,7 +128,7 @@ pub struct RecordStatusOptions {
     pub allowed: Option<Vec<String>>,
 }
 
-impl Rule for RecordStatus {
+impl Rule<crate::LedgerCall> for RecordStatus {
     type Options = RecordStatusOptions;
 
     const NAME: &'static str = "record-status";
@@ -139,7 +141,11 @@ impl Rule for RecordStatus {
         why: "the rule compares the statuses of the paired plan, implementation and verification records: set parity to the plan whose headings pair with them",
     }];
 
-    fn check(&self, run: &mut Run<'_, RecordStatusOptions>) -> gate_sdk::Result<()> {
+    fn check(
+        &self,
+        run: &mut Run<'_, RecordStatusOptions, crate::LedgerCall>,
+    ) -> gate_sdk::Result<()> {
+        run.with_call(|run, shared| {
         let settings = Settings::read(run)?;
         let tree = run.tree();
 
@@ -162,8 +168,9 @@ impl Rule for RecordStatus {
             allowed: options.allowed.as_deref(),
             unfinished_commit_pending: false,
         };
-        let findings = analyse(&Catalog::new(tree), &tracking)?;
+        let findings = analyse(shared.catalog(), &tracking)?;
         findings.write(run.report(), |aspect| aspect == STATUS, |_| "");
         Ok(())
+        })
     }
 }
