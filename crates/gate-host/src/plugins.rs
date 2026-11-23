@@ -249,6 +249,14 @@ pub(crate) struct Ran {
     pub(crate) skipped: Vec<String>,
 }
 
+impl Ran {
+    /// The run with `skipped`, the rules `--skip-rule` left out, for the summary.
+    fn skipping(mut self, skipped: Vec<String>) -> Self {
+        self.skipped = skipped;
+        self
+    }
+}
+
 /// The first cache write of a run that failed. A write is best effort: the findings do not depend
 /// on it, so its failure is one warning, not a failed check, as a bad entry read is a miss.
 #[derive(Debug, Default)]
@@ -1240,8 +1248,7 @@ impl Loaded {
         }
         git_history.finish(&mut ran);
         ran.loads = self.loads(&planned.iter().map(|call| call.2).collect());
-        ran.skipped = self.skipped_rules(workspace, filter)?;
-        Ok(ran)
+        Ok(ran.skipping(self.skipped_rules(workspace, filter)?))
     }
 
     /// The sha256 of the plugin `name` this command runs, loaded or on call; `None` when the
