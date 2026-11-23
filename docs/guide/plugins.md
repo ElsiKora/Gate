@@ -516,7 +516,7 @@ ci = { source = "ElsiKora/Gate:ci@0.3.0" }
 | [`ci/actions-pinned`](../../plugins/ci/rules/actions-pinned.md) | actions and reusable workflows are pinned by a full commit SHA, with the release in a comment |
 | [`ci/workflow-run-target`](../../plugins/ci/rules/workflow-run-target.md) | `workflow_run` triggers name workflows that exist |
 | [`ci/permissions`](../../plugins/ci/rules/permissions.md) | every job sets its own token permissions; a workflow's own permissions only read |
-| [`ci/concurrency`](../../plugins/ci/rules/concurrency.md) | every workflow has a concurrency group, and a newer run cancels only a pull request's |
+| [`ci/concurrency`](../../plugins/ci/rules/concurrency.md) | every workflow has a concurrency group, and `cancel-in-progress` is never a literal `true` in a workflow that runs on anything but pull requests and merge queues; the workflow `gate sync` writes cancels superseded runs of every ref but the default branch, `release/*` included |
 | [`ci/timeout`](../../plugins/ci/rules/timeout.md) | every job that runs steps sets `timeout-minutes` |
 | [`ci/runner-pinned`](../../plugins/ci/rules/runner-pinned.md) | jobs run on a versioned runner image, never `*-latest` |
 | [`ci/checkout-credentials`](../../plugins/ci/rules/checkout-credentials.md) | every checkout sets `persist-credentials: false` |

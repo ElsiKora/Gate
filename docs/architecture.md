@@ -707,8 +707,11 @@ The first readers raised these points; each is settled:
   they read private plugin releases through `GATE_GITHUB_TOKEN`, not through git's credentials. The
   workflow has one `concurrency` group per workflow file and ref (`<workflow>@${{ github.ref }}`,
   the file's path, so a workflow of another name never shares it), with `cancel-in-progress` true
-  for pull requests only, so a superseded pull-request run stops and a push to main never cancels a
-  running main check; no setting changes it.
+  for every ref but the repository's default branch
+  (`${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}`): a
+  superseded run of a pull request or of a pushed branch, `release/*` and every other long-lived
+  branch included, stops, and a push to the default branch never cancels a running check of it; no
+  setting changes it.
 
 **Findings**
 - **Mandatory decisions on relaxations.** `[decision-policy] require-decision = true` makes a decision
