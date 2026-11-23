@@ -3059,15 +3059,41 @@ const CACHE_ENV: &str = "          GATE_CACHE_DIR: ${{ runner.temp }}/gate-cache
 /// The restore step of the job `id`.
 fn cache_restore_step(id: &str) -> String {
     format!(
-        "      - id: gate-cache\n        name: Restore the Gate cache\n        uses: {CACHE_RESTORE}\n        with:\n          path: {CACHE_PATH}\n          key: gate/${{{{ runner.os }}}}/${{{{ hashFiles('gate.lock') }}}}/{id}/${{{{ github.sha }}}}\n          restore-keys: \"gate/${{{{ runner.os }}}}/${{{{ hashFiles('gate.lock') }}}}/{id}/\\ngate/${{{{ runner.os }}}}/${{{{ hashFiles('gate.lock') }}}}/\"\n"
+        "      - id: gate-cache\n        name: Restore the Gate cache\n        uses: {CACHE_RESTORE}\n        with:\n          path: {CACHE_PATH}\n          key: {CACHE_KEY}{id}/${{{{ github.sha }}}}\n          restore-keys: \"{CACHE_KEY}{id}/\\n{CACHE_KEY}\"\n"
     )
 }
 
-/// The save step, the same in every job.
-fn cache_save_step() -> String {
+/// The start of every key: the runner's OS and architecture and the hash of `gate.lock`.
+const CACHE_KEY: &str = "gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/";
+
+/// The save step of a job whose last `bin/gate` step has the id `last`.
+fn cache_save_step(last: &str) -> String {
     format!(
-        "      - name: Save the Gate cache\n        if: ${{{{ !cancelled() && steps.gate-cache.outputs.cache-hit != 'true' }}}}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
+        "      - name: Save the Gate cache\n        if: ${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.gate-cache.outputs.cache-hit != 'true' }}}}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
     )
+}
+
+/// The id of the last `bin/gate` step of the job `id`: `changes` in the generated job.
+fn last_step(id: &str) -> &'static str {
+    if id == "changes" {
+        "changes"
+    } else {
+        "gate-run"
+    }
+}
+
+/// `workflow` without what `cache = true` adds to the jobs `ids`.
+fn uncached(workflow: &str, ids: &[&str]) -> String {
+    let mut stripped = workflow.replace(CACHE_ENV, "").replace(
+        "      - id: gate-run\n        name: gate ",
+        "      - name: gate ",
+    );
+    for id in ids {
+        stripped = stripped
+            .replace(&cache_restore_step(id), "")
+            .replace(&cache_save_step(last_step(id)), "");
+    }
+    stripped
 }
 
 #[test]
@@ -3077,7 +3103,8 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let workflow = repo.read(".github/workflows/gate.yml");
 
-    // Each job that runs bin/gate restores right after its checkout, before setup, and saves last.
+    // Each job that runs bin/gate restores right after its checkout, before setup, and saves last,
+    // only when its last bin/gate step ran.
     for id in ["changes", "check", "publish", "unit"] {
         let text = job(&workflow, id);
         let restore = cache_restore_step(id);
@@ -3089,7 +3116,7 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
             "{id}: the restore step follows the checkout: {text}"
         );
         assert!(
-            text.ends_with(&cache_save_step()),
+            text.ends_with(&cache_save_step(last_step(id))),
             "{id}: the save step is last: {text}"
         );
         assert_eq!(
@@ -3128,14 +3155,21 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
     );
     assert_eq!(workflow.matches(CACHE_ENV).count(), runs, "{workflow}");
 
-    // Without its cache steps and variable, the workflow is the one without `cache`, byte for byte.
-    let mut stripped = workflow
-        .replace(CACHE_ENV, "")
-        .replace(&cache_save_step(), "");
-    for id in ["changes", "check", "publish", "unit"] {
-        stripped = stripped.replace(&cache_restore_step(id), "");
-    }
-    assert!(stripped == workflow_0_3_0_now(), "{stripped}");
+    // The last bin/gate step of each job of [ci.github.jobs] has the id the save step reads.
+    assert_eq!(
+        workflow
+            .matches("      - id: gate-run\n        name: gate ")
+            .count(),
+        3,
+        "{workflow}"
+    );
+
+    // Without its cache steps, ids and variable, the workflow is the one without `cache`, byte for
+    // byte.
+    assert!(
+        uncached(&workflow, &["changes", "check", "publish", "unit"]) == workflow_0_3_0_now(),
+        "{workflow}"
+    );
 
     // An edited key is drift.
     repo.commit("synced");
@@ -3151,6 +3185,103 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
         stdout(&output).contains("[gate/sync#ci] .github/workflows/gate.yml"),
         "{}",
         stdout(&output)
+    );
+}
+
+#[test]
+fn a_cached_job_with_needs_and_when_keeps_its_needs_and_condition() {
+    let configuration = |extra: &str| {
+        format!(
+            r#"[gate]
+version = "{VERSION}"
+
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+checkout = "actions/checkout@{ACTION} # v4.2.2"
+aggregate = "gate-passed"
+{extra}
+[ci.github.jobs.build]
+name = "Build"
+timeout-minutes = 10
+run = ["check"]
+
+[ci.github.jobs.unit]
+name = "Unit tests"
+projects = ["api"]
+timeout-minutes = 10
+run = ["run unit --push"]
+
+[ci.github.jobs.reports]
+name = "Reports"
+needs = ["build", "unit"]
+when = "completed"
+timeout-minutes = 10
+run = ["run reports", "check --push"]
+
+[ci.github.jobs.deploy]
+name = "Deploy"
+projects = ["api"]
+needs = ["build"]
+when = "succeeded"
+timeout-minutes = 10
+run = ["run deploy"]
+
+[steps]
+unit = {{ run = "true" }}
+reports = {{ run = "true" }}
+deploy = {{ run = "true" }}
+"#
+        )
+    };
+    let workflows: Vec<String> = ["", "cache = true\n"]
+        .iter()
+        .map(|extra| {
+            let repo = Repo::new();
+            repo.write("gate.toml", &configuration(extra))
+                .write("apps/api/gate.toml", "[project]\nname = \"api\"\n")
+                .write("apps/api/main.ts", "export const api = 1;\n");
+            repo.commit("configure");
+            let output = repo.gate(&["sync"]);
+            assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+            repo.read(".github/workflows/gate.yml")
+        })
+        .collect();
+    let (plain, cached) = (&workflows[0], &workflows[1]);
+
+    // The jobs keep the needs and the condition of 0.3.1, and each restores and saves its own cache.
+    let reports = job(cached, "reports");
+    assert!(
+        reports.contains("    needs:\n      - build\n      - unit\n    if: ${{ !cancelled() }}\n"),
+        "{reports}"
+    );
+    let deploy = job(cached, "deploy");
+    assert!(
+        deploy.contains(
+            "    needs:\n      - changes\n      - build\n    if: ${{ !cancelled() && (needs.changes.result != 'success' || contains(fromJSON(needs.changes.outputs.projects), 'api')) && needs.build.result == 'success' }}\n"
+        ),
+        "{deploy}"
+    );
+    for (id, text) in [("reports", &reports), ("deploy", &deploy)] {
+        assert!(text.contains(&cache_restore_step(id)), "{id}: {text}");
+        assert!(text.ends_with(&cache_save_step("gate-run")), "{id}: {text}");
+    }
+    // Of the two gate commands of reports, only the last carries the id the save step reads.
+    assert!(
+        reports.contains("      - name: gate run reports\n")
+            && reports.contains("      - id: gate-run\n        name: gate check --push\n"),
+        "{reports}"
+    );
+    // The aggregate job still needs every job and touches no cache.
+    assert!(
+        job(cached, "gate-passed").contains(
+            "    needs:\n      - changes\n      - build\n      - deploy\n      - reports\n      - unit\n"
+        ) && !job(cached, "gate-passed").contains("cache"),
+        "{cached}"
+    );
+    // Apart from the cache, the workflow is the uncached one byte for byte.
+    assert!(
+        uncached(cached, &["changes", "build", "unit", "reports", "deploy"]) == *plain,
+        "{cached}"
     );
 }
 
@@ -3184,6 +3315,20 @@ fn an_aggregate_name_without_an_aggregate_or_empty_is_a_configuration_error() {
                 "aggregate = \"gate-passed\"\naggregate-name = \" \"\n",
             ),
             "[ci.github] aggregate-name is empty; name the aggregate job or remove the key",
+        ),
+        (
+            WORKFLOW_0_3_0_ROOT.replace(
+                "aggregate = \"gate-passed\"\n",
+                "aggregate = \"gate-passed\"\naggregate-name = \"Changes\"\n",
+            ),
+            "[ci.github] aggregate-name = \"Changes\" is the name of the generated changes job; GitHub would show two checks of that name, so choose another aggregate-name",
+        ),
+        (
+            WORKFLOW_0_3_0_ROOT.replace(
+                "aggregate = \"gate-passed\"\n",
+                "aggregate = \"gate-passed\"\naggregate-name = \"Unit tests\"\n",
+            ),
+            "[ci.github] aggregate-name = \"Unit tests\" is the name of jobs.unit; GitHub would show two checks of that name, so choose another aggregate-name or rename the job",
         ),
     ] {
         let repo = Repo::new();

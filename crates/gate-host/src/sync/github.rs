@@ -20,6 +20,9 @@ pub const DEFAULT_RUNNER: &str = "ubuntu-24.04";
 /// The id of the generated first job, which lists the changed projects.
 pub const CHANGES_JOB: &str = "changes";
 
+/// The display name of the `changes` job.
+pub const CHANGES_NAME: &str = "Changes";
+
 /// The time limit of the `changes` job, in minutes: it checks the generated files and lists the
 /// changed projects, which fetches the plugins on a cold cache.
 pub const CHANGES_TIMEOUT_MINUTES: u64 = 15;
@@ -75,8 +78,14 @@ pub const CACHED: [&str; 5] = ["blobs", "modules", "results", "declarations", "g
 /// The id of the step that restores the Gate cache, whose outputs the save step reads.
 const CACHE_STEP_ID: &str = "gate-cache";
 
+/// The id of a job's last `bin/gate` step with `[ci.github] cache`, whose outcome the save step
+/// reads; the `changes` job's is `changes`.
+const LAST_GATE_STEP_ID: &str = "gate-run";
+
 /// The start of every key of the Gate cache: `/` separates the parts, since no job id holds one.
-const CACHE_KEY_PREFIX: &str = "gate/${{ runner.os }}/${{ hashFiles('gate.lock') }}/";
+/// The architecture keeps an x86 and an Arm runner of one OS apart.
+const CACHE_KEY_PREFIX: &str =
+    "gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/";
 
 /// The token a `bin/gate` step reads private plugin releases with: the repository secret
 /// `GATE_GITHUB_TOKEN` when it is set, else the job's own token. Only `bin/gate` steps get it; other
@@ -141,13 +150,13 @@ pub fn workflow(
         }),
     ]);
     if cached {
-        steps.push(cache_save());
+        steps.push(cache_save(CHANGES_JOB));
     }
     let mut jobs = Map::new();
     jobs.insert(
         CHANGES_JOB.to_owned(),
         json!({
-            "name": "Changes",
+            "name": CHANGES_NAME,
             "runs-on": runner,
             "timeout-minutes": CHANGES_TIMEOUT_MINUTES,
             "permissions": { "contents": "read" },
@@ -247,11 +256,15 @@ fn cache_restore(id: &str) -> Value {
 
 /// The step that saves the Gate cache under the key the restore step tried, last in the job: also
 /// after a red check, whose results are as valid as a green one's; not when the run was cancelled
-/// or the job timed out, and not when the restore step found this very key (a rerun).
-fn cache_save() -> Value {
+/// or the job timed out, not when the job's last `bin/gate` step (`last`, its step id) never ran,
+/// so that a job that failed before it saves nothing a rerun would then find under this commit's
+/// key, and not when the restore step found this very key (a rerun).
+fn cache_save(last: &str) -> Value {
     json!({
         "name": "Save the Gate cache",
-        "if": format!("${{{{ !cancelled() && steps.{CACHE_STEP_ID}.outputs.cache-hit != 'true' }}}}"),
+        "if": format!(
+            "${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.{CACHE_STEP_ID}.outputs.cache-hit != 'true' }}}}"
+        ),
         "uses": CACHE_SAVE,
         "with": {
             "path": cache_paths(),
@@ -406,17 +419,23 @@ fn job_value(
     steps.extend(github.setup.iter().map(|step| step_value(step, None)));
     steps.extend(job.steps.iter().map(|step| step_value(step, directory)));
 
-    for command in &job.run {
+    for (index, command) in job.run.iter().enumerate() {
         let (words, pushed) = command_words(command, job.budget.as_ref());
-        steps.push(json!({
-            "name": format!("gate {command}"),
-            "run": format!("{LAUNCHER} {}", words.join(" ")),
-            "env": gate_env(github.cache, pushed),
-        }));
+        let mut step = Map::new();
+        if github.cache && index + 1 == job.run.len() {
+            step.insert("id".to_owned(), json!(LAST_GATE_STEP_ID));
+        }
+        step.insert("name".to_owned(), json!(format!("gate {command}")));
+        step.insert(
+            "run".to_owned(),
+            json!(format!("{LAUNCHER} {}", words.join(" "))),
+        );
+        step.insert("env".to_owned(), gate_env(github.cache, pushed));
+        steps.push(Value::Object(step));
     }
     steps.extend(job.after.iter().map(|step| step_value(step, directory)));
     if github.cache {
-        steps.push(cache_save());
+        steps.push(cache_save(LAST_GATE_STEP_ID));
     }
     value.insert("steps".to_owned(), Value::Array(steps));
 
