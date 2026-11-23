@@ -25,8 +25,8 @@ use crate::cache::answers::{Answer, Answers, Question};
 use crate::cache::{Cache, Sha256Sum, results};
 use crate::changes::{ChangeSet, Selection};
 use crate::config::{
-    Config, LevelSetting, PluginItem, PluginName, PluginSource, RuleId, SchemaValidator, Setting,
-    SettingOrigin, Settings, Sourced,
+    Config, LevelSetting, PluginItem, PluginName, PluginSource, RuleId, RuleKey, SchemaValidator,
+    Setting, SettingOrigin, Settings, Sourced,
 };
 use crate::error::{Error, Result};
 use crate::fetch::{FetchConfig, Fetcher};
@@ -945,6 +945,79 @@ impl Loaded {
             }
         }
         Ok(())
+    }
+
+    /// The rules `--skip-rule` leaves out of the run, by id, sorted: the rules enabled in some
+    /// scope of the configuration, whatever the change selection runs, that `--rule` allows and a
+    /// skip key matches. Checks that each skip key leaves out at least one of them, and that no
+    /// `--rule` key is left with none of its enabled rules to run.
+    ///
+    /// # Errors
+    /// Fails on the first `--skip-rule` key that matches no enabled rule, or none `--rule` leaves
+    /// to run, and on the first `--rule` key whose every enabled rule a skip removes; each error
+    /// says what to remove or turn on.
+    pub(crate) fn skipped_rules(
+        &self,
+        workspace: &Workspace,
+        filter: &RuleFilter,
+    ) -> Result<Vec<String>> {
+        if filter.skip_keys().is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut enabled = BTreeSet::new();
+        for (project, settings) in scopes(workspace) {
+            for (name, declared) in &self.declarations {
+                if !settings.plugins.contains_key(name) {
+                    continue;
+                }
+                for rule in enabled_rules(&declared.info, name, settings, workspace, project)? {
+                    enabled.insert(rule.id.to_string());
+                }
+            }
+        }
+        for key in filter.skip_keys() {
+            let matched: Vec<&String> = enabled
+                .iter()
+                .filter(|rule| RuleFilter::matches(key, rule))
+                .collect();
+            if matched.is_empty() {
+                let what = match key {
+                    RuleKey::Family(plugin) => {
+                        format!("no rule of plugin {plugin} is enabled in any scope")
+                    }
+                    RuleKey::Rule(_) => "it is off in every scope".to_owned(),
+                };
+                return Err(Error::config(format!(
+                    "--skip-rule {key} matches no enabled rule: {what}, so it leaves nothing out; remove --skip-rule {key}, or turn the rule on"
+                )));
+            }
+            if !matched.iter().any(|rule| filter.narrowed_to(rule)) {
+                let named = filter
+                    .keys()
+                    .iter()
+                    .map(|key| format!("--rule {key}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(Error::config(format!(
+                    "--skip-rule {key} matches no rule {named} leaves to run, so it leaves nothing out; remove --skip-rule {key}, or name its rules with --rule"
+                )));
+            }
+        }
+        for key in filter.keys() {
+            let mut matched = enabled
+                .iter()
+                .filter(|rule| RuleFilter::matches(key, rule))
+                .peekable();
+            if matched.peek().is_some() && !matched.any(|rule| filter.allows(rule)) {
+                return Err(Error::config(format!(
+                    "--rule {key}: --skip-rule leaves none of its rules to run, so the run checks nothing it names; remove --rule {key}, or the --skip-rule that matches it"
+                )));
+            }
+        }
+        Ok(enabled
+            .into_iter()
+            .filter(|rule| filter.narrowed_to(rule) && !filter.allows(rule))
+            .collect())
     }
 
     /// Checks that every `[generate]` key names a generator its plugin declares. A key whose

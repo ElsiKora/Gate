@@ -311,9 +311,9 @@ impl Workspace {
         &self.inputs
     }
 
-    /// Checks that every key of `filter` names a configured rule: its plugin is declared in some
-    /// scope, and for a single rule, a `[rules]` entry of such a scope names it or the plugin
-    /// declares it (`declaration`, the plugin runtime's answer).
+    /// Checks that every `--rule` and `--skip-rule` key of `filter` names a configured rule: its
+    /// plugin is declared in some scope, and for a single rule, a `[rules]` entry of such a scope
+    /// names it or the plugin declares it (`declaration`, the plugin runtime's answer).
     ///
     /// # Errors
     /// Fails on the first key that names a core rule or no configured rule.
@@ -326,11 +326,16 @@ impl Workspace {
             .chain(self.settings.values())
             .collect();
 
-        for key in filter.keys() {
+        let keys = filter
+            .keys()
+            .iter()
+            .map(|key| ("--rule", key))
+            .chain(filter.skip_keys().iter().map(|key| ("--skip-rule", key)));
+        for (flag, key) in keys {
             let plugin = key.plugin();
             if plugin == CORE_PLUGIN {
                 return Err(Error::config(format!(
-                    "--rule {key}: the core's own rules always run; name a plugin's rule or <plugin>/*"
+                    "{flag} {key}: the core's own rules always run; name a plugin's rule or <plugin>/*"
                 )));
             }
             let declared: Vec<(&Settings, &PluginName, &PluginSource)> = scopes
@@ -345,7 +350,7 @@ impl Workspace {
                 .collect();
             if declared.is_empty() {
                 return Err(Error::config(format!(
-                    "--rule {key} names no configured rule: no gate.toml declares plugin {plugin}; gate list prints the configured rules"
+                    "{flag} {key} names no configured rule: no gate.toml declares plugin {plugin}; gate list prints the configured rules"
                 )));
             }
             if let RuleKey::Rule(rule) = key {
@@ -355,7 +360,7 @@ impl Workspace {
                 });
                 if !configured {
                     return Err(Error::config(format!(
-                        "--rule {rule} names no configured rule: no [rules] entry names it and plugin {plugin} declares no rule {}; gate list prints the configured rules",
+                        "{flag} {rule} names no configured rule: no [rules] entry names it and plugin {plugin} declares no rule {}; gate list prints the configured rules",
                         rule.rule()
                     )));
                 }

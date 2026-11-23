@@ -1131,6 +1131,34 @@ fn rule_filters_that_name_no_configured_rule_are_configuration_errors() {
 }
 
 #[test]
+fn skip_filters_that_name_no_configured_rule_are_configuration_errors() {
+    let repo = monorepo();
+    let output = repo.gate(&["check", "--skip-rule", "layers/import-direction"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        stderr(&output),
+        "gate: configuration error: --skip-rule layers/import-direction names no configured rule: no gate.toml declares plugin layers; gate list prints the configured rules\n"
+    );
+
+    let output = repo.gate(&["check", "--skip-rule", "gate/sync"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("--skip-rule gate/sync: the core's own rules always run"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = repo.gate(&["check", "--skip-rule", "layers/import-direction#hidden"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("--skip-rule leaves whole rules out of a run")
+            && stderr(&output).contains("without #<aspect>"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn a_core_rule_norm_is_printed_with_its_finding() {
     let repo = with_root(&format!(
         "{HOOKS}\n[rules]\n\"gate/sync\" = {{ norm = \"DEC-1\", norms = {{ hooks = \"DEC-2\" }} }}\n"

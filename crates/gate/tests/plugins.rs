@@ -8534,3 +8534,277 @@ fn the_ledger_layout_seeds_no_tracked_file_another_ledger_generator_writes() {
     let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(0), "{said}");
 }
+
+/// [`probe_repo`] with `probe/aspects` and `probe/norms` on for `apps/one`, committed: one call of
+/// two rules.
+fn two_probe_rules() -> Repo {
+    let repo = probe_repo("\"probe/aspects\" = \"error\"\n\"probe/norms\" = \"error\"");
+    repo.commit("two probe rules");
+    repo
+}
+
+/// `gate check` with the built probe, as JSON with `--timings`: the exit code, the finding
+/// messages sorted, the summary line, and whether each probe call came from the result cache.
+fn skip_check(repo: &Repo, arguments: &[&str]) -> (Option<i32>, Vec<String>, String, Vec<bool>) {
+    let plugin = format!("probe={}", probe().0.display());
+    let mut all = vec![
+        "check",
+        "--plugin",
+        &plugin,
+        "--format",
+        "json",
+        "--timings",
+    ];
+    all.extend_from_slice(arguments);
+    let output = repo.gate(&all);
+    let stderr = text(&output.stderr);
+    let report: serde_json::Value =
+        serde_json::from_str(&text(&output.stdout)).unwrap_or_else(|_| panic!("json: {stderr}"));
+    let mut messages: Vec<String> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["message"].as_str().map(str::to_owned))
+        .collect();
+    messages.sort();
+    let cached = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("timings: call probe "))
+        .map(|call| call.contains(": cached, "))
+        .collect();
+    (
+        output.status.code(),
+        messages,
+        report["summary"].as_str().expect("summary").to_owned(),
+        cached,
+    )
+}
+
+#[test]
+fn a_skip_leaves_its_rules_out_with_and_without_a_rule_filter() {
+    let repo = two_probe_rules();
+    let both = ["aspect loud", "aspect quiet", "norms: "].map(str::to_owned);
+    let (code, messages, summary, _) = skip_check(&repo, &[]);
+    assert_eq!((code, messages), (Some(1), both.to_vec()));
+    assert!(
+        summary.starts_with("gate check (tree): 2 rules, "),
+        "{summary}"
+    );
+
+    let aspects = ["aspect loud", "aspect quiet"].map(str::to_owned).to_vec();
+    for arguments in [
+        &["--skip-rule", "probe/norms"][..],
+        &["--rule", "probe/*", "--skip-rule", "probe/norms"][..],
+        &["--skip-rule", "probe/norms", "--rule", "probe/*"][..],
+    ] {
+        let (code, messages, summary, _) = skip_check(&repo, arguments);
+        assert_eq!((code, &messages), (Some(1), &aspects), "{arguments:?}");
+        assert!(
+            summary.starts_with("gate check (tree): 1 rule (skipped probe/norms), 1 error, "),
+            "{arguments:?}: {summary}"
+        );
+    }
+
+    // A family skip lists each rule it left out; the plugin has no call left.
+    let (code, messages, summary, cached) = skip_check(&repo, &["--skip-rule", "probe/*"]);
+    assert_eq!((code, messages), (Some(0), Vec::new()));
+    assert!(
+        summary.starts_with("gate check (tree): 0 rules (skipped probe/aspects, probe/norms), "),
+        "{summary}"
+    );
+    assert!(cached.is_empty(), "no probe call: {cached:?}");
+}
+
+#[test]
+fn a_skip_that_leaves_nothing_out_is_a_configuration_error() {
+    let repo = two_probe_rules();
+    let plugin = format!("probe={}", probe().0.display());
+    for (arguments, expected) in [
+        (
+            &["--skip-rule", "probe/whole"][..],
+            "--skip-rule probe/whole matches no enabled rule: it is off in every scope, so it leaves nothing out; remove --skip-rule probe/whole, or turn the rule on",
+        ),
+        (
+            &["--skip-rule", "probe/nothing"][..],
+            "--skip-rule probe/nothing names no configured rule: no [rules] entry names it and plugin probe declares no rule nothing",
+        ),
+        (
+            &["--rule", "probe/aspects", "--skip-rule", "probe/norms"][..],
+            "--skip-rule probe/norms matches no rule --rule probe/aspects leaves to run, so it leaves nothing out; remove --skip-rule probe/norms, or name its rules with --rule",
+        ),
+        (
+            &["--rule", "probe/aspects", "--skip-rule", "probe/*"][..],
+            "--rule probe/aspects: --skip-rule leaves none of its rules to run, so the run checks nothing it names; remove --rule probe/aspects, or the --skip-rule that matches it",
+        ),
+    ] {
+        let mut all = vec!["check", "--plugin", plugin.as_str()];
+        all.extend_from_slice(arguments);
+        let output = repo.gate(&all);
+        let message = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}: {message}");
+        assert_eq!(text(&output.stdout), "", "{arguments:?}: nothing ran");
+        assert!(
+            message.starts_with("gate: configuration error: ") && message.contains(expected),
+            "{arguments:?}: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_selection_a_skip_changes_is_its_own_entry_of_the_result_cache() {
+    let repo = two_probe_rules();
+    let both = ["aspect loud", "aspect quiet", "norms: "]
+        .map(str::to_owned)
+        .to_vec();
+    let aspects = ["aspect loud", "aspect quiet"].map(str::to_owned).to_vec();
+    let full = || {
+        let (_, messages, _, cached) = skip_check(&repo, &[]);
+        (messages, cached)
+    };
+    let skipped = || {
+        let (_, messages, _, cached) = skip_check(&repo, &["--skip-rule", "probe/norms"]);
+        (messages, cached)
+    };
+    assert_eq!(full(), (both.clone(), vec![false]));
+    assert_eq!(
+        skipped(),
+        (aspects.clone(), vec![false]),
+        "the call of one rule is not answered by the entry of two"
+    );
+    assert_eq!(
+        full(),
+        (both, vec![true]),
+        "the full run is answered by its own entry, with both rules' findings"
+    );
+    assert_eq!(skipped(), (aspects, vec![true]));
+}
+
+#[test]
+fn a_plugin_whose_every_rule_is_skipped_is_not_loaded_and_its_pin_is_still_checked() {
+    let repo = Repo::pinned(r#"{ marker = "FIXME" }"#);
+    // The first run stores what hello declares; a later run that skips it needs nothing else.
+    let output = repo.gate(&["check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let arguments = ["check", "--skip-rule", "hello/*"];
+    assert_eq!(
+        compiled_by(&repo, &arguments),
+        BTreeSet::new(),
+        "a skipped plugin is not compiled"
+    );
+    let output = repo.gate(&arguments);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stdout)
+            .starts_with("gate check (tree): 0 rules (skipped hello/marker), 0 errors, "),
+        "{}",
+        text(&output.stdout)
+    );
+
+    // gate.lock pins another version of hello: the run fails on the pin, skip or not.
+    let (_, bytes) = hello();
+    repo.write(
+        "gate.lock",
+        &lock(
+            "acme/rules:hello@0.0.9",
+            "https://example.invalid/hello.wasm",
+            &sha256(bytes),
+        ),
+    );
+    repo.commit("pin another hello");
+    for arguments in [
+        &["check"][..],
+        &["check", "--skip-rule", "hello/*"][..],
+        &["check", "--skip-rule", "hello/marker"][..],
+    ] {
+        let output = repo.gate(arguments);
+        let message = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}: {message}");
+        assert!(
+            message.contains("gate.lock does not match the configuration"),
+            "{arguments:?}: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_pre_commit_hook_that_skips_main_history_does_not_run_it() {
+    let git = GitOptions::new();
+    let repo = &git.repo;
+    repo.write(
+        "bin/gate",
+        &format!(
+            "#!/bin/sh\nexec '{}' \"$@\" --plugin '{}'\n",
+            env!("CARGO_BIN_EXE_gate").replace('\'', "'\\''"),
+            git.plugin.replace('\'', "'\\''")
+        ),
+    );
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = repo.path().join("bin/gate");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    repo.write(
+        "gate.toml",
+        &format!(
+            r#"[gate]
+version = "{VERSION}"
+
+[plugins.git]
+source = "acme/rules:git@0.1.0"
+options = {{ activation = "{}", main = ["refs/heads/main"], {RELEASE_SUBJECT}, branch-pattern = "^feature/[a-z0-9-]+$", branch-length = [5, 50], documentation = ["docs/**", "*.md"], dependabot = ["package.json"] }}
+
+[rules]
+"git/main-history" = {{ level = "error" }}
+{NO_CI_SKIP}
+
+[hooks]
+pre-commit = ["check --staged --skip-rule git/main-history"]
+"#,
+            git.root
+        ),
+    );
+    // A direct commit of code on main: git/main-history reports it in every run.
+    repo.commit("chore(core): configure gate");
+    let output = repo.gate(&["sync", "--plugin", &git.plugin]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let hook = std::fs::read_to_string(repo.path().join(".githooks/pre-commit")).expect("hook");
+    assert!(
+        hook.contains("bin/gate check --staged --skip-rule git/main-history --hook\n"),
+        "{hook}"
+    );
+
+    repo.write("work.txt", "work\n");
+    repo.git(&["add", "-A"]);
+    let unskipped = repo.gate(&["check", "--staged", "--plugin", &git.plugin]);
+    assert_eq!(
+        unskipped.status.code(),
+        Some(1),
+        "{}",
+        text(&unskipped.stderr)
+    );
+    assert!(
+        text(&unskipped.stdout).contains("error[git/main-history#direct]"),
+        "without the skip the staged run reports the direct commit: {}",
+        text(&unskipped.stdout)
+    );
+
+    // `git commit` runs the generated hook, which leaves git/main-history out.
+    let output = isolated(Command::new("git").arg("-C").arg(repo.path()).args([
+        "commit",
+        "-q",
+        "-m",
+        "feat(core): add the work",
+    ]))
+    .env("GATE_CACHE_DIR", repo.cache.path())
+    .output()
+    .expect("git");
+    let said = format!("{}{}", text(&output.stdout), text(&output.stderr));
+    assert!(output.status.success(), "the hook passes: {said}");
+    assert!(
+        !said.contains("[git/main-history")
+            && said.contains(
+                "gate check (staged): 1 rule (skipped git/main-history), 0 errors, 0 warnings"
+            ),
+        "{said}"
+    );
+}

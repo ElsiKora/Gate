@@ -306,7 +306,7 @@ fn check(arguments: &CheckArgs) -> Result<u8, Error> {
         list_changed_projects: arguments.list_changed_projects,
         commit_message,
         hook: arguments.hook,
-        rules: RuleFilter::new(arguments.rules.clone()),
+        rules: RuleFilter::new(arguments.rules.clone()).skipping(arguments.skip_rules.clone()),
     };
 
     if arguments.list_changed_projects {
