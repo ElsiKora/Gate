@@ -1600,6 +1600,13 @@ fn a_tampered_plugin_in_a_restored_cache_is_never_run() {
         text(&output.stdout)
     );
     assert!(!entry.exists(), "the tampered entry is gone");
+    let asked = server.requests().len();
+    assert_eq!(
+        asked,
+        1,
+        "it asked for the pinned file: {:?}",
+        server.requests()
+    );
 
     // With the asset published, the run fetches the pinned file in place of the tampered one.
     server.serve(&route, wasm.clone());
@@ -1621,7 +1628,7 @@ fn a_tampered_plugin_in_a_restored_cache_is_never_run() {
     );
     assert_eq!(
         server.requests().len(),
-        1,
+        asked + 1,
         "one download: {:?}",
         server.requests()
     );
