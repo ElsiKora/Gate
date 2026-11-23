@@ -708,12 +708,12 @@ fn lasting_load_failure(kind: gate_runtime::ErrorKind) -> bool {
 }
 
 impl Loaded {
-    /// Checks the configuration and the `--rule` keys of `filter` against what the loaded plugins
-    /// declare.
+    /// Checks the configuration and the `--rule` and `--skip-rule` keys of `filter` against what
+    /// the loaded plugins declare.
     ///
     /// # Errors
-    /// Fails on the first configuration error, naming the file, line and section, or the first key
-    /// that names no configured rule.
+    /// Fails on the first configuration error, naming the file, line and section, the first key
+    /// that names no configured rule, or a skip that leaves nothing out.
     pub(crate) fn validate(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
         self.validate_except(workspace, filter, &BTreeSet::new())
     }
@@ -774,7 +774,8 @@ impl Loaded {
         self.check_needs(workspace, filter)?;
         self.check_decisions(workspace)?;
         self.check_generators(workspace)?;
-        workspace.check_rule_filter(filter, &declaration)
+        workspace.check_rule_filter(filter, &declaration)?;
+        self.skipped_rules(workspace, filter).map(drop)
     }
 
     /// Checks that every `extends` entry of every scope names a preset its plugin declares, that
@@ -1135,8 +1136,6 @@ impl Loaded {
         filter: &RuleFilter,
         findings: &mut Findings,
     ) -> Result<Ran> {
-        // A skip that leaves nothing out fails before any call.
-        let skipped = self.skipped_rules(workspace, filter)?;
         // A run with the commit message being written checks only that message: the rules that
         // declare reads-message. The tree is the other hooks' and CI's to check.
         let message_run = run_git.message.is_some();
@@ -1210,10 +1209,7 @@ impl Loaded {
             .collect();
         let outcomes = self.calls(&calls, &tree, &history, &inputs, &git_history.writes)?;
 
-        let mut ran = Ran {
-            skipped,
-            ..Ran::default()
-        };
+        let mut ran = Ran::default();
         for ((project, settings, name, rules, _, _, _), looked) in planned.iter().zip(outcomes) {
             let outcome = looked.outcome.map_err(|error| {
                 call_failed(
@@ -1244,6 +1240,7 @@ impl Loaded {
         }
         git_history.finish(&mut ran);
         ran.loads = self.loads(&planned.iter().map(|call| call.2).collect());
+        ran.skipped = self.skipped_rules(workspace, filter)?;
         Ok(ran)
     }
 
