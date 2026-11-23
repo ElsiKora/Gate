@@ -988,14 +988,15 @@ impl Loaded {
                 .filter(|rule| RuleFilter::matches(key, rule))
                 .collect();
             if matched.is_empty() {
-                let what = match key {
-                    RuleKey::Family(plugin) => {
-                        format!("no rule of plugin {plugin} is enabled in any scope")
-                    }
-                    RuleKey::Rule(_) => "it is off in every scope".to_owned(),
+                let (what, fix) = match key {
+                    RuleKey::Family(plugin) => (
+                        format!("no rule of plugin {plugin} is enabled in any scope"),
+                        "turn one of its rules on",
+                    ),
+                    RuleKey::Rule(_) => ("it is off in every scope".to_owned(), "turn the rule on"),
                 };
                 return Err(Error::config(format!(
-                    "--skip-rule {key} matches no enabled rule: {what}, so it leaves nothing out; remove --skip-rule {key}, or turn the rule on"
+                    "--skip-rule {key} matches no enabled rule: {what}, so it leaves nothing out; remove --skip-rule {key}, or {fix}"
                 )));
             }
             if !matched.iter().any(|rule| filter.narrowed_to(rule)) {

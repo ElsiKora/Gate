@@ -650,7 +650,10 @@ budget = { warn-after = 3, fail-after = 6 }
 git/no-ci-skip --warn-after 3 --fail-after 6 --hook`, and a hand-written hook (Husky, for example)
 calls the same line. The run's summary names what it left out: `gate check (staged): 12 rules
 (skipped git/main-history, git/no-ci-skip), 0 errors, 0 warnings; ...`, and the JSON report lists
-the same ids under `skipped-rules`.
+the same ids under `skipped-rules`. The list covers every scope of the configuration, so a mode
+or a change selection that would not have run a rule still names it as skipped: a `commit-msg`
+hook's `check --commit-message --skip-rule git/main-history` runs only the rules that read the
+message, and its summary still says `(skipped git/main-history)`.
 
 - A skipped rule's exceptions and baseline entries are not due in that run, as for a rule
   `--rule` leaves out.
@@ -659,9 +662,11 @@ the same ids under `skipped-rules`.
   with exit `2` and says to remove the key or turn the rule on; so does a `--rule` key whose every
   enabled rule a skip removes. A hook whose skip no longer matches the configuration fails rather
   than check less than it says.
-- A plugin whose every rule is left out gets no call, so it is not fetched or loaded in that run,
-  as with `--rule`. `gate.toml` and `gate.lock` are still checked against each other, and the
-  configuration against what every declared plugin declares: a skip is no way around a pin.
+- A plugin whose every rule is left out gets no call, as with `--rule`. Once the cache holds what
+  the plugin declares, it is not fetched or loaded in that run; on a fresh cache, after a clone
+  or a core upgrade, the first run still fetches and loads it to read its declaration, which
+  `gate sync` also stores. `gate.toml` and `gate.lock` are still checked against each other, and
+  the configuration against what every declared plugin declares: a skip is no way around a pin.
 
 ## `[ci.github]`
 

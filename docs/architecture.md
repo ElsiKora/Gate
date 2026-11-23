@@ -429,16 +429,16 @@ all = ["lint", "unit"]
 - Plugin modules are compiled once per (plugin sha256, wasmtime version) and stored in the cache;
   later runs load the compiled module.
 - A check runs only the plugins declared in a scope the change selection runs that `--rule` and
-  `--skip-rule` leave a rule to run; only those are fetched and compiled. Validation is never narrowed: every run checks the
-  whole configuration against what every declared plugin declares. What a plugin declares (its
-  rules with their scopes, aspects and options schemas, its presets, its option schema and its
-  generators) is stored in the cache whenever the plugin loads, under the plugin's sha256, the
-  plugin interface and the core version. A plugin the run does not run answers from that entry,
-  and is loaded for it when the cache holds none. A `sync-state` answer that falls back to the
-  run's configuration loads the plugins of its `[generate]` entries when it first needs them.
-  A stored declaration is trusted as a compiled module and a stored result are: what the cache
-  holds decides what a run checks, so a cache directory shared between users or machines must be
-  as trusted as the checkout.
+  `--skip-rule` leave a rule to run; only those are fetched and compiled. Validation is never
+  narrowed: every run checks the whole configuration against what every declared plugin declares.
+  What a plugin declares (its rules with their scopes, aspects and options schemas, its presets,
+  its option schema and its generators) is stored in the cache whenever the plugin loads, under
+  the plugin's sha256, the plugin interface and the core version. A plugin the run does not run
+  answers from that entry, and is fetched and loaded for it when the cache holds none. A
+  `sync-state` answer that falls back to the run's configuration loads the plugins of its
+  `[generate]` entries when it first needs them. A stored declaration is trusted as a compiled
+  module and a stored result are: what the cache holds decides what a run checks, so a cache
+  directory shared between users or machines must be as trusted as the checkout.
 - `gate sync` loads every declared plugin. It is the command every clone runs before its first
   hook, since it sets `core.hooksPath`, so after it every plugin is in the module cache and its
   declaration is stored, and no check compiles a plugin it does not run.
@@ -514,11 +514,13 @@ all = ["lint", "unit"]
   `--skip-rule` key must leave something out: a key that matches no rule enabled in some scope
   (any scope, whatever the change selection runs), or none `--rule` leaves to run, is a
   configuration error, and so is a `--rule` key whose every enabled rule a skip removes. The
-  summary line names the enabled rules a skip left out (`12 rules (skipped git/main-history,
-  git/no-ci-skip)`), so a hook's output says what it did not check. A plugin whose every rule
-  `--rule` or `--skip-rule` leaves out gets no call, so it is not fetched or loaded in that run;
-  `gate.toml` and `gate.lock` are still checked against each other and the configuration against
-  what the plugin declares, so a skip is never a way around a pin. Both flags are accepted in hook
+  summary line names the enabled rules a skip left out in any scope (`12 rules (skipped
+  git/main-history, git/no-ci-skip)`), so a hook's output says what it did not check. A plugin
+  whose every rule `--rule` or `--skip-rule` leaves out gets no call; once the cache holds its
+  declaration, it is not fetched or loaded in that run, and on a fresh cache the first run still
+  fetches and loads it to read what it declares. `gate.toml` and `gate.lock` are still checked
+  against each other and the configuration against what the plugin declares, so a skip is never
+  a way around a pin. Both flags are accepted in hook
   and CI-job `check` entries, with single rule ids (an entry holds no shell syntax, `*` included).
   There is no history switch: a history rule is turned off by its level, and its git answers are
   cached by commit id. A hook that must not pay for the history rules leaves them out by name,

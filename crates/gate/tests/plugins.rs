@@ -8808,3 +8808,41 @@ pre-commit = ["check --staged --skip-rule git/main-history"]
         "{said}"
     );
 }
+
+#[test]
+fn a_skip_of_a_rule_one_project_enables_by_its_file_a_profile_or_a_preset_leaves_it_out() {
+    for (how, profile, two, rule) in [
+        (
+            "a profile",
+            "\"probe/aspects\" = \"error\"",
+            "[project]\nname = \"two\"\n",
+            "probe/aspects",
+        ),
+        (
+            "the project's gate.toml",
+            "",
+            "[project]\nname = \"two\"\n\n[rules]\n\"probe/norms\" = \"error\"\n",
+            "probe/norms",
+        ),
+        (
+            "a preset",
+            "",
+            "[project]\nname = \"two\"\nextends = [\"probe/lenient\"]\n",
+            "probe/aspects",
+        ),
+    ] {
+        let repo = probe_repo(profile);
+        repo.write("apps/two/gate.toml", two);
+        repo.commit(how);
+        let (code, messages, _, _) = skip_check(&repo, &[]);
+        assert_eq!(code, Some(1), "{how}: the rule runs without the skip");
+        assert!(!messages.is_empty(), "{how}");
+
+        let (code, messages, summary, _) = skip_check(&repo, &["--skip-rule", rule]);
+        assert_eq!((code, messages), (Some(0), Vec::new()), "{how}");
+        assert!(
+            summary.starts_with(&format!("gate check (tree): 0 rules (skipped {rule}), ")),
+            "{how}: {summary}"
+        );
+    }
+}

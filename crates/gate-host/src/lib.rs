@@ -208,8 +208,8 @@ pub fn check(start: &Path, request: &CheckRequest) -> Result<Checked> {
     let mut timings = run.timings;
     let workspace = run.workspace;
     let selection = run.selection;
-    // Rules outside --rule or under --skip-rule never count as run, and their findings are dropped, whatever a plugin
-    // reports.
+    // Rules outside --rule or under --skip-rule never count as run, and their findings are
+    // dropped, whatever a plugin reports.
     let mut ran = run.ran.per_scope.clone();
     ran.retain_rules(&request.rules);
     let mut found = run.findings;

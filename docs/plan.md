@@ -123,7 +123,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-095 | v0.3.1 | A `[ci.github.jobs.<id>]` job runs after other generated jobs: `needs` and `when = "succeeded" \| "completed"`, written as GitHub `needs:` and `if:`; additive, the plugin interface stays `gate:plugin@0.3.0` | done (reviewed, one fix round; gates green on `21bdc78`; includes `url` 2.5.9 for RUSTSEC-2026-0592) | none |
 | T-096 | - | `git/main-history`: remove `release-all-pins` in a future release; the upgrade-branch path of T-094 covers an interface change, and the option admits the wide form in every release commit | open (backlog, no release planned) | T-094 |
 | T-097 | v0.3.1 | Version 0.3.1 for the core and its changelog; every plugin stays at 0.3.0 and the plugin interface at `gate:plugin@0.3.0` | done (gates green on `38bd6fe`; the `v0.3.1` tag) | T-095 |
-| T-100 | next | `gate check --skip-rule <id>` (repeatable, `<plugin>/*` on the command line), also in hook and CI-job `check` entries by single rule id: leaves rules out of a run after `--rule`; a key that matches no enabled rule is an error; the summary names the skipped rules. There is still no history switch | in review (gates green on `3447b7a`) | none |
+| T-100 | next | `gate check --skip-rule <id>` (repeatable, `<plugin>/*` on the command line), also in hook and CI-job `check` entries by single rule id: leaves rules out of a run after `--rule`; a key that matches no enabled rule is an error; the summary names the skipped rules. There is still no history switch | fix round after review (T-100-skip-rule.md) | none |
 
 ## Open after rc.1
 

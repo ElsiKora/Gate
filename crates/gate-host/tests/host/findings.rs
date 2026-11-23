@@ -1223,6 +1223,39 @@ fn a_skipped_rule_s_exceptions_and_baseline_entries_are_not_due() {
 }
 
 #[test]
+fn a_rule_the_skip_leaves_to_run_still_reports_its_unused_exceptions_and_stale_entries() {
+    let other = finding("a/rule", "", Level::Error, "apps/x.ts", 4, "other");
+    let gone = finding("layers/relation", "", Level::Error, "apps/y.ts", 1, "fixed");
+    let skipped_gone = finding("a/rule", "", Level::Error, "apps/z.ts", 2, "fixed too");
+    let unused = exception("layers/relation", "src/gone.ts:Gone.field");
+    let skipped_unused = exception("a/rule", "src/gone.ts:Gone.field");
+    let baseline = Baseline::from_findings(&[gone, skipped_gone]);
+
+    // a/rule is skipped in the same run; layers/relation still runs and reported nothing.
+    let skip = skipping(&[], &["a/rule"]);
+    let mut ran = ran_all();
+    ran.retain_rules(&skip);
+    let mut sink = Findings::new();
+    sink.push(other);
+    sink.retain_rules(&skip);
+    let kept = sink.finish(&[unused, skipped_unused], &baseline, &ran);
+    let reported: Vec<(&str, &str)> = kept
+        .iter()
+        .map(|found| (found.rule.as_str(), found.message.as_str()))
+        .collect();
+    assert_eq!(kept.len(), 2, "{reported:?}");
+    assert_eq!(kept[0].rule, "gate/exceptions", "{reported:?}");
+    assert!(
+        kept[0].message.contains("layers/relation"),
+        "the unused exception is layers/relation's: {reported:?}"
+    );
+    assert_eq!(
+        kept[1].message, "the baseline entry for layers/relation at apps/y.ts matches no finding",
+        "{reported:?}"
+    );
+}
+
+#[test]
 fn the_summary_names_the_rules_a_skip_left_out() {
     let mut report = report(Vec::new());
     report.skipped_rules = vec!["git/main-history".to_owned(), "git/no-ci-skip".to_owned()];

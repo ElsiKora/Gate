@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in review: design approved by the lead (2026-11-23); gates green on `3447b7a` |
+| Status | fix round: the review at `9105478` found nothing blocking; fixes 1 to 5 and 7 made, lane round pending |
 | Release | the next core release (additive; the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate T-100" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -99,6 +99,23 @@ exclusion selector replaces that list; there is still no history switch.
   `a_plugin_whose_every_rule_is_skipped_is_not_loaded_and_its_pin_is_still_checked`,
   `a_pre_commit_hook_that_skips_main_history_does_not_run_it`.
 
+## Fix round (review at `9105478`, 2026-11-23)
+
+1. Tests: a skip of a rule that only a profile, only a project's `gate.toml`, or only a preset
+   enables runs with exit 0 and leaves it out
+   (`a_skip_of_a_rule_one_project_enables_by_its_file_a_profile_or_a_preset_leaves_it_out`).
+2. Test: in the same run, a rule the skip leaves to run still reports its unused exception and
+   stale baseline entry
+   (`a_rule_the_skip_leaves_to_run_still_reports_its_unused_exceptions_and_stale_entries`).
+3. Documents: a fully skipped plugin is not fetched or loaded once the cache holds its
+   declaration; on a fresh cache the first run still fetches and loads it to read it.
+4. Guide: the skipped list covers every scope, so a mode or change selection that would not have
+   run a rule still names it (the `commit-msg` hook as the example).
+5. A whole-plugin key that matches no enabled rule says "or turn one of its rules on".
+6. The skip set computed twice (validation and the run): left as it is, as the lead decided.
+7. The comment in `lib.rs` `check` and the architecture paragraph on plugins a check runs are
+   wrapped at 100 columns.
+
 ## Done when
 
 - The lead approved the design.
@@ -130,5 +147,5 @@ Earlier rounds on this branch, each fixed by the commit after it:
 
 ## Resume point
 
-2026-11-23T07:17:39+00:00: gates green on `3447b7a` (Proof). The branch is pushed and the head
-sent to the lead; next is the independent review.
+2026-11-23T07:23:30+00:00: fix round committed and pushed; next is one lane round on that head,
+its exit codes into Proof, and the head to the lead.
