@@ -27,7 +27,7 @@ use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Location, Report, Run};
 use gate_typescript::owners::{
-    SourceContext, Sources, call_expression, class_declaration, top_level, unwrap,
+    SourceContext, call_expression, class_declaration, top_level, unwrap,
 };
 use gate_typescript::oxc_ast::ast::{
     Argument, CallExpression, Class, ClassElement, Decorator, Expression, MethodDefinition,
@@ -169,8 +169,7 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
                 },
                 options: options.clone(),
             };
-            let typescript = shared.typescript()?;
-            let sources = Sources::new(typescript, &layout.source_root)?;
+            let sources = shared.contexts(&layout.source_root)?;
             let report = run.report();
 
             for source in sources.iter() {

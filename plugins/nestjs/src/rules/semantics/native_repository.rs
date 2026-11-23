@@ -152,8 +152,7 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
                 base: options.service_base.clone(),
             };
             let repository = options.repository_parameter.clone();
-            let typescript = shared.typescript()?;
-            let sources = Sources::new(typescript, &layout.source_root)?;
+            let sources = shared.contexts(&layout.source_root)?;
 
             for source in sources.iter() {
                 for class in top_level(&source.file).filter_map(class_declaration) {
