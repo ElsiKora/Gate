@@ -139,62 +139,62 @@ fn judge_owners(
     name: &str,
 ) -> gate_sdk::Result<()> {
     run.with_call(|run, shared| {
-    let settings = Settings::read(run)?;
-    let tree = run.tree();
-    let exceptions = exceptions(&tree, path, name)?;
+        let settings = Settings::read(run)?;
+        let tree = run.tree();
+        let exceptions = exceptions(&tree, path, name)?;
 
-    if exceptions
-        .iter()
-        .all(|located| located.exception.owner.is_none())
-    {
-        return Ok(());
-    }
-
-    let ledger = shared.ledger(&settings)?;
-    let implementation = settings.implementation.as_str();
-    let mut findings = Findings::default();
-
-    for Located { at, exception } in &exceptions {
-        let Some(owner) = exception.owner.as_deref().map(str::trim) else {
-            continue;
-        };
-        let rule = &exception.rule;
-        let record = ledger
-            .implementation
+        if exceptions
             .iter()
-            .find(|record| record.id == owner);
-
-        match record {
-            None => findings.emit_keyed(
-                "",
-                at,
-                format!("{rule}/{owner}#unlisted"),
-                format!(
-                    "the exception for {rule} names the owner {owner}, which {implementation} does not list; name an open implementation record, or remove the owner"
-                ),
-            ),
-            Some(record) => match record.status.as_deref() {
-                Some(status) if settings.is_open(status) => {}
-                status => {
-                    let state = status.map_or_else(
-                        || "which has no status".to_owned(),
-                        |status| format!("which is `{status}`"),
-                    );
-                    findings.emit_keyed(
-                        "",
-                        at,
-                        format!("{rule}/{owner}#closed"),
-                        format!(
-                            "the exception for {rule} names the owner {owner}, {state}; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
-                        ),
-                    );
-                }
-            },
+            .all(|located| located.exception.owner.is_none())
+        {
+            return Ok(());
         }
-    }
 
-    findings.write_all(run.report());
-    Ok(())
+        let ledger = shared.ledger(&settings)?;
+        let implementation = settings.implementation.as_str();
+        let mut findings = Findings::default();
+
+        for Located { at, exception } in &exceptions {
+            let Some(owner) = exception.owner.as_deref().map(str::trim) else {
+                continue;
+            };
+            let rule = &exception.rule;
+            let record = ledger
+                .implementation
+                .iter()
+                .find(|record| record.id == owner);
+
+            match record {
+                None => findings.emit_keyed(
+                    "",
+                    at,
+                    format!("{rule}/{owner}#unlisted"),
+                    format!(
+                        "the exception for {rule} names the owner {owner}, which {implementation} does not list; name an open implementation record, or remove the owner"
+                    ),
+                ),
+                Some(record) => match record.status.as_deref() {
+                    Some(status) if settings.is_open(status) => {}
+                    status => {
+                        let state = status.map_or_else(
+                            || "which has no status".to_owned(),
+                            |status| format!("which is `{status}`"),
+                        );
+                        findings.emit_keyed(
+                            "",
+                            at,
+                            format!("{rule}/{owner}#closed"),
+                            format!(
+                                "the exception for {rule} names the owner {owner}, {state}; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
+                            ),
+                        );
+                    }
+                },
+            }
+        }
+
+        findings.write_all(run.report());
+        Ok(())
     })
 }
 

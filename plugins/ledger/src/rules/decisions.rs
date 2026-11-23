@@ -87,112 +87,112 @@ impl Rule<crate::LedgerCall> for Decisions {
 
     fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let settings = Settings::read(run)?;
-        let options = run.options();
-        let tree = run.tree();
-        for (name, path) in [
-            ("ledger-root", &options.ledger_root),
-            ("adr-directory", &options.adr_directory),
-            ("coverage", &options.coverage),
-        ] {
-            check_path(&format!("ledger/decisions option {name}"), path)?;
-        }
-
-        let inputs = [
-            Input::shared("decisions", &settings.decisions),
-            Input::own("coverage", &options.coverage),
-        ];
-        if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
-            return Ok(());
-        }
-
-        let options = run.options();
-        let catalog = shared.catalog();
-        let patterns = Patterns::new()?;
-        let mut findings = Findings::default();
-        let index_path = settings.decisions.as_str();
-        let coverage_path = options.coverage.as_str();
-        let reader = Reader {
-            patterns: &patterns,
-            statuses: &options.statuses,
-        };
-        let index = reader.rows(&catalog.read(index_path), index_path, false, &mut findings);
-        let coverage = reader.rows(
-            &catalog.read(coverage_path),
-            coverage_path,
-            true,
-            &mut findings,
-        );
-        let linked = linked_ids(catalog, options, &patterns, &mut findings);
-        let mut ids: Vec<&String> = Vec::new();
-
-        for id in index.order.iter().chain(&coverage.order) {
-            if !ids.contains(&id) {
-                ids.push(id);
+            let settings = Settings::read(run)?;
+            let options = run.options();
+            let tree = run.tree();
+            for (name, path) in [
+                ("ledger-root", &options.ledger_root),
+                ("adr-directory", &options.adr_directory),
+                ("coverage", &options.coverage),
+            ] {
+                check_path(&format!("ledger/decisions option {name}"), path)?;
             }
-        }
 
-        for id in ids {
-            let (Some(indexed), Some(covered)) = (index.rows.get(id), coverage.rows.get(id)) else {
-                let missing = if index.rows.contains_key(id) {
-                    coverage_path
-                } else {
-                    index_path
-                };
-                findings.emit_keyed(
-                    "decision-coverage",
-                    &At::file(missing),
-                    format!("{id}#missing"),
-                    format!("{missing} is missing decision {id}"),
-                );
-                continue;
+            let inputs = [
+                Input::shared("decisions", &settings.decisions),
+                Input::own("coverage", &options.coverage),
+            ];
+            if !input::tracked(run.report(), &tree, Self::NAME, &inputs) {
+                return Ok(());
+            }
+
+            let options = run.options();
+            let catalog = shared.catalog();
+            let patterns = Patterns::new()?;
+            let mut findings = Findings::default();
+            let index_path = settings.decisions.as_str();
+            let coverage_path = options.coverage.as_str();
+            let reader = Reader {
+                patterns: &patterns,
+                statuses: &options.statuses,
             };
+            let index = reader.rows(&catalog.read(index_path), index_path, false, &mut findings);
+            let coverage = reader.rows(
+                &catalog.read(coverage_path),
+                coverage_path,
+                true,
+                &mut findings,
+            );
+            let linked = linked_ids(catalog, options, &patterns, &mut findings);
+            let mut ids: Vec<&String> = Vec::new();
 
-            if indexed.status != covered.status || indexed.canonical != covered.canonical {
-                findings.emit(
-                    "decision-coverage",
-                    &covered.location,
-                    format!(
-                        "{id} has inconsistent status or canonical file in decision index/ADR coverage"
-                    ),
-                );
-            }
-
-            if !tree.contains(&join(&[&options.ledger_root, &covered.canonical])) {
-                findings.emit_keyed(
-                    "decision-canonical-file",
-                    &covered.location,
-                    id.clone(),
-                    format!(
-                        "{id} references missing canonical file {}",
-                        covered.canonical
-                    ),
-                );
-            }
-
-            for reference in &covered.references {
-                let adr = join(&[&options.adr_directory, reference]);
-
-                match linked.get(&adr) {
-                    None => findings.emit_keyed(
-                        "decision-coverage",
-                        &covered.location,
-                        format!("{id}/{reference}#missing-adr"),
-                        format!("{id} references missing ADR {adr}"),
-                    ),
-                    Some(linked) if !linked.contains(id) => findings.emit_keyed(
-                        "decision-coverage",
-                        &At::file(&adr),
-                        format!("{id}#unlinked"),
-                        format!("{adr} must link {id}"),
-                    ),
-                    Some(_) => {}
+            for id in index.order.iter().chain(&coverage.order) {
+                if !ids.contains(&id) {
+                    ids.push(id);
                 }
             }
-        }
 
-        findings.write_all(run.report());
-        Ok(())
+            for id in ids {
+                let (Some(indexed), Some(covered)) = (index.rows.get(id), coverage.rows.get(id)) else {
+                    let missing = if index.rows.contains_key(id) {
+                        coverage_path
+                    } else {
+                        index_path
+                    };
+                    findings.emit_keyed(
+                        "decision-coverage",
+                        &At::file(missing),
+                        format!("{id}#missing"),
+                        format!("{missing} is missing decision {id}"),
+                    );
+                    continue;
+                };
+
+                if indexed.status != covered.status || indexed.canonical != covered.canonical {
+                    findings.emit(
+                        "decision-coverage",
+                        &covered.location,
+                        format!(
+                            "{id} has inconsistent status or canonical file in decision index/ADR coverage"
+                        ),
+                    );
+                }
+
+                if !tree.contains(&join(&[&options.ledger_root, &covered.canonical])) {
+                    findings.emit_keyed(
+                        "decision-canonical-file",
+                        &covered.location,
+                        id.clone(),
+                        format!(
+                            "{id} references missing canonical file {}",
+                            covered.canonical
+                        ),
+                    );
+                }
+
+                for reference in &covered.references {
+                    let adr = join(&[&options.adr_directory, reference]);
+
+                    match linked.get(&adr) {
+                        None => findings.emit_keyed(
+                            "decision-coverage",
+                            &covered.location,
+                            format!("{id}/{reference}#missing-adr"),
+                            format!("{id} references missing ADR {adr}"),
+                        ),
+                        Some(linked) if !linked.contains(id) => findings.emit_keyed(
+                            "decision-coverage",
+                            &At::file(&adr),
+                            format!("{id}#unlinked"),
+                            format!("{adr} must link {id}"),
+                        ),
+                        Some(_) => {}
+                    }
+                }
+            }
+
+            findings.write_all(run.report());
+            Ok(())
         })
     }
 }

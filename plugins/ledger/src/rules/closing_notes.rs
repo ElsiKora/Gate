@@ -45,71 +45,71 @@ impl Rule<crate::LedgerCall> for ClosingNotes {
 
     fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let settings = Settings::read(run)?;
-        let tree = run.tree();
-        let products = settings
-            .parity
-            .as_ref()
-            .map(|parity| parity.products.as_slice())
-            .unwrap_or_default();
+            let settings = Settings::read(run)?;
+            let tree = run.tree();
+            let products = settings
+                .parity
+                .as_ref()
+                .map(|parity| parity.products.as_slice())
+                .unwrap_or_default();
 
-        if run.options().field.trim().is_empty() {
-            return Err(Error::config(
-                "ledger/closing-notes option field is empty; name the record field that lists the temporary differences",
-            ));
-        }
-
-        let patterns = Patterns::new(run.options(), products)?;
-
-        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
-            return Ok(());
-        }
-
-        let name = entry_name(&run.options().field);
-        let ledger = shared.ledger(&settings)?;
-        let mut findings = Findings::default();
-
-        for record in ledger.implementation.iter().chain(&ledger.plan) {
-            for entry in entries(record, &patterns) {
-                let Some(closer) = patterns
-                    .closer
-                    .captures(&entry.text)
-                    .and_then(|captures| captures.get(1))
-                    .map(|closer| closer.as_str())
-                else {
-                    continue;
-                };
-                let Some(status) = ledger.status(closer) else {
-                    continue;
-                };
-                let notes = patterns.note.find_iter(&entry.text).count();
-                let message = match (settings.is_settled(status), notes) {
-                    (true, 0) => format!(
-                        "has a {name} entry whose exact closer {closer} is `{status}`; add the note `Closed (YYYY-MM-DD) by the merge of `I-...` as `<full OID>`` naming the merge that closed it"
-                    ),
-                    (true, 1) | (false, 0) => continue,
-                    (true, _) => format!(
-                        "has a {name} entry with {notes} closing notes; keep the one note naming the merge that closed it, or split the entry at labels"
-                    ),
-                    (false, _) => format!(
-                        "has a {name} entry with a closing note while its exact closer {closer} is still `{status}`; remove the note until the closer closes, or name the record that closed the difference as its closer"
-                    ),
-                };
-                let label = patterns
-                    .label
-                    .find(&entry.text)
-                    .map_or("", |label| label.as_str());
-                findings.emit_keyed(
-                    "",
-                    &record.location.below(entry.line),
-                    format!("{}/{closer}{label}", record.id),
-                    format!("{} {} {message}", record.location.path, record.id),
-                );
+            if run.options().field.trim().is_empty() {
+                return Err(Error::config(
+                    "ledger/closing-notes option field is empty; name the record field that lists the temporary differences",
+                ));
             }
-        }
 
-        findings.write_all(run.report());
-        Ok(())
+            let patterns = Patterns::new(run.options(), products)?;
+
+            if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
+                return Ok(());
+            }
+
+            let name = entry_name(&run.options().field);
+            let ledger = shared.ledger(&settings)?;
+            let mut findings = Findings::default();
+
+            for record in ledger.implementation.iter().chain(&ledger.plan) {
+                for entry in entries(record, &patterns) {
+                    let Some(closer) = patterns
+                        .closer
+                        .captures(&entry.text)
+                        .and_then(|captures| captures.get(1))
+                        .map(|closer| closer.as_str())
+                    else {
+                        continue;
+                    };
+                    let Some(status) = ledger.status(closer) else {
+                        continue;
+                    };
+                    let notes = patterns.note.find_iter(&entry.text).count();
+                    let message = match (settings.is_settled(status), notes) {
+                        (true, 0) => format!(
+                            "has a {name} entry whose exact closer {closer} is `{status}`; add the note `Closed (YYYY-MM-DD) by the merge of `I-...` as `<full OID>`` naming the merge that closed it"
+                        ),
+                        (true, 1) | (false, 0) => continue,
+                        (true, _) => format!(
+                            "has a {name} entry with {notes} closing notes; keep the one note naming the merge that closed it, or split the entry at labels"
+                        ),
+                        (false, _) => format!(
+                            "has a {name} entry with a closing note while its exact closer {closer} is still `{status}`; remove the note until the closer closes, or name the record that closed the difference as its closer"
+                        ),
+                    };
+                    let label = patterns
+                        .label
+                        .find(&entry.text)
+                        .map_or("", |label| label.as_str());
+                    findings.emit_keyed(
+                        "",
+                        &record.location.below(entry.line),
+                        format!("{}/{closer}{label}", record.id),
+                        format!("{} {} {message}", record.location.path, record.id),
+                    );
+                }
+            }
+
+            findings.write_all(run.report());
+            Ok(())
         })
     }
 }

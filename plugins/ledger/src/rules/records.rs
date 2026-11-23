@@ -72,37 +72,37 @@ impl Rule<crate::LedgerCall> for Records {
 
     fn check(&self, run: &mut Run<'_, RecordsOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let settings = Settings::read(run)?;
-        let tree = run.tree();
-        let pending_patterns = run
-            .options()
-            .pending_patterns
-            .iter()
-            .map(|source| {
-                pattern(source).map_err(|error| {
-                    Error::config(format!(
-                        "ledger/records option pending-patterns has the invalid pattern {source:?}: {error}; fix or remove it"
-                    ))
+            let settings = Settings::read(run)?;
+            let tree = run.tree();
+            let pending_patterns = run
+                .options()
+                .pending_patterns
+                .iter()
+                .map(|source| {
+                    pattern(source).map_err(|error| {
+                        Error::config(format!(
+                            "ledger/records option pending-patterns has the invalid pattern {source:?}: {error}; fix or remove it"
+                        ))
+                    })
                 })
-            })
-            .collect::<gate_sdk::Result<Vec<_>>>()?;
+                .collect::<gate_sdk::Result<Vec<_>>>()?;
 
-        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
-            return Ok(());
-        }
+            if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
+                return Ok(());
+            }
 
-        let options = run.options();
-        let tracking = Tracking {
-            settings: &settings,
-            pending_values: &options.pending_values,
-            pending_patterns,
-            blocker_phases: &options.blocker_phases,
-            allowed: None,
-            unfinished_commit_pending: options.unfinished_commit_pending,
-        };
-        let findings = analyse(shared.catalog(), &tracking)?;
-        findings.write(run.report(), |aspect| aspect != STATUS, |aspect| aspect);
-        Ok(())
+            let options = run.options();
+            let tracking = Tracking {
+                settings: &settings,
+                pending_values: &options.pending_values,
+                pending_patterns,
+                blocker_phases: &options.blocker_phases,
+                allowed: None,
+                unfinished_commit_pending: options.unfinished_commit_pending,
+            };
+            let findings = analyse(shared.catalog(), &tracking)?;
+            findings.write(run.report(), |aspect| aspect != STATUS, |aspect| aspect);
+            Ok(())
         })
     }
 }
@@ -145,31 +145,31 @@ impl Rule<crate::LedgerCall> for RecordStatus {
         run: &mut Run<'_, RecordStatusOptions, crate::LedgerCall>,
     ) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let settings = Settings::read(run)?;
-        let tree = run.tree();
+            let settings = Settings::read(run)?;
+            let tree = run.tree();
 
-        if run.options().allowed.as_ref().is_some_and(Vec::is_empty) {
-            return Err(Error::config(
-                "ledger/record-status option allowed is empty; list the allowed statuses or remove the option",
-            ));
-        }
+            if run.options().allowed.as_ref().is_some_and(Vec::is_empty) {
+                return Err(Error::config(
+                    "ledger/record-status option allowed is empty; list the allowed statuses or remove the option",
+                ));
+            }
 
-        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
-            return Ok(());
-        }
+            if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
+                return Ok(());
+            }
 
-        let options = run.options();
-        let tracking = Tracking {
-            settings: &settings,
-            pending_values: &[],
-            pending_patterns: Vec::new(),
-            blocker_phases: &[],
-            allowed: options.allowed.as_deref(),
-            unfinished_commit_pending: false,
-        };
-        let findings = analyse(shared.catalog(), &tracking)?;
-        findings.write(run.report(), |aspect| aspect == STATUS, |_| "");
-        Ok(())
+            let options = run.options();
+            let tracking = Tracking {
+                settings: &settings,
+                pending_values: &[],
+                pending_patterns: Vec::new(),
+                blocker_phases: &[],
+                allowed: options.allowed.as_deref(),
+                unfinished_commit_pending: false,
+            };
+            let findings = analyse(shared.catalog(), &tracking)?;
+            findings.write(run.report(), |aspect| aspect == STATUS, |_| "");
+            Ok(())
         })
     }
 }

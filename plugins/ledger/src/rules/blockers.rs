@@ -29,47 +29,47 @@ impl Rule<crate::LedgerCall> for Blockers {
 
     fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
-        let settings = Settings::read(run)?;
-        let tree = run.tree();
+            let settings = Settings::read(run)?;
+            let tree = run.tree();
 
-        if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
-            return Ok(());
-        }
-
-        let ledger = shared.ledger(&settings)?;
-        let identifier = compile(r"\b((?:I|V|F)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b")?;
-        let none = compile(r"^none\.?$")?;
-        let mut findings = Findings::default();
-
-        for record in ledger.all() {
-            let (Some(status), Some(blocked_by)) = (&record.status, record.field("Blocked by"))
-            else {
-                continue;
-            };
-
-            if settings.is_planned(status) {
-                for captures in identifier.captures_iter(blocked_by) {
-                    let id = captures.get(1).map_or("", |id| id.as_str());
-
-                    if let Some(closed) = closed_status(&ledger, &settings, id) {
-                        closed_blocker(&mut findings, record, id, closed);
-                    }
-                }
-            } else if settings.is_started(status) && !none.is_match(blocked_by) {
-                findings.emit_keyed(
-                    "started-blocker",
-                    &record.location,
-                    record.id.clone(),
-                    format!(
-                        "{} {} is in progress, so its Blocked by must be none; record the remaining wait as a dated Completion dependency",
-                        record.location.path, record.id
-                    ),
-                );
+            if !input::tracked(run.report(), &tree, Self::NAME, &input::records(&settings)) {
+                return Ok(());
             }
-        }
 
-        findings.write_all(run.report());
-        Ok(())
+            let ledger = shared.ledger(&settings)?;
+            let identifier = compile(r"\b((?:I|V|F)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b")?;
+            let none = compile(r"^none\.?$")?;
+            let mut findings = Findings::default();
+
+            for record in ledger.all() {
+                let (Some(status), Some(blocked_by)) = (&record.status, record.field("Blocked by"))
+                else {
+                    continue;
+                };
+
+                if settings.is_planned(status) {
+                    for captures in identifier.captures_iter(blocked_by) {
+                        let id = captures.get(1).map_or("", |id| id.as_str());
+
+                        if let Some(closed) = closed_status(&ledger, &settings, id) {
+                            closed_blocker(&mut findings, record, id, closed);
+                        }
+                    }
+                } else if settings.is_started(status) && !none.is_match(blocked_by) {
+                    findings.emit_keyed(
+                        "started-blocker",
+                        &record.location,
+                        record.id.clone(),
+                        format!(
+                            "{} {} is in progress, so its Blocked by must be none; record the remaining wait as a dated Completion dependency",
+                            record.location.path, record.id
+                        ),
+                    );
+                }
+            }
+
+            findings.write_all(run.report());
+            Ok(())
         })
     }
 }
