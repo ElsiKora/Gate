@@ -470,17 +470,21 @@ fn check_reads_history(arguments: &[&str], generators: &dyn Generators) -> bool 
     let mut skip = Vec::new();
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
-        for (name, keys) in [("--rule", &mut keys), ("--skip-rule", &mut skip)] {
-            let value = if *word == name {
-                words.next().copied()
-            } else {
-                word.strip_prefix(name)
-                    .and_then(|rest| rest.strip_prefix('='))
-            };
-            if let Some(key) = value.and_then(|value| RuleFilter::parse(value).ok()) {
-                keys.push(key);
-                break;
+        let (list, value) = match *word {
+            "--rule" => (&mut keys, words.next().copied()),
+            "--skip-rule" => (&mut skip, words.next().copied()),
+            _ => {
+                if let Some(value) = word.strip_prefix("--rule=") {
+                    (&mut keys, Some(value))
+                } else if let Some(value) = word.strip_prefix("--skip-rule=") {
+                    (&mut skip, Some(value))
+                } else {
+                    continue;
+                }
             }
+        };
+        if let Some(key) = value.and_then(|value| RuleFilter::parse(value).ok()) {
+            list.push(key);
         }
     }
     generators.reads_history(&RuleFilter::new(keys).skipping(skip))
