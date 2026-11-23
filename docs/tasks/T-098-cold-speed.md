@@ -176,6 +176,10 @@ milliseconds of each step follow once the load is under 18.
 | 6: registered identifiers, byte scan, tokens once | `ac0e1bc0` | nestjs | 43.91e9 | 10789 | -2.20e9 (-3.9 %) |
 | 6: FxHash in `advisory-lock-boundary` | `9f0054fb` | nestjs | 41.81e9 | 10789 | -2.10e9 (-4.8 %) |
 | 6: one interpreter per file, fragments read in place | `60a14694` | nestjs | 39.82e9 | 10789 | -2.00e9 (-4.8 %) |
+| 6: import bindings from the text first (reverted by `4cd6ed3d`) | `b5f90e16` | nestjs | 40.09e9 | 10789 | +0.27e9 (+0.7 %) |
+| 6: `module-registry` reads each chapter's source map once | `55d73220` | nestjs | 36.32e9 | 10789 | -3.50e9 (-8.8 %) from `60a14694` |
+| 6: FxHash in `raw-config-access` | `542150f1` | nestjs | 35.35e9 | 10789 | -0.96e9 (-2.7 %) |
+| 6: `asset-storage` tokens borrowed | `570c94a3` | nestjs | 34.82e9 | 10789 | -0.53e9 (-1.5 %) |
 | base | `3736fa66` | ledger | 38.83e9 | 13020 | |
 | 7: ledger call state | `59adf9a7` | ledger | 21.04e9 | 11585 | -17.79e9 (-45.8 %) |
 
@@ -191,13 +195,22 @@ registered-identifier inventory 3.98e9 (of it the numeric evaluation 1.62e9 and 
 shell files 0.22e9), the shell commands 0.16e9, the mint check 0.13e9; the rest, about 6.0e9, is
 reading and parsing its files and the raw-literal and recovery scans.
 
+Each costly nestjs rule alone at `542150f1` (`--rule nestjs/<rule>`, results emptied; each count
+holds the parse and semantic model of the files the rule reads, which the rules share in one call):
+`advisory-lock-boundary` 14.07e9, `notification-egress` 6.23e9, `raw-config-access` 5.98e9,
+`field-inventory` 5.71e9, `automator-metadata` 5.10e9, `asset-storage` 3.29e9, `barrel-exports`
+3.19e9, `module-registry` 2.37e9, `advisory-lock-manifest` 1.48e9. Their sum, 47.4e9, is 12e9 over
+the call's 35.35e9 with every rule, which is the shared parse counted once per rule; so
+`advisory-lock-boundary` stays the rule to take next.
+
 At the base's ratio (6572 ms for 57.0e9 fuel and 1111 ms of reads), nestjs at `60a14694` (39.82e9)
 counts about 3.8 s before its reads, so the next rules of the fuel list are taken next; the
 milliseconds follow at a load under 18.
 
 ## Resume point
 
-2026-11-23T08:29:26+00:00: rebased onto `main` at `03ab4b7`; nestjs 39.82e9 fuel at `60a14694`,
-findings unchanged. Next: the next nestjs rules of the fuel list (`module-registry`,
-`raw-config-access`), then (d) at a load under 18 with `--skip-rule git/main-history --skip-rule
-git/no-ci-skip`. Step 1 (read-ahead) is a local draft only, out of the branch, until (d) asks for it.
+2026-11-23T08:45:19+00:00: nestjs 34.82e9 fuel at `570c94a3`, findings unchanged; lane clippy
+and the tests of the changed nestjs rules exit 0. Next: a native profile of
+`advisory-lock-boundary` (14.07e9 alone), its largest parts taken, then (d) at a load under 18 with
+`--skip-rule git/main-history --skip-rule git/no-ci-skip`. Step 1 (read-ahead) is a local draft only,
+out of the branch, until (d) asks for it.
