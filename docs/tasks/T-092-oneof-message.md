@@ -51,28 +51,42 @@ a, b and c` or `an array of 4 items`.
 | Validator error | Message |
 | --- | --- |
 | `oneOf`, none fits, every branch only `required` keys | `sets none of template or pattern; set exactly one of them` |
-| `oneOf`, more than one fits, every branch only `required` keys | `sets template and pattern; set exactly one of them` |
+| `oneOf`, more than one fits, every branch only `required` keys, two or more set | `sets template and pattern; set exactly one of template or pattern` |
+| the same, the value not a table (every such branch passes it) | `"x" is not a table` (one line with the `type` error's) |
+| the same, fewer than two keys set | the generic `fits more than one of the forms` line |
 | `anyOf`, none fits, every branch only `required` keys | `sets none of a or b; set at least one of them` |
 | `oneOf` or `anyOf`, every form a constant (T-085) | `"next" is not one of "react-vite", "nextjs" or "react-library"` |
-| `oneOf` or `anyOf`, the value has the shape of exactly one branch | that branch's own errors, each translated at its own path |
-| `oneOf` or `anyOf`, none fits, forms named | `true is not a string or a table` |
+| `oneOf` or `anyOf`, the value has the shape of one or more branches | the nearest branch's own errors (fewest errors, the first on a tie), each translated at its own path |
+| `oneOf` or `anyOf`, none fits, forms named | `true is not a string or a table`, leaving out the forms the value has |
 | `oneOf`, more than one fits, forms named | `{given} fits more than one of the forms a, b or c; change it so it fits exactly one` |
 | `not` of `required` keys | `sets k, which is not allowed here; remove it` |
 | `not`, form named | `{given} must not be {form}` |
 | `const` | `{given} is not {value}, the only value allowed here` |
-| `enum` (T-085) | `{given} is not one of a, b or c` |
+| `enum` (T-085) | `{given} is not one of a, b or c`; an `enum` of only `null`: `{given} is not null, the only value allowed here` |
 | `type` | `"three" is not an integer` |
 | `required` | `kind is required; set it` |
-| `additionalProperties` | `unknown key bogus; the keys are a, b and c` (`this table takes no keys` when it has none) |
+| `additionalProperties` | `unknown key bogus; the keys are a, b and c` (`and keys matching ^x-` for `patternProperties`, whose keys the validator never reports; `this table takes no keys` when it has none) |
 | `false` schema | `{given} is not allowed here` |
 | `additionalProperties: false` beside no `properties` (the validator reports it as a `false` schema at the table, with its first value: 0.3.0 printed `False schema does not allow 1` for `[plugins.agents] options = { x = 1 }`) | `unknown key x; this table takes no keys` |
 | `contains`, form named | `{given} holds no item that is {form}` |
-| an error inside `then` or `else` | its own message, then `, because {path} is {if form}` (`is not` for `else`) when the `if` can be named |
+| an error inside `then` or `else` | its own message, then `, because {path} is {if form}` (`is not` for `else`) when the `if` can be named and the value has (or lacks) that form; a table `if` only when it tests nothing but the `const` of keys, each required in the `if` or beside it |
 
-A value "has the shape of a branch" when that branch reports no `type`, `const`, `enum`, `not` or
-`false` error at the value itself and no `const` error at a key of it (a tag). With exactly one such
-branch, the error is inside that form, and the form's own message is the useful one: `{ name = 3 }`
-for `subject` is a table of strings with a number in it, `/subject/name: 3 is not a string`.
+A value "has the shape of a branch" when that branch reports no `type`, `const`, `enum`, `not`,
+`false` or `required` error at the value itself and no `const` error at a key of it (a tag). The
+error is then inside that form, and the form's own message is the useful one: `{ name = 3 }` for
+`subject` is a table of strings with a number in it, `/subject/name: 3 is not a string`. When more
+than one branch has the shape, the nearest speaks: the one with the fewest errors, the first on a
+tie.
+
+**Keywords are read by position.** The error's canonical schema location is walked from the root;
+a segment is a keyword only where the walk is at a schema object, so a property named `then`,
+`else`, `if` or `additionalProperties` is a property. A `then` in a definition keeps its clause;
+an error the `then` reaches through a `$ref` has a canonical location in the referenced schema,
+which does not show the `then`, and gets no clause.
+
+**One budget per error.** Naming the forms of one error visits at most 256 schema nodes, each
+`$ref` followed counting one; past it, the generic message. Two errors that say the same are one
+line.
 
 **Generic messages** (a case the translator cannot name plainly); each still follows the rule and
 the option path:

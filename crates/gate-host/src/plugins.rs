@@ -2456,7 +2456,8 @@ fn languages(settings: &Settings) -> String {
 /// table itself), then what is wrong in the words of `gate.toml`, naming the forms the schema
 /// allows and what was given. The combining keywords (`oneOf`, `anyOf`, `not`, `if`), `const`,
 /// `enum`, `type`, `required`, `additionalProperties`, a `false` schema and `contains` are written
-/// here; the other keywords keep the validator's own words, which already say what is wrong.
+/// here; the other keywords keep the validator's own words, which already say what is wrong. Two
+/// errors that say the same are one line.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct JsonSchemaValidator;
 
@@ -2466,17 +2467,39 @@ impl SchemaValidator for JsonSchemaValidator {
             Err(error) => vec![format!(
                 "the plugin declares an options schema that is not valid JSON Schema ({error}); report it to its authors"
             )],
-            Ok(validator) => validator
-                .iter_errors(value)
-                .flat_map(|error| explain(schema, value, &error, 0))
-                .collect(),
+            Ok(validator) => {
+                let mut lines: Vec<String> = Vec::new();
+                for error in validator.iter_errors(value) {
+                    for line in explain(schema, value, &error, 0) {
+                        if !lines.contains(&line) {
+                            lines.push(line);
+                        }
+                    }
+                }
+                lines
+            }
         }
     }
 }
 
+/// How many schema nodes the naming of one error may visit; past it, the generic message.
+const VISITS: usize = 256;
+
+/// What is left of [`VISITS`] for one error: every schema node a form is read from and every
+/// `$ref` followed spends one, so a deep or recursive union costs at most this much.
+struct Budget(usize);
+
+impl Budget {
+    /// One more visit; `None` when the budget is spent.
+    fn spend(&mut self) -> Option<()> {
+        self.0 = self.0.checked_sub(1)?;
+        Some(())
+    }
+}
+
 /// The lines that say what `error` finds wrong. A `oneOf` or `anyOf` whose value has the shape of
-/// exactly one branch is that branch's own errors, at their own paths: the value is meant as that
-/// form, and what is wrong is inside it.
+/// one or more of its branches is the nearest such branch's own errors, at their own paths: the
+/// value is meant as that form, and what is wrong is inside it.
 fn explain(
     schema: &Value,
     value: &Value,
@@ -2487,19 +2510,16 @@ fn explain(
     if depth < 16
         && let ValidationErrorKind::OneOfNotValid { context }
         | ValidationErrorKind::AnyOf { context } = error.kind()
+        && let Some(branch) = nearest(context, path)
     {
-        let mut shaped = context.iter().filter(|branch| has_shape(branch, path));
-        if let (Some(branch), None) = (shaped.next(), shaped.next())
-            && !branch.is_empty()
-        {
-            return branch
-                .iter()
-                .flat_map(|inner| explain(schema, value, inner, depth + 1))
-                .collect();
-        }
+        return branch
+            .iter()
+            .flat_map(|inner| explain(schema, value, inner, depth + 1))
+            .collect();
     }
-    let mut text = message(schema, value, error);
-    if let Some(condition) = condition(schema, error.schema_path().as_str(), path) {
+    let mut budget = Budget(VISITS);
+    let mut text = message(schema, value, error, &mut budget);
+    if let Some(condition) = condition(schema, value, error, &mut budget) {
         text.push_str(&condition);
     }
     vec![if path.is_empty() {
@@ -2509,9 +2529,27 @@ fn explain(
     }]
 }
 
+/// Of the branches (each its errors) that have the shape of the value at `path`, the one with the
+/// fewest errors, the first on a tie; `None` when none has it.
+fn nearest<'e>(
+    branches: &'e [Vec<ValidationError<'static>>],
+    path: &str,
+) -> Option<&'e [ValidationError<'static>]> {
+    let mut nearest: Option<&[ValidationError<'static>]> = None;
+    for branch in branches {
+        if !branch.is_empty()
+            && has_shape(branch, path)
+            && nearest.is_none_or(|best| branch.len() < best.len())
+        {
+            nearest = Some(branch);
+        }
+    }
+    nearest
+}
+
 /// Whether a branch whose errors are `errors` fits the value at `path` in shape: none of them is a
-/// `type`, `const`, `enum`, `not` or `false` error at the value itself, or a `const` error at one
-/// of its keys (a tag).
+/// `type`, `const`, `enum`, `not`, `false` or `required` error at the value itself, or a `const`
+/// error at one of its keys (a tag).
 fn has_shape(errors: &[ValidationError<'_>], path: &str) -> bool {
     !errors.iter().any(|error| {
         let at = error.instance_path().as_str();
@@ -2519,7 +2557,8 @@ fn has_shape(errors: &[ValidationError<'_>], path: &str) -> bool {
             ValidationErrorKind::Type { .. }
             | ValidationErrorKind::Enum { .. }
             | ValidationErrorKind::Not { .. }
-            | ValidationErrorKind::FalseSchema => at == path,
+            | ValidationErrorKind::FalseSchema
+            | ValidationErrorKind::Required { .. } => at == path,
             ValidationErrorKind::Constant { .. } => {
                 at == path
                     || at
@@ -2532,15 +2571,22 @@ fn has_shape(errors: &[ValidationError<'_>], path: &str) -> bool {
 }
 
 /// What `error` finds wrong in `value` (all the options), without its path.
-fn message(schema: &Value, value: &Value, error: &ValidationError<'_>) -> String {
+fn message(
+    schema: &Value,
+    value: &Value,
+    error: &ValidationError<'_>,
+    budget: &mut Budget,
+) -> String {
     let given = shown(error.instance());
     let keyword = error.schema_path().as_str();
-    let node = keyword_node(schema, keyword);
+    let steps = steps(schema, keyword);
+    let last = steps.last();
+    let node = last.map(|step| step.node);
     match error.kind() {
         ValidationErrorKind::OneOfNotValid { .. }
         | ValidationErrorKind::AnyOf { .. }
-        | ValidationErrorKind::OneOfMultipleValid { .. } => combined(schema, error, &given),
-        ValidationErrorKind::Not { schema: negated } => negation(schema, negated, &given),
+        | ValidationErrorKind::OneOfMultipleValid { .. } => combined(schema, error, &given, budget),
+        ValidationErrorKind::Not { schema: negated } => negation(schema, negated, &given, budget),
         ValidationErrorKind::Constant { expected_value } => {
             format!("{given} is not {expected_value}, the only value allowed here")
         }
@@ -2552,7 +2598,11 @@ fn message(schema: &Value, value: &Value, error: &ValidationError<'_>) -> String
                 .filter(|value| !value.is_null())
                 .map(|value| Form::Constant(value.clone()))
                 .collect();
-            not_any(&given, &forms)
+            if forms.is_empty() {
+                format!("{given} is not null, the only value allowed here")
+            } else {
+                not_any(&given, &forms)
+            }
         }
         ValidationErrorKind::Type { .. } => {
             let forms = node
@@ -2569,9 +2619,14 @@ fn message(schema: &Value, value: &Value, error: &ValidationError<'_>) -> String
             format!("{} is required; set it", key_name(property))
         }
         ValidationErrorKind::AdditionalProperties { unexpected } => unknown_keys(node, unexpected),
-        // `additionalProperties: false` beside no `properties` is reported as a `false` schema at
-        // the table, with the value of its first key: the keys are the table's.
-        ValidationErrorKind::FalseSchema if keyword.ends_with("/additionalProperties") => {
+        // `additionalProperties: false` beside no `properties` or `patternProperties` is reported
+        // as a `false` schema at the table, with the value of its first key: the keys are the
+        // table's.
+        ValidationErrorKind::FalseSchema
+            if last.is_some_and(|step| {
+                step.keyword == "additionalProperties" && step.argument.is_none()
+            }) =>
+        {
             let keys: Vec<String> = value
                 .pointer(error.instance_path().as_str())
                 .and_then(Value::as_object)
@@ -2582,7 +2637,7 @@ fn message(schema: &Value, value: &Value, error: &ValidationError<'_>) -> String
         ValidationErrorKind::FalseSchema => format!("{given} is not allowed here"),
         ValidationErrorKind::Contains => match schema
             .pointer(keyword)
-            .and_then(|item| forms(schema, item, 0))
+            .and_then(|item| forms(schema, item, budget))
         {
             Some(forms) if !forms.is_empty() => {
                 format!("{given} holds no item that is {}", names(&forms))
@@ -2594,47 +2649,74 @@ fn message(schema: &Value, value: &Value, error: &ValidationError<'_>) -> String
 }
 
 /// What a `oneOf` or `anyOf` `error` finds wrong: the keys to set when each branch only requires
-/// one, else the forms the branches allow.
-fn combined(schema: &Value, error: &ValidationError<'_>, given: &str) -> String {
+/// one, else the forms the branches allow that the value does not have.
+fn combined(
+    schema: &Value,
+    error: &ValidationError<'_>,
+    given: &str,
+    budget: &mut Budget,
+) -> String {
+    let instance = error.instance();
     let branches = schema
         .pointer(error.schema_path().as_str())
         .and_then(Value::as_array);
-    let keys = branches.and_then(|branches| key_choice(schema, branches));
-    let forms = branches.and_then(|branches| branch_forms(schema, branches));
-    match (error.kind(), keys, forms) {
-        (ValidationErrorKind::OneOfMultipleValid { .. }, Some(keys), _) => {
+    let keys = branches
+        .and_then(|branches| key_choice(schema, branches, budget))
+        .map(|mut keys| {
+            let mut seen = BTreeSet::new();
+            keys.retain(|key| seen.insert(key.clone()));
+            keys
+        });
+    if let ValidationErrorKind::OneOfMultipleValid { .. } = error.kind() {
+        // Branches that only require keys all pass for a value that is not a table.
+        if let Some(keys) = keys {
             let set: Vec<String> = keys
                 .iter()
-                .filter(|key| error.instance().get(key.as_str()).is_some())
+                .filter(|key| instance.get(key.as_str()).is_some())
                 .cloned()
                 .collect();
-            format!(
-                "sets {}; set exactly one of {}",
-                and_list(&set),
-                or_list(&keys)
-            )
+            if set.len() >= 2 {
+                return format!(
+                    "sets {}; set exactly one of {}",
+                    and_list(&set),
+                    or_list(&keys)
+                );
+            }
+            if !instance.is_object() {
+                return format!("{given} is not a table");
+            }
+        } else if let Some(forms) =
+            branches.and_then(|branches| branch_forms(schema, branches, budget))
+        {
+            return format!(
+                "{given} fits more than one of the forms {}; change it so it fits exactly one",
+                names(&forms)
+            );
         }
-        (ValidationErrorKind::OneOfMultipleValid { .. }, None, Some(forms)) => format!(
-            "{given} fits more than one of the forms {}; change it so it fits exactly one",
-            names(&forms)
-        ),
-        (ValidationErrorKind::OneOfMultipleValid { .. }, None, None) => format!(
+        return format!(
             "{given} fits more than one of the forms this option allows; it must fit exactly one"
-        ),
-        (ValidationErrorKind::OneOfNotValid { .. }, Some(keys), _) => {
-            format!("sets none of {}; set exactly one of them", or_list(&keys))
-        }
-        (_, Some(keys), _) => {
-            format!("sets none of {}; set at least one of them", or_list(&keys))
-        }
-        (_, None, Some(forms)) => not_any(given, &forms),
-        (_, None, None) => format!("{given} fits none of the forms this option allows"),
+        );
     }
+    if let Some(keys) = keys {
+        let how = if matches!(error.kind(), ValidationErrorKind::OneOfNotValid { .. }) {
+            "exactly one"
+        } else {
+            "at least one"
+        };
+        return format!("sets none of {}; set {how} of them", or_list(&keys));
+    }
+    let lacking: Vec<Form> = branches
+        .and_then(|branches| branch_forms(schema, branches, budget))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|form| !form.held_by(instance))
+        .collect();
+    not_any(given, &lacking)
 }
 
 /// What a `not` of `negated` finds wrong.
-fn negation(schema: &Value, negated: &Value, given: &str) -> String {
-    if let Some(keys) = only_required(schema, negated) {
+fn negation(schema: &Value, negated: &Value, given: &str, budget: &mut Budget) -> String {
+    if let Some(keys) = only_required(schema, negated, budget) {
         return match keys.as_slice() {
             [key] => format!("sets {key}, which is not allowed here; remove it"),
             _ => format!(
@@ -2643,20 +2725,28 @@ fn negation(schema: &Value, negated: &Value, given: &str) -> String {
             ),
         };
     }
-    match forms(schema, negated, 0) {
+    match forms(schema, negated, budget) {
         Some(forms) if !forms.is_empty() => format!("{given} must not be {}", names(&forms)),
         _ => format!("{given} is not allowed here"),
     }
 }
 
-/// The keys `unexpected` that the table schema `node` does not take, and the keys it does.
+/// The keys `unexpected` that the table schema `node` does not take, and the keys it does: its
+/// `properties`, and its `patternProperties` as `keys matching <pattern>`. The validator leaves a
+/// key a pattern matches out of `unexpected`.
 fn unknown_keys(node: Option<&Value>, unexpected: &[String]) -> String {
     let noun = if unexpected.len() == 1 { "key" } else { "keys" };
-    let known: Vec<String> = node
-        .and_then(|node| node.get("properties"))
-        .and_then(Value::as_object)
-        .map(|properties| properties.keys().cloned().collect())
-        .unwrap_or_default();
+    let named = |keyword: &str| -> Vec<String> {
+        node.and_then(|node| node.get(keyword))
+            .and_then(Value::as_object)
+            .map(|table| table.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let mut known = named("properties");
+    let patterns = named("patternProperties");
+    if !patterns.is_empty() {
+        known.push(format!("keys matching {}", or_list(&patterns)));
+    }
     if known.is_empty() {
         format!(
             "unknown {noun} {}; this table takes no keys",
@@ -2676,70 +2766,168 @@ fn names(forms: &[Form]) -> String {
     or_list(&forms.iter().map(Form::to_string).collect::<Vec<_>>())
 }
 
-/// `{given} is not one of …` when every form is a constant, else `{given} is not a, b or c`.
+/// `{given} is not one of …` when every form is a constant, else `{given} is not a, b or c`; the
+/// generic message when there is no form.
 fn not_any(given: &str, forms: &[Form]) -> String {
-    let names: Vec<String> = forms.iter().map(Form::to_string).collect();
     match forms {
         [] => format!("{given} fits none of the forms this option allows"),
         [_, _, ..] if forms.iter().all(|form| matches!(form, Form::Constant(_))) => {
-            format!("{given} is not one of {}", or_list(&names))
+            format!("{given} is not one of {}", names(forms))
         }
-        _ => format!("{given} is not {}", or_list(&names)),
+        _ => format!("{given} is not {}", names(forms)),
     }
 }
 
-/// The schema object that holds the keyword at `keyword` (a JSON Pointer into `schema`).
-fn keyword_node<'s>(schema: &'s Value, keyword: &str) -> Option<&'s Value> {
-    schema.pointer(keyword.rsplit_once('/')?.0)
+/// One keyword on the way from the schema's root to an error's keyword, read by position: the
+/// schema object it is in, its name, and for a keyword that takes one, the property name or index
+/// after it.
+struct Step<'s> {
+    node: &'s Value,
+    keyword: String,
+    argument: Option<String>,
+}
+
+/// The keywords on the way to `pointer` (an error's canonical schema location) from the root of
+/// `schema`. A segment is a keyword only where the walk is at a schema object, so a property
+/// named `then` or `additionalProperties` is the argument of `properties`, never a keyword.
+fn steps<'s>(schema: &'s Value, pointer: &str) -> Vec<Step<'s>> {
+    let mut segments = pointer
+        .split('/')
+        .skip(1)
+        .map(|segment| segment.replace("~1", "/").replace("~0", "~"));
+    let mut node = schema;
+    let mut steps = Vec::new();
+    while let Some(keyword) = segments.next() {
+        if !node.is_object() {
+            break;
+        }
+        let value = node.get(&keyword);
+        let takes_argument = matches!(
+            keyword.as_str(),
+            "properties"
+                | "patternProperties"
+                | "dependentSchemas"
+                | "$defs"
+                | "definitions"
+                | "allOf"
+                | "anyOf"
+                | "oneOf"
+                | "prefixItems"
+        ) || (keyword == "items" && value.is_some_and(Value::is_array));
+        let is_schema = matches!(
+            keyword.as_str(),
+            "not"
+                | "if"
+                | "then"
+                | "else"
+                | "items"
+                | "contains"
+                | "additionalProperties"
+                | "additionalItems"
+                | "unevaluatedProperties"
+                | "unevaluatedItems"
+                | "propertyNames"
+        );
+        let argument = if takes_argument {
+            segments.next()
+        } else {
+            None
+        };
+        let next = match (&argument, value) {
+            (Some(argument), Some(Value::Object(table))) => table.get(argument),
+            (Some(argument), Some(Value::Array(items))) => argument
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| items.get(index)),
+            (None, next) if is_schema => next,
+            _ => None,
+        };
+        steps.push(Step {
+            node,
+            keyword,
+            argument,
+        });
+        match next {
+            Some(next) => node = next,
+            None => break,
+        }
+    }
+    steps
 }
 
 /// For an error inside the `then` or `else` of an `if`, `, because <where> is <form>` (`is not`
-/// for `else`) when the `if` can be named; `None` otherwise.
-fn condition(schema: &Value, keyword: &str, path: &str) -> Option<String> {
-    let segments: Vec<&str> = keyword.split('/').collect();
-    let at = segments
+/// for `else`), when the `if` can be named and the value it tests has (or lacks) that form; `None`
+/// otherwise. An `if` that tests the `const` of a key names a table form only when the key is
+/// required, in the `if` or beside it: otherwise the `if` also holds when the key is absent. An
+/// error the canonical location reaches through a `$ref` out of the `then` does not show the `then`,
+/// and gets no clause.
+fn condition(
+    schema: &Value,
+    value: &Value,
+    error: &ValidationError<'_>,
+    budget: &mut Budget,
+) -> Option<String> {
+    let steps = steps(schema, error.schema_path().as_str());
+    let at = steps.iter().rposition(|step| {
+        step.argument.is_none() && matches!(step.keyword.as_str(), "then" | "else")
+    })?;
+    let owner = steps[at].node;
+    let negated = steps[at].keyword == "else";
+    let test = owner.get("if")?;
+    // The value the `if` tests: the error's path less the keys the schema stepped into after it.
+    let descended = steps[at + 1..]
         .iter()
-        .rposition(|segment| matches!(*segment, "then" | "else"))?;
-    let owner = segments[..at].join("/");
-    let test = schema.pointer(&format!("{owner}/if"))?;
-    // The value the `if` tests: `path` less the steps the schema took into it after `then`.
-    let mut steps = 0;
-    let mut rest = segments[at + 1..].iter();
-    while let Some(segment) = rest.next() {
-        match *segment {
-            "properties" | "patternProperties" | "prefixItems" => {
-                rest.next();
-                steps += 1;
-            }
-            "additionalProperties" | "items" | "unevaluatedProperties" | "unevaluatedItems" => {
-                steps += 1;
-            }
-            "allOf" | "anyOf" | "oneOf" | "dependentSchemas" => {
-                rest.next();
-            }
-            _ => {}
-        }
-    }
-    let mut tested = path;
-    for _ in 0..steps {
+        .filter(|step| {
+            matches!(
+                step.keyword.as_str(),
+                "properties"
+                    | "patternProperties"
+                    | "prefixItems"
+                    | "items"
+                    | "additionalProperties"
+                    | "additionalItems"
+                    | "unevaluatedProperties"
+                    | "unevaluatedItems"
+            )
+        })
+        .count();
+    let mut tested = error.instance_path().as_str();
+    for _ in 0..descended {
         tested = tested.rsplit_once('/').map_or("", |(parent, _)| parent);
     }
-    let negated = segments[at] == "else";
-    if let Some(keys) = only_required(schema, test) {
-        let set = if negated { "is not set" } else { "is set" };
-        let keys = if negated {
-            or_list(&keys)
-        } else {
-            and_list(&keys)
-        };
+    let instance = value.pointer(tested)?;
+    if let Some(keys) = only_required(schema, test, budget) {
+        let table = instance.as_object()?;
+        let all = keys.iter().all(|key| table.contains_key(key));
+        if all == negated {
+            return None;
+        }
         let place = if tested.is_empty() {
             String::new()
         } else {
             format!(" at {tested}")
         };
-        return Some(format!(", because {keys} {set}{place}"));
+        return Some(if negated {
+            format!(", because {} is not set{place}", or_list(&keys))
+        } else {
+            format!(", because {} is set{place}", and_list(&keys))
+        });
     }
-    let forms = forms(schema, test, 0).filter(|forms| !forms.is_empty())?;
+    let test = resolved(schema, test, budget)?;
+    let forms = forms(schema, test, budget).filter(|forms| !forms.is_empty())?;
+    if forms.iter().any(|form| matches!(form, Form::Table { .. })) {
+        // A table `if` is named only when it is one tag test: the `const` of keys, each required
+        // in the `if` or beside it, and nothing else; then a table passes it exactly when it has
+        // those values, and fails it exactly when it lacks one.
+        if forms.len() != 1 || !tag_test(test) || !tags_required(test, owner) {
+            return None;
+        }
+        if !negated && !instance.is_object() {
+            return None;
+        }
+    } else if forms.iter().any(|form| form.held_by(instance)) == negated {
+        return None;
+    }
     let place = if tested.is_empty() {
         "the options table"
     } else {
@@ -2749,23 +2937,62 @@ fn condition(schema: &Value, keyword: &str, path: &str) -> Option<String> {
     Some(format!(", because {place} {is} {}", names(&forms)))
 }
 
+/// Whether the `if` schema `test` only tests the `const` of keys: `properties` of constants,
+/// `required`, a `type` of `object`, and words.
+fn tag_test(test: &Value) -> bool {
+    let words = |key: &str| matches!(key, "description" | "title" | "$comment");
+    let Some(object) = test.as_object() else {
+        return false;
+    };
+    object.iter().all(|(key, value)| match key.as_str() {
+        "properties" => value.as_object().is_some_and(|properties| {
+            properties.values().all(|property| {
+                property.get("const").is_some()
+                    && property.as_object().is_some_and(|property| {
+                        property.keys().all(|key| key == "const" || words(key))
+                    })
+            })
+        }),
+        "required" => value.is_array(),
+        "type" => value.as_str() == Some("object"),
+        other => words(other),
+    })
+}
+
+/// Whether every key whose `const` the `if` schema `test` tests is required, in `test` or in
+/// `owner`, the schema that holds the `if`: otherwise the `if` also holds when the key is absent.
+fn tags_required(test: &Value, owner: &Value) -> bool {
+    let required = |node: &Value, key: &str| {
+        node.get("required")
+            .and_then(Value::as_array)
+            .is_some_and(|keys| keys.iter().any(|required| required.as_str() == Some(key)))
+    };
+    test.get("properties")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(_, property)| property.get("const").is_some())
+        .all(|(key, _)| required(test, key) || required(owner, key))
+}
+
 /// The keys of a `oneOf` or `anyOf` whose every branch only requires one key, such as
 /// `[{ "required": ["template"] }, { "required": ["pattern"] }]`; `None` otherwise.
-fn key_choice(schema: &Value, branches: &[Value]) -> Option<Vec<String>> {
+fn key_choice(schema: &Value, branches: &[Value], budget: &mut Budget) -> Option<Vec<String>> {
     branches
         .iter()
-        .map(|branch| match only_required(schema, branch)?.as_slice() {
-            [key] => Some(key.clone()),
-            _ => None,
-        })
+        .map(
+            |branch| match only_required(schema, branch, budget)?.as_slice() {
+                [key] => Some(key.clone()),
+                _ => None,
+            },
+        )
         .collect()
 }
 
 /// The keys `node` requires when requiring them is all it does (a `description` or `title` aside),
 /// through a local `$ref`; `None` otherwise.
-fn only_required(schema: &Value, node: &Value) -> Option<Vec<String>> {
-    let node = resolved(schema, node, 0)?;
-    let object = node.as_object()?;
+fn only_required(schema: &Value, node: &Value, budget: &mut Budget) -> Option<Vec<String>> {
+    let object = resolved(schema, node, budget)?.as_object()?;
     if !object.keys().all(|key| {
         matches!(
             key.as_str(),
@@ -2783,16 +3010,13 @@ fn only_required(schema: &Value, node: &Value) -> Option<Vec<String>> {
     (!keys.is_empty()).then_some(keys)
 }
 
-/// `node` with its local `$ref`s followed.
-fn resolved<'s>(schema: &'s Value, node: &'s Value, depth: usize) -> Option<&'s Value> {
-    match node.get("$ref").and_then(Value::as_str) {
-        Some(reference) if depth < 16 => {
-            let target = schema.pointer(reference.strip_prefix('#')?)?;
-            resolved(schema, target, depth + 1)
-        }
-        Some(_) => None,
-        None => Some(node),
+/// `node` with its local `$ref`s followed, each spending one visit.
+fn resolved<'s>(schema: &'s Value, mut node: &'s Value, budget: &mut Budget) -> Option<&'s Value> {
+    while let Some(reference) = node.get("$ref").and_then(Value::as_str) {
+        budget.spend()?;
+        node = schema.pointer(reference.strip_prefix('#')?)?;
     }
+    Some(node)
 }
 
 /// A form a schema allows, as `gate.toml` writes it.
@@ -2800,25 +3024,68 @@ fn resolved<'s>(schema: &'s Value, node: &'s Value, depth: usize) -> Option<&'s 
 enum Form {
     /// One value: a `const`, or a value of an `enum`.
     Constant(Value),
-    /// A kind of value: `a string`, `a table with kind = "release"`.
-    Shape(String),
+    /// A type other than a table: `a string`, `an integer`.
+    Type(&'static str),
+    /// A table, with the `const` of its tagged keys and the other keys it requires.
+    Table {
+        tags: Vec<(String, Value)>,
+        keys: Vec<String>,
+    },
+}
+
+impl Form {
+    /// Whether `value` has this form.
+    fn held_by(&self, value: &Value) -> bool {
+        match self {
+            Self::Constant(constant) => constant == value,
+            Self::Type(name) => match *name {
+                "a string" => value.is_string(),
+                "an integer" => {
+                    value.is_i64()
+                        || value.is_u64()
+                        || value.as_f64().is_some_and(|number| number.fract() == 0.0)
+                }
+                "a number" => value.is_number(),
+                "true or false" => value.is_boolean(),
+                "an array" => value.is_array(),
+                _ => false,
+            },
+            Self::Table { tags, keys } => value.as_object().is_some_and(|table| {
+                tags.iter()
+                    .all(|(key, constant)| table.get(key) == Some(constant))
+                    && keys.iter().all(|key| table.contains_key(key))
+            }),
+        }
+    }
 }
 
 impl std::fmt::Display for Form {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Constant(value) => write!(formatter, "{value}"),
-            Self::Shape(shape) => formatter.write_str(shape),
+            Self::Type(name) => formatter.write_str(name),
+            Self::Table { tags, keys } => {
+                let parts: Vec<String> = tags
+                    .iter()
+                    .map(|(key, value)| format!("{key} = {value}"))
+                    .chain(keys.iter().cloned())
+                    .collect();
+                if parts.is_empty() {
+                    formatter.write_str("a table")
+                } else {
+                    write!(formatter, "a table with {}", and_list(&parts))
+                }
+            }
         }
     }
 }
 
 /// The forms of the branches of a `oneOf` or `anyOf`, in order, each once; `None` when a branch
 /// cannot be named, or none allows anything `gate.toml` can write.
-fn branch_forms(schema: &Value, branches: &[Value]) -> Option<Vec<Form>> {
+fn branch_forms(schema: &Value, branches: &[Value], budget: &mut Budget) -> Option<Vec<Form>> {
     let mut all: Vec<Form> = Vec::new();
     for branch in branches {
-        for form in forms(schema, branch, 0)? {
+        for form in forms(schema, branch, budget)? {
             if !all.contains(&form) {
                 all.push(form);
             }
@@ -2828,12 +3095,10 @@ fn branch_forms(schema: &Value, branches: &[Value]) -> Option<Vec<Form>> {
 }
 
 /// The forms `node` allows, `null` left out (`gate.toml` cannot write it); `None` when it cannot be
-/// named.
-fn forms(schema: &Value, node: &Value, depth: usize) -> Option<Vec<Form>> {
-    if depth > 16 {
-        return None;
-    }
-    let node = resolved(schema, node, 0)?;
+/// named, or naming it would spend more than the budget.
+fn forms(schema: &Value, node: &Value, budget: &mut Budget) -> Option<Vec<Form>> {
+    budget.spend()?;
+    let node = resolved(schema, node, budget)?;
     if let Some(value) = node.get("const") {
         return Some(
             (!value.is_null())
@@ -2856,45 +3121,47 @@ fn forms(schema: &Value, node: &Value, depth: usize) -> Option<Vec<Form>> {
             if let Some(Value::Array(branches)) = node.get(keyword) {
                 let mut all = Vec::new();
                 for branch in branches {
-                    all.extend(forms(schema, branch, depth + 1)?);
+                    all.extend(forms(schema, branch, budget)?);
                 }
                 return Some(all);
             }
         }
         if node.get("required").is_some() || node.get("properties").is_some() {
-            return Some(vec![Form::Shape(table(node))]);
+            return Some(vec![table(node)]);
         }
         return None;
     };
-    let names: Vec<&str> = match types {
-        Value::String(name) => vec![name.as_str()],
-        Value::Array(names) => names.iter().map(Value::as_str).collect::<Option<_>>()?,
-        _ => return None,
-    };
     let mut all = Vec::new();
-    for name in names {
+    for name in type_names(types)? {
         match name {
             "null" => {}
-            "object" => all.push(Form::Shape(table(node))),
-            other => all.push(Form::Shape(type_name(other)?.to_owned())),
+            "object" => all.push(table(node)),
+            other => all.push(Form::Type(type_name(other)?)),
         }
     }
     Some(all)
 }
 
+/// The names in a `type` keyword's value; `None` when it is not a string or strings.
+fn type_names(types: &Value) -> Option<Vec<&str>> {
+    match types {
+        Value::String(name) => Some(vec![name.as_str()]),
+        Value::Array(names) => names.iter().map(Value::as_str).collect(),
+        _ => None,
+    }
+}
+
 /// The forms of a `type` keyword's value, `null` left out; `None` when it names an unknown type.
 fn type_forms(types: &Value) -> Option<Vec<Form>> {
-    let names: Vec<&str> = match types {
-        Value::String(name) => vec![name.as_str()],
-        Value::Array(names) => names.iter().map(Value::as_str).collect::<Option<_>>()?,
-        _ => return None,
-    };
-    names
+    type_names(types)?
         .into_iter()
         .filter(|name| *name != "null")
         .map(|name| match name {
-            "object" => Some(Form::Shape("a table".to_owned())),
-            other => type_name(other).map(|name| Form::Shape(name.to_owned())),
+            "object" => Some(Form::Table {
+                tags: Vec::new(),
+                keys: Vec::new(),
+            }),
+            other => type_name(other).map(Form::Type),
         })
         .collect()
 }
@@ -2911,33 +3178,25 @@ fn type_name(name: &str) -> Option<&'static str> {
     })
 }
 
-/// A table schema as a form: `a table`, then the `const` of its properties and the keys it
-/// requires, `a table with kind = "release" and subject`.
-fn table(node: &Value) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let mut tagged: Vec<&str> = Vec::new();
-    if let Some(properties) = node.get("properties").and_then(Value::as_object) {
-        for (key, property) in properties {
-            if let Some(value) = property.get("const") {
-                parts.push(format!("{key} = {value}"));
-                tagged.push(key);
-            }
-        }
-    }
-    if let Some(required) = node.get("required").and_then(Value::as_array) {
-        parts.extend(
-            required
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|key| !tagged.contains(key))
-                .map(str::to_owned),
-        );
-    }
-    if parts.is_empty() {
-        "a table".to_owned()
-    } else {
-        format!("a table with {}", and_list(&parts))
-    }
+/// A table schema as a form: the `const` of its properties and the other keys it requires.
+fn table(node: &Value) -> Form {
+    let tags: Vec<(String, Value)> = node
+        .get("properties")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, property)| Some((key.clone(), property.get("const")?.clone())))
+        .collect();
+    let keys = node
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|key| !tags.iter().any(|(tag, _)| tag == key))
+        .map(str::to_owned)
+        .collect();
+    Form::Table { tags, keys }
 }
 
 /// A value as the message shows it: its JSON, or for a table or an array longer than 60
@@ -4502,7 +4761,9 @@ mod tests {
                 &schema,
                 &serde_json::json!({ "forms": [{ "kind": "release" }] })
             ),
-            vec!["/forms/0: subject is required; set it"]
+            vec![
+                r#"/forms/0: {"kind":"release"} is not a table with kind = "release" and subject or a table with kind = "merge""#
+            ]
         );
         assert_eq!(
             said(
@@ -4680,6 +4941,213 @@ mod tests {
         assert_eq!(
             said(&schema, &serde_json::json!({ "template": 3 })),
             vec!["/template: 3 is not a string, because template is set"]
+        );
+    }
+
+    #[test]
+    fn a_branch_lacking_a_required_key_does_not_fit_and_the_nearest_branch_speaks() {
+        let schema = serde_json::json!({ "oneOf": [
+            { "type": "object", "properties": { "a": { "type": "string" } }, "required": ["a"] },
+            { "type": "object", "required": ["b"] }
+        ] });
+        assert_eq!(
+            said(&schema, &serde_json::json!({ "a": "x" })),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            said(&schema, &serde_json::json!({ "a": 1 })),
+            vec!["/a: 1 is not a string"]
+        );
+        // Two tables without required keys both fit: the first of the nearest speaks, and the
+        // message never says the table is not a table.
+        let two = serde_json::json!({ "oneOf": [
+            { "type": "object", "properties": { "a": { "type": "string" } } },
+            { "type": "object", "properties": { "b": { "type": "integer" } } }
+        ] });
+        assert_eq!(
+            said(&two, &serde_json::json!({ "a": 1, "b": "x" })),
+            vec!["/a: 1 is not a string"]
+        );
+        // The forms the value already has are not listed; with none left, the generic message.
+        let held = serde_json::json!({ "anyOf": [
+            { "type": "object", "not": { "required": ["a"] } },
+            { "type": "string" }
+        ] });
+        assert_eq!(
+            said(&held, &serde_json::json!({ "a": 1 })),
+            vec![r#"{"a":1} is not a string"#]
+        );
+        let all_held = serde_json::json!({ "anyOf": [
+            { "type": "object", "not": { "required": ["a"] } },
+            { "type": "object", "not": { "required": ["b"] } }
+        ] });
+        assert_eq!(
+            said(&all_held, &serde_json::json!({ "a": 1, "b": 2 })),
+            vec![r#"{"a":1,"b":2} fits none of the forms this option allows"#]
+        );
+    }
+
+    #[test]
+    fn a_key_choice_names_keys_only_when_two_are_set() {
+        // Branches that only require keys all pass for a value that is not a table.
+        assert_eq!(
+            said(&branch_name_schema(), &serde_json::json!("x")),
+            vec![r#""x" is not a table"#]
+        );
+        let untyped =
+            serde_json::json!({ "oneOf": [{ "required": ["a"] }, { "required": ["b"] }] });
+        assert_eq!(
+            said(&untyped, &serde_json::json!(3)),
+            vec!["3 is not a table"]
+        );
+        let twice = serde_json::json!({ "oneOf": [{ "required": ["a"] }, { "required": ["a"] }] });
+        assert_eq!(
+            said(&twice, &serde_json::json!({ "a": 1 })),
+            vec![
+                r#"{"a":1} fits more than one of the forms this option allows; it must fit exactly one"#
+            ]
+        );
+    }
+
+    #[test]
+    fn an_if_on_a_tag_is_named_only_when_the_tag_is_required() {
+        let items = |item: Value| {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "forms": { "type": "array", "items": item } }
+            })
+        };
+        let unrequired = items(serde_json::json!({
+            "type": "object",
+            "if": { "properties": { "kind": { "const": "release" } } },
+            "then": { "required": ["subject"] }
+        }));
+        // The `if` holds for a table without kind, so "because it is a release form" may be false.
+        assert_eq!(
+            said(&unrequired, &serde_json::json!({ "forms": [{}] })),
+            vec!["/forms/0: subject is required; set it"]
+        );
+        let beside = items(serde_json::json!({
+            "type": "object",
+            "required": ["kind"],
+            "if": { "properties": { "kind": { "const": "release" } } },
+            "then": { "required": ["subject"] }
+        }));
+        assert_eq!(
+            said(
+                &beside,
+                &serde_json::json!({ "forms": [{ "kind": "release" }] })
+            ),
+            vec![
+                r#"/forms/0: subject is required; set it, because /forms/0 is a table with kind = "release""#
+            ]
+        );
+    }
+
+    #[test]
+    fn a_key_a_pattern_matches_is_known_and_the_patterns_are_named() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "a": {} },
+            "patternProperties": { "^x-": {} },
+            "additionalProperties": false
+        });
+        assert_eq!(
+            said(&schema, &serde_json::json!({ "a": 1, "x-y": 2 })),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            said(&schema, &serde_json::json!({ "a": 1, "x-y": 2, "b": 3 })),
+            vec!["unknown key b; the keys are a and keys matching ^x-"]
+        );
+    }
+
+    #[test]
+    fn keys_named_like_keywords_are_read_as_keys() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "if": { "type": "string" },
+                "then": { "type": "string" },
+                "else": { "type": "string" },
+                "additionalProperties": false
+            }
+        });
+        assert_eq!(
+            said(
+                &schema,
+                &serde_json::json!({ "if": "a", "then": "b", "else": "c" })
+            ),
+            Vec::<String>::new()
+        );
+        for (value, expected) in [
+            (serde_json::json!({ "if": 3 }), "/if: 3 is not a string"),
+            (serde_json::json!({ "then": 3 }), "/then: 3 is not a string"),
+            (serde_json::json!({ "else": 3 }), "/else: 3 is not a string"),
+            (
+                serde_json::json!({ "additionalProperties": 1 }),
+                "/additionalProperties: 1 is not allowed here",
+            ),
+        ] {
+            assert_eq!(said(&schema, &value), vec![expected]);
+        }
+    }
+
+    #[test]
+    fn naming_a_union_past_the_budget_is_the_generic_message() {
+        let branches = |count: usize| -> Vec<Value> {
+            (0..count)
+                .map(|_| serde_json::json!({ "$ref": "#/$defs/S" }))
+                .collect()
+        };
+        let union = |count: usize| {
+            serde_json::json!({
+                "properties": { "u": { "anyOf": branches(count) } },
+                "$defs": { "S": { "type": "string" } }
+            })
+        };
+        assert_eq!(
+            said(&union(10), &serde_json::json!({ "u": 3 })),
+            vec!["/u: 3 is not a string"]
+        );
+        assert_eq!(
+            said(&union(300), &serde_json::json!({ "u": 3 })),
+            vec!["/u: 3 fits none of the forms this option allows"]
+        );
+    }
+
+    #[test]
+    fn an_enum_of_only_null_says_null() {
+        let schema = serde_json::json!({ "properties": { "n": { "enum": [null] } } });
+        assert_eq!(
+            said(&schema, &serde_json::json!({ "n": 3 })),
+            vec!["/n: 3 is not null, the only value allowed here"]
+        );
+    }
+
+    #[test]
+    fn a_then_in_a_definition_keeps_its_if_and_a_ref_out_of_a_then_drops_it() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "inside": { "$ref": "#/$defs/Inside" },
+                "out": { "$ref": "#/$defs/Out" }
+            },
+            "$defs": {
+                "Inside": { "type": "object", "if": { "required": ["a"] }, "then": { "required": ["b"] } },
+                "Out": { "type": "object", "if": { "required": ["a"] }, "then": { "$ref": "#/$defs/B" } },
+                "B": { "required": ["b"] }
+            }
+        });
+        // The canonical location is inside the definition's own `then`: the clause stays.
+        assert_eq!(
+            said(&schema, &serde_json::json!({ "inside": { "a": 1 } })),
+            vec!["/inside: b is required; set it, because a is set at /inside"]
+        );
+        // The canonical location is `B`, which does not show the `then` that reached it: dropped.
+        assert_eq!(
+            said(&schema, &serde_json::json!({ "out": { "a": 1 } })),
+            vec!["/out: b is required; set it"]
         );
     }
 
