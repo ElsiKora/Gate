@@ -10,6 +10,7 @@ use gate_typescript::oxc_ast::ast::{
     MethodDefinitionKind, StaticMemberExpression, TSType, TSTypeAnnotation, TSTypeName,
     VariableDeclarationKind,
 };
+use gate_typescript::oxc_semantic::Reference;
 use gate_typescript::oxc_span::{GetSpan as _, Span as Range};
 use gate_typescript::oxc_syntax::node::NodeId;
 use gate_typescript::oxc_syntax::operator::BinaryOperator;
@@ -312,7 +313,7 @@ impl<'a> Graph<'_, 'a> {
         !scoping.symbol_redeclarations(symbol).is_empty()
             || scoping
                 .get_resolved_references(symbol)
-                .any(|reference| reference.is_write())
+                .any(Reference::is_write)
     }
 
     /// The strings of a non-empty literal array, or of a `const` bound to one.
