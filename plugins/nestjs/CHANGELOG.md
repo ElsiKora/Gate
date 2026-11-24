@@ -16,12 +16,12 @@ rule id, aspect, option or message changes.
   `find`, `findIndex`, `findLast`, `findLastIndex`, `some` or `every` on the array, with or without
   optional chaining. Such a read is no longer `dynamic`, and the example lines of its keys are no
   longer `unread`. The first parameter of `reduce` and `reduceRight`, a callback passed by name, a
-  later parameter and a method on any other value still name no key.
+  later parameter and a method on any other value still name no key. ([7a5854e](https://github.com/ElsiKora/Gate/commit/7a5854e09998f41ab2f7d284dc876f738eb0d7f0))
 - `raw-config-access` no longer counts a getter call whose first argument can never be a key (an
   object, array, function or class expression, or a numeric, bigint, boolean, `null` or
   regular-expression literal) as a key read, so a configuration store's `get({ ... })` is not
   `dynamic`. A name, call, member or other unknown expression is still `dynamic`, and `process.env`
-  reads and `boundary` do not change.
+  reads and `boundary` do not change. ([7a5854e](https://github.com/ElsiKora/Gate/commit/7a5854e09998f41ab2f7d284dc876f738eb0d7f0))
 
 ## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.0...plugin-nestjs-v0.3.1) (2026-11-23)
 
