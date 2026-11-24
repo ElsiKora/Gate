@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | the next core release |
 | Writer | the T-092 writer |
 | Reviewer | a session that did not write it |
@@ -99,6 +99,35 @@ option path: `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `mult
   build.
 - No plugin component bytes change: this touches the host only.
 
+## Proof
+
+Lane round on `37f2d39`, `one-gate.sh` in Gate's lane, from 2026-11-24T19:04:23+00:00 to
+2026-11-24T19:24:07+00:00 (1184 s), lane exit 0, in a detached worktree of the commit with hooks off;
+the log check found every workspace crate compiled from it:
+
+| Command | Exit |
+| --- | --- |
+| mutant: `explain` replaced by the validator's own text, `cargo test -p gate-host --lib` | 101 (all 10 validator tests fail, as they must) |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1645 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+| `cargo build --release --offline --locked -j 4` | 0 |
+
+The 13 components, each built by `scripts/build-component.sh <package> wasm32-wasip2` at `37f2d39`
+and at `main` `d8f213a` on the same target directory: every sha256 is the same at both (git
+`022c92ae…`, nestjs `aa5715bd…`, the others likewise). No plugin component bytes change; the change
+is in the host only.
+
+`leak-scan.sh` on the worktree and with `--branch origin/main`: no output, exit 0.
+
 ## Resume point
+
+2026-11-24T19:24:18+00:00: the lane round on `37f2d39` exited 0 (see Proof). Next: the lead's
+review.
+
+2026-11-24T19:05:00+00:00: the translator and its tests are written (`37f2d39`); a lane job on
+`gate-host` alone ran clippy `-D warnings` (exit 0) and the 14 validator tests (14 passed). Next: the
+lane round on `37f2d39`, then the report to the lead.
 
 2026-11-24T18:53:20+00:00: design written; next, the translator and its tests.
