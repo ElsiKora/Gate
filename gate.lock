@@ -1,15 +1,15 @@
 # Written by `gate lock`. Commit it; never edit it by hand.
 
 [core]
-version = "0.3.0"
+version = "0.3.2"
 
 [core.targets.aarch64-apple-darwin]
-url = "https://github.com/ElsiKora/Gate/releases/download/v0.3.0/gate-aarch64-apple-darwin.tar.gz"
-sha256 = "20bd8a404196449f5c72a21b4909374ee79e7f07e6ae10768dbaeebbdbe1d1cb"
+url = "https://github.com/ElsiKora/Gate/releases/download/v0.3.2/gate-aarch64-apple-darwin.tar.gz"
+sha256 = "09956c01fe4a73babab8b59bf3d7c49126fb0e3beffa6ad73fdc14fe26acd0d7"
 
 [core.targets.x86_64-unknown-linux-musl]
-url = "https://github.com/ElsiKora/Gate/releases/download/v0.3.0/gate-x86_64-unknown-linux-musl.tar.gz"
-sha256 = "0e7df9b69768a400e92a8d62487fc3a55c23bac5e4ed1a9878d870ad54d4cc54"
+url = "https://github.com/ElsiKora/Gate/releases/download/v0.3.2/gate-x86_64-unknown-linux-musl.tar.gz"
+sha256 = "0adf6bf6c0e81f911d5150f82a15cd31a70e203e291bb3fbfe6ac7e1ce9b7a21"
 
 [plugins."ElsiKora/Gate:agents@0.3.0"]
 url = "https://github.com/ElsiKora/Gate/releases/download/plugin-agents-v0.3.0/agents.wasm"
