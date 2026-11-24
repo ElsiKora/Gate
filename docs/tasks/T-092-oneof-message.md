@@ -1,0 +1,103 @@
+# T-092: Rule options that fail a `oneOf` say what is wrong and what to write
+
+| Field | Value |
+| --- | --- |
+| Status | in progress |
+| Release | the next core release |
+| Writer | the T-092 writer |
+| Reviewer | a session that did not write it |
+| Depends on | `main` at `d8f213a` |
+| Touches | `crates/gate-host/src/plugins.rs` (`JsonSchemaValidator`), its unit tests, `crates/gate/tests/plugins.rs`, `CHANGELOG.md` |
+
+## Goal
+
+A rule option, or a plugin option, that breaks its JSON Schema printed the validator's own text for
+the combining keywords. With the released 0.3.0 core and `"git/branch-name"`:
+
+| Given `options` | Printed after `"git/branch-name" options:` |
+| --- | --- |
+| `{}` | `{} is not valid under any of the schemas listed in the 'oneOf' keyword` |
+| `{ pattern = "x", template = ":type/:name" }` | `{"pattern":"x","template":":type/:name"} is valid under more than one of the schemas listed in the 'oneOf' keyword` |
+| `{ pattern = "x", subject = true }` | `/subject: true is not valid under any of the schemas listed in the 'anyOf' keyword` |
+| `{ pattern = "x", subject = { name = 3 } }` | `/subject: {"name":3} is not valid under any of the schemas listed in the 'anyOf' keyword` |
+| `{ pattern = "x", bogus = 1 }` | `Additional properties are not allowed ('bogus' was unexpected)` |
+
+T-085 fixed the same class for `enum`: `/pack: "next" is not one of "react-vite", "nextjs" or
+"react-library"`. This task does the same for every combining keyword and the other raw wordings of
+the validator.
+
+## Design
+
+One translator, `JsonSchemaValidator::validate`, turns each validator error into one line. The
+caller already names the rule (`"<plugin>/<rule>" options:`) or the plugin (`plugin <name>
+options:`) and the file and line; the line starts with the option path (`/subject: `), left out
+for the options table itself, as before. There is no other message path: every kind below is
+written by the translator, never by the validator's `Display`.
+
+**Forms.** A schema is named as a list of forms, through local `$ref`s:
+- a `const` or an `enum` value: the value, as JSON (`"release"`, `3`);
+- a `type`: `a string`, `an integer`, `a number`, `true or false`, `an array`, `a table`; `null` is
+  left out, since `gate.toml` cannot write it;
+- a table names its `required` keys and the `const` of its properties: `a table with kind =
+  "release" and subject`;
+- a nested `oneOf` or `anyOf` without a `type` of its own: the forms of its branches.
+
+Anything else (`allOf`, `not`, an empty schema, a branch with neither `type` nor `required`) cannot
+be named, and the whole keyword falls to its generic message.
+
+**The value given** is its JSON; a table or array longer than 60 characters is written `a table of
+a, b and c` or `an array of 4 items`.
+
+| Validator error | Message |
+| --- | --- |
+| `oneOf`, none fits, every branch only `required` keys | `sets none of template or pattern; set exactly one of them` |
+| `oneOf`, more than one fits, every branch only `required` keys | `sets template and pattern; set exactly one of them` |
+| `anyOf`, none fits, every branch only `required` keys | `sets none of a or b; set at least one of them` |
+| `oneOf` or `anyOf`, every form a constant (T-085) | `"next" is not one of "react-vite", "nextjs" or "react-library"` |
+| `oneOf` or `anyOf`, the value has the shape of exactly one branch | that branch's own errors, each translated at its own path |
+| `oneOf` or `anyOf`, none fits, forms named | `true is not a string or a table` |
+| `oneOf`, more than one fits, forms named | `{given} fits more than one of the forms a, b or c; change it so it fits exactly one` |
+| `not` of `required` keys | `sets k, which is not allowed here; remove it` |
+| `not`, form named | `{given} must not be {form}` |
+| `const` | `{given} is not {value}, the only value allowed here` |
+| `enum` (T-085) | `{given} is not one of a, b or c` |
+| `type` | `"three" is not an integer` |
+| `required` | `kind is required; set it` |
+| `additionalProperties` | `unknown key bogus; the keys are a, b and c` (`this table takes no keys` when it has none) |
+| `false` schema | `{given} is not allowed here` |
+| `contains`, form named | `{given} holds no item that is {form}` |
+| an error inside `then` or `else` | its own message, then `, because {path} is {if form}` (`is not` for `else`) when the `if` can be named |
+
+A value "has the shape of a branch" when that branch reports no `type`, `const`, `enum`, `not` or
+`false` error at the value itself and no `const` error at a key of it (a tag). With exactly one such
+branch, the error is inside that form, and the form's own message is the useful one: `{ name = 3 }`
+for `subject` is a table of strings with a number in it, `/subject/name: 3 is not a string`.
+
+**Generic messages** (a case the translator cannot name plainly); each still follows the rule and
+the option path:
+- `oneOf` or `anyOf`, none fits, a form not nameable: `{given} fits none of the forms this option
+  allows`;
+- `oneOf`, more than one fits, a form not nameable: `{given} fits more than one of the forms this
+  option allows; it must fit exactly one`;
+- `not`, its schema not nameable: `{given} is not allowed here`;
+- `contains`, the item schema not nameable: `{given} holds no item of the form this option needs`.
+
+**Kept in the validator's words**, which already say what is wrong in plain terms and come after the
+option path: `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`,
+`minLength`, `maxLength`, `pattern`, `format`, `minItems`, `maxItems`, `uniqueItems`,
+`minProperties`, `maxProperties`, `additionalItems`, `unevaluatedItems`, `unevaluatedProperties`,
+the content and regex-engine errors. `propertyNames` is its inner error, translated.
+
+## Done when
+
+- Unit tests of `JsonSchemaValidator` cover each translated kind, pass and fail, each asserting
+  the new text and that the validator's raw text is gone.
+- A CLI test with the built git plugin: `"git/branch-name"` with `options = {}` names template and
+  pattern.
+- One lane round on the pushed tip exits 0 for fmt, clippy `-D warnings`, test, deny and the release
+  build.
+- No plugin component bytes change: this touches the host only.
+
+## Resume point
+
+2026-11-24T18:53:20+00:00: design written; next, the translator and its tests.
