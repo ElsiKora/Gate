@@ -44,7 +44,7 @@ root:
 ```toml
 # apps/api/gate.toml
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.1", reads = ["tsconfig.base.json"] }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2", reads = ["tsconfig.base.json"] }
 ```
 
 Without the grant the module resolver runs without the base's `paths`, and the plugin reports the

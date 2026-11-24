@@ -29,15 +29,34 @@ not it): a member (`process.env.KEY`), an element (`process.env["KEY"]`), a dest
 **Coverage.** A key is read when a getter of a raw configuration service (`getters`, called on a name
 or class property typed as one of the services, or on a service itself) or a read of `process.env`
 names it, in any file below the source root, inside the boundary or not. The key is named when it is
-a string literal, a template without substitutions, a `const` bound to one, or the variable of a
-`for ... of` loop over a literal array of strings, in the same file. The reads are compared with
-`example-file`, whose lines are `KEY=value`, `export KEY=value`, comments and blank lines:
+a string literal, a template without substitutions, a `const` bound to one, the variable of a
+`for ... of` loop over a literal array of strings, or the element parameter of a callback over one,
+in the same file. A literal array of strings is written in place or is a `const` bound to one, also
+under `as`, `satisfies` and `!`. The element parameter is the first parameter, a plain name (not
+destructured, without a default, not a rest parameter), of an arrow function or function expression
+passed directly as the first argument of `map`, `flatMap`, `forEach`, `filter`, `find`, `findIndex`,
+`findLast`, `findLastIndex`, `some` or `every` called on the array, with or without optional
+chaining: in
+`Object.fromEntries(["A", "B"].map((key) => [key, config.getOrThrow(key)]))` the getter reads `A` and
+`B`. The first parameter of a `reduce` or `reduceRight` callback is the accumulator, and a callback
+passed by name, a later parameter, or a method called on anything else names no key.
+A loop variable or callback parameter that anything assigns, updates or redeclares names no key.
+An empty array names no key, so a read through its loop variable or callback parameter is `dynamic`.
+
+A getter call whose first argument can never be a key is no read and is reported under no coverage
+aspect: an object or array literal, an arrow function or function expression, a class expression,
+or a numeric, bigint, boolean, `null` or regular-expression literal, also under parentheses, `as`,
+`satisfies` and `!`. So `store.get({ name, section })` on a raw service that is also a store is not a
+read. This applies to getters only: a `process.env` element with such a key is still `dynamic`.
+
+The reads are compared with `example-file`, whose lines are `KEY=value`, `export KEY=value`,
+comments and blank lines:
 
 | Aspect | Reported when | At |
 | --- | --- | --- |
 | `undeclared` | a key the code reads has no line in `example-file` | the first read of each file that reads it |
 | `unread` | a line names a key nothing reads, and `external-keys` does not list it | the line |
-| `dynamic` | a read names its key some other way | the read |
+| `dynamic` | a read names its key some other way: a name, call, member or other expression whose value is not known, such as a parameter | the read |
 | `example-missing` | `example-file` is not tracked and the code reads a key | `example-file`, once |
 | `example-syntax` | a line of `example-file` is no assignment, comment or blank line | the line |
 
