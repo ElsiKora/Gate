@@ -28,6 +28,16 @@ ruled on the rule's meaning, for both shapes in general rather than as special c
    boolean, `null` or regular-expression literal. An identifier, call, member or other expression
    whose value is unknown stays `dynamic`. `boundary` and `process.env` reads do not change.
 
+The review of `b60f5f3` found nothing serious; in the fix round the lead ruled further:
+
+3. A loop variable or callback parameter names its keys only if nothing writes it: an assignment, an
+   update, or a redeclaration such as a `var` of the same name in the callback. Otherwise the read
+   is `dynamic`.
+4. An empty array names no key: a read through its loop variable or callback parameter is `dynamic`,
+   it does not disappear.
+5. `array_keys` sees through `!` as `keys` does; a computed method name (`["K"]["map"]`) stays
+   `dynamic`; callback keys in `process.env[key]` are named.
+
 ## Scope
 
 1. `reads.rs`: `bound_keys` follows a parameter to its callback (`callback_keys`) and takes the
@@ -53,45 +63,60 @@ ruled on the rule's meaning, for both shapes in general rather than as special c
 
 ## Proof
 
-Lane round on `c7674ab`, `one-gate.sh` in Gate's lane, from 2026-11-24T05:05:05+00:00 to
-2026-11-24T05:36:56+00:00, in a detached worktree of the commit, each workspace crate compiled from it
-(the log check found none missing):
+Final lane round on `ae6df72` (after the fix round), `one-gate.sh` in Gate's lane, from
+2026-11-24T05:48:36+00:00 to 2026-11-24T06:12:04+00:00, lane exit 0, in a detached worktree of the
+commit, each workspace crate compiled from it (the log check found none missing). The round before it,
+on `31e5637`, stopped at clippy (exit 101, a redundant closure in the write check), fixed in `ae6df72`.
 
 | Command | Exit |
 | --- | --- |
-| mutant A (no callback keys, no getter skip): `cargo test -p gate-plugin-nestjs --test raw_config_access` | 101: the two tests of the named forms and of the getter fail, the rest pass |
-| mutant B (any parameter of any method's callback names keys): the same | 101: the test of the not-named forms fails, the rest pass |
+| mutant A (no callback keys, no getter skip): `cargo test -p gate-plugin-nestjs --test raw_config_access` | 101: the tests of the named forms, the getter, written names and empty arrays fail |
+| mutant B (any parameter of any method's callback names keys): the same | 101: only the test of the not-named forms fails |
+| mutant C (a written name still names keys): the same | 101: only the test of written names fails |
+| mutant D (an empty array names nothing, silently): the same | 101: only the test of empty arrays fails |
+| mutant E (`array_keys` does not see through `!`): the same | 101: only the test of the named forms fails |
 | `cargo fmt --all --check` | 0 |
 | `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
-| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1634 passed, 0 failed) |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1636 passed, 0 failed) |
 | `cargo deny --offline --locked check` | 0 |
-| `scripts/build-component.sh <package> wasm32-wasip2`, for each of the 13 plugins, at `c7674ab` and at `df1a4c5` | 0 each |
+| `scripts/build-component.sh <package> wasm32-wasip2`, for each of the 13 plugins, at `ae6df72` and at `df1a4c5` | 0 each |
+
+The first round, on `c7674ab` before the fix round (2026-11-24T05:05:05+00:00 to 05:36:56+00:00),
+exited 0 for the same commands with 1634 tests, and only nestjs bytes changed there too.
 
 The new tests in `plugins/nestjs/tests/raw_config_access.rs`:
 
 - `the_element_parameter_of_a_callback_over_a_literal_array_names_its_keys`: each of the ten methods,
   an arrow function and a function expression, a literal array and a `const` bound to one (also
-  `as const`), a typed parameter, optional chaining on the member and on the call, a parenthesized
-  callback; with every key in the example file nothing is reported, without them each key is
-  `undeclared` at its line.
-- `a_parameter_that_is_no_element_of_a_literal_array_stays_dynamic`: `reduce`, `reduceRight`, a
-  function declaration and an arrow `const` passed by name, a second parameter, a callback on a
-  `string[]` parameter and on a `let` array, a destructured, a defaulted and a rest parameter, a
-  callback wrapped in a call, a callback as the second argument; each read is `dynamic` and each
-  example line `unread`.
+  `as const` and under `!`), a typed parameter, optional chaining on the member and on the call, a
+  parenthesized callback, an inner callback whose parameter shadows the outer one, and callback keys
+  in `process.env[key]`; with every key in the example file nothing is reported, without them each
+  key is `undeclared` at its line.
+- `a_parameter_that_is_no_element_of_a_literal_array_stays_dynamic`: `reduce`, `reduceRight`, `sort`,
+  a function declaration and an arrow `const` passed by name, a second parameter, a callback on a
+  `string[]` parameter, on a `let` array and on a `const` bound to that parameter, an array with a
+  non-string element, a computed method name, a chained receiver, an inner callback over a parameter
+  that shadows the outer one, a destructured, a defaulted and a rest parameter, a callback wrapped in
+  a call, a callback as the second argument; each read is `dynamic` and each example line `unread`.
+- `a_loop_variable_or_callback_parameter_names_keys_only_when_nothing_writes_it`: a `let` loop
+  variable and a callback parameter that nothing writes are named (`undeclared` without their lines);
+  an assigned loop variable, a loop variable redeclared by `var`, an assigned, an updated and a
+  `var`-redeclared callback parameter are `dynamic` and their lines `unread`.
+- `an_empty_array_names_no_key_and_its_reads_are_dynamic`: a loop and a callback over `[]`, over a
+  `const` bound to `[]` and over `[] as string[]` are `dynamic`; the same over `["K_FULL"]` are named.
 - `a_getter_whose_argument_can_never_be_a_key_is_no_read_and_others_stay_dynamic`: an object and an
-  array literal, an arrow function, a function and a class expression, numeric, bigint, boolean,
-  `null` and regular-expression literals, and literals under parentheses, `as`, `satisfies` and `!`
-  give no finding; an identifier, a member, a call, a conditional, a negated number and a
+  array literal, an arrow function, a function and a class expression, numeric, bigint, `true`,
+  `false`, `null` and regular-expression literals, and literals under parentheses, `as`, `satisfies`
+  and `!` give no finding; an identifier, a member, a call, a conditional, a negated number and a
   `process.env` element are `dynamic`; a store call outside the boundary is still `boundary`, and an
   example line only such a call could read is `unread`.
 
 ## Plugin bytes
 
 Every plugin built as released on this machine (macOS host), `shasum -a 256` of each wasm, at
-`df1a4c5` (release 0.3.2) and at this branch's tip `c7674ab`, in the lane round above:
+`df1a4c5` (release 0.3.2) and at this branch's tip `ae6df72`, in the final lane round above:
 
-| Plugin | `df1a4c5` | tip `c7674ab` | Changed |
+| Plugin | `df1a4c5` | tip `ae6df72` | Changed |
 | --- | --- | --- | --- |
 | agents | `83c7495484d7aee00b3efe6d71b40bbb834349fd39bc080e9c80d05dabe11098` | same | no |
 | cdk | `40dda858e30ac4c6b385cb6e8a11ce7b97ff5f6354a82dfdc41eb09181c1f7be` | same | no |
@@ -102,7 +127,7 @@ Every plugin built as released on this machine (macOS host), `shasum -a 256` of 
 | git | `022c92aeccb0e6961e1b20fc4b2da9facdbf983673c4c70c341a63ca0514763a` | same | no |
 | ledger | `0517de8eac4461275b587ffca08d9627eecb9fa17a16ddd62bf44dbc1a14ba45` | same | no |
 | markdown | `2ee0a7ebbbaaf96fc3205c863f1e673010f83e469fab0d761589a166ae0c755c` | same | no |
-| nestjs | `4f692f72b5873ebd655914afaa272c8933f48b4a7d28e19c002e842a06719cb1` | `66ced843ef75dc35f8ccfb23aa564d22aff9156f0113192868a7a4471b096c2c` | yes |
+| nestjs | `4f692f72b5873ebd655914afaa272c8933f48b4a7d28e19c002e842a06719cb1` | `de94050182549cbe6315f0cc25dc2b9e2408d94378b1a67583f60fb1109710f7` | yes |
 | node | `444b900da4e2f658221cb9c6d98d17708b689c7d9564d7e09142e4312f465e09` | same | no |
 | repository | `b11c7aada6c9dc8aa3c53343081fdbc1fdf365e9336b27764a87066caea65b5f` | same | no |
 | typescript | `3ee4b47b10555ceffdaad0c961e7168f6248bd2ad0e4601ee56e3ce5d87c5351` | same | no |
@@ -115,11 +140,14 @@ On the converted consumer copy of T-098, locked on the released 0.3.2 core and p
 cold check without history each (`gate check --format json --skip-rule git/main-history --skip-rule
 git/no-ci-skip`, from the pinned blobs alone): with the released nestjs 0.3.1, 85 findings
 (2026-11-24T05:02:37+00:00, exit 1; the same list T-098 recorded); with the tip's nestjs pinned by
-`gate lock --set ... --file`, 80 findings (2026-11-24T05:37:40+00:00, exit 1). Five removed, none
+`gate lock --set ... --file`, 80 findings (the nestjs of `c7674ab`, 2026-11-24T05:37:40+00:00,
+exit 1). Five removed, none
 added: the three `dynamic` reads of the lead's question and the two `unread` example lines the
-callback reads. The lists and the diff are kept outside the repository.
+callback reads. After the fix round, the same run with the nestjs of `ae6df72` (2026-11-24T06:12:44+00:00,
+exit 1) gives the same 80 findings, list for list. The lists and the diffs are kept outside the
+repository.
 
 ## Resume point
 
-2026-11-24T05:38:43+00:00: done for review. Gates green on `c7674ab`, only nestjs changes, the consumer
-run shows the five findings cleared and none added. Next: review by a session that did not write it.
+2026-11-24T06:13:02+00:00: fix round done. Gates green on `ae6df72`, only nestjs changes, the consumer
+run still shows the five findings cleared and none added. Next: the lead decides.
