@@ -7,7 +7,7 @@
 | Writer | "Gate 011" |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `df1a4c5` (release 0.3.2) |
-| Touches | `plugins/nestjs/src/rules/structure/raw_config_access/reads.rs`, `plugins/nestjs/tests/raw_config_access.rs`, `plugins/nestjs/rules/raw-config-access.md`, `plugins/nestjs/CHANGELOG.md` |
+| Touches | `plugins/nestjs/src/rules/structure/raw_config_access/reads.rs`, `plugins/nestjs/tests/raw_config_access.rs`, `plugins/nestjs/rules/raw-config-access.md`, `plugins/nestjs/CHANGELOG.md`; for the release, the nestjs version, `Cargo.lock` and the documents that pin nestjs |
 
 ## Goal
 
@@ -147,7 +147,25 @@ callback reads. After the fix round, the same run with the nestjs of `ae6df72` (
 exit 1) gives the same 80 findings, list for list. The lists and the diffs are kept outside the
 repository.
 
+## Release
+
+After the fix round the lead made this branch the nestjs 0.3.2 release (`e251b76`,
+`chore(release): nestjs 0.3.2`): `plugins/nestjs/Cargo.toml` at 0.3.2, `Cargo.lock` by
+`cargo update -p gate-plugin-nestjs --offline`, the changelog section dated 2026-11-24 (`date -u +%F`)
+with its compare link, and the six documents that pinned `nestjs@0.3.1` at 0.3.2. The core, the other
+twelve plugins and the plugin interface keep their versions; the root `CHANGELOG.md` gets no section.
+
+- `scripts/release-check.sh 0.3.2` with `--keep` for each of the twelve other plugins: exit 0, `144
+  places agree with 0.3.2`; the 5 pins of the root `gate.toml` are `later`.
+- Lane round on `e251b76`, 2026-11-24T06:15:22+00:00 to 10:59:24+00:00, lane exit 0; the machine slept
+  from 06:39 to 10:53 (`pmset -g log`) during the components at `df1a4c5`. Mutants A to E exit 101 as
+  above; fmt 0, clippy `-D warnings` 0, test 0 (1636 passed, 0 failed), deny 0; the 13 components at
+  `e251b76` and at `df1a4c5` exit 0 each, with no workspace crate missing from the log check.
+- Bytes: the twelve other components are those of the table above at both commits; nestjs is
+  `aa5715bd94723fbd2c302992d2fe06d616e6e66a2771acbaae47303db8758b1b` at `e251b76` (the version is
+  compiled in) against `4f692f72b5873ebd655914afaa272c8933f48b4a7d28e19c002e842a06719cb1` at `df1a4c5`.
+
 ## Resume point
 
-2026-11-24T06:13:02+00:00: fix round done. Gates green on `ae6df72`, only nestjs changes, the consumer
-run still shows the five findings cleared and none added. Next: the lead decides.
+2026-11-24T11:01:09+00:00: nestjs 0.3.2 release commit `e251b76`, gates green. No tag: the lead tags
+`plugin-nestjs-v0.3.2` after the merge.
