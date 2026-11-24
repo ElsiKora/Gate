@@ -3539,9 +3539,9 @@ fn plugin_options_failing_the_plugins_schema_fail_every_command_before_anything_
     for (options, expected) in [
         (
             r#"{ label = "x", colour = "red" }"#,
-            "'colour' was unexpected",
+            "unknown key colour; the keys are label",
         ),
-        ("{ label = 5 }", "/label: 5 is not of type"),
+        ("{ label = 5 }", "/label: 5 is not a string"),
     ] {
         repo.write("gate.toml", &configuration(options));
         repo.commit(options);
@@ -4048,6 +4048,40 @@ impl GitOptions {
             text(&output.stderr)
         );
     }
+}
+
+#[test]
+fn branch_name_options_outside_its_forms_name_the_rule_the_path_and_the_forms() {
+    let git = GitOptions::new();
+    let rule = |options: &str| {
+        format!("\"git/branch-name\" = {{ level = \"error\", options = {options} }}")
+    };
+    for (options, expected) in [
+        (
+            "{}",
+            "[rules]: \"git/branch-name\" options: sets none of template or pattern; set exactly one of them",
+        ),
+        (
+            r#"{ pattern = "^main$", template = ":type/:name" }"#,
+            "\"git/branch-name\" options: sets template and pattern; set exactly one of template or pattern",
+        ),
+        (
+            r#"{ pattern = "^main$", subject = true }"#,
+            "\"git/branch-name\" options: /subject: true is not a string or a table",
+        ),
+        (
+            r#"{ pattern = "^main$", subject = { name = 3 } }"#,
+            "\"git/branch-name\" options: /subject/name: 3 is not a string",
+        ),
+    ] {
+        git.refused("", &rule(options), &[], expected);
+        let message = text(&git.check("", &rule(options), &[]).stderr);
+        assert!(
+            !message.contains("schemas listed in the"),
+            "{options}: {message}"
+        );
+    }
+    git.passes("", &rule(r#"{ pattern = "^main$" }"#), &[]);
 }
 
 #[test]
