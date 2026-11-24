@@ -241,7 +241,11 @@ impl<'a> Graph<'_, 'a> {
             return None;
         };
         match nodes.parent_kind(list) {
-            AstKind::ForOfStatement(statement) if matches!(&statement.left, ForStatementLeft::VariableDeclaration(left) if left.span == variables.span) => {
+            AstKind::ForOfStatement(statement) if matches!(&statement.left, ForStatementLeft::VariableDeclaration(left) if left.span == variables.span) =>
+            {
+                if self.written(file, symbol) {
+                    return None;
+                }
                 self.array_keys(file, &statement.right, depth)
             }
             _ if variables.kind == VariableDeclarationKind::Const => {
@@ -253,8 +257,8 @@ impl<'a> Graph<'_, 'a> {
     }
 
     /// The keys a callback parameter binds: the strings of the array an element method is called
-    /// on, when the parameter is a plain first parameter of an arrow function or function
-    /// expression passed directly as that method's first argument.
+    /// on, when the parameter is a plain first parameter, never written, of an arrow function or
+    /// function expression passed directly as that method's first argument.
     fn callback_keys(
         &self,
         file: usize,
@@ -265,7 +269,7 @@ impl<'a> Graph<'_, 'a> {
     ) -> Option<Vec<String>> {
         let plain = parameter.initializer.is_none()
             && matches!(&parameter.pattern, BindingPattern::BindingIdentifier(binding) if binding.symbol_id.get() == Some(symbol));
-        if !plain {
+        if !plain || self.written(file, symbol) {
             return None;
         }
         let nodes = self.file(file).semantic().nodes();
@@ -301,7 +305,17 @@ impl<'a> Graph<'_, 'a> {
         self.array_keys(file, &callee.object, depth)
     }
 
-    /// The strings of a literal array, or of a `const` bound to one.
+    /// Whether anything writes `symbol`: an assignment, an update, or a redeclaration such as a
+    /// `var` of the same name in the function.
+    fn written(&self, file: usize, symbol: SymbolId) -> bool {
+        let scoping = self.file(file).semantic().scoping();
+        !scoping.symbol_redeclarations(symbol).is_empty()
+            || scoping
+                .get_resolved_references(symbol)
+                .any(|reference| reference.is_write())
+    }
+
+    /// The strings of a non-empty literal array, or of a `const` bound to one.
     fn array_keys(
         &self,
         file: usize,
@@ -319,8 +333,12 @@ impl<'a> Graph<'_, 'a> {
                         _ => None,
                     }
                 })
-                .collect(),
+                .collect::<Option<Vec<_>>>()
+                .filter(|keys| !keys.is_empty()),
             Expression::TSAsExpression(inner) => self.array_keys(file, &inner.expression, depth),
+            Expression::TSNonNullExpression(inner) => {
+                self.array_keys(file, &inner.expression, depth)
+            }
             Expression::TSSatisfiesExpression(inner) => {
                 self.array_keys(file, &inner.expression, depth)
             }

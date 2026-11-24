@@ -309,6 +309,7 @@ fn sorted(rows: &[Row], aspect: &str) -> Vec<(String, Option<u32>)> {
 const CALLBACKS: &str = "import { ConfigService } from \"@scope/config\";\n\
     const EACH = [\"K_EACH\"] as const;\n\
     const SOME = [\"K_SOME\"];\n\
+    const BANG = [\"K_BANG\"];\n\
     export function read(config: ConfigService): unknown[] {\n\
       return [\n\
         Object.fromEntries([\"K_MAP_A\", \"K_MAP_B\"].map((key) => [key, config.getOrThrow(key)])),\n\
@@ -321,10 +322,13 @@ const CALLBACKS: &str = "import { ConfigService } from \"@scope/config\";\n\
         [\"K_FIND_LAST_INDEX\"].findLastIndex((key, index) => config.get(key) && index),\n\
         SOME?.some((key) => config.get(key)),\n\
         [\"K_EVERY\"].every?.(((key) => config.get(key))),\n\
+        BANG!.map((key) => config.get(key)),\n\
+        [\"K_OUTER\"].map((key) => [config.get(key), [\"K_INNER\"].map((key) => config.get(key))]),\n\
+        [\"K_ENV\"].forEach((key) => process.env[key]),\n\
       ];\n\
     }\n";
 
-const CALLBACK_KEYS: [(&str, &str); 11] = [
+const CALLBACK_KEYS: [(&str, &str); 15] = [
     ("K_MAP_A", "K_MAP_A"),
     ("K_MAP_B", "K_MAP_A"),
     ("K_FLAT", "K_FLAT"),
@@ -336,6 +340,10 @@ const CALLBACK_KEYS: [(&str, &str); 11] = [
     ("K_FIND_LAST_INDEX", "K_FIND_LAST_INDEX"),
     ("K_SOME", "SOME?.some"),
     ("K_EVERY", "K_EVERY"),
+    ("K_BANG", "BANG!.map"),
+    ("K_OUTER", "K_OUTER"),
+    ("K_INNER", "K_OUTER"),
+    ("K_ENV", "K_ENV"),
 ];
 
 #[test]
@@ -362,7 +370,7 @@ fn the_element_parameter_of_a_callback_over_a_literal_array_names_its_keys() {
         .collect();
     expected.sort();
     assert_eq!(sorted(&rows, "undeclared"), expected);
-    assert_eq!(rows.len(), 11, "{rows:?}");
+    assert_eq!(rows.len(), CALLBACK_KEYS.len(), "{rows:?}");
 }
 
 /// Callback parameters that are not the element of a literal array of strings, one per line.
@@ -371,6 +379,7 @@ const NOT_CALLBACKS: &str = "import { ConfigService } from \"@scope/config\";\n\
     export function read(config: ConfigService, names: string[]): unknown[] {\n\
       function one(key: string): unknown { return config.get(key); } // named-declaration\n\
       const byName = (key: string) => config.get(key); // named-arrow\n\
+      const ALIAS = names;\n\
       return [\n\
         [\"K_BY_NAME\"].forEach(one),\n\
         [\"K_BY_NAME\"].forEach(byName),\n\
@@ -384,6 +393,12 @@ const NOT_CALLBACKS: &str = "import { ConfigService } from \"@scope/config\";\n\
         [\"K_REST\"].map((...key) => config.get(key)), // rest\n\
         [\"K_WRAPPED\"].map(wrap((key: string) => config.get(key))), // wrapped\n\
         [\"K_SECOND_ARGUMENT\"].map(String, (key: string) => config.get(key)), // later-argument\n\
+        [\"K_COMPUTED\"][\"map\"]((key: string) => config.get(key)), // computed\n\
+        [\"K_SORT\"].sort((key) => config.get(key)), // sort\n\
+        [\"K_MIXED\", 1].map((key) => config.get(key)), // mixed\n\
+        ALIAS.map((key) => config.get(key)), // alias\n\
+        [\"K_CHAINED\"].filter(Boolean).map((key) => config.get(key)), // chained\n\
+        [\"K_SHADOW\"].map((key) => names.map((key) => config.get(key))), // shadowed\n\
       ];\n\
     }\n\
     declare function wrap<T>(value: T): T;\n";
@@ -401,6 +416,11 @@ fn a_parameter_that_is_no_element_of_a_literal_array_stays_dynamic() {
         "K_REST",
         "K_WRAPPED",
         "K_SECOND_ARGUMENT",
+        "K_COMPUTED",
+        "K_SORT",
+        "K_MIXED",
+        "K_CHAINED",
+        "K_SHADOW",
     ];
     let env = example(&keys);
     let rows = check(
@@ -422,6 +442,12 @@ fn a_parameter_that_is_no_element_of_a_literal_array_stays_dynamic() {
         "// rest",
         "// wrapped",
         "// later-argument",
+        "// computed",
+        "// sort",
+        "// mixed",
+        "// alias",
+        "// chained",
+        "// shadowed",
     ]
     .iter()
     .map(|marker| at(CONFIG, line(NOT_CALLBACKS, marker)))
@@ -429,9 +455,10 @@ fn a_parameter_that_is_no_element_of_a_literal_array_stays_dynamic() {
     dynamic.sort();
     assert_eq!(sorted(&rows, "dynamic"), dynamic);
 
-    let unread: Vec<_> = (1..=10).map(|index| at(".env.example", index)).collect();
+    assert_eq!(dynamic.len(), 18);
+    let unread: Vec<_> = (1..=15).map(|index| at(".env.example", index)).collect();
     assert_eq!(sorted(&rows, "unread"), unread);
-    assert_eq!(rows.len(), 22, "{rows:?}");
+    assert_eq!(rows.len(), 33, "{rows:?}");
 }
 
 /// Getter calls whose first argument can never be a key, and some whose argument is unknown.
@@ -446,6 +473,7 @@ const NEVER_KEYS: &str = "import { ConfigService } from \"@scope/config\";\n\
         store.getOrThrow(1),\n\
         store.get(1n),\n\
         store.get(true),\n\
+        store.get(false),\n\
         store.get(null),\n\
         store.get(/API_URL/),\n\
         store.get(({ section } as never)!),\n\
@@ -495,4 +523,97 @@ fn a_getter_whose_argument_can_never_be_a_key_is_no_read_and_others_stay_dynamic
     let unread = check(RULE, COVERAGE, &[(CONFIG, only), (".env.example", &env)]);
     assert_eq!(of(&unread, "unread"), [at(".env.example", 1)]);
     assert_eq!(unread.len(), 1, "{unread:?}");
+}
+
+/// Loop variables and callback parameters, each kept or written, one per line.
+const WRITES: &str = "import { ConfigService } from \"@scope/config\";\n\
+    export function read(config: ConfigService): void {\n\
+      for (let kept of [\"K_LOOP_KEPT\"]) { config.get(kept); } // loop-kept\n\
+      for (let moved of [\"K_LOOP_MOVED\"]) { moved = moved.trim(); config.get(moved); } // loop-assigned\n\
+      for (var again of [\"K_LOOP_AGAIN\"]) { var again; config.get(again); } // loop-redeclared\n\
+      [\"K_KEPT\"].forEach((key) => { config.get(key); config.getOrThrow(key); }); // callback-kept\n\
+      [\"K_MOVED\"].forEach((key) => { key += \"\"; config.get(key); }); // callback-assigned\n\
+      [\"K_UPDATED\"].forEach((key: any) => { key++; config.get(key); }); // callback-updated\n\
+      [\"K_AGAIN\"].forEach(function (key) { var key; config.get(key); }); // callback-redeclared\n\
+    }\n";
+
+#[test]
+fn a_loop_variable_or_callback_parameter_names_keys_only_when_nothing_writes_it() {
+    let written = [
+        "K_LOOP_MOVED",
+        "K_LOOP_AGAIN",
+        "K_MOVED",
+        "K_UPDATED",
+        "K_AGAIN",
+    ];
+    let dynamic: Vec<_> = [
+        "// loop-assigned",
+        "// loop-redeclared",
+        "// callback-assigned",
+        "// callback-updated",
+        "// callback-redeclared",
+    ]
+    .iter()
+    .map(|marker| at(CONFIG, line(WRITES, marker)))
+    .collect();
+    let unread: Vec<_> = (1..=5).map(|index| at(".env.example", index)).collect();
+
+    let mut keys = written.to_vec();
+    keys.extend(["K_LOOP_KEPT", "K_KEPT"]);
+    let env = example(&keys);
+    let rows = check(RULE, COVERAGE, &[(CONFIG, WRITES), (".env.example", &env)]);
+    assert_eq!(sorted(&rows, "dynamic"), dynamic);
+    assert_eq!(sorted(&rows, "unread"), unread);
+    assert_eq!(rows.len(), 10, "{rows:?}");
+
+    let env = example(&written);
+    let rows = check(RULE, COVERAGE, &[(CONFIG, WRITES), (".env.example", &env)]);
+    assert_eq!(
+        sorted(&rows, "undeclared"),
+        [
+            at(CONFIG, line(WRITES, "// loop-kept")),
+            at(CONFIG, line(WRITES, "// callback-kept"))
+        ]
+    );
+    assert_eq!(sorted(&rows, "dynamic"), dynamic);
+    assert_eq!(sorted(&rows, "unread"), unread);
+    assert_eq!(rows.len(), 12, "{rows:?}");
+}
+
+/// Loops and callbacks over empty arrays, and over a non-empty one.
+const EMPTY: &str = "import { ConfigService } from \"@scope/config\";\n\
+    const NONE: string[] = [];\n\
+    export function read(config: ConfigService): void {\n\
+      for (const key of []) { config.get(key); } // empty-loop\n\
+      for (const key of NONE) { config.get(key); } // empty-const-loop\n\
+      [].forEach((key: string) => config.get(key)); // empty-callback\n\
+      ([] as string[]).map((key) => config.get(key)); // empty-as-callback\n\
+      for (const key of [\"K_FULL\"]) { config.get(key); } // full-loop\n\
+      [\"K_FULL\"].forEach((key) => config.get(key)); // full-callback\n\
+    }\n";
+
+#[test]
+fn an_empty_array_names_no_key_and_its_reads_are_dynamic() {
+    let dynamic: Vec<_> = [
+        "// empty-loop",
+        "// empty-const-loop",
+        "// empty-callback",
+        "// empty-as-callback",
+    ]
+    .iter()
+    .map(|marker| at(CONFIG, line(EMPTY, marker)))
+    .collect();
+
+    let env = example(&["K_FULL"]);
+    let rows = check(RULE, COVERAGE, &[(CONFIG, EMPTY), (".env.example", &env)]);
+    assert_eq!(sorted(&rows, "dynamic"), dynamic);
+    assert_eq!(rows.len(), 4, "{rows:?}");
+
+    let rows = check(RULE, COVERAGE, &[(CONFIG, EMPTY), (".env.example", "")]);
+    assert_eq!(sorted(&rows, "dynamic"), dynamic);
+    assert_eq!(
+        of(&rows, "undeclared"),
+        [at(CONFIG, line(EMPTY, "// full-loop"))]
+    );
+    assert_eq!(rows.len(), 5, "{rows:?}");
 }
