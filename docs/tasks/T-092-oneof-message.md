@@ -115,6 +115,33 @@ option path: `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `mult
 
 ## Proof
 
+Fix round (the review of `6ad81ef` and the lead's eight rulings): lane round on `93ec2e1`,
+`one-gate.sh` in Gate's lane, from 2026-11-24T19:34:35+00:00 to 2026-11-24T20:01:11+00:00 (1596 s),
+lane exit 0, in a detached worktree of the commit with hooks off; the log check found every
+workspace crate compiled from it:
+
+| Command | Exit |
+| --- | --- |
+| mutant `has_shape` always true, `cargo test -p gate-host --lib -- plugins::tests` | 101 (8 tests fail, the nearest-branch test among them) |
+| mutant the key choice ignoring how many keys are set | 101 (`a_key_choice_names_keys_only_when_two_are_set` fails) |
+| mutant `condition` ignoring `required` | 101 (`an_if_on_a_tag_is_named_only_when_the_tag_is_required` fails) |
+| mutant without the `const`-at-a-key arm | 101 (`a_tagged_oneof_names_its_tags_or_the_error_inside_the_tagged_form` fails) |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --offline --locked --workspace --all-targets --keep-going -j 4 -- -D warnings` | 0 |
+| `cargo test --offline --locked --workspace -j 4 --no-fail-fast` | 0 (1653 passed, 0 failed) |
+| `cargo deny --offline --locked check` | 0 (advisories, bans, licenses, sources ok) |
+| `cargo build --release --offline --locked -j 4` | 0 |
+
+The 13 components built at `93ec2e1` and at `main` `d8f213a` have the same sha256, every one. No
+plugin component bytes change.
+
+One residue of ruling 3, as ruled: a tag required only beside the `if` (not in it) counts as
+required, so a table that lacks that tag passes the `if` and its `then` error says "because it is a
+table with kind = ..." next to the separate `kind is required` line. Checking the value would remove
+it, but would also make the `required` rule unobservable, which ruling 8 asks to test.
+
+Before the review:
+
 Lane round on `37f2d39`, `one-gate.sh` in Gate's lane, from 2026-11-24T19:04:23+00:00 to
 2026-11-24T19:24:07+00:00 (1184 s), lane exit 0, in a detached worktree of the commit with hooks off;
 the log check found every workspace crate compiled from it:
@@ -136,6 +163,9 @@ is in the host only.
 `leak-scan.sh` on the worktree and with `--branch origin/main`: no output, exit 0.
 
 ## Resume point
+
+2026-11-24T20:01:30+00:00: the fix round is written (`93ec2e1`) and its lane round exited 0 (see
+Proof). Next: the lead's decision.
 
 2026-11-24T19:24:18+00:00: the lane round on `37f2d39` exited 0 (see Proof). Next: the lead's
 review.
