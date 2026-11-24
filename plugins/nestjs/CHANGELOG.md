@@ -3,6 +3,26 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
+## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.1...plugin-nestjs-v0.3.2) (unreleased)
+
+Built for the plugin interface `gate:plugin@0.3.0`. `raw-config-access` reports fewer findings; no
+rule id, aspect, option or message changes.
+
+### Bug Fixes
+
+- `raw-config-access` names a key bound by an element callback over a literal array of strings,
+  as it names the variable of a `for ... of` loop over one: the first parameter, a plain name, of an
+  arrow function or function expression passed directly to `map`, `flatMap`, `forEach`, `filter`,
+  `find`, `findIndex`, `findLast`, `findLastIndex`, `some` or `every` on the array, with or without
+  optional chaining. Such a read is no longer `dynamic`, and the example lines of its keys are no
+  longer `unread`. The first parameter of `reduce` and `reduceRight`, a callback passed by name, a
+  later parameter and a method on any other value still name no key.
+- `raw-config-access` no longer counts a getter call whose first argument can never be a key (an
+  object, array, function or class expression, or a numeric, bigint, boolean, `null` or
+  regular-expression literal) as a key read, so a configuration store's `get({ ... })` is not
+  `dynamic`. A name, call, member or other unknown expression is still `dynamic`, and `process.env`
+  reads and `boundary` do not change.
+
 ## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.0...plugin-nestjs-v0.3.1) (2026-11-23)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core. The
