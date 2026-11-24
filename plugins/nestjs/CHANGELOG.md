@@ -18,7 +18,7 @@ rule id, aspect, option or message changes.
   longer `unread`. The first parameter of `reduce` and `reduceRight`, a callback passed by name, a
   later parameter and a method on any other value still name no key, nor does a loop variable or
   parameter that anything assigns, updates or redeclares. A read through an empty array, by a loop
-  or a callback, is `dynamic` instead of no read at all. ([7a5854e](https://github.com/ElsiKora/Gate/commit/7a5854e09998f41ab2f7d284dc876f738eb0d7f0))
+  or a callback, is `dynamic` instead of no read at all. ([7a5854e](https://github.com/ElsiKora/Gate/commit/7a5854e09998f41ab2f7d284dc876f738eb0d7f0), [ed67864](https://github.com/ElsiKora/Gate/commit/ed6786498080fc934807e14d6ef4d251183113de))
 - `raw-config-access` no longer counts a getter call whose first argument can never be a key (an
   object, array, function or class expression, or a numeric, bigint, boolean, `null` or
   regular-expression literal) as a key read, so a configuration store's `get({ ... })` is not
