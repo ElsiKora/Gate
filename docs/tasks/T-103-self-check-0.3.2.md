@@ -58,6 +58,24 @@ branch, `task/T-103-self-check-0.3.2`, which the root `git/branch-name` pattern 
 - `bin/gate doctor` with 0.3.2: every line `ok` (launcher 0.3.2, the lock, the cache, the four plugins
   present, verified and compiled under 0.3.2) but `hooks`, which names a `core.hooksPath` set in this
   machine's worktree configuration, outside the repository.
+- On `3393b86`: `bin/gate check --push origin/main..HEAD` exit 0, `bin/gate check` exit 0, both
+  `7 rules, 0 errors, 0 warnings`; the pre-push hook of the first push, `check --push` with 0.3.2,
+  exit 0.
+
+## The workflow "Gate" and the branch
+
+The generated workflow runs on a push to `main` and on a pull request into it (`[ci.github] branches
+= ["main"]`), so a pushed task branch gets no "Gate" run; only the "Reproducible" workflow runs on it.
+The workflow's three `bin/gate` steps were replayed instead, as a push to `main` would run them after
+the merge: in an `x86_64` Linux container (`alpine:3.20`, `--platform linux/amd64`), on a fresh
+anonymous clone with `main` merged with this branch by `git merge --no-ff`, an empty
+`GATE_CACHE_DIR` and no token. `bin/gate` fetched the `x86_64-unknown-linux-musl` core of `v0.3.2`
+and the four plugins and verified them; `gate 0.3.2`. With `GATE_RANGE` `d8f213a..<merge>` and
+`GATE_TARGET_REF` `refs/heads/main`: `bin/gate sync --check` exit 0 (`4 generated files, 0 out of
+date`), `bin/gate check --list-changed-projects ...` exit 0 (`projects=["."]`), `bin/gate check --push
+... --no-overrides` exit 0 (`7 rules, 0 errors, 0 warnings`). The same three steps with the range
+`d8f213a..3393b86` and the branch as target ref exit 0 each, with the same lines. The first "Gate"
+run under 0.3.2 is the push of the merge to `main`.
 
 ## Done when
 
@@ -68,5 +86,6 @@ branch, `task/T-103-self-check-0.3.2`, which the root `git/branch-name` pattern 
 
 ## Resume point
 
-2026-11-24T18:50:42+00:00: on `task/T-103-self-check-0.3.2` off `main` at `d8f213a`, the move made
-and checked locally. Next: commit, push, the workflow "Gate" on the branch, report to the lead.
+2026-11-24T18:54:05+00:00: on `task/T-103-self-check-0.3.2` off `main` at `d8f213a`; the move is
+`3393b86`, pushed, checked locally and in the Linux replay above. Next: the lead merges; the push of
+the merge to `main` is the first "Gate" run under 0.3.2.
