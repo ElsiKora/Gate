@@ -3,10 +3,10 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
-## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.1...plugin-nestjs-v0.3.2) (unreleased)
+## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.1...plugin-nestjs-v0.3.2) (2026-11-24)
 
-Built for the plugin interface `gate:plugin@0.3.0`. `raw-config-access` reports fewer findings; no
-rule id, aspect, option or message changes.
+Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core.
+`raw-config-access` reports fewer findings; no rule id, aspect, option or message changes.
 
 ### Bug Fixes
 

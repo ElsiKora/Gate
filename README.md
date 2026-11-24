@@ -338,7 +338,7 @@ typescript = { source = "ElsiKora/Gate:typescript@0.3.1" }
 name = "server"
 
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.1" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2" }
 
 [rules."nestjs/import-direction"]
 level = "error"

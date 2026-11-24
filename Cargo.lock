@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-nestjs"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "gate-sdk",
  "gate-typescript",

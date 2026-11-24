@@ -319,7 +319,7 @@ extends = ["nestjs/recommended", "ledger/recommended"]
 
 [plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.3.1" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.1", options-file = "gate/options/nestjs.json" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2", options-file = "gate/options/nestjs.json" }
 ledger = { source = "ElsiKora/Gate:ledger@0.3.1" }
 agents = { source = "ElsiKora/Gate:agents@0.3.0" }
 

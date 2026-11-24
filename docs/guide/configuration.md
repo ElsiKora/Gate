@@ -204,7 +204,7 @@ in a monorepo, is read only when it is tracked and granted to each plugin that r
 
 ```toml
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.1", reads = ["tsconfig.base.json"] }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2", reads = ["tsconfig.base.json"] }
 ```
 
 A base the plugin cannot read is reported once per run of the plugin, as a finding at the tsconfig
@@ -260,7 +260,7 @@ projects = ["apps/*"]
 
 [profiles.plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.3.1" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.1" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2" }
 
 [profiles.rules]
 "typescript/parse" = "error"
