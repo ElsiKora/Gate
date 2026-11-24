@@ -18,7 +18,8 @@ use gate_runtime::{
     ReadSet, Runtime, Size, Tree,
 };
 use gate_sdk::{Commit, CommitRange, Judged, PluginInfo, RuleInfo, RuleRun, Scope, SyncState};
-use jsonschema::{ValidationError, ValidationErrorKind};
+use jsonschema::ValidationError;
+use jsonschema::error::ValidationErrorKind;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -2467,7 +2468,7 @@ impl SchemaValidator for JsonSchemaValidator {
             )],
             Ok(validator) => validator
                 .iter_errors(value)
-                .flat_map(|error| explain(schema, &error, 0))
+                .flat_map(|error| explain(schema, value, &error, 0))
                 .collect(),
         }
     }
@@ -2476,7 +2477,12 @@ impl SchemaValidator for JsonSchemaValidator {
 /// The lines that say what `error` finds wrong. A `oneOf` or `anyOf` whose value has the shape of
 /// exactly one branch is that branch's own errors, at their own paths: the value is meant as that
 /// form, and what is wrong is inside it.
-fn explain(schema: &Value, error: &ValidationError<'_>, depth: usize) -> Vec<String> {
+fn explain(
+    schema: &Value,
+    value: &Value,
+    error: &ValidationError<'_>,
+    depth: usize,
+) -> Vec<String> {
     let path = error.instance_path().as_str();
     if depth < 16
         && let ValidationErrorKind::OneOfNotValid { context }
@@ -2488,11 +2494,11 @@ fn explain(schema: &Value, error: &ValidationError<'_>, depth: usize) -> Vec<Str
         {
             return branch
                 .iter()
-                .flat_map(|inner| explain(schema, inner, depth + 1))
+                .flat_map(|inner| explain(schema, value, inner, depth + 1))
                 .collect();
         }
     }
-    let mut text = message(schema, error);
+    let mut text = message(schema, value, error);
     if let Some(condition) = condition(schema, error.schema_path().as_str(), path) {
         text.push_str(&condition);
     }
@@ -2525,8 +2531,8 @@ fn has_shape(errors: &[ValidationError<'_>], path: &str) -> bool {
     })
 }
 
-/// What `error` finds wrong, without its path.
-fn message(schema: &Value, error: &ValidationError<'_>) -> String {
+/// What `error` finds wrong in `value` (all the options), without its path.
+fn message(schema: &Value, value: &Value, error: &ValidationError<'_>) -> String {
     let given = shown(error.instance());
     let keyword = error.schema_path().as_str();
     let node = keyword_node(schema, keyword);
@@ -2563,6 +2569,16 @@ fn message(schema: &Value, error: &ValidationError<'_>) -> String {
             format!("{} is required; set it", key_name(property))
         }
         ValidationErrorKind::AdditionalProperties { unexpected } => unknown_keys(node, unexpected),
+        // `additionalProperties: false` beside no `properties` is reported as a `false` schema at
+        // the table, with the value of its first key: the keys are the table's.
+        ValidationErrorKind::FalseSchema if keyword.ends_with("/additionalProperties") => {
+            let keys: Vec<String> = value
+                .pointer(error.instance_path().as_str())
+                .and_then(Value::as_object)
+                .map(|table| table.keys().cloned().collect())
+                .unwrap_or_default();
+            unknown_keys(node, &keys)
+        }
         ValidationErrorKind::FalseSchema => format!("{given} is not allowed here"),
         ValidationErrorKind::Contains => match schema
             .pointer(keyword)
@@ -2657,7 +2673,7 @@ fn unknown_keys(node: Option<&Value>, unexpected: &[String]) -> String {
 
 /// The forms, written `a, b or c`.
 fn names(forms: &[Form]) -> String {
-    names(&forms)
+    or_list(&forms.iter().map(Form::to_string).collect::<Vec<_>>())
 }
 
 /// `{given} is not one of …` when every form is a constant, else `{given} is not a, b or c`.

@@ -7,7 +7,7 @@
 | Writer | the T-092 writer |
 | Reviewer | a session that did not write it |
 | Depends on | `main` at `d8f213a` |
-| Touches | `crates/gate-host/src/plugins.rs` (`JsonSchemaValidator`), its unit tests, `crates/gate/tests/plugins.rs`, `CHANGELOG.md` |
+| Touches | `crates/gate-host/src/plugins.rs` (`JsonSchemaValidator`), its unit tests, `crates/gate/tests/plugins.rs`; the lead writes the CHANGELOG entry at the release |
 
 ## Goal
 
@@ -65,6 +65,7 @@ a, b and c` or `an array of 4 items`.
 | `required` | `kind is required; set it` |
 | `additionalProperties` | `unknown key bogus; the keys are a, b and c` (`this table takes no keys` when it has none) |
 | `false` schema | `{given} is not allowed here` |
+| `additionalProperties: false` beside no `properties` (the validator reports it as a `false` schema at the table, with its first value: 0.3.0 printed `False schema does not allow 1` for `[plugins.agents] options = { x = 1 }`) | `unknown key x; this table takes no keys` |
 | `contains`, form named | `{given} holds no item that is {form}` |
 | an error inside `then` or `else` | its own message, then `, because {path} is {if form}` (`is not` for `else`) when the `if` can be named |
 
@@ -86,7 +87,7 @@ the option path:
 option path: `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`,
 `minLength`, `maxLength`, `pattern`, `format`, `minItems`, `maxItems`, `uniqueItems`,
 `minProperties`, `maxProperties`, `additionalItems`, `unevaluatedItems`, `unevaluatedProperties`,
-the content and regex-engine errors. `propertyNames` is its inner error, translated.
+`propertyNames`, the content and regex-engine errors.
 
 ## Done when
 
