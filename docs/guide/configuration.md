@@ -25,7 +25,7 @@ project when it moves to another repository.
 `gate list --origin` prints every setting of every project with the file and section it came from.
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.3/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.4/gate.schema.json
 ```
 
 ## ✅ Validation
@@ -49,7 +49,7 @@ file, the key and what is expected, with exit code `2`:
 
 ```toml
 [gate]
-version = "0.3.3"
+version = "0.3.4"
 ```
 
 | Key | Meaning |
@@ -167,7 +167,7 @@ Grant them explicitly:
 
 ```toml
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.3.2", reads = ["docs/records"] }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.3", reads = ["docs/records"] }
 ```
 
 A grant is a file or a directory, written from the repository root whichever `gate.toml` names it, with
@@ -409,7 +409,7 @@ names, relative to the repository root:
 projects = ["apps/*"]
 
 [plugins.ledger]
-source = "ElsiKora/Gate:ledger@0.3.2"
+source = "ElsiKora/Gate:ledger@0.3.3"
 options = { decisions = "apps/docs/decisions/index.md" }
 
 [rules]
