@@ -8,6 +8,32 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
+## [0.3.3](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.2...plugin-ledger-v0.3.3) (unreleased)
+
+Built for the plugin interface `gate:plugin@0.3.0`. ledger 0.3.3 needs core 0.3.4, and core 0.3.4
+needs ledger 0.3.3: upgrade both together. On a synthetic root project with a nested project, ledger
+0.3.3 on core 0.3.3 judged only the nested file, which has a decided exception, and missed the
+completed owner in the root file; ledger 0.3.2 on core 0.3.4 reported each of the 3 exceptions that
+name no decision as an unlisted decision.
+
+### Breaking Changes
+
+- **ledger:** `ledger/exception-owners` is repository-scope and judges the owner of every exception
+  of every `gate.exceptions.toml` of the workspace once, at its own file and line, whether or not the
+  root is a project. It replaces `ledger/root-exception-owners`, which is gone: use
+  `ledger/exception-owners` in the root `gate.toml`, and remove it from projects' `gate.toml` files,
+  where a repository-scope rule is a configuration error. Its option `exceptions` is gone too: the
+  rule takes the files the core reads. `ledger/recommended` and `ledger/adoption` turn it on at the
+  level the two had.
+
+### Bug Fixes
+
+- **ledger:** the owner an exception of a nested project names was looked up in the implementation
+  records at a path read inside the nested folder. It is now looked up in the records the root's
+  `[plugins.ledger]` names, relative to the repository root.
+- **ledger:** `ledger/config-decisions` skips an exception that names no decision, which the core
+  now lists with an empty one.
+
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.1...plugin-ledger-v0.3.2) (2026-11-26)
 
 Built for the plugin interface `gate:plugin@0.3.0`. ledger 0.3.2 needs core 0.3.3 or later, and core
