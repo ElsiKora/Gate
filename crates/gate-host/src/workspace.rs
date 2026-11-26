@@ -9,7 +9,7 @@ use crate::baseline::Baseline;
 use crate::config::{
     self, CORE_PLUGIN, CORE_RULES, Config, FILE_NAME, Kind, Name, PluginItem, PluginName,
     PluginSource, RuleId, RuleKey, RuleSettings, SchemaValidator, ScopedException, Setting,
-    SettingOrigin, Settings, Sourced, Tool, WORKSPACE_EXTENDS, undeclared,
+    SettingOrigin, Settings, Sourced, Tool, WORKSPACE_EXTENDS, WrittenDecision, undeclared,
     undeclared_workspace_preset,
 };
 use crate::error::{Error, Result};
@@ -297,6 +297,26 @@ impl Workspace {
     #[must_use]
     pub fn exceptions(&self) -> &[ScopedException] {
         &self.exceptions
+    }
+
+    /// Every decision the workspace's configuration writes, whether or not the root is a project:
+    /// those of the rule entries of each `gate.toml` (the root's, then each project's by name, as
+    /// [`Config::rule_decisions`] lists them), then those of the exceptions, in the order of
+    /// [`Workspace::exceptions`]. The repository call carries them all, so each is judged once.
+    #[must_use]
+    pub fn written_decisions(&self) -> Vec<WrittenDecision> {
+        let entries = self
+            .configs()
+            .flat_map(|(_, loaded)| loaded.rule_decisions());
+        let exceptions = self.exceptions.iter().filter_map(|exception| {
+            Some(WrittenDecision {
+                key: exception.rule.to_string(),
+                decision: exception.decision.clone()?,
+                path: exception.file.clone(),
+                line: u32::try_from(exception.line).unwrap_or(u32::MAX),
+            })
+        });
+        entries.chain(exceptions).collect()
     }
 
     /// The baseline.

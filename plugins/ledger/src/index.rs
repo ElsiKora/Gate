@@ -116,8 +116,8 @@ pub enum Refusal<'i> {
 }
 
 /// Why the decision `id` does not justify a relaxation, by `index` (`None` when the index is not
-/// tracked); `None` when the index lists it as accepted. `ledger/exception-decisions` and
-/// `ledger/rule-decisions` judge alike through it.
+/// tracked); `None` when the index lists it as accepted. `ledger/config-decisions` judges
+/// through it.
 #[must_use]
 pub fn refusal<'i>(index: Option<&'i DecisionIndex>, id: &str) -> Option<Refusal<'i>> {
     match index.and_then(|index| index.get(id)) {

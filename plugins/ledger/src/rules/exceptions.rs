@@ -1,18 +1,17 @@
-//! `ledger/exception-owners` and `ledger/exception-decisions`: the owner an exception names is an
-//! open implementation record, and the decision it names is accepted. `ledger/root-exception-owners`
-//! and `ledger/root-exception-decisions` judge the root's exceptions the same way, in the
-//! repository call, when the root is not a project.
+//! `ledger/exception-owners`: the owner an exception names is an open implementation record.
+//! `ledger/root-exception-owners` judges the root's exceptions the same way, in the repository
+//! call, when the root is not a project. The decisions exceptions name are
+//! `ledger/config-decisions`'s.
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Rule, Run, Scope, Tree};
 
 use crate::catalog::{At, Findings};
-use crate::index::{DecisionIndex, Refusal, refusal};
 use crate::settings::{Settings, check_path};
 use crate::text::LineIndex;
 
-/// The options of both exception rules.
+/// The options of both owner rules.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(
     crate = "gate_sdk::serde",
@@ -40,7 +39,6 @@ impl Default for Options {
 #[serde(crate = "gate_sdk::serde")]
 struct Exception {
     rule: String,
-    decision: Option<String>,
     owner: Option<String>,
 }
 
@@ -196,92 +194,4 @@ fn judge_owners(
         findings.write_all(run.report());
         Ok(())
     })
-}
-
-/// The rule `ledger/exception-decisions`.
-#[derive(Debug, Default)]
-pub struct ExceptionDecisions;
-
-impl Rule<crate::LedgerCall> for ExceptionDecisions {
-    type Options = Options;
-
-    const NAME: &'static str = "exception-decisions";
-    const TITLE: &'static str =
-        "The decision an exception names is an accepted decision of the index";
-
-    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
-        let path = run.options().exceptions.clone();
-        judge_decisions(run, &path, Self::NAME)
-    }
-}
-
-/// The rule `ledger/root-exception-decisions`: `ledger/exception-decisions` for the root's
-/// exceptions.
-#[derive(Debug, Default)]
-pub struct RootExceptionDecisions;
-
-impl Rule<crate::LedgerCall> for RootExceptionDecisions {
-    type Options = Options;
-
-    const NAME: &'static str = "root-exception-decisions";
-    const TITLE: &'static str =
-        "The decision a root exception names is an accepted decision of the index";
-    const SCOPE: Scope = Scope::Repository;
-
-    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
-        match root_exceptions(run) {
-            Some(path) => judge_decisions(run, &path, Self::NAME),
-            None => Ok(()),
-        }
-    }
-}
-
-/// Reports each exception of `path` whose decision the index does not list as accepted: the one
-/// judgement of `ledger/exception-decisions` and `ledger/root-exception-decisions`.
-fn judge_decisions(
-    run: &mut Run<'_, Options, crate::LedgerCall>,
-    path: &str,
-    name: &str,
-) -> gate_sdk::Result<()> {
-    let settings = Settings::read(run)?;
-    let tree = run.tree();
-    let exceptions = exceptions(&tree, path, name)?;
-
-    if exceptions.is_empty() {
-        return Ok(());
-    }
-
-    let index_path = settings.decisions.as_str();
-    let index = DecisionIndex::load(&tree, index_path)?;
-    let mut findings = Findings::default();
-
-    for Located { at, exception } in &exceptions {
-        let rule = &exception.rule;
-        let Some(decision) = exception.decision.as_deref().map(str::trim) else {
-            continue;
-        };
-
-        match refusal(index.as_ref(), decision) {
-            Some(Refusal::Unlisted) => findings.emit_keyed(
-                "",
-                at,
-                format!("{rule}/{decision}#unlisted"),
-                format!(
-                    "the exception for {rule} names the decision {decision}, which {index_path} does not list; name an accepted decision of the index"
-                ),
-            ),
-            Some(Refusal::NotAccepted(status)) => findings.emit_keyed(
-                "",
-                at,
-                format!("{rule}/{decision}#not-accepted"),
-                format!(
-                    "the exception for {rule} names the decision {decision}, which is `{status}`; an exception needs an accepted decision"
-                ),
-            ),
-            None => {}
-        }
-    }
-
-    findings.write_all(run.report());
-    Ok(())
 }

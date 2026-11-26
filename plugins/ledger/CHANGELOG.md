@@ -8,6 +8,35 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
+## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.1...plugin-ledger-v0.3.2) (unreleased)
+
+Built for the plugin interface `gate:plugin@0.3.0`. ledger 0.3.2 needs core 0.3.3 or later, and core
+0.3.3 needs ledger 0.3.2: upgrade both together. With core 0.3.2, ledger 0.3.2 checks no decision
+under a root project, and only the root gate.toml's rule entries under a root that is not a project.
+With ledger 0.3.1, core 0.3.3 reports each exception's decision twice.
+
+### Breaking Changes
+
+- **ledger:** one repository-scope rule, `ledger/config-decisions`, judges every decision the
+  workspace's configuration writes, once, against the index of the root's `[plugins.ledger]`: the
+  rule entries, families and `[[profiles]]` rules of the root `gate.toml` and of every project's
+  `gate.toml`, and the exceptions of every `gate.exceptions.toml`, each at its own file and line. It
+  replaces `ledger/rule-decisions`, `ledger/root-rule-decisions`, `ledger/exception-decisions` and
+  `ledger/root-exception-decisions`, which are gone: use `ledger/config-decisions` in the root
+  `gate.toml`, whether or not the root is a project. `ledger/recommended` and `ledger/adoption`
+  turn it on at the level the four had.
+- **ledger:** `ledger/config-decisions` and `ledger/root-exception-owners` are repository-scope, so
+  a project that turns them on, by extending `ledger/recommended` or `ledger/adoption` or with a
+  `ledger/*` family, needs the root to name them too: under core 0.3.3 a project-only ledger is a
+  configuration error. Declare `[plugins.ledger]` in the root `gate.toml`, with the index by its
+  repository path, and turn the rules on there, or set them `off` there on purpose.
+
+### Bug Fixes
+
+- **ledger:** a decision named in a nested project's `gate.toml` or `gate.exceptions.toml` was
+  judged against an index path read inside the nested folder, so every one, valid or not, was
+  reported as unlisted. It is now judged against the workspace's index, at its own file and line.
+
 ## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.0...plugin-ledger-v0.3.1) (2026-11-23)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core. The

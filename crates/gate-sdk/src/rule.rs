@@ -208,23 +208,25 @@ impl<'h> Call<'h> {
         self.norms
     }
 
-    /// Every decision the rule entries of the scope's own `gate.toml` name, for rules that check
-    /// decisions: a project's file in its project's call; the root file in the root project's
-    /// call, or in the repository call when the root is not a project; each whether or not a later
-    /// layer overrides the entry. Paths are relative to the scope's root.
+    /// Every decision the workspace's configuration writes, for rules that check decisions, in the
+    /// repository call only, whether or not the root is a project: those of the rule entries of
+    /// every `gate.toml` (the root's and each project's), then those of the exceptions of every
+    /// `gate.exceptions.toml`; each whether or not a later layer overrides the entry. Empty in a
+    /// project's call, so a repository-scope rule judges each decision once. Paths are relative to
+    /// the scope's root: repository paths in the repository call.
     #[must_use]
     pub fn rule_decisions(&self) -> &'h [RuleDecision] {
         self.rule_decisions
     }
 
-    /// The scope's own `gate.toml`, relative to the scope's root, whose entries
-    /// [`Call::rule_decisions`] lists: `gate.toml` in a project's call, and in the repository call
-    /// when the root is not a project. `None` in the repository call under a root project, whose
-    /// root file belongs to that project's call, and for a project without a `gate.toml` of its
-    /// own. Under a root project the repository call still gets the root exceptions of its
-    /// repository-scope rules, in each rule's [`Run::exceptions`]; only the root file's entries go
-    /// to the project's call. A rule that reads a file kept beside the scope's configuration, such
-    /// as its exceptions, reads it beside this one; a rule that never asks is unaffected.
+    /// The scope's own `gate.toml`, relative to the scope's root: `gate.toml` in a project's call,
+    /// and in the repository call when the root is not a project. `None` in the repository call
+    /// under a root project, whose root file belongs to that project's call, and for a project
+    /// without a `gate.toml` of its own. Under a root project the repository call still gets the
+    /// root exceptions of its repository-scope rules, in each rule's [`Run::exceptions`]. A rule
+    /// that reads a file kept beside the scope's configuration, such as its exceptions, reads it
+    /// beside this one; a rule that never asks is unaffected. It does not bound
+    /// [`Call::rule_decisions`], which name their own files.
     #[must_use]
     pub fn config_file(&self) -> Option<&'h str> {
         (!self.config_file.is_empty()).then_some(self.config_file)
@@ -545,8 +547,8 @@ impl<'h, O, S: CallState> Run<'h, O, S> {
         self.call.norms
     }
 
-    /// Every decision the rule entries of the scope's own `gate.toml` name, for rules that check
-    /// decisions; see [`Call::rule_decisions`].
+    /// Every decision the workspace's configuration writes, in the repository call only, for rules
+    /// that check decisions; see [`Call::rule_decisions`].
     #[must_use]
     pub fn rule_decisions(&self) -> &[RuleDecision] {
         self.call.rule_decisions

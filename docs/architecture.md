@@ -139,14 +139,16 @@ interface types {
     exceptions: list<string>,       // the targets of this rule's exceptions, for rules whose result depends on them
   }
   record rule-decision { key: string, decision: string, at: file-location }
-                                    // a decision a rule entry of the scope's own gate.toml names
+                                    // a decision a rule entry of a gate.toml, or an exception of a
+                                    // gate.exceptions.toml, names
   record check-request {
     project: string,
     rules: list<rule-run>,
     plugin-options: string,         // JSON: [plugins.<name>] options, shared by the plugin's rules
     languages: string,              // JSON: [languages.<id>] settings of the languages the plugin declares
     norms: list<string>,            // every norm the configuration maps, for rules about rule documents
-    rule-decisions: list<rule-decision>, // the decisions the scope's own gate.toml names, for rules about them
+    rule-decisions: list<rule-decision>, // the repository call: every decision the workspace's
+                                    // configuration writes, for rules about them; a project's: none
     config-file: string,            // the scope's own gate.toml; empty in the repository call
                                     // under a root project
   }
@@ -745,12 +747,14 @@ The first readers raised these points; each is settled:
   without a decision when it loads the configuration, and a rule entry without one when it loads the
   plugins, because presets come from plugins. A decision covers the levels of the entry that writes it,
   so a project file that lowers what the root left alone needs its own. Whether a decision names a
-  real record is a plugin's question: `ledger/exception-decisions` asks it for exceptions, and
-  `ledger/rule-decisions` for rule entries, whose decisions the core hands over in
-  `check-request.rule-decisions`. At a root that is not a project, the root file is the repository
-  call's own (`check-request.config-file`), and `ledger/root-rule-decisions`,
-  `ledger/root-exception-decisions` and `ledger/root-exception-owners` ask the same of the root's
-  entries and exceptions. Option data that exempts something is written as an exception,
+  real record is a plugin's question, asked once for the whole workspace: the repository call, and
+  only it, carries in `check-request.rule-decisions` every decision the configuration writes, on the
+  rule entries of every `gate.toml` and on the exceptions of every `gate.exceptions.toml`, whether
+  or not the root is a project, and `ledger/config-decisions` judges them against the workspace's
+  decision index. A decision written in a nested project is judged there too, at its own file and
+  line. The owner an exception names is asked by `ledger/exception-owners`, and at a root that is
+  not a project, whose root file is the repository call's own (`check-request.config-file`), by
+  `ledger/root-exception-owners`. Option data that exempts something is written as an exception,
   not as data.
 - **Baselines.** `gate baseline write` stores the fingerprints of today's findings in
   `gate/baseline.json`; findings in it are not reported, entries that match nothing are, so a baseline

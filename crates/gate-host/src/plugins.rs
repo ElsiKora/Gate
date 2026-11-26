@@ -809,6 +809,7 @@ impl Loaded {
             };
         workspace.validate_except(&declaration, &preset_options, &JsonSchemaValidator, skipped)?;
         self.check_presets(workspace)?;
+        self.check_repository_rules(workspace)?;
         self.check_needs(workspace, filter)?;
         self.check_decisions(workspace)?;
         self.check_generators(workspace)?;
@@ -862,6 +863,54 @@ impl Loaded {
         }
         if let Some(seen) = reach.iter().find(|seen| !seen.turns_on) {
             return Err(Error::config(seen.message(workspace.root_is_project())));
+        }
+        Ok(())
+    }
+
+    /// Checks that the root's configuration names every repository-scope rule a project's scope
+    /// turns on (a preset, a family or a `[rules]` entry): the repository call is the only one
+    /// that runs it, so a rule the root never names would never run. A root `[rules]` entry, a
+    /// root family or a root preset that names the rule decides it, at any level, `off` included.
+    ///
+    /// # Errors
+    /// Fails on the first such rule, naming the rule, the project and where its scope turns it
+    /// on, and what to write in the root `gate.toml` instead.
+    fn check_repository_rules(&self, workspace: &Workspace) -> Result<()> {
+        let repository = workspace.repository();
+        let declares = |name: &PluginName| repository.plugins.contains_key(name);
+        for (project, settings) in scopes(workspace) {
+            let Some(project) = project else { continue };
+            for (name, declared) in &self.declarations {
+                if !settings.plugins.contains_key(name) {
+                    continue;
+                }
+                let own = presets(&declared.info, name, settings)?;
+                let root = if declares(name) {
+                    presets(&declared.info, name, repository)?
+                } else {
+                    BTreeMap::new()
+                };
+                for info in declared
+                    .info
+                    .rules
+                    .iter()
+                    .filter(|info| info.scope == Scope::Repository)
+                {
+                    let id = rule_id(name, &info.name)?;
+                    let preset = own.get(info.name.as_str());
+                    let decided = declares(name)
+                        && (repository.rules.contains_key(&id)
+                            || repository.families.contains_key(name.as_str())
+                            || root.contains_key(info.name.as_str()));
+                    if decided || !turned_on(settings, &id, preset) {
+                        continue;
+                    }
+                    return Err(Error::config(format!(
+                        "{} turns on the repository-scope rule \"{id}\" for project {project}, but the root's configuration does not name it, and only the repository call runs it; declare plugin {name} in the root gate.toml and turn the rule on or set its level there",
+                        turned_on_at(settings, &id, preset)
+                    )));
+                }
+            }
         }
         Ok(())
     }
@@ -1206,13 +1255,12 @@ impl Loaded {
             let root = project
                 .and_then(|name| workspace.projects().get(name))
                 .map(|project| project.root.clone());
-            let own = own_config(workspace, project);
             let options_files: Vec<&str> = rules
                 .iter()
                 .filter_map(|rule| rule.run.options_file.as_deref())
                 .collect();
             let grant = grant(root.as_deref(), settings, name, &options_files);
-            let request = check_request(root.as_deref(), settings, name, &rules, own);
+            let request = check_request(workspace, project, settings, name, &rules);
             planned.push((project, settings, name, rules, sha256, request, grant));
         }
 
@@ -2132,25 +2180,7 @@ fn enabled_rules(
         let id = rule_id(name, &info.name)?;
         let preset = presets.get(info.name.as_str());
         let entry = settings.rules.get(&id);
-        if entry.is_none() && preset.is_none() && !settings.families.contains_key(name.as_str()) {
-            continue;
-        }
-        let whole = settings.setting(&id, "");
-        let level = whole.or_else(|| preset.and_then(|preset| preset.level));
-        // An aspect a preset turns on keeps the rule running, unless `[rules]` turns it off.
-        let any_aspect_on = entry.is_some_and(|entry| {
-            entry
-                .levels
-                .values()
-                .any(|level| matches!(level.value, Setting::On(_)))
-        }) || (whole != Some(Setting::Off)
-            && preset.is_some_and(|preset| {
-                preset
-                    .levels
-                    .values()
-                    .any(|level| matches!(level, Setting::On(_)))
-            }));
-        if level == Some(Setting::Off) && !any_aspect_on {
+        if !turned_on(settings, &id, preset) {
             continue;
         }
         let options = settings
@@ -2182,6 +2212,49 @@ fn enabled_rules(
         });
     }
     Ok(rules)
+}
+
+/// Whether `settings` turn rule `id` on: a `[rules]` entry, a family level or a preset (`preset`)
+/// names it, and not everything about it is `off`.
+fn turned_on(settings: &Settings, id: &RuleId, preset: Option<&PresetRule>) -> bool {
+    let entry = settings.rules.get(id);
+    if entry.is_none() && preset.is_none() && !settings.families.contains_key(id.plugin()) {
+        return false;
+    }
+    let whole = settings.setting(id, "");
+    let level = whole.or_else(|| preset.and_then(|preset| preset.level));
+    // An aspect a preset turns on keeps the rule running, unless `[rules]` turns it off.
+    let any_aspect_on = entry.is_some_and(|entry| {
+        entry
+            .levels
+            .values()
+            .any(|level| matches!(level.value, Setting::On(_)))
+    }) || (whole != Some(Setting::Off)
+        && preset.is_some_and(|preset| {
+            preset
+                .levels
+                .values()
+                .any(|level| matches!(level, Setting::On(_)))
+        }));
+    level != Some(Setting::Off) || any_aspect_on
+}
+
+/// Where `settings` turn rule `id` on, as [`turned_on`] finds it: the `[rules]` entry, else the
+/// family, else the preset's `extends` entry.
+fn turned_on_at(settings: &Settings, id: &RuleId, preset: Option<&PresetRule>) -> String {
+    if let Some(origin) = settings
+        .rules
+        .get(id)
+        .and_then(|entry| entry.origins().next())
+    {
+        return format!("{origin}: \"{id}\"");
+    }
+    if let Some(family) = settings.families.get(id.plugin()) {
+        return format!("{}: \"{}/*\"", family.origin, id.plugin());
+    }
+    preset.map_or_else(String::new, |preset| {
+        format!("{}: \"{}\"", preset.extended.origin, preset.extended.value)
+    })
 }
 
 /// One `extends` entry, the scopes it reached and whether its preset names a rule of any of them.
@@ -2512,19 +2585,28 @@ fn presets(
     Ok(rules)
 }
 
-/// The `check` call of `name` on the project at `root` (the repository when `None`), for `rules`,
-/// with the rule `decisions` the scope's own `gate.toml` names.
+/// The `check` call of `name` on `project` (the repository when `None`), for `rules`, with the
+/// scope's own `gate.toml` and the written decisions it carries: every one of the workspace in
+/// the repository call, none in a project's.
 fn check_request(
-    root: Option<&str>,
+    workspace: &Workspace,
+    project: Option<&str>,
     settings: &Settings,
     name: &PluginName,
     rules: &[Enabled],
-    own: Option<&Config>,
 ) -> gate_sdk::CheckRequest {
+    let root = project
+        .and_then(|name| workspace.projects().get(name))
+        .map(|project| project.root.as_str());
+    let own = own_config(workspace, project);
     gate_sdk::CheckRequest {
         project: root.unwrap_or_default().to_owned(),
         norms: norms(settings),
-        rule_decisions: own.map_or_else(Vec::new, rule_decisions),
+        rule_decisions: if project.is_none() {
+            written_decisions(workspace)
+        } else {
+            Vec::new()
+        },
         config_file: own.map_or_else(String::new, |config| config.path().to_owned()),
         rules: rules.iter().map(|rule| rule.run.clone()).collect(),
         plugin_options: settings
@@ -2559,18 +2641,18 @@ fn own_config<'w>(workspace: &'w Workspace, project: Option<&str>) -> Option<&'w
     }
 }
 
-/// The decisions the rule entries of the scope's own `gate.toml` (`config`, from [`own_config`])
-/// name, as `check-request.rule-decisions` promises. Their paths are repository paths; the runtime
-/// gives them to the plugin relative to its scope's root.
-fn rule_decisions(config: &Config) -> Vec<gate_sdk::RuleDecision> {
-    config
-        .rule_decisions()
+/// Every decision the workspace's configuration writes ([`Workspace::written_decisions`]), as
+/// `check-request.rule-decisions` promises the repository call. Their paths are repository paths;
+/// the repository call's grant leaves them so.
+fn written_decisions(workspace: &Workspace) -> Vec<gate_sdk::RuleDecision> {
+    workspace
+        .written_decisions()
         .into_iter()
         .map(|written| gate_sdk::RuleDecision {
             key: written.key,
             decision: written.decision,
             at: gate_sdk::FileLocation {
-                path: config.path().to_owned(),
+                path: written.path,
                 span: Some(gate_sdk::Span::line(written.line)),
             },
         })

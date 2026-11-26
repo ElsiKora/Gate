@@ -25,20 +25,17 @@ const SYNTHETIC: &str = r#"{
 }"#;
 
 /// Every rule of the plugin, with the options it requires.
-const RULES: [(&str, &str); 13] = [
+const RULES: [(&str, &str); 10] = [
     ("blockers", ""),
     ("closing-notes", r#"{"field":"`TEMPORARY_DELTA` records"}"#),
+    ("config-decisions", ""),
     ("decisions", ""),
-    ("exception-decisions", ""),
     ("exception-owners", ""),
     ("manifest", ""),
     ("record-status", ""),
     ("records", ""),
     ("reuses", r#"{"catalog":"docs/reference/mechanisms.md"}"#),
-    ("root-exception-decisions", ""),
     ("root-exception-owners", ""),
-    ("root-rule-decisions", ""),
-    ("rule-decisions", ""),
 ];
 
 /// The findings of every rule over `files`, with [`PARITY`], by rule.
@@ -109,6 +106,7 @@ fn an_absent_ledger_fails_every_rule_that_reads_a_file_naming_it() {
         [
             ("blockers", records("blockers")),
             ("closing-notes", records("closing-notes")),
+            ("config-decisions", vec![]),
             (
                 "decisions",
                 vec![
@@ -116,7 +114,6 @@ fn an_absent_ledger_fails_every_rule_that_reads_a_file_naming_it() {
                     input("decisions", COVERAGE, "its option coverage"),
                 ]
             ),
-            ("exception-decisions", vec![]),
             ("exception-owners", vec![]),
             (
                 "manifest",
@@ -138,10 +135,7 @@ fn an_absent_ledger_fails_every_rule_that_reads_a_file_naming_it() {
                     input("reuses", INDEX, "[plugins.ledger] options decisions"),
                 ]
             ),
-            ("root-exception-decisions", vec![]),
             ("root-exception-owners", vec![]),
-            ("root-rule-decisions", vec![]),
-            ("rule-decisions", vec![]),
         ]
     );
 }
@@ -211,25 +205,22 @@ fn a_partial_ledger_reports_what_is_missing() {
 }
 
 #[test]
-fn the_root_rules_in_their_own_call_name_the_files_they_read() {
+fn the_root_rule_in_its_own_call_names_the_file_it_read() {
     // The repository call of a root that is not a project, with no ledger but a root exception
-    // that names an owner and a decision: each root rule reports what its project rule reports,
-    // naming the implementation file or the decision index it read.
+    // that names an owner: the root rule reports what its project rule reports, naming the
+    // implementation file it read.
     let files = Files::default().with(
         "gate.exceptions.toml",
         "[[exception]]\nrule = \"demo/rule\"\ntarget = \"README.md\"\nreason = \"kept for now\"\nowner = \"I-NOPE-001\"\ndecision = \"D-NOPE-001\"\n",
     );
-    for (project, root, read) in [
-        ("exception-owners", "root-exception-owners", IMPLEMENTATION),
-        ("exception-decisions", "root-exception-decisions", INDEX),
-    ] {
-        let found = findings_in(root, "", PARITY, "gate.toml", &files);
-        assert_eq!(found, findings(project, "", PARITY, &files), "{root}");
-        assert_eq!(found.len(), 1, "{root}: {found:?}");
-        assert_eq!(found[0].1, "gate.exceptions.toml", "{root}");
-        assert!(
-            found[0].3.contains(&format!("which {read} does not list")),
-            "{root}: {found:?}"
-        );
-    }
+    let found = findings_in("root-exception-owners", "", PARITY, "gate.toml", &files);
+    assert_eq!(found, findings("exception-owners", "", PARITY, &files));
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].1, "gate.exceptions.toml");
+    assert!(
+        found[0]
+            .3
+            .contains(&format!("which {IMPLEMENTATION} does not list")),
+        "{found:?}"
+    );
 }

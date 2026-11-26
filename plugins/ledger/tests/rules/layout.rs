@@ -209,13 +209,12 @@ fn every_rule(files: &Files) -> Vec<(&'static str, Vec<Seen>)> {
     [
         ("blockers", ""),
         ("closing-notes", r#"{"field":"`TEMPORARY_DELTA` records"}"#),
+        ("config-decisions", ""),
         ("decisions", ""),
-        ("exception-decisions", ""),
         ("exception-owners", ""),
         ("manifest", ""),
         ("records", ""),
         ("reuses", r#"{"catalog":"docs/reference/mechanisms.md"}"#),
-        ("rule-decisions", ""),
     ]
     .into_iter()
     .map(|(rule, options)| (rule, findings(rule, options, "{}", files)))
@@ -234,6 +233,7 @@ fn the_seeded_ledger_asks_only_for_what_the_project_writes() {
         [
             ("blockers", vec![]),
             ("closing-notes", vec![]),
+            ("config-decisions", vec![]),
             (
                 "decisions",
                 vec![input(
@@ -242,7 +242,6 @@ fn the_seeded_ledger_asks_only_for_what_the_project_writes() {
                     "its option coverage"
                 )]
             ),
-            ("exception-decisions", vec![]),
             ("exception-owners", vec![]),
             ("manifest", vec![]),
             (
@@ -270,7 +269,6 @@ fn the_seeded_ledger_asks_only_for_what_the_project_writes() {
                     "its option catalog"
                 )]
             ),
-            ("rule-decisions", vec![]),
         ]
     );
 }

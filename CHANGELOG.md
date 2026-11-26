@@ -8,6 +8,33 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+## [0.3.3](https://github.com/ElsiKora/Gate/compare/v0.3.2...v0.3.3) (unreleased)
+
+The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, so no plugin needs a
+rebuild, but what the repository call carries in `check-request.rule-decisions` changes. ledger
+0.3.2 needs core 0.3.3 or later, and core 0.3.3 needs ledger 0.3.2: upgrade both together. With core
+0.3.2, ledger 0.3.2 checks no decision under a root project, and only the root gate.toml's rule
+entries under a root that is not a project. With ledger 0.3.1, core 0.3.3 reports each exception's
+decision twice.
+
+### Features
+
+- **host:** the repository call carries every decision the workspace's configuration writes,
+  whether or not the root is a project: the rule entries and `[[profiles]]` rules of the root
+  `gate.toml`, the rule entries of every project's `gate.toml`, and the `decision` of every
+  `[[exception]]` of every `gate.exceptions.toml`, each at its repository path and line. A
+  project's call carries none, so a repository-scope rule judges each decision once, a nested
+  project's included. `check-request.config-file` is unchanged.
+
+### Bug Fixes
+
+- **host:** a repository-scope rule that a project's scope turns on (a preset, a family or a
+  `[rules]` entry) while the root's configuration does not name it was dropped without a message, so
+  it never ran. It is now a configuration error (exit 2) that names the rule, the project and the
+  entry, and says to declare the plugin in the root `gate.toml` and turn the rule on or set its
+  level there. A root `[rules]` entry, family or preset that names the rule decides it at any level,
+  `off` included.
+
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/v0.3.1...v0.3.2) (2026-11-23)
 
 The plugin interface stays `gate:plugin@0.3.0`, so every plugin built for 0.3.0 loads in a 0.3.2
