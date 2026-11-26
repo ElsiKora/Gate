@@ -80,4 +80,10 @@ blocking. The lead's decisions, all done in `c04fed22`:
   or JSON).
 - First round green on `7ed7c985` (fmt, clippy, 1654 tests, deny: each exit 0).
 - Review round: `origin/main` (`2483e35b`, T-104) merged in `703e40ca`; the fix is `c04fed22`.
-  Lane: clippy alone, then the full round, results below.
+  Lane, on `c04fed22`'s code:
+  - clippy alone (`--workspace --all-targets --keep-going -- -D warnings`), 08:49:23Z: exit 0.
+  - Full round (`round.sh`, 2026-11-26T08:49:50+00:00 to 08:59:40+00:00): `cargo fmt --all
+    --check` exit 0, `cargo clippy --locked --all-targets -- -D warnings` exit 0, `cargo test
+    --locked` exit 0 (1660 passed, 0 failed, the five T-106 tests among them), `cargo deny --locked
+    check` exit 0.
+- Waiting for the lead. Commits after `c04fed22` touch this file and `docs/plan.md` only.

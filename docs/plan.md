@@ -131,7 +131,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-103 | - | Gate checks itself with the released 0.3.2: `[gate] version = "0.3.2"`, the core's pins in `gate.lock`, the generated workflow cancels superseded runs off the default branch; `git`, `agents`, `markdown` and `ci` stay at 0.3.0 (no later release); no `cache` or `aggregate-name` | done (reviewed by the lead; checks green under 0.3.2; merged) | T-101 |
 | T-104 | next | Under `[decision-policy] require-decision`, a rule or aspect that no preset names has the default `error`, so lowering it to `warning`, `note` or `off` needs a decision | done (reviewed, one fix round; gates green on `4b40022`; merged for the next core release) | none |
 | T-105 | next ledger | A decision named in a nested project's `gate.toml` is checked against the workspace's decision index, once, by one rule; the plugin interface stays `gate:plugin@0.3.0` | open | none |
-| T-106 | next | `gate list` prints the repository-scope rules a preset turns on, from the same rule set `gate check` runs | in review (lane round green on `7ed7c985`) | none |
+| T-106 | next | `gate list` prints the repository-scope rules a preset turns on, from the same rule set `gate check` runs | in review (fix round green on `c04fed22`) | none |
 | T-107 | next | A root project's rule never reports a file that a nested project owns (seen with `typescript/barrel-imports`) | open | none |
 
 ## Open after rc.1
