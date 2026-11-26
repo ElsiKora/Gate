@@ -249,7 +249,7 @@ root `off` turns owner checks off for the whole workspace.
 projects = ["docs"]
 
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "docs/ledger/decision-index.md", implementation = "docs/ledger/implementation-slices.md" } }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.3", options = { decisions = "docs/ledger/decision-index.md", implementation = "docs/ledger/implementation-slices.md" } }
 
 [rules]
 "ledger/config-decisions" = "error"
@@ -262,7 +262,7 @@ ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "docs/
 name = "docs"
 
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "ledger/decision-index.md", implementation = "ledger/implementation-slices.md" } }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.3", options = { decisions = "ledger/decision-index.md", implementation = "ledger/implementation-slices.md" } }
 
 [rules]
 "ledger/decisions" = "error"
