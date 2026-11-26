@@ -122,7 +122,7 @@ fn only_a_planned_or_in_progress_owner_is_open() {
     );
 }
 
-/// A root exceptions file with an open owner (line 1) and an undecided unknown owner (line 7), and
+/// A root exceptions file with an open owner (line 1) and an undecided unknown owner (line 8), and
 /// a nested project's with an open owner (line 1) and an unknown one (line 7). The nested project
 /// keeps a records file of its own that lists the unknown owner: it is not the records.
 fn nested() -> Files {
@@ -156,7 +156,7 @@ fn nested() -> Files {
 fn nested_listing() -> Vec<RuleDecision> {
     vec![
         listed(EXCEPTIONS, "demo/rule", 1, "D-ONE-001"),
-        listed(EXCEPTIONS, "demo/other", 7, ""),
+        listed(EXCEPTIONS, "demo/other", 8, ""),
         listed(NESTED, "demo/rule", 1, ""),
         listed(NESTED, "demo/rule", 7, "D-ONE-001"),
     ]
@@ -168,7 +168,7 @@ fn every_listed_file_is_judged_once_against_the_root_records() {
         seen(
             "",
             EXCEPTIONS,
-            Some(7),
+            Some(8),
             &format!("the exception for demo/other names the owner I-ROOT-009, {UNLISTED}"),
         ),
         seen(
@@ -215,7 +215,7 @@ fn the_records_are_the_repository_calls_option_relative_to_the_repository_root()
         found,
         [
             unlisted(EXCEPTIONS, 1, "demo/rule", "I-BASE-002"),
-            unlisted(EXCEPTIONS, 7, "demo/other", "I-ROOT-009"),
+            unlisted(EXCEPTIONS, 8, "demo/other", "I-ROOT-009"),
             unlisted(NESTED, 1, "demo/rule", "I-BASE-002"),
         ]
     );

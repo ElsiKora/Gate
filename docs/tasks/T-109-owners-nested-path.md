@@ -82,5 +82,7 @@ and `I-NOPE-003` with none (line 8); the nested folder has records of its own th
 
 ## Resume point
 
-Written on `task/T-109-owners-nested-path`. Lane: clippy alone on `317e2504` exit 0. Next: the full
-round on the head, push, report the head and the exit codes to the lead.
+Written on `task/T-109-owners-nested-path`, in review. Lane on `317e2504`: clippy alone exit 0; the
+gate, gate-host, ledger and SDK tests 651 passed, 2 failed (two new unit tests expected line 7 for an
+exception at line 8; fixed). The lane's clippy and full round on the branch head, and their exit
+codes, are in the writer's report to the lead. Next: review.
