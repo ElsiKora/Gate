@@ -2765,7 +2765,7 @@ fn non_project_root_with_decisions() -> Repo {
     repo.write("gate.toml", &toml);
     repo.write(
         "apps/one/gate.toml",
-        "[project]\nname = \"one\"\n\n[rules]\n\"probe/decisions\" = { level = \"error\", decision = \"D-ONE\" }\n\"probe/*\" = { level = \"off\", decision = \" D-FAM \" }\n",
+        "[project]\nname = \"one\"\n\n[rules]\n\"probe/*\" = { level = \"off\", decision = \" D-FAM \" }\n\"probe/config-file\" = \"error\"\n\"probe/decisions\" = { level = \"error\", decision = \"D-ONE\" }\n",
     );
     repo.write("apps/one/gate.exceptions.toml", &probe_exception("D-EXC"));
     repo.commit("decisions at a root that is not a project");
@@ -2791,9 +2791,9 @@ fn a_root_that_is_not_a_project_gives_every_decision_to_the_repository_call() {
                 Some(1),
                 vec![
                     "- config-file gate.toml".to_owned(),
-                    "- decision probe/* D-FAM at apps/one/gate.toml:6 [apps/one/gate.toml:6]".to_owned(),
+                    "- decision probe/* D-FAM at apps/one/gate.toml:5 [apps/one/gate.toml:5]".to_owned(),
                     "- decision probe/aspects D-EXC at apps/one/gate.exceptions.toml:1 [apps/one/gate.exceptions.toml:1]".to_owned(),
-                    "- decision probe/decisions D-ONE at apps/one/gate.toml:5 [apps/one/gate.toml:5]".to_owned(),
+                    "- decision probe/decisions D-ONE at apps/one/gate.toml:7 [apps/one/gate.toml:7]".to_owned(),
                     "- decision probe/decisions D-PROFILE at gate.toml:15 [gate.toml:15]".to_owned(),
                     "- decision probe/root-decisions D-ROOT at gate.toml:18 [gate.toml:18]".to_owned(),
                     "one config-file gate.toml".to_owned(),
