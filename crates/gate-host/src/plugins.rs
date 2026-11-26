@@ -1228,11 +1228,7 @@ impl Loaded {
                     project.and_then(|name| workspace.projects().get(name)),
                 )
             })?;
-            let call_project = project.and_then(|name| workspace.projects().get(name));
-            for finding in outcome.findings {
-                if in_nested_project(workspace, call_project, rules, &finding) {
-                    continue;
-                }
+            for finding in own_findings(workspace, *project, rules, outcome.findings) {
                 if let Some(finding) = reported(name, settings, rules, *project, finding)? {
                     findings.push(finding);
                 }
@@ -1464,6 +1460,22 @@ fn reported(
         project: project.map(str::to_owned),
         key: finding.key,
     }))
+}
+
+/// The findings of one call for `project` (`None`: the repository) that are the call's to report:
+/// all but those on a file that a project nested in the call's project owns
+/// ([`in_nested_project`]).
+fn own_findings(
+    workspace: &Workspace,
+    project: Option<&str>,
+    rules: &[Enabled],
+    found: Vec<gate_sdk::Finding>,
+) -> Vec<gate_sdk::Finding> {
+    let call_project = project.and_then(|project| workspace.projects().get(project));
+    found
+        .into_iter()
+        .filter(|finding| !in_nested_project(workspace, call_project, rules, finding))
+        .collect()
 }
 
 /// Whether a finding of a project's call lies in a file that a project nested in it owns: inside
