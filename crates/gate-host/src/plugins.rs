@@ -728,6 +728,35 @@ impl Loaded {
         self.validate_except(workspace, filter, &BTreeSet::new())
     }
 
+    /// Every rule the configuration turns on, by scope (the repository's, then each project's in
+    /// name order) and by the scope's declared plugins in name order: what `gate check` runs
+    /// before `--rule`, `--skip-rule`, a commit-message run and the change selection narrow it,
+    /// and what `gate list` and `gate explain` show a preset turning on. A plugin with nothing on
+    /// in a scope has no entry.
+    ///
+    /// # Errors
+    /// As [`enabled_rules`].
+    fn enabled<'w>(&self, workspace: &'w Workspace) -> Result<Vec<ScopeRules<'w>>> {
+        let mut enabled = Vec::new();
+        for (project, settings) in scopes(workspace) {
+            for plugin in settings.plugins.keys() {
+                let Some(declared) = self.declarations.get(plugin) else {
+                    continue;
+                };
+                let rules = enabled_rules(&declared.info, plugin, settings, workspace, project)?;
+                if !rules.is_empty() {
+                    enabled.push(ScopeRules {
+                        project,
+                        settings,
+                        plugin,
+                        rules,
+                    });
+                }
+            }
+        }
+        Ok(enabled)
+    }
+
     /// [`Loaded::validate`] without the rules and exceptions of the plugins in `skipped`, which a
     /// commit pins and which do not load under this core: what they declare is unknown. The
     /// checks that need no plugin still cover them.
@@ -1783,35 +1812,6 @@ impl Generators for PluginGenerators<'_> {
                     generator.name()
                 ))
             })
-    }
-
-    /// Every rule the configuration turns on, by scope (the repository's, then each project's in
-    /// name order) and by the scope's declared plugins in name order: what `gate check` runs
-    /// before `--rule`, `--skip-rule`, a commit-message run and the change selection narrow it,
-    /// and what `gate list` and `gate explain` show a preset turning on. A plugin with nothing on
-    /// in a scope has no entry.
-    ///
-    /// # Errors
-    /// As [`enabled_rules`].
-    fn enabled<'w>(&self, workspace: &'w Workspace) -> Result<Vec<ScopeRules<'w>>> {
-        let mut enabled = Vec::new();
-        for (project, settings) in scopes(workspace) {
-            for plugin in settings.plugins.keys() {
-                let Some(declared) = self.declarations.get(plugin) else {
-                    continue;
-                };
-                let rules = enabled_rules(&declared.info, plugin, settings, workspace, project)?;
-                if !rules.is_empty() {
-                    enabled.push(ScopeRules {
-                        project,
-                        settings,
-                        plugin,
-                        rules,
-                    });
-                }
-            }
-        }
-        Ok(enabled)
     }
 
     fn reads_history(&self, filter: &RuleFilter) -> bool {
