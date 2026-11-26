@@ -809,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "gate"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "clap",
  "gate-host",
@@ -820,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "gate-agents-format"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "pulldown-cmark",
  "regex",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "gate-host"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "clap",
  "gate-runtime",
@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-hello"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "gate-sdk",
  "gate-test",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "gate-plugin-ledger"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "gate-sdk",
  "regex",
@@ -987,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "gate-runtime"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bytes",
  "gate-sdk",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "gate-runtime-probe"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "gate-sdk",
  "serde",
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "gate-sdk"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "schemars",
  "serde",
@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "gate-test"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "gate-sdk",
  "serde",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "gate-typescript"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "gate-sdk",
  "json-strip-comments",
