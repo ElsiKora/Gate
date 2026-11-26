@@ -82,16 +82,28 @@ These findings stay:
 The filter runs on the call's outcome, so an answer served from the cache is filtered too.
 `gate:plugin@0.3.0` is unchanged, and no plugin changes.
 
+## Lead's conditions (approved 2026-11-26)
+
+- Filter after the call in the core. The grant, the listing and the WIT stay unchanged.
+- One owner function, `Projects::owner` (longest root), decides both the filter and project
+  assignment.
+- Tests for three cases: an unused exception reported through `gate/exceptions`, a cached run equal
+  to a cold one, and a project found by glob with no `gate.toml`.
+- One sentence each in `docs/guide/monorepo.md` and `docs/architecture.md`.
+- A before/after timing of a cold `check`.
+
 ## Resume point
 
-- Tests:
-  - `a_root_projects_rule_reports_no_file_a_nested_project_owns` (built typescript plugin, root
-    and nested project);
-  - `a_projects_rule_reads_a_nested_projects_file_but_reports_nothing_on_it` (runtime probe: reads
-    the nested file, keeps the finding at its option file in the nested folder, drops the finding
-    on the nested file).
-  - Both are in `crates/gate/tests/plugins.rs`. Their red run on the test-only commit `21b4518`
-    is queued in the lane.
-- The fix is in `in_nested_project`. Docs: `docs/guide/monorepo.md` and `docs/architecture.md`.
-- Next: the red run, then fmt, clippy, the full test and deny through the lane on the head; then
-  push and report the head OID to the lead.
+- Tests in `crates/gate/tests/plugins.rs`:
+  - `a_root_projects_rule_reports_no_file_a_nested_project_owns`: the built typescript plugin, run
+    cold, then warm from the result cache with the same findings, then with the rule on in both;
+  - `a_root_rules_exception_on_a_nested_projects_file_matches_no_finding`;
+  - `a_projects_rule_reads_a_nested_projects_file_but_reports_nothing_on_it`: the runtime probe,
+    with the nested project found by its `gate.toml` and by a glob.
+- The fix is `in_nested_project` in `crates/gate-host/src/plugins.rs`; the docs are done.
+- Queued in the lane:
+  - the red run of these tests on `21b4518` with the new tests (main's host code);
+  - the round on `df39cf1`;
+  - the timing (`measure.sh 21b45187 df39cf1b`: release builds, about 6,000 synthetic `.ts`
+    files, three alternating cold runs).
+- Next: record the exit codes and timings here, then push and report the head OID to the lead.
