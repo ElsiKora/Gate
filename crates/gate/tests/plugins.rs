@@ -2726,9 +2726,10 @@ fn a_nested_projects_decisions_are_judged_once_against_the_root_index_under_a_ro
         (code, seen),
         (
             Some(1),
-            vec![format!(
+            vec![
                 "ledger/config-decisions infra/cdk/gate.toml:6 the entry for \"ledger/decisions\" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
-            )]
+                    .to_owned()
+            ]
         )
     );
 }
