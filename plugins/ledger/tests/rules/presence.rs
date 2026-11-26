@@ -213,14 +213,14 @@ fn the_root_rule_in_its_own_call_names_the_file_it_read() {
         "gate.exceptions.toml",
         "[[exception]]\nrule = \"demo/rule\"\ntarget = \"README.md\"\nreason = \"kept for now\"\nowner = \"I-NOPE-001\"\ndecision = \"D-NOPE-001\"\n",
     );
-    for (project, root, read) in [("exception-owners", "root-exception-owners", IMPLEMENTATION)] {
-        let found = findings_in(root, "", PARITY, "gate.toml", &files);
-        assert_eq!(found, findings(project, "", PARITY, &files), "{root}");
-        assert_eq!(found.len(), 1, "{root}: {found:?}");
-        assert_eq!(found[0].1, "gate.exceptions.toml", "{root}");
-        assert!(
-            found[0].3.contains(&format!("which {read} does not list")),
-            "{root}: {found:?}"
-        );
-    }
+    let found = findings_in("root-exception-owners", "", PARITY, "gate.toml", &files);
+    assert_eq!(found, findings("exception-owners", "", PARITY, &files));
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].1, "gate.exceptions.toml");
+    assert!(
+        found[0]
+            .3
+            .contains(&format!("which {IMPLEMENTATION} does not list")),
+        "{found:?}"
+    );
 }
