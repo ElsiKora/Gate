@@ -133,6 +133,8 @@ reference for every ported rule is the reference implementation, outside this re
 | T-105 | next ledger | A decision named in a nested project's `gate.toml` is checked against the workspace's decision index, once, by one rule; the plugin interface stays `gate:plugin@0.3.0` | open | none |
 | T-106 | next | `gate list` prints the repository-scope rules a preset turns on, from the same rule set `gate check` runs | done (reviewed, one fix round; gates green on `c04fed22`, 1660 tests passed; merged for the next core release) | none |
 | T-107 | next | A root project's rule never reports a file that a nested project owns (seen with `typescript/barrel-imports`) | done (reviewed, one fix round; the cause was in the core: findings of a project call on a nested project's files are dropped; gates green on `263cb2d`, 1665 tests passed; merged for the next core release) | none |
+| T-108 | v0.3.3 | Version 0.3.3 for the core and 0.3.2 for `ledger`, with their changelogs | open | T-104, T-105, T-106, T-107 |
+| T-109 | next ledger | `ledger/exception-owners` and `ledger/root-exception-owners` read the implementation records from one place in the repository, so a nested project's exceptions are judged against the right records | open | T-105 |
 
 ## Open after rc.1
 
