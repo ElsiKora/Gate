@@ -4495,6 +4495,93 @@ fn a_configured_tsconfig_that_is_not_tracked_is_a_configuration_error() {
     );
 }
 
+/// A root project `app` that runs `typescript/barrel-imports`, and a nested project `cdk` in
+/// `infra/cdk` with a `gate.toml` of its own whose `[rules]` are `nested_rules`: each has a barrel
+/// folder and a file that imports past it, and a root file imports past the nested project's
+/// barrel. The JSON findings of `gate check`, as (project, path) pairs, sorted.
+fn nested_barrel_findings(nested_rules: &str) -> Vec<(String, String)> {
+    let repo = Repo::empty();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"app\"\n\n[plugins]\ntypescript = {{ source = \"acme/rules:typescript@0.1.0\" }}\n\n[rules]\n\"typescript/barrel-imports\" = {{ level = \"error\" }}\n"
+        ),
+    );
+    repo.write("tsconfig.json", "{}\n");
+    repo.write("src/lib/index.ts", "export { shown } from \"./shown\";\n");
+    repo.write("src/lib/shown.ts", "export const shown = 1;\n");
+    repo.write("src/lib/deep.ts", "export const deep = 2;\n");
+    repo.write("src/main.ts", "import { deep } from \"./lib/deep\";\n");
+    repo.write(
+        "src/infra.ts",
+        "import { inner } from \"../infra/cdk/lib/inner\";\n",
+    );
+    repo.write(
+        "infra/cdk/gate.toml",
+        &format!("[project]\nname = \"cdk\"\n{nested_rules}"),
+    );
+    repo.write("infra/cdk/tsconfig.json", "{}\n");
+    repo.write(
+        "infra/cdk/lib/index.ts",
+        "export { stack } from \"./stack\";\n",
+    );
+    repo.write("infra/cdk/lib/stack.ts", "export const stack = 1;\n");
+    repo.write("infra/cdk/lib/inner.ts", "export const inner = 2;\n");
+    repo.write(
+        "infra/cdk/bin/app.ts",
+        "import { inner } from \"../lib/inner\";\n",
+    );
+    repo.commit("a root project and a nested project, each with a barrel");
+
+    let output = repo.gate(&[
+        "check",
+        "--plugin",
+        &typescript_plugin(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let report: serde_json::Value =
+        serde_json::from_str(&text(&output.stdout)).expect("a JSON report");
+    let mut found: Vec<(String, String)> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            assert_eq!(finding["rule"], "typescript/barrel-imports", "{finding}");
+            (
+                finding["project"].as_str().unwrap_or("-").to_owned(),
+                finding["location"]["path"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_owned(),
+            )
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn a_root_projects_rule_reports_no_file_a_nested_project_owns() {
+    // The rule is on in the root only: the nested project's file is judged by no one, and the
+    // root's own findings stay, the one past the nested project's barrel included.
+    let pair = |project: &str, path: &str| (project.to_owned(), path.to_owned());
+    assert_eq!(
+        nested_barrel_findings(""),
+        [pair("app", "src/infra.ts"), pair("app", "src/main.ts")]
+    );
+    // On in both, each finding is reported once, under the project that owns its file.
+    assert_eq!(
+        nested_barrel_findings("\n[rules]\n\"typescript/barrel-imports\" = \"error\"\n"),
+        [
+            pair("app", "src/infra.ts"),
+            pair("app", "src/main.ts"),
+            pair("cdk", "infra/cdk/bin/app.ts"),
+        ]
+    );
+}
+
 /// `gate check` in a repository with one tracked TypeScript file and `[plugins.<name>]` declared,
 /// the built component of `package` (library `library`) given as `--plugin <name>=<path>`, and
 /// `[rules]` `rules`.
