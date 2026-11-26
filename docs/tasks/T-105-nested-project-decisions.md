@@ -151,7 +151,19 @@ still is. The message, the guides and both CHANGELOGs say "turn the rule on or s
 there"; a test loads a root `off` with its decision under the policy beside a project preset and,
 separately, a project family.
 
+Proof of the correction, through the lane in fresh detached worktrees: clippy alone
+(`--workspace --all-targets --keep-going`) on `ab5abdce`, 2026-11-26T10:16:51+00:00 to
+10:20:25+00:00, exit 0; the full round on `0f8e24db` (`ab5abdce` with `origin/main` at `f026fba1`
+merged, task files only), 2026-11-26T10:20:31+00:00 to 10:41:58+00:00:
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 |
+| `cargo test --locked` (1667 passed, 0 failed) | 0 |
+| `cargo deny --locked check` | 0 |
+
 ## Resume point
 
-The B1 correction is committed and pushed. Next: clippy alone, then the full round through the
-lane; record the exit codes here and send the lead the head.
+Done on the writer's side: the B1 correction is green on `0f8e24db` and pushed. Waiting for the
+lead.
