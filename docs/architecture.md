@@ -148,7 +148,9 @@ interface types {
     languages: string,              // JSON: [languages.<id>] settings of the languages the plugin declares
     norms: list<string>,            // every norm the configuration maps, for rules about rule documents
     rule-decisions: list<rule-decision>, // the repository call: every decision the workspace's
-                                    // configuration writes, for rules about them; a project's: none
+                                    // configuration writes, for rules about them, and every
+                                    // exception, an undecided one with an empty decision;
+                                    // a project's: none
     config-file: string,            // the scope's own gate.toml; empty in the repository call
                                     // under a root project
   }
@@ -749,13 +751,14 @@ The first readers raised these points; each is settled:
   so a project file that lowers what the root left alone needs its own. Whether a decision names a
   real record is a plugin's question, asked once for the whole workspace: the repository call, and
   only it, carries in `check-request.rule-decisions` every decision the configuration writes, on the
-  rule entries of every `gate.toml` and on the exceptions of every `gate.exceptions.toml`, whether
-  or not the root is a project, and `ledger/config-decisions` judges them against the workspace's
-  decision index. A decision written in a nested project is judged there too, at its own file and
-  line. The owner an exception names is asked by `ledger/exception-owners`, and at a root that is
-  not a project, whose root file is the repository call's own (`check-request.config-file`), by
-  `ledger/root-exception-owners`. Option data that exempts something is written as an exception,
-  not as data.
+  rule entries of every `gate.toml` that name one and every exception of every
+  `gate.exceptions.toml` (an undecided one with an empty decision), whether or not the root is a
+  project, and `ledger/config-decisions` judges them against the workspace's decision index. A
+  decision written in a nested project is judged there too, at its own file and line. The owner an
+  exception names is asked by `ledger/exception-owners`, also in the repository call only: the list
+  names every exceptions file the core read, so the rule reads the owners from exactly those files
+  and judges them against the workspace's implementation records. Option data that exempts
+  something is written as an exception, not as data.
 - **Baselines.** `gate baseline write` stores the fingerprints of today's findings in
   `gate/baseline.json`; findings in it are not reported, entries that match nothing are, so a baseline
   only shrinks. `gate baseline prune` removes those entries (an aspect set to `off` while its rule

@@ -419,8 +419,8 @@ options = { decisions = "apps/docs/decisions/index.md" }
 A root project turns it on in its own `[rules]`, beside its project rules. Each call still names its
 own `gate.toml` (`check-request.config-file`): a project's call its project's file, the repository
 call the root file when the root is not a project, and none under a root project, whose root file is
-that project's. `ledger/root-exception-owners` reads the root exceptions beside it, so in a
-single-project repository it reports nothing and `ledger/exception-owners` judges them.
+that project's. `ledger/exception-owners` judges the owners of every exception the same way, in the
+repository call, against the records the root's `[plugins.ledger]` names.
 
 ## Baselines
 

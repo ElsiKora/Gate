@@ -1,8 +1,12 @@
-//! `ledger/exception-owners` and its root counterpart `ledger/root-exception-owners`.
+//! `ledger/exception-owners`: one repository-scope rule over every `gate.exceptions.toml` the
+//! repository call lists, the records read from the repository root.
 
-use crate::{Files, error, findings, findings_in, ledger, seen};
+use gate_sdk::RuleDecision;
+
+use crate::{Files, IMPLEMENTATION, findings, findings_listed, ledger, listed, run_listed, seen};
 
 const EXCEPTIONS: &str = "gate.exceptions.toml";
+const NESTED: &str = "apps/one/gate.exceptions.toml";
 const INDEX: &str = "docs/ledger/decision-index.md";
 
 fn exception(rule: &str, extra: &str) -> String {
@@ -18,6 +22,20 @@ fn tree(exceptions: &str) -> Files {
     )
 }
 
+/// The findings of the rule in a repository call that lists `listed`.
+fn owners(listed: &[RuleDecision], files: &Files) -> Vec<crate::Seen> {
+    findings_listed("exception-owners", "", listed, files)
+}
+
+/// The listing of the root exceptions file of [`tree`]: one entry per exception, at lines 1, 7, …
+fn root(count: u32) -> Vec<RuleDecision> {
+    (0..count)
+        .map(|index| listed(EXCEPTIONS, "demo/rule", 1 + 6 * index, ""))
+        .collect()
+}
+
+const UNLISTED: &str = "which docs/ledger/implementation-slices.md does not list; name an open implementation record, or remove the owner";
+
 #[test]
 fn an_open_owner_passes_and_a_decision_is_not_this_rules() {
     // A proposed decision beside an open owner: the decision is `ledger/config-decisions`'s.
@@ -25,9 +43,11 @@ fn an_open_owner_passes_and_a_decision_is_not_this_rules() {
         "demo/rule",
         "owner = \"I-BASE-002\"\ndecision = \"D-TWO-001\"",
     ));
-    assert_eq!(findings("exception-owners", "", "", &files), []);
-    let files = ledger();
-    assert_eq!(findings("exception-owners", "", "", &files), []);
+    assert_eq!(
+        owners(&[listed(EXCEPTIONS, "demo/rule", 1, "D-TWO-001")], &files),
+        []
+    );
+    assert_eq!(owners(&[], &ledger()), []);
 }
 
 #[test]
@@ -39,13 +59,13 @@ fn exception_owners_an_unknown_and_a_completed_owner() {
         exception("demo/other", "owner = \"I-ALPHA-ONE-001\""),
     ));
     assert_eq!(
-        findings("exception-owners", "", "", &files),
+        owners(&root(3), &files),
         [
             seen(
                 "",
                 EXCEPTIONS,
                 Some(7),
-                "the exception for demo/rule#part names the owner I-NOPE-001, which docs/ledger/implementation-slices.md does not list; name an open implementation record, or remove the owner"
+                &format!("the exception for demo/rule#part names the owner I-NOPE-001, {UNLISTED}")
             ),
             seen(
                 "",
@@ -67,7 +87,7 @@ fn only_a_planned_or_in_progress_owner_is_open() {
                    \x20 - Status: `rejected`\n\
                    - `I-STARTED-006`: Started work\n\
                    \x20 - Status: `in progress`\n";
-    let owners = [
+    let owners_text = [
         "I-BASE-002",
         "I-NONE-003",
         "I-BLOCKED-004",
@@ -76,8 +96,8 @@ fn only_a_planned_or_in_progress_owner_is_open() {
     ]
     .map(|owner| exception("demo/rule", &format!("owner = \"{owner}\"")))
     .join("\n");
-    let files = tree(&owners).edit(
-        crate::IMPLEMENTATION,
+    let files = tree(&owners_text).edit(
+        IMPLEMENTATION,
         "builds the first parser itself.\n",
         &format!("builds the first parser itself.\n{records}"),
     );
@@ -92,7 +112,7 @@ fn only_a_planned_or_in_progress_owner_is_open() {
         )
     };
     assert_eq!(
-        findings("exception-owners", "", "", &files),
+        owners(&root(5), &files),
         [
             reported("I-NONE-003", "which has no status", 7),
             reported("I-BLOCKED-004", "which is `blocked`", 13),
@@ -102,79 +122,168 @@ fn only_a_planned_or_in_progress_owner_is_open() {
     );
 }
 
+/// A root exceptions file with an open owner (line 1) and an undecided unknown owner (line 8), and
+/// a nested project's with an open owner (line 1) and an unknown one (line 7). The nested project
+/// keeps a records file of its own that lists the unknown owner: it is not the records.
+fn nested() -> Files {
+    tree(&format!(
+        "{}\n{}",
+        exception(
+            "demo/rule",
+            "owner = \"I-BASE-002\"\ndecision = \"D-ONE-001\""
+        ),
+        exception("demo/other", "owner = \"I-ROOT-009\""),
+    ))
+    .with(
+        NESTED,
+        &format!(
+            "{}\n{}",
+            exception("demo/rule", "owner = \"I-BASE-002\""),
+            exception(
+                "demo/rule",
+                "owner = \"I-NESTED-009\"\ndecision = \"D-ONE-001\""
+            ),
+        ),
+    )
+    .with(
+        &format!("apps/one/{IMPLEMENTATION}"),
+        "# Implementation\n\n- `I-NESTED-009`: Nested work\n  - Status: `planned`\n",
+    )
+}
+
+/// What the core lists for [`nested`]: every exception, root first, undecided ones with an empty
+/// decision.
+fn nested_listing() -> Vec<RuleDecision> {
+    vec![
+        listed(EXCEPTIONS, "demo/rule", 1, "D-ONE-001"),
+        listed(EXCEPTIONS, "demo/other", 8, ""),
+        listed(NESTED, "demo/rule", 1, ""),
+        listed(NESTED, "demo/rule", 7, "D-ONE-001"),
+    ]
+}
+
 #[test]
-fn the_exceptions_file_is_an_option() {
-    let files = ledger().with(
-        "config/gate.exceptions.toml",
+fn every_listed_file_is_judged_once_against_the_root_records() {
+    let expected = [
+        seen(
+            "",
+            EXCEPTIONS,
+            Some(8),
+            &format!("the exception for demo/other names the owner I-ROOT-009, {UNLISTED}"),
+        ),
+        seen(
+            "",
+            NESTED,
+            Some(7),
+            &format!("the exception for demo/rule names the owner I-NESTED-009, {UNLISTED}"),
+        ),
+    ];
+    assert_eq!(owners(&nested_listing(), &nested()), expected);
+
+    // A file listed once per exception, and rule entries of gate.toml files beside them, are each
+    // read once: nothing is reported twice, and a gate.toml is never read as exceptions.
+    let mut listing = nested_listing();
+    listing.extend(nested_listing());
+    listing.push(listed("gate.toml", "demo/rule", 12, "D-ONE-001"));
+    listing.push(listed("apps/one/gate.toml", "demo/*", 5, "D-ONE-001"));
+    assert_eq!(owners(&listing, &nested()), expected);
+}
+
+#[test]
+fn the_records_are_the_repository_calls_option_relative_to_the_repository_root() {
+    // Pointing the option at the nested project's records makes its owner known and every other
+    // owner unknown, in both files: the path is the repository's, whichever file the exception is
+    // in.
+    let records = format!("apps/one/{IMPLEMENTATION}");
+    let found = findings_listed(
+        "exception-owners",
+        &format!(r#"{{"implementation":"{records}"}}"#),
+        &nested_listing(),
+        &nested(),
+    );
+    let unlisted = |path: &str, line: u32, rule: &str, owner: &str| {
+        seen(
+            "",
+            path,
+            Some(line),
+            &format!(
+                "the exception for {rule} names the owner {owner}, which {records} does not list; name an open implementation record, or remove the owner"
+            ),
+        )
+    };
+    assert_eq!(
+        found,
+        [
+            unlisted(EXCEPTIONS, 1, "demo/rule", "I-BASE-002"),
+            unlisted(EXCEPTIONS, 8, "demo/other", "I-ROOT-009"),
+            unlisted(NESTED, 1, "demo/rule", "I-BASE-002"),
+        ]
+    );
+}
+
+#[test]
+fn a_project_call_and_an_unlisted_file_judge_nothing() {
+    // A project's call lists no exception, so the rule reads no file there; in the repository
+    // call a file the core did not list (an ignored fixture tree, say) is never read.
+    let files = nested().with(
+        "fixtures/gate.exceptions.toml",
         &exception("demo/rule", "owner = \"I-NOPE-001\""),
     );
     assert_eq!(findings("exception-owners", "", "", &files), []);
-    let found = findings(
-        "exception-owners",
-        r#"{"exceptions":"config/gate.exceptions.toml"}"#,
-        "",
-        &files,
+    assert_eq!(owners(&nested_listing(), &files).len(), 2);
+}
+
+#[test]
+fn a_root_alone_is_judged_as_any_file() {
+    // The first consumer's layout: a root project with the only gate.exceptions.toml at the root,
+    // and the same layout at a root that is not a project. The repository call lists the root
+    // file either way, so the result is the same.
+    let files = tree(&format!(
+        "{}\n{}\n{}",
+        exception("demo/rule", "owner = \"I-NOPE-001\""),
+        exception("demo/rule", "decision = \"D-TWO-001\""),
+        exception("demo/rule", "owner = \"I-BASE-002\""),
+    ));
+    assert_eq!(
+        owners(&root(3), &files),
+        [seen(
+            "",
+            EXCEPTIONS,
+            Some(1),
+            &format!("the exception for demo/rule names the owner I-NOPE-001, {UNLISTED}")
+        )]
     );
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].1, "config/gate.exceptions.toml");
 }
 
 #[test]
 fn an_unreadable_exceptions_file_is_an_error() {
-    let message = error("exception-owners", "", "", &tree("[[exception]\n"));
+    let message = run_listed(
+        "exception-owners",
+        "",
+        "",
+        &root(1),
+        &tree("[[exception]\n"),
+    )
+    .expect_err("the run fails")
+    .message()
+    .to_owned();
     assert!(
         message.contains("gate.exceptions.toml is not a valid exceptions file"),
         "{message}"
     );
 }
 
-/// An unknown owner, a decision without an owner, and an open owner.
-fn mixed() -> Files {
-    tree(&format!(
-        "{}\n{}\n{}",
-        exception("demo/rule", "owner = \"I-NOPE-001\""),
-        exception("demo/rule", "decision = \"D-TWO-001\""),
-        exception("demo/rule", "owner = \"I-BASE-002\""),
-    ))
-}
-
 #[test]
-fn the_root_rule_judges_the_root_exceptions_as_the_project_rule_does() {
-    // The repository call of a root that is not a project: its own file is the root gate.toml.
-    let files = mixed();
-    let expected = findings("exception-owners", "", "", &files);
-    assert_eq!(expected.len(), 1, "{expected:?}");
-    assert_eq!(
-        findings_in("root-exception-owners", "", "", "gate.toml", &files),
-        expected
-    );
-}
-
-#[test]
-fn the_root_rule_reads_no_exceptions_without_a_file_of_its_own() {
-    // Under a root project the repository call has no file of its own: the root exceptions belong
-    // to the root project, whose project rule judges them, so the root rule reports nothing.
-    let files = mixed();
-    assert_eq!(findings_in("root-exception-owners", "", "", "", &files), []);
-}
-
-#[test]
-fn the_root_exceptions_option_is_relative_to_the_root_file() {
-    let files = ledger().with(
-        "policy/gate.exceptions.toml",
-        &exception("demo/rule", "owner = \"I-NOPE-001\""),
-    );
-    assert_eq!(
-        findings_in("root-exception-owners", "", "", "gate.toml", &files),
-        []
-    );
-    let found = findings_in(
-        "root-exception-owners",
-        r#"{"exceptions":"policy/gate.exceptions.toml"}"#,
+fn the_rule_takes_no_options() {
+    let message = run_listed(
+        "exception-owners",
+        r#"{"exceptions":"config/gate.exceptions.toml"}"#,
         "",
-        "gate.toml",
-        &files,
-    );
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0].1, "policy/gate.exceptions.toml");
+        &root(1),
+        &tree(&exception("demo/rule", "")),
+    )
+    .expect_err("the run fails")
+    .message()
+    .to_owned();
+    assert!(message.contains("exceptions"), "{message}");
 }

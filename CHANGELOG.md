@@ -8,6 +8,29 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+## [0.3.4](https://github.com/ElsiKora/Gate/compare/v0.3.3...v0.3.4) (unreleased)
+
+The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, but the repository call's
+`check-request.rule-decisions` now lists every exception. core 0.3.4 needs ledger 0.3.3, and ledger
+0.3.3 needs core 0.3.4: upgrade both together. On a synthetic root project with a nested project,
+ledger 0.3.2 on core 0.3.4 reported each of the 3 exceptions that name no decision as an unlisted
+decision, and ledger 0.3.3 on core 0.3.3 judged only the nested file, which has a decided exception,
+and missed the completed owner in the root file. The mismatch is harmless when every exception names
+a decision, as under `[decision-policy] require-decision`: then both cores list the same files.
+
+To upgrade, replace `ledger/root-exception-owners` with `ledger/exception-owners` in the root
+`gate.toml`, at the level your projects ran `ledger/exception-owners` at, and remove every project's
+entry for it: the merged rule judges every project's exceptions, so a root `off` turns owner checks
+off for the whole workspace.
+
+### Features
+
+- **host:** the repository call lists every `[[exception]]` of every `gate.exceptions.toml` in
+  `check-request.rule-decisions`, with an empty `decision` when it names none, at its repository path
+  and line; rule entries, families and `[[profiles]]` rules are listed only when they name a
+  decision, as before. A repository-scope rule about exceptions sees exactly the exceptions files the
+  core read.
+
 ## [0.3.3](https://github.com/ElsiKora/Gate/compare/v0.3.2...v0.3.3) (2026-11-26)
 
 The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, so no plugin needs a

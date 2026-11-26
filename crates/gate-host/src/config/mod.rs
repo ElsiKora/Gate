@@ -63,13 +63,14 @@ pub struct Config {
 }
 
 /// A decision the workspace's configuration writes: on a rule entry of a `gate.toml`, or on an
-/// exception of a `gate.exceptions.toml`.
+/// exception of a `gate.exceptions.toml`. Every exception is one, its decision empty when it names
+/// none.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WrittenDecision {
     /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family; for an
     /// exception, its `rule`.
     pub key: String,
-    /// The decision's id, trimmed.
+    /// The decision's id, trimmed; empty for an exception that names none.
     pub decision: String,
     /// The file that writes it, relative to the repository root.
     pub path: String,

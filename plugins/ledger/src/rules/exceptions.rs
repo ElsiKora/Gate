@@ -1,40 +1,17 @@
-//! `ledger/exception-owners`: the owner an exception names is an open implementation record.
-//! `ledger/root-exception-owners` judges the root's exceptions the same way, in the repository
-//! call, when the root is not a project. The decisions exceptions name are
-//! `ledger/config-decisions`'s.
+//! `ledger/exception-owners`: the owner an exception names is an open implementation record. The
+//! rule runs in the repository call and judges every exception of every `gate.exceptions.toml`
+//! of the workspace once, against the records the repository call's `[plugins.ledger] options`
+//! name. The decisions exceptions name are `ledger/config-decisions`'s.
 
-use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
-use gate_sdk::{Error, Rule, Run, Scope, Tree};
+use gate_sdk::{Error, NoOptions, Rule, Run, Scope, Tree};
 
 use crate::catalog::{At, Findings};
-use crate::settings::{Settings, check_path};
+use crate::rules::config_decisions::is_exceptions_file;
+use crate::settings::Settings;
 use crate::text::LineIndex;
 
-/// The options of both owner rules.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(
-    crate = "gate_sdk::serde",
-    default,
-    deny_unknown_fields,
-    rename_all = "kebab-case"
-)]
-#[schemars(crate = "gate_sdk::schemars")]
-pub struct Options {
-    /// The exceptions file: the project's, relative to its root; for the root rules, relative to
-    /// the directory of the scope's own `gate.toml`.
-    pub exceptions: String,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            exceptions: "gate.exceptions.toml".to_owned(),
-        }
-    }
-}
-
-/// One `[[exception]]` as these rules read it; the host checks the rest of its shape.
+/// One `[[exception]]` as this rule reads it; the host checks the rest of its shape.
 #[derive(Debug, Deserialize)]
 #[serde(crate = "gate_sdk::serde")]
 struct Exception {
@@ -55,9 +32,8 @@ struct Located {
     exception: Exception,
 }
 
-/// The exceptions of the file, each at its line; empty when the file is not tracked.
-fn exceptions(tree: &Tree<'_>, path: &str, rule: &str) -> gate_sdk::Result<Vec<Located>> {
-    check_path(&format!("ledger/{rule} option exceptions"), path)?;
+/// The exceptions of the file at `path`, each at its line; empty when the file is not tracked.
+fn exceptions(tree: &Tree<'_>, path: &str) -> gate_sdk::Result<Vec<Located>> {
     let Some(text) = tree.text(path) else {
         return Ok(Vec::new());
     };
@@ -82,64 +58,46 @@ fn exceptions(tree: &Tree<'_>, path: &str, rule: &str) -> gate_sdk::Result<Vec<L
         .collect())
 }
 
-/// The rule `ledger/exception-owners`.
+/// The rule `ledger/exception-owners`. It learns the exceptions files from the host
+/// ([`Run::rule_decisions`]): the repository call lists every exception of every
+/// `gate.exceptions.toml` the core read, whether or not it names a decision, and a project's call
+/// lists none, so each exception is judged once, at its file and line.
 #[derive(Debug, Default)]
 pub struct ExceptionOwners;
 
 impl Rule<crate::LedgerCall> for ExceptionOwners {
-    type Options = Options;
+    type Options = NoOptions;
 
     const NAME: &'static str = "exception-owners";
     const TITLE: &'static str = "The owner an exception names is an open implementation record";
-
-    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
-        let path = run.options().exceptions.clone();
-        judge_owners(run, &path, Self::NAME)
-    }
-}
-
-/// The rule `ledger/root-exception-owners`: `ledger/exception-owners` for the root's exceptions.
-#[derive(Debug, Default)]
-pub struct RootExceptionOwners;
-
-impl Rule<crate::LedgerCall> for RootExceptionOwners {
-    type Options = Options;
-
-    const NAME: &'static str = "root-exception-owners";
-    const TITLE: &'static str = "The owner a root exception names is an open implementation record";
     const SCOPE: Scope = Scope::Repository;
 
-    fn check(&self, run: &mut Run<'_, Options, crate::LedgerCall>) -> gate_sdk::Result<()> {
-        match root_exceptions(run) {
-            Some(path) => judge_owners(run, &path, Self::NAME),
-            None => Ok(()),
+    fn check(&self, run: &mut Run<'_, NoOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
+        let mut files: Vec<String> = Vec::new();
+        for written in run.rule_decisions() {
+            let path = &written.at.path;
+            if is_exceptions_file(path) && !files.contains(path) {
+                files.push(path.clone());
+            }
         }
+        if files.is_empty() {
+            return Ok(());
+        }
+        judge_owners(run, &files)
     }
 }
 
-/// The exceptions file beside the scope's own `gate.toml`, when the call has one: beside the root
-/// file in the repository call of a root that is not a project; `None` under a root project, whose
-/// root file the project rules read.
-fn root_exceptions(run: &Run<'_, Options, crate::LedgerCall>) -> Option<String> {
-    let exceptions = &run.options().exceptions;
-    let config = run.config_file()?;
-    Some(match config.rsplit_once('/') {
-        Some((directory, _)) => format!("{directory}/{exceptions}"),
-        None => exceptions.clone(),
-    })
-}
-
-/// Reports each exception of `path` whose owner is not an open implementation record: the one
-/// judgement of `ledger/exception-owners` and `ledger/root-exception-owners`.
+/// Reports each exception of `files` whose owner is not an open implementation record.
 fn judge_owners(
-    run: &mut Run<'_, Options, crate::LedgerCall>,
-    path: &str,
-    name: &str,
+    run: &mut Run<'_, NoOptions, crate::LedgerCall>,
+    files: &[String],
 ) -> gate_sdk::Result<()> {
     run.with_call(|run, shared| {
-        let settings = Settings::read(run)?;
         let tree = run.tree();
-        let exceptions = exceptions(&tree, path, name)?;
+        let mut exceptions = Vec::new();
+        for path in files {
+            exceptions.extend(self::exceptions(&tree, path)?);
+        }
 
         if exceptions
             .iter()
@@ -148,6 +106,7 @@ fn judge_owners(
             return Ok(());
         }
 
+        let settings = Settings::read(run)?;
         let ledger = shared.ledger(&settings)?;
         let implementation = settings.implementation.as_str();
         let mut findings = Findings::default();

@@ -179,13 +179,14 @@ pub struct RuleRun {
 }
 
 /// A decision the workspace's configuration writes, for rules that check decisions: on a rule
-/// entry of a `gate.toml`, or on an exception of a `gate.exceptions.toml`.
+/// entry of a `gate.toml`, or on an exception of a `gate.exceptions.toml`. A rule entry is one only
+/// when it names a decision; every exception is one.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuleDecision {
     /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family; for an
     /// exception, its `rule` (`<plugin>/<rule>` or `<plugin>/<rule>#<aspect>`).
     pub key: String,
-    /// The decision's id, trimmed.
+    /// The decision's id, trimmed; empty for an exception that names none.
     pub decision: String,
     /// Where it is written: the line of the entry's value, or of the exception's `[[exception]]`.
     /// The core fills it with the repository path; the rule receives it relative to its scope's
@@ -205,8 +206,9 @@ pub struct CheckRequest {
     pub languages: String,
     pub norms: Vec<String>,
     /// Every decision the workspace's configuration writes, in the repository call only: the rule
-    /// entries of every `gate.toml`, then the exceptions of every `gate.exceptions.toml`. Empty in a
-    /// project's call. See [`Call::rule_decisions`](crate::Call::rule_decisions).
+    /// entries of every `gate.toml` that name one, then every exception of every
+    /// `gate.exceptions.toml`, its decision empty when it names none. Empty in a project's call.
+    /// See [`Call::rule_decisions`](crate::Call::rule_decisions).
     pub rule_decisions: Vec<RuleDecision>,
     /// The scope's own `gate.toml`, relative to the scope's root; empty in the repository call
     /// under a root project, whose root file is that project's, and for a project without a

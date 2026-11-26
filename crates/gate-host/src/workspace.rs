@@ -300,21 +300,21 @@ impl Workspace {
     }
 
     /// Every decision the workspace's configuration writes, whether or not the root is a project:
-    /// those of the rule entries of each `gate.toml` (the root's, then each project's by name, as
-    /// [`Config::rule_decisions`] lists them), then those of the exceptions, in the order of
-    /// [`Workspace::exceptions`]. The repository call carries them all, so each is judged once.
+    /// those of the rule entries of each `gate.toml` that name one (the root's, then each
+    /// project's by name, as [`Config::rule_decisions`] lists them), then every exception, in the
+    /// order of [`Workspace::exceptions`], with an empty decision when it names none. The
+    /// repository call carries them all, so each is judged once, and a rule about exceptions sees
+    /// every `gate.exceptions.toml` the core read.
     #[must_use]
     pub fn written_decisions(&self) -> Vec<WrittenDecision> {
         let entries = self
             .configs()
             .flat_map(|(_, loaded)| loaded.rule_decisions());
-        let exceptions = self.exceptions.iter().filter_map(|exception| {
-            Some(WrittenDecision {
-                key: exception.rule.to_string(),
-                decision: exception.decision.clone()?,
-                path: exception.file.clone(),
-                line: u32::try_from(exception.line).unwrap_or(u32::MAX),
-            })
+        let exceptions = self.exceptions.iter().map(|exception| WrittenDecision {
+            key: exception.rule.to_string(),
+            decision: exception.decision.clone().unwrap_or_default(),
+            path: exception.file.clone(),
+            line: u32::try_from(exception.line).unwrap_or(u32::MAX),
         });
         entries.chain(exceptions).collect()
     }
