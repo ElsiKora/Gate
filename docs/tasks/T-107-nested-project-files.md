@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | ready for review |
 | Release | the next core release or the `typescript` plugin release, whichever holds the cause |
 | Writer | "Gate T-107" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -132,5 +132,13 @@ The filter runs on the call's outcome, so an answer served from the cache is fil
     commit with a type alias;
   - the test exited 0 (1656 passed, 0 failed);
   - deny exited 0.
-- Next: the round on the head after the second clippy fix, its exit codes here, push, and report the head
-  OID to the lead.
+- The round on `550c4e8` (`round.sh`, a clean checkout, the shared target, through the lane, from
+  2026-11-26T07:45:54+00:00 to 08:08:03+00:00):
+  - `cargo fmt --all --check` exited 0;
+  - `cargo clippy --offline --locked --all-targets -j 4 -- -D warnings` exited 0;
+  - `cargo test --offline --locked -j 4` exited 0 (1656 passed, 0 failed);
+  - `cargo deny --offline --locked check` exited 0.
+  - Later commits change only this task file and `docs/plan.md`.
+- The typescript plugin is unchanged, so no typescript rule's findings change on the existing
+  fixtures: its tests are in the 1656 that passed.
+- Next: the independent review.
