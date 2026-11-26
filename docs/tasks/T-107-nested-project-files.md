@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | ready for review |
+| Status | ready for the lead (review fix round done) |
 | Release | the next core release or the `typescript` plugin release, whichever holds the cause |
 | Writer | "Gate T-107" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -141,4 +141,21 @@ The filter runs on the call's outcome, so an answer served from the cache is fil
   - Later commits change only this task file and `docs/plan.md`.
 - The typescript plugin is unchanged, so no typescript rule's findings change on the existing
   fixtures: its tests are in the 1656 that passed.
-- Next: the independent review.
+- The independent review of head `3de565c` found nothing blocking. The
+  lead's fix round:
+  - The guide and the architecture name the one exception: a finding at a rule's own option file
+    that lies in a nested project.
+  - New test `three_nested_projects_each_report_only_on_the_files_they_own`.
+  - New test `a_baseline_entry_on_a_file_that_becomes_a_nested_projects_goes_stale_and_is_pruned`.
+  - The plugin-level `options-file` is left as it is.
+- `origin/main` merged at `2483e35` (T-104), then at `b78e008` (T-106); the plan table conflict
+  was resolved.
+- Clippy alone on `263cb2d` (`cargo clippy --offline --locked --workspace --all-targets
+  --keep-going -j 4 -- -D warnings`, through the lane, 09:06:59Z to 09:10:24Z) exited 0.
+- The round on `263cb2d` (through the lane, 2026-11-26T09:10:40+00:00 to 09:32:53+00:00):
+  - fmt exited 0;
+  - clippy exited 0;
+  - the test exited 0 (1665 passed, 0 failed, the five T-107 tests among them);
+  - deny exited 0.
+  - Later commits change only this task file and `docs/plan.md`.
+- Next: the lead merges.

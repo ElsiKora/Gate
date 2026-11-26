@@ -132,7 +132,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-104 | next | Under `[decision-policy] require-decision`, a rule or aspect that no preset names has the default `error`, so lowering it to `warning`, `note` or `off` needs a decision | done (reviewed, one fix round; gates green on `4b40022`; merged for the next core release) | none |
 | T-105 | next ledger | A decision named in a nested project's `gate.toml` is checked against the workspace's decision index, once, by one rule; the plugin interface stays `gate:plugin@0.3.0` | open | none |
 | T-106 | next | `gate list` prints the repository-scope rules a preset turns on, from the same rule set `gate check` runs | done (reviewed, one fix round; gates green on `c04fed22`, 1660 tests passed; merged for the next core release) | none |
-| T-107 | next | A root project's rule never reports a file that a nested project owns (seen with `typescript/barrel-imports`) | in review fix round (cause in the core; findings of a project call on a nested project's files are dropped) | none |
+| T-107 | next | A root project's rule never reports a file that a nested project owns (seen with `typescript/barrel-imports`) | reviewed, one fix round (cause in the core; findings of a project call on a nested project's files are dropped; gates green on `263cb2d`) | none |
 
 ## Open after rc.1
 
