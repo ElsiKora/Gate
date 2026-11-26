@@ -87,8 +87,25 @@ The lead answers within the session.
   relative to their scope root, so in a nested project that inherits the root's ledger options they
   read a path inside the nested folder; that defect of the owners rules is a follow-up task.
 
+## Proof run
+
+Lane round on `0b0c88a3` (2026-11-26T08:30:17+00:00 to 2026-11-26T08:48:48+00:00), in a fresh
+detached worktree:
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 |
+| `cargo test --locked` (1654 passed, 0 failed) | 0 |
+| `cargo deny --locked check` | 0 |
+
+Before it, `cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings` alone on
+`0b0c88a3`: exit 0. Earlier rounds failed on clippy only (a too-long `Plugins::run`, a
+`useless_format`, a `single_element_loop`) and on two wrong test expectations, each fixed in its
+own commit.
+
 ## Resume point
 
-Code, tests and documents written and committed on the branch; the lane round (fmt, clippy, the full
-test, deny) runs on the committed tip when the lane frees. Next: read the round's summary, fix what fails, record the exit
-codes here, push, and send the lead the head OID.
+Done on the writer's side: the lane round on `0b0c88a3` is green and the branch is pushed. Waiting
+for the review. `main` has since merged T-104 (`2483e35b`), which also touches
+`crates/gate-host/src/plugins.rs`; the lead resolves that merge after review.
