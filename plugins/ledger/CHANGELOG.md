@@ -28,14 +28,15 @@ decision, as under `[decision-policy] require-decision`.
   level the two had. Set the merged rule at the root at the level your projects ran
   `ledger/exception-owners` at, not at the level of a root `ledger/root-exception-owners`: a root
   `off` now turns owner checks off for the whole workspace, every project's exceptions included.
+  ([71fa332](https://github.com/ElsiKora/Gate/commit/71fa3326b8317668cbafdbc1d66bb0164cbbdf09))
 
 ### Bug Fixes
 
 - **ledger:** the owner an exception of a nested project names was looked up in the implementation
   records at a path read inside the nested folder. It is now looked up in the records the root's
-  `[plugins.ledger]` names, relative to the repository root.
+  `[plugins.ledger]` names, relative to the repository root. ([71fa332](https://github.com/ElsiKora/Gate/commit/71fa3326b8317668cbafdbc1d66bb0164cbbdf09))
 - **ledger:** `ledger/config-decisions` skips an exception that names no decision, which the core
-  now lists with an empty one.
+  now lists with an empty one. ([71fa332](https://github.com/ElsiKora/Gate/commit/71fa3326b8317668cbafdbc1d66bb0164cbbdf09))
 
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.1...plugin-ledger-v0.3.2) (2026-11-26)
 

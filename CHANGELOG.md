@@ -10,18 +10,20 @@ Each shared plugin keeps its own changelog next to its code.
 
 ## [0.3.4](https://github.com/ElsiKora/Gate/compare/v0.3.3...v0.3.4) (unreleased)
 
-The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, but the repository call's
-`check-request.rule-decisions` now lists every exception. core 0.3.4 needs ledger 0.3.3, and ledger
-0.3.3 needs core 0.3.4: upgrade both together. On a synthetic root project with a nested project,
+The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, so no plugin needs a
+rebuild, but the repository call's `check-request.rule-decisions` now lists every exception.
+`ledger` is released at 0.3.3; the other twelve plugins keep their versions. core 0.3.4 needs ledger
+0.3.3, and ledger 0.3.3 needs core 0.3.4: upgrade both together. On a synthetic root project with a nested project,
 ledger 0.3.2 on core 0.3.4 reported each of the 3 exceptions that name no decision as an unlisted
 decision, and ledger 0.3.3 on core 0.3.3 judged only the nested file, which has a decided exception,
 and missed the completed owner in the root file. The mismatch is harmless when every exception names
 a decision, as under `[decision-policy] require-decision`: then both cores list the same files.
 
-To upgrade, replace `ledger/root-exception-owners` with `ledger/exception-owners` in the root
-`gate.toml`, at the level your projects ran `ledger/exception-owners` at, and remove every project's
-entry for it: the merged rule judges every project's exceptions, so a root `off` turns owner checks
-off for the whole workspace.
+To upgrade, set `[gate] version = "0.3.4"`, move a `ledger` pin to 0.3.3 and run `gate lock`. Then
+replace `ledger/root-exception-owners` with `ledger/exception-owners` in the root `gate.toml`, at the
+level your projects ran `ledger/exception-owners` at, and remove every project's entry for it: the
+merged rule judges every project's exceptions, so a root `off` turns owner checks off for the whole
+workspace.
 
 ### Features
 
@@ -29,7 +31,7 @@ off for the whole workspace.
   `check-request.rule-decisions`, with an empty `decision` when it names none, at its repository path
   and line; rule entries, families and `[[profiles]]` rules are listed only when they name a
   decision, as before. A repository-scope rule about exceptions sees exactly the exceptions files the
-  core read.
+  core read. ([71fa332](https://github.com/ElsiKora/Gate/commit/71fa3326b8317668cbafdbc1d66bb0164cbbdf09))
 
 ## [0.3.3](https://github.com/ElsiKora/Gate/compare/v0.3.2...v0.3.3) (2026-11-26)
 
