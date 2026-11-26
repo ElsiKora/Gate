@@ -178,15 +178,18 @@ pub struct RuleRun {
     pub exceptions: Vec<String>,
 }
 
-/// A decision a rule entry of the scope's own `gate.toml` names, for rules that check decisions.
+/// A decision the workspace's configuration writes, for rules that check decisions: on a rule
+/// entry of a `gate.toml`, or on an exception of a `gate.exceptions.toml`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuleDecision {
-    /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family.
+    /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family; for an
+    /// exception, its `rule` (`<plugin>/<rule>` or `<plugin>/<rule>#<aspect>`).
     pub key: String,
     /// The decision's id, trimmed.
     pub decision: String,
-    /// Where the entry's value is written. The core fills it with the repository path; the rule
-    /// receives it relative to its scope's root, as it addresses every path.
+    /// Where it is written: the line of the entry's value, or of the exception's `[[exception]]`.
+    /// The core fills it with the repository path; the rule receives it relative to its scope's
+    /// root, as it addresses every path.
     pub at: FileLocation,
 }
 
@@ -201,15 +204,15 @@ pub struct CheckRequest {
     /// JSON: the `[languages.<id>]` settings; empty means `{}`.
     pub languages: String,
     pub norms: Vec<String>,
-    /// The decisions the rule entries of the scope's own `gate.toml` name: a project's file in its
-    /// project's call; the root file in the root project's call, or in the repository call when the
-    /// root is not a project.
+    /// Every decision the workspace's configuration writes, in the repository call only: the rule
+    /// entries of every `gate.toml`, then the exceptions of every `gate.exceptions.toml`. Empty in a
+    /// project's call. See [`Call::rule_decisions`](crate::Call::rule_decisions).
     pub rule_decisions: Vec<RuleDecision>,
-    /// The scope's own `gate.toml`, relative to the scope's root, whose entries `rule_decisions`
-    /// lists; empty in the repository call under a root project, whose root file is that
-    /// project's, and for a project without a `gate.toml` of its own. Under a root project the
-    /// repository call still gets the root exceptions of its repository-scope rules, in each
-    /// [`RuleRun::exceptions`]. See [`Call::config_file`](crate::Call::config_file).
+    /// The scope's own `gate.toml`, relative to the scope's root; empty in the repository call
+    /// under a root project, whose root file is that project's, and for a project without a
+    /// `gate.toml` of its own. Under a root project the repository call still gets the root
+    /// exceptions of its repository-scope rules, in each [`RuleRun::exceptions`]. See
+    /// [`Call::config_file`](crate::Call::config_file).
     pub config_file: String,
 }
 

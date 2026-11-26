@@ -62,14 +62,18 @@ pub struct Config {
     profiles: Vec<ProfileLayer>,
 }
 
-/// A decision a rule entry of a `gate.toml` names.
+/// A decision the workspace's configuration writes: on a rule entry of a `gate.toml`, or on an
+/// exception of a `gate.exceptions.toml`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WrittenDecision {
-    /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family.
+    /// The entry's key as written: `<plugin>/<rule>`, or `<plugin>/*` for a family; for an
+    /// exception, its `rule`.
     pub key: String,
     /// The decision's id, trimmed.
     pub decision: String,
-    /// The line of the entry's value.
+    /// The file that writes it, relative to the repository root.
+    pub path: String,
+    /// The line of the entry's value, or of the exception's `[[exception]]`.
     pub line: u32,
 }
 
@@ -358,6 +362,7 @@ impl Config {
                 Some(WrittenDecision {
                     key: key.to_string(),
                     decision,
+                    path: self.path().to_owned(),
                     line: u32::try_from(self.line_of(entry.span().start)).unwrap_or(u32::MAX),
                 })
             })

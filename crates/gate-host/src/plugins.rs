@@ -1169,6 +1169,7 @@ impl Loaded {
         ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
+        let decisions = written_decisions(workspace);
         let mut planned = Vec::new();
         for (project, settings) in scopes(workspace) {
             let runs = match project {
@@ -1201,7 +1202,12 @@ impl Loaded {
                     .filter_map(|rule| rule.run.options_file.as_deref())
                     .collect();
                 let grant = grant(root.as_deref(), settings, name, &options_files);
-                let request = check_request(root.as_deref(), settings, name, &rules, own);
+                let carried = if project.is_none() {
+                    &decisions[..]
+                } else {
+                    &[]
+                };
+                let request = check_request(root.as_deref(), settings, name, &rules, own, carried);
                 planned.push((project, settings, name, rules, sha256, request, grant));
             }
         }
@@ -2373,18 +2379,20 @@ fn presets(
 }
 
 /// The `check` call of `name` on the project at `root` (the repository when `None`), for `rules`,
-/// with the rule `decisions` the scope's own `gate.toml` names.
+/// with the scope's own `gate.toml` and the written `decisions` it carries (every one of the
+/// workspace in the repository call, none in a project's).
 fn check_request(
     root: Option<&str>,
     settings: &Settings,
     name: &PluginName,
     rules: &[Enabled],
     own: Option<&Config>,
+    decisions: &[gate_sdk::RuleDecision],
 ) -> gate_sdk::CheckRequest {
     gate_sdk::CheckRequest {
         project: root.unwrap_or_default().to_owned(),
         norms: norms(settings),
-        rule_decisions: own.map_or_else(Vec::new, rule_decisions),
+        rule_decisions: decisions.to_vec(),
         config_file: own.map_or_else(String::new, |config| config.path().to_owned()),
         rules: rules.iter().map(|rule| rule.run.clone()).collect(),
         plugin_options: settings
@@ -2419,18 +2427,18 @@ fn own_config<'w>(workspace: &'w Workspace, project: Option<&str>) -> Option<&'w
     }
 }
 
-/// The decisions the rule entries of the scope's own `gate.toml` (`config`, from [`own_config`])
-/// name, as `check-request.rule-decisions` promises. Their paths are repository paths; the runtime
-/// gives them to the plugin relative to its scope's root.
-fn rule_decisions(config: &Config) -> Vec<gate_sdk::RuleDecision> {
-    config
-        .rule_decisions()
+/// Every decision the workspace's configuration writes ([`Workspace::written_decisions`]), as
+/// `check-request.rule-decisions` promises the repository call. Their paths are repository paths;
+/// the repository call's grant leaves them so.
+fn written_decisions(workspace: &Workspace) -> Vec<gate_sdk::RuleDecision> {
+    workspace
+        .written_decisions()
         .into_iter()
         .map(|written| gate_sdk::RuleDecision {
             key: written.key,
             decision: written.decision,
             at: gate_sdk::FileLocation {
-                path: config.path().to_owned(),
+                path: written.path,
                 span: Some(gate_sdk::Span::line(written.line)),
             },
         })

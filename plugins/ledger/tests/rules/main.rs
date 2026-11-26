@@ -4,6 +4,7 @@
 mod blockers;
 mod call;
 mod closing_notes;
+mod config_decisions;
 mod decisions;
 mod exceptions;
 mod generators;
@@ -14,7 +15,6 @@ mod presets;
 mod record_status;
 mod records;
 mod reuses;
-mod rule_decisions;
 
 use std::collections::BTreeMap;
 

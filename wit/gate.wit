@@ -96,9 +96,12 @@ interface types {
     exceptions: list<string>,
   }
 
-  /// A decision a rule entry of the scope's own `gate.toml` names: the entry's key as written
-  /// (`<plugin>/<rule>`, or `<plugin>/*` for a family), the decision's id, trimmed, and where the
-  /// entry's value is written, relative to the scope's root.
+  /// A decision the workspace's configuration writes: on a rule entry of a `gate.toml` (`[rules]`,
+  /// a family, the `rules` of a `[[profiles]]` entry), with the entry's key as written
+  /// (`<plugin>/<rule>`, or `<plugin>/*` for a family) and `at` the line of the entry's value; or
+  /// on an exception of a `gate.exceptions.toml`, with the exception's `rule` as the key and `at`
+  /// the line of its `[[exception]]`. The decision's id is trimmed; `at` is relative to the
+  /// scope's root, which for the repository call is the repository.
   record rule-decision { key: string, decision: string, at: file-location }
 
   /// One `check` call: every enabled rule of the plugin for one project.
@@ -112,19 +115,20 @@ interface types {
     languages: string,
     /// Every norm the configuration maps, for rules about rule documents.
     norms: list<string>,
-    /// Every decision the rule entries of the scope's own `gate.toml` name, for rules about them:
-    /// a project's file in its project's call; the root file in the root project's call, or in the
-    /// repository call when the root is not a project; whether or not a later layer overrides the
-    /// entry, and whether or not a policy requires it.
+    /// Every decision the workspace's configuration writes, for rules about them, in the
+    /// repository call only, whether or not the root is a project: the rule entries of every
+    /// `gate.toml` (the root's and each project's), then the exceptions of every
+    /// `gate.exceptions.toml`; whether or not a later layer overrides the entry, and whether or not
+    /// a policy requires it. Empty in every project's call, so each decision is judged once, in the
+    /// scope that sees the whole repository.
     rule-decisions: list<rule-decision>,
-    /// The scope's own `gate.toml`, relative to the scope's root, whose entries `rule-decisions`
-    /// lists: `gate.toml` in a project's call, and in the repository call when the root is not a
-    /// project; empty in the repository call under a root project, whose root file is that
-    /// project's, and for a project without a `gate.toml` of its own. Under a root project the
-    /// repository call still gets the root exceptions of its repository-scope rules, in
-    /// `rule-run.exceptions`; only the root file's entries belong to the project's call. A rule
-    /// that reads a file beside the scope's configuration reads it beside this one; a rule that
-    /// ignores it is unaffected.
+    /// The scope's own `gate.toml`, relative to the scope's root: `gate.toml` in a project's call,
+    /// and in the repository call when the root is not a project; empty in the repository call
+    /// under a root project, whose root file is that project's, and for a project without a
+    /// `gate.toml` of its own. Under a root project the repository call still gets the root
+    /// exceptions of its repository-scope rules, in `rule-run.exceptions`. A rule that reads a file
+    /// beside the scope's configuration reads it beside this one; a rule that ignores it is
+    /// unaffected. It does not bound `rule-decisions`, which name their own files.
     config-file: string,
   }
 
