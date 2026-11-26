@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | in review |
 | Release | the next core release |
 | Writer | "Gate T-106" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -58,6 +58,12 @@ from their own walk of the presets, so a preset's rule that `[rules]` turned off
 
 - Red: the new test
   `list_prints_the_repository_rules_a_root_projects_presets_turn_on_as_check_runs_them`
-  (`crates/gate/tests/plugins.rs`) failed on `052a48fd`'s code through the lane
-  (`one.sh list_prints_the_repository_rules`, exit 101: "ci/permissions from ci/recommended: {}").
-- Fix written; lane runs of clippy, the test and the full set pending.
+  (`crates/gate/tests/plugins.rs`) failed on `052a48fd`'s code through the lane, exit 101
+  ("ci/permissions from ci/recommended: {}": no preset rule listed for the root project, in text
+  or JSON).
+- `dc2483fe` did not compile (`enabled` in the wrong impl; clippy exit 101); `7ed7c985` fixes it.
+- Lane round on `7ed7c985`'s tree (`round.sh`, 2026-11-26T06:22:04+00:00 to 06:42:44+00:00):
+  `cargo fmt --all --check` exit 0, `cargo clippy --locked --all-targets -- -D warnings` exit 0,
+  `cargo test --locked` exit 0 (1654 passed, 0 failed, the new test and the existing list,
+  explain and preset tests among them), `cargo deny --locked check` exit 0.
+- Waiting for review. Commits after `7ed7c985` touch this file and `docs/plan.md` only.
