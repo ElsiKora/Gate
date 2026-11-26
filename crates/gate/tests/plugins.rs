@@ -2353,142 +2353,6 @@ fn a_call_carries_the_norms_of_every_configured_rule_of_every_plugin() {
     );
 }
 
-/// `gate check --rule probe/decisions` with the built probe, as JSON: its exit code, and each
-/// finding's message with the repository path and line it is reported at, sorted.
-fn decisions_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
-    let plugin = format!("probe={}", probe().0.display());
-    let output = repo.gate(&[
-        "check",
-        "--plugin",
-        &plugin,
-        "--format",
-        "json",
-        "--rule",
-        "probe/decisions",
-    ]);
-    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout))
-        .unwrap_or_else(|_| panic!("json: {}", text(&output.stderr)));
-    let mut seen: Vec<String> = report["findings"]
-        .as_array()
-        .expect("findings")
-        .iter()
-        .map(|finding| {
-            format!(
-                "{} [{}:{}]",
-                finding["message"].as_str().unwrap_or_default(),
-                finding["location"]["path"].as_str().unwrap_or_default(),
-                finding["location"]["span"]["line"]
-            )
-        })
-        .collect();
-    seen.sort();
-    (output.status.code(), seen)
-}
-
-/// Project `one`'s own `gate.toml`, naming a decision on a family and on a rule entry, the first
-/// with white space around it.
-const ONE_DECISIONS: &str = "[project]\nname = \"one\"\n\n[rules]\n\"probe/*\" = { level = \"off\", decision = \" D-FAM \" }\n\"probe/decisions\" = { level = \"error\", decision = \"D-ONE\" }\n";
-
-#[test]
-fn a_project_call_carries_the_decisions_its_own_gate_toml_names_under_any_policy() {
-    // The root file is no project's own here: its decision reaches the repository call only, where
-    // this project-scope rule does not run. Project two names none, and its call carries none of
-    // project one's.
-    for policy in [
-        "",
-        POLICY,
-        "\n[decision-policy]\nrequire-decision = false\n",
-    ] {
-        let repo = probe_repo_for(
-            "apps/*",
-            r#""probe/decisions" = "error"
-"probe/aspects" = { level = "off", decision = "D-ROOT" }"#,
-        );
-        let mut toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
-        toml.push_str(policy);
-        repo.write("gate.toml", &toml);
-        repo.write("apps/one/gate.toml", ONE_DECISIONS);
-        repo.commit("decisions in project one");
-
-        assert_eq!(
-            decisions_check(&repo),
-            (
-                Some(1),
-                vec![
-                    "decision probe/* D-FAM at gate.toml:5 [apps/one/gate.toml:5]".to_owned(),
-                    "decision probe/decisions D-ONE at gate.toml:6 [apps/one/gate.toml:6]"
-                        .to_owned(),
-                ]
-            ),
-            "policy {policy:?}"
-        );
-    }
-}
-
-#[test]
-fn the_root_files_decisions_go_to_the_root_projects_call_only() {
-    // The top is a project (no [workspace]); apps/one is one by its own gate.toml. The profile's
-    // decision is written in the root file, so it goes to the root project's call although the
-    // profile covers apps/one, whose own file names none.
-    let repo = Repo::empty();
-    let source = "acme/rules:probe@0.1.0";
-    repo.write(
-        "gate.toml",
-        &format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[rules]\n\"probe/decisions\" = {{ level = \"error\", decision = \"D-ROOT\" }}\n\n[[profiles]]\nprojects = [\"apps/one\"]\n\n[profiles.rules]\n\"probe/decisions\" = {{ level = \"warning\", decision = \"D-PROFILE\" }}\n"
-        ),
-    );
-    repo.write("apps/one/gate.toml", "[project]\nname = \"one\"\n");
-    repo.write(
-        "gate.lock",
-        &lock(
-            source,
-            "https://example.invalid/probe.wasm",
-            &"b".repeat(64),
-        ),
-    );
-    repo.commit("a root project");
-
-    assert_eq!(
-        decisions_check(&repo),
-        (
-            Some(1),
-            vec![
-                "decision probe/decisions D-PROFILE at gate.toml:14 [gate.toml:14]".to_owned(),
-                "decision probe/decisions D-ROOT at gate.toml:8 [gate.toml:8]".to_owned(),
-            ]
-        )
-    );
-}
-
-#[test]
-fn a_changed_decision_is_not_answered_from_the_result_cache() {
-    // The plugin never reads gate.toml, so only the request can tell the cached result is stale.
-    let repo = probe_repo_for("apps/*", r#""probe/decisions" = "error""#);
-    repo.write("apps/one/gate.toml", ONE_DECISIONS);
-    repo.commit("decisions in project one");
-    let (_, first) = decisions_check(&repo);
-    assert!(
-        first.iter().any(|line| line.contains(" D-ONE ")),
-        "{first:?}"
-    );
-
-    repo.write(
-        "apps/one/gate.toml",
-        &ONE_DECISIONS.replace("D-ONE", "D-TWO"),
-    );
-    repo.commit("another decision");
-    let (_, second) = decisions_check(&repo);
-    assert!(
-        second.iter().any(|line| line.contains(" D-TWO ")),
-        "{second:?}"
-    );
-    assert!(
-        !second.iter().any(|line| line.contains(" D-ONE ")),
-        "{second:?}"
-    );
-}
-
 /// `gate check` with the built probe and `--rule` for each of `rules`, as JSON: its exit code, and
 /// each finding as its project (`-` for the repository), its message and, when it has one, the
 /// repository path and line it is reported at, sorted.
@@ -2527,8 +2391,16 @@ const SCOPE_RULES: [&str; 3] = [
     "probe/config-file",
 ];
 
+/// An exception of `probe/aspects`, a rule no check here runs, naming the decision `id`.
+fn probe_exception(id: &str) -> String {
+    format!(
+        "[[exception]]\nrule = \"probe/aspects\"\ntarget = \"src/a.ts\"\nreason = \"kept for now\"\ndecision = \"{id}\"\n"
+    )
+}
+
 /// A workspace whose root is not a project: a decision on a profile entry (line 15) and on a root
-/// `[rules]` entry (line 18), and project `one` naming its own at line 5.
+/// `[rules]` entry (line 18), project `one` naming its own at line 5 and one on an exception at
+/// line 1 of its exceptions file.
 fn non_project_root_with_decisions() -> Repo {
     let repo = probe_repo_for(
         "apps/*",
@@ -2544,38 +2416,47 @@ fn non_project_root_with_decisions() -> Repo {
         "apps/one/gate.toml",
         "[project]\nname = \"one\"\n\n[rules]\n\"probe/decisions\" = { level = \"error\", decision = \"D-ONE\" }\n",
     );
+    repo.write("apps/one/gate.exceptions.toml", &probe_exception("D-EXC"));
     repo.commit("decisions at a root that is not a project");
     repo
 }
 
 #[test]
-fn a_root_that_is_not_a_project_gives_its_decisions_and_file_to_the_repository_call() {
-    // The root file is the repository scope's own: its decisions, of profile and root entries
-    // alike, arrive in the repository call with config-file gate.toml, and in no project's call.
-    // Each project's call names its own file, relative to its root, and only its own decisions.
-    let repo = non_project_root_with_decisions();
-    assert_eq!(
-        scope_check(&repo, &SCOPE_RULES),
-        (
-            Some(1),
-            vec![
-                "- config-file gate.toml".to_owned(),
-                "- decision probe/decisions D-PROFILE at gate.toml:15 [gate.toml:15]".to_owned(),
-                "- decision probe/root-decisions D-ROOT at gate.toml:18 [gate.toml:18]".to_owned(),
-                "one config-file gate.toml".to_owned(),
-                "one decision probe/decisions D-ONE at gate.toml:5 [apps/one/gate.toml:5]"
-                    .to_owned(),
-                "two config-file gate.toml".to_owned(),
-            ]
-        )
-    );
+fn a_root_that_is_not_a_project_gives_every_decision_to_the_repository_call() {
+    // The repository call carries the decisions of every file: the root's profile and root
+    // entries, project one's entry and its exception, each at its own repository path and line.
+    // The projects' calls carry none, and each still names its own file, relative to its root.
+    for policy in ["", POLICY] {
+        let repo = non_project_root_with_decisions();
+        if !policy.is_empty() {
+            let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+            repo.write("gate.toml", &format!("{toml}{policy}"));
+            repo.commit("a decision policy");
+        }
+        assert_eq!(
+            scope_check(&repo, &SCOPE_RULES),
+            (
+                Some(1),
+                vec![
+                    "- config-file gate.toml".to_owned(),
+                    "- decision probe/aspects D-EXC at apps/one/gate.exceptions.toml:1 [apps/one/gate.exceptions.toml:1]".to_owned(),
+                    "- decision probe/decisions D-ONE at apps/one/gate.toml:5 [apps/one/gate.toml:5]".to_owned(),
+                    "- decision probe/decisions D-PROFILE at gate.toml:15 [gate.toml:15]".to_owned(),
+                    "- decision probe/root-decisions D-ROOT at gate.toml:18 [gate.toml:18]".to_owned(),
+                    "one config-file gate.toml".to_owned(),
+                    "two config-file gate.toml".to_owned(),
+                ]
+            ),
+            "policy {policy:?}"
+        );
+    }
 }
 
 #[test]
-fn under_a_root_project_the_repository_call_has_no_decisions_and_no_file() {
-    // The root file is the root project's: its call carries every decision the file names,
-    // repository-scope entries included, and the repository call none, so a rule of each scope
-    // never judges the same entry twice.
+fn under_a_root_project_the_repository_call_carries_every_decision_and_no_file() {
+    // The root file is the root project's own, so the repository call names no file of its own;
+    // it still carries every decision: the root file's, of both scopes, and the nested project's
+    // entry and exception. Neither project's call carries one, so no entry is judged twice.
     let repo = Repo::empty();
     let source = "acme/rules:probe@0.1.0";
     repo.write(
@@ -2584,6 +2465,55 @@ fn under_a_root_project_the_repository_call_has_no_decisions_and_no_file() {
             "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"top\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[rules]\n\"probe/root-decisions\" = {{ level = \"error\", decision = \"D-REPO\" }}\n\"probe/config-file\" = \"error\"\n\"probe/decisions\" = {{ level = \"error\", decision = \"D-TOP\" }}\n"
         ),
     );
+    repo.write(
+        "infra/cdk/gate.toml",
+        "[project]\nname = \"cdk\"\n\n[rules]\n\"probe/decisions\" = { level = \"error\", decision = \"D-CDK\" }\n\"probe/config-file\" = \"error\"\n",
+    );
+    repo.write(
+        "infra/cdk/gate.exceptions.toml",
+        &probe_exception("D-CDK-EXC"),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/probe.wasm",
+            &"b".repeat(64),
+        ),
+    );
+    repo.commit("a root project with a nested project");
+
+    assert_eq!(
+        scope_check(&repo, &SCOPE_RULES),
+        (
+            Some(1),
+            vec![
+                "- config-file -".to_owned(),
+                "- decision probe/aspects D-CDK-EXC at infra/cdk/gate.exceptions.toml:1 [infra/cdk/gate.exceptions.toml:1]".to_owned(),
+                "- decision probe/decisions D-CDK at infra/cdk/gate.toml:5 [infra/cdk/gate.toml:5]".to_owned(),
+                "- decision probe/decisions D-TOP at gate.toml:13 [gate.toml:13]".to_owned(),
+                "- decision probe/root-decisions D-REPO at gate.toml:11 [gate.toml:11]".to_owned(),
+                "cdk config-file gate.toml".to_owned(),
+                "top config-file gate.toml".to_owned(),
+            ]
+        )
+    );
+}
+
+#[test]
+fn a_profile_decision_of_the_root_project_reaches_the_repository_call_at_the_root_file() {
+    // The top is a project (no [workspace]); apps/one is one by its own gate.toml. The profile's
+    // decision is written in the root file, so it is carried at the root file's line although the
+    // profile covers apps/one, whose own file names none.
+    let repo = Repo::empty();
+    let source = "acme/rules:probe@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[rules]\n\"probe/root-decisions\" = {{ level = \"error\", decision = \"D-ROOT\" }}\n\n[[profiles]]\nprojects = [\"apps/one\"]\n\n[profiles.rules]\n\"probe/decisions\" = {{ level = \"warning\", decision = \"D-PROFILE\" }}\n"
+        ),
+    );
+    repo.write("apps/one/gate.toml", "[project]\nname = \"one\"\n");
     repo.write(
         "gate.lock",
         &lock(
@@ -2595,40 +2525,80 @@ fn under_a_root_project_the_repository_call_has_no_decisions_and_no_file() {
     repo.commit("a root project");
 
     assert_eq!(
-        scope_check(&repo, &SCOPE_RULES),
+        scope_check(&repo, &["probe/root-decisions", "probe/decisions"]),
         (
             Some(1),
             vec![
-                "- config-file -".to_owned(),
-                "top config-file gate.toml".to_owned(),
-                "top decision probe/decisions D-TOP at gate.toml:13 [gate.toml:13]".to_owned(),
-                "top decision probe/root-decisions D-REPO at gate.toml:11 [gate.toml:11]"
-                    .to_owned(),
+                "- decision probe/decisions D-PROFILE at gate.toml:14 [gate.toml:14]".to_owned(),
+                "- decision probe/root-decisions D-ROOT at gate.toml:8 [gate.toml:8]".to_owned(),
             ]
         )
     );
 }
 
 #[test]
-fn a_changed_root_decision_is_not_answered_from_the_result_cache() {
+fn a_changed_decision_in_a_project_or_at_the_root_is_not_answered_from_the_result_cache() {
+    // The plugin never reads gate.toml, so only the request can tell the cached result is stale.
     let repo = non_project_root_with_decisions();
     let (_, first) = scope_check(&repo, &["probe/root-decisions"]);
-    assert!(
-        first.iter().any(|line| line.contains(" D-ROOT ")),
-        "{first:?}"
-    );
+    for id in [" D-ROOT ", " D-ONE ", " D-EXC "] {
+        assert!(
+            first.iter().any(|line| line.contains(id)),
+            "{id}: {first:?}"
+        );
+    }
 
-    let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
-    repo.write("gate.toml", &toml.replace("D-ROOT", "D-NEXT"));
-    repo.commit("another root decision");
-    let (_, second) = scope_check(&repo, &["probe/root-decisions"]);
-    assert!(
-        second.iter().any(|line| line.contains(" D-NEXT ")),
-        "{second:?}"
+    for (path, from, to) in [
+        ("apps/one/gate.toml", "D-ONE", "D-NEXT-ONE"),
+        ("apps/one/gate.exceptions.toml", "D-EXC", "D-NEXT-EXC"),
+        ("gate.toml", "D-ROOT", "D-NEXT-ROOT"),
+    ] {
+        let written = std::fs::read_to_string(repo.path().join(path)).expect("the file");
+        repo.write(path, &written.replace(from, to));
+        repo.commit("another decision");
+        let (_, next) = scope_check(&repo, &["probe/root-decisions"]);
+        assert!(
+            next.iter().any(|line| line.contains(&format!(" {to} "))),
+            "{to}: {next:?}"
+        );
+        assert!(
+            !next.iter().any(|line| line.contains(&format!(" {from} "))),
+            "{from}: {next:?}"
+        );
+    }
+}
+
+#[test]
+fn a_project_found_by_glob_without_a_gate_toml_adds_no_decision() {
+    // apps/three is a project by the workspace glob alone: it has no file of its own, so it adds
+    // nothing to the repository call and its own call names no file.
+    let repo = non_project_root_with_decisions();
+    repo.write("apps/three/README.md", "# Three\n");
+    repo.commit("a project with no gate.toml");
+    let (code, seen) = scope_check(&repo, &SCOPE_RULES);
+    assert_eq!(code, Some(1), "{seen:?}");
+    assert!(seen.contains(&"three config-file -".to_owned()), "{seen:?}");
+    assert_eq!(
+        seen.iter()
+            .filter(|line| line.starts_with("- decision "))
+            .count(),
+        4,
+        "{seen:?}"
     );
     assert!(
-        !second.iter().any(|line| line.contains(" D-ROOT ")),
-        "{second:?}"
+        !seen.iter().any(|line| line.starts_with("three decision ")),
+        "{seen:?}"
+    );
+}
+
+/// The decision index of [`ledger_root`] and [`ledger_nested`]: `D-API-001` accepted, `D-API-002`
+/// as `status`.
+fn decision_index(repo: &Repo, status: &str) {
+    repo.write(
+        "docs/ledger/decision-index.md",
+        &format!(
+            "| `D-API-001` | `accepted` | Accepted | `accepted.md` |\n| `D-API-002` | `{status}` | Api | `api.md` |\n"
+        ),
     );
 }
 
@@ -2652,10 +2622,45 @@ fn ledger_root(rules: &str, status: &str) -> Repo {
         ),
     );
     repo.write("apps/one/gate.toml", "[project]\nname = \"one\"\n");
+    decision_index(&repo, status);
+    repo
+}
+
+/// The `gate.toml` of a nested project `name`: an accepted decision (line 5), an unlisted one
+/// (line 6) and `D-API-002` (line 7), each on a rule entry that is off.
+fn nested_project_toml(name: &str) -> String {
+    format!(
+        "[project]\nname = \"{name}\"\n\n[rules]\n\"ledger/exception-owners\" = {{ level = \"off\", decision = \"D-API-001\" }}\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n\"ledger/records\" = {{ level = \"off\", decision = \"D-API-002\" }}\n"
+    )
+}
+
+/// The exceptions of a nested project: `D-API-002` at line 1, an accepted decision at line 7.
+const NESTED_EXCEPTIONS: &str = "[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/a.md\"\nreason = \"kept for now\"\ndecision = \"D-API-002\"\n\n[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/b.md\"\nreason = \"kept for now\"\ndecision = \"D-API-001\"\n";
+
+/// A root project with the built ledger pinned and `ledger/config-decisions` on, its index at the
+/// repository root listing `D-API-002` as `status`, and the nested project `infra/cdk` writing
+/// decisions in its `gate.toml` and its exceptions.
+fn ledger_nested(status: &str) -> Repo {
+    let repo = Repo::empty();
+    let source = "acme/rules:ledger@0.1.0";
     repo.write(
-        "docs/ledger/decision-index.md",
-        &format!("| `D-API-002` | `{status}` | Api | `api.md` |\n"),
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"top\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = {{ level = \"off\", decision = \"D-API-001\" }}\n"
+        ),
     );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/ledger.wasm",
+            &"c".repeat(64),
+        ),
+    );
+    repo.write("infra/cdk/gate.toml", &nested_project_toml("cdk"));
+    repo.write("infra/cdk/gate.exceptions.toml", NESTED_EXCEPTIONS);
+    decision_index(&repo, status);
+    repo.commit("a nested project writing decisions under a root project");
     repo
 }
 
@@ -2684,7 +2689,79 @@ fn ledger_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
     (output.status.code(), seen)
 }
 
-const ROOT_ENTRY: &str = "\"ledger/root-rule-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n";
+/// The findings of [`ledger_nested`] (and of the same files under a root that is not a project)
+/// when `D-API-002` is proposed: the unlisted and the proposed entry, and the proposed exception,
+/// each once, at its own file and line in `directory`.
+fn nested_findings(directory: &str) -> Vec<String> {
+    let index = "docs/ledger/decision-index.md";
+    let mut expected = vec![
+        format!(
+            "ledger/config-decisions {directory}/gate.exceptions.toml:1 the entry for \"ledger/records\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision"
+        ),
+        format!(
+            "ledger/config-decisions {directory}/gate.toml:6 the entry for \"ledger/decisions\" names the decision D-NOPE-009, which {index} does not list; name an accepted decision of the index"
+        ),
+        format!(
+            "ledger/config-decisions {directory}/gate.toml:7 the entry for \"ledger/records\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision"
+        ),
+    ];
+    expected.sort();
+    expected
+}
+
+#[test]
+fn a_nested_projects_decisions_are_judged_once_against_the_root_index_under_a_root_project() {
+    let repo = ledger_nested("proposed");
+    assert_eq!(ledger_check(&repo), (Some(1), nested_findings("infra/cdk")));
+
+    let repo = ledger_nested("accepted");
+    let (code, seen) = ledger_check(&repo);
+    assert_eq!(
+        (code, seen),
+        (
+            Some(1),
+            vec![format!(
+                "ledger/config-decisions infra/cdk/gate.toml:6 the entry for \"ledger/decisions\" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
+            )]
+        )
+    );
+}
+
+#[test]
+fn a_nested_projects_decisions_are_judged_once_under_a_root_that_is_not_a_project() {
+    let repo = ledger_root(
+        "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-001\" }\n",
+        "proposed",
+    );
+    repo.write("apps/one/gate.toml", &nested_project_toml("one"));
+    repo.write("apps/one/gate.exceptions.toml", NESTED_EXCEPTIONS);
+    repo.commit("project one writes decisions");
+    assert_eq!(ledger_check(&repo), (Some(1), nested_findings("apps/one")));
+
+    // A project found by the glob alone, with no gate.toml, adds nothing and breaks nothing.
+    repo.write("apps/two/README.md", "# Two\n");
+    repo.commit("a project with no gate.toml of its own");
+    assert_eq!(ledger_check(&repo), (Some(1), nested_findings("apps/one")));
+}
+
+#[test]
+fn a_cached_run_of_the_decision_rule_equals_a_cold_one() {
+    let repo = ledger_nested("proposed");
+    let cold = ledger_check(&repo);
+    assert_eq!(cold, (Some(1), nested_findings("infra/cdk")));
+    assert!(
+        repo.cache.path().join("results").is_dir(),
+        "the run stored its results"
+    );
+    assert_eq!(ledger_check(&repo), cold, "warm");
+    std::fs::remove_dir_all(repo.cache.path().join("results")).expect("the stored results");
+    assert_eq!(ledger_check(&repo), cold, "cold again");
+}
+
+const ROOT_ENTRY: &str = "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n";
+
+/// The finding of [`ROOT_ENTRY`] when `D-API-002` is proposed.
+const ROOT_FINDING: &str = "ledger/config-decisions gate.toml:12 the entry for \"ledger/root-exception-owners\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision";
 
 #[test]
 fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_rule_entries_name() {
@@ -2692,12 +2769,7 @@ fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_rule_entries_name()
     repo.commit("a root relaxation that names a proposed decision");
     assert_eq!(
         ledger_check(&repo),
-        (
-            Some(1),
-            vec![
-                "ledger/root-rule-decisions gate.toml:12 the rule entry \"ledger/root-exception-owners\" names the decision D-API-002, which is `proposed`; a rule entry needs an accepted decision".to_owned()
-            ]
-        )
+        (Some(1), vec![ROOT_FINDING.to_owned()])
     );
 
     let repo = ledger_root(ROOT_ENTRY, "accepted");
@@ -2709,8 +2781,8 @@ fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_rule_entries_name()
 fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_exceptions_name() {
     // The root exception accepts the finding of an unlisted decision on a root entry by naming a
     // decision of its own, which must be accepted.
-    let rules = "\"ledger/root-rule-decisions\" = \"error\"\n\"ledger/root-exception-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-NOPE-009\" }\n";
-    let exception = "[[exception]]\nrule = \"ledger/root-rule-decisions\"\ntarget = \"gate.toml\"\nreason = \"kept for now\"\ndecision = \"D-API-002\"\n";
+    let rules = "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-NOPE-009\" }\n";
+    let exception = "[[exception]]\nrule = \"ledger/config-decisions\"\ntarget = \"gate.toml\"\nreason = \"kept for now\"\ndecision = \"D-API-002\"\n";
     let repo = ledger_root(rules, "proposed");
     repo.write("gate.exceptions.toml", exception);
     repo.commit("a root exception that names a proposed decision");
@@ -2718,7 +2790,7 @@ fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_exceptions_name() {
     assert_eq!(code, Some(1), "{seen:?}");
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert!(
-        seen[0].starts_with("ledger/root-exception-decisions gate.exceptions.toml:1 "),
+        seen[0].starts_with("ledger/config-decisions gate.exceptions.toml:1 "),
         "{seen:?}"
     );
     assert!(seen[0].contains("D-API-002"), "{seen:?}");
@@ -2733,13 +2805,7 @@ fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_exceptions_name() {
 fn a_root_that_is_not_a_project_takes_the_root_rules_from_the_recommended_preset() {
     // [workspace] extends takes only the preset's repository-scope rules at such a root.
     for (status, expected) in [
-        (
-            "proposed",
-            (
-                Some(1),
-                vec!["ledger/root-rule-decisions gate.toml:12 the rule entry \"ledger/root-exception-owners\" names the decision D-API-002, which is `proposed`; a rule entry needs an accepted decision".to_owned()],
-            ),
-        ),
+        ("proposed", (Some(1), vec![ROOT_FINDING.to_owned()])),
         ("accepted", (Some(0), vec![])),
     ] {
         let repo = ledger_root(
@@ -2785,11 +2851,11 @@ fn a_single_project_repository_on_the_recommended_preset_reports_a_decision_once
     let (code, seen) = ledger_check(&repo);
     assert_eq!(code, Some(1), "{seen:?}");
     // The preset's other rules report the ledger files this tree lacks; of the rules about
-    // decisions and exceptions, only the project rule reports the entry.
+    // decisions and exceptions, only the decision rule reports the entry, once.
     let judged: Vec<&String> = seen
         .iter()
         .filter(|line| {
-            line.starts_with("ledger/rule-decisions ")
+            line.starts_with("ledger/config-decisions ")
                 || line.starts_with("ledger/root-")
                 || line.starts_with("ledger/exception-")
         })
@@ -2797,7 +2863,7 @@ fn a_single_project_repository_on_the_recommended_preset_reports_a_decision_once
     assert_eq!(
         judged,
         [
-            "ledger/rule-decisions gate.toml:12 the rule entry \"ledger/manifest\" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
+            "ledger/config-decisions gate.toml:12 the entry for \"ledger/manifest\" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
         ],
         "{seen:?}"
     );
@@ -2805,14 +2871,14 @@ fn a_single_project_repository_on_the_recommended_preset_reports_a_decision_once
 
 #[test]
 fn a_single_project_repository_reports_an_unlisted_decision_once() {
-    // The root file is the project's: the project rules judge it, and the root rules, with no
-    // decisions and no file of their own in the repository call, judge nothing.
+    // The root file is the project's: its entry and its exception are judged once, in the
+    // repository call; the exception accepts the entry's finding, and its own decision is judged.
     let repo = Repo::empty();
     let source = "acme/rules:ledger@0.1.0";
     repo.write(
         "gate.toml",
         &format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/rule-decisions\" = \"error\"\n\"ledger/root-rule-decisions\" = \"error\"\n\"ledger/exception-decisions\" = \"error\"\n\"ledger/root-exception-decisions\" = \"error\"\n\"ledger/exception-owners\" = \"error\"\n\"ledger/root-exception-owners\" = \"error\"\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n"
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = \"error\"\n\"ledger/root-exception-owners\" = \"error\"\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n"
         ),
     );
     repo.write(
@@ -2829,26 +2895,26 @@ fn a_single_project_repository_reports_an_unlisted_decision_once() {
     );
     repo.write(
         "gate.exceptions.toml",
-        "[[exception]]\nrule = \"ledger/rule-decisions\"\ntarget = \"gate.toml\"\nreason = \"kept for now\"\ndecision = \"D-NOPE-008\"\n",
+        "[[exception]]\nrule = \"ledger/config-decisions\"\ntarget = \"gate.toml\"\nreason = \"kept for now\"\ndecision = \"D-NOPE-008\"\n",
     );
     repo.commit("one project with an unlisted decision on an entry and on an exception");
     let (code, seen) = ledger_check(&repo);
     assert_eq!(code, Some(1), "{seen:?}");
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert!(
-        seen[0].starts_with("ledger/exception-decisions gate.exceptions.toml:1 "),
+        seen[0].starts_with("ledger/config-decisions gate.exceptions.toml:1 "),
         "{seen:?}"
     );
 }
 
 #[test]
-fn ledger_rule_decisions_refuses_a_proposed_decision_and_passes_an_accepted_one() {
+fn ledger_config_decisions_refuses_a_proposed_decision_and_passes_an_accepted_one() {
     let repo = Repo::empty();
     let source = "acme/rules:ledger@0.1.0";
     repo.write(
         "gate.toml",
         &format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/rule-decisions\" = \"error\"\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-API-002\" }}\n"
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/config-decisions\" = \"error\"\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-API-002\" }}\n"
         ),
     );
     repo.write(
@@ -2874,7 +2940,7 @@ fn ledger_rule_decisions_refuses_a_proposed_decision_and_passes_an_accepted_one(
     let (code, said) = check();
     assert_eq!(code, Some(1), "{said}");
     assert!(
-        said.contains("the rule entry \"ledger/decisions\" names the decision D-API-002, which is `proposed`; a rule entry needs an accepted decision"),
+        said.contains("the entry for \"ledger/decisions\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision"),
         "{said}"
     );
     assert!(said.contains("gate.toml:9"), "{said}");
@@ -2938,11 +3004,8 @@ fn ledger_rules_on_a_project_without_a_ledger_fail_naming_every_file_they_read()
             "\"ledger/closing-notes\" = { level = \"error\", options = { field = \"`TEMPORARY_DELTA` records\" } }\n",
             "\"ledger/reuses\" = { level = \"error\", options = { catalog = \"docs/reference/mechanisms.md\" } }\n",
             "\"ledger/exception-owners\" = \"error\"\n",
-            "\"ledger/exception-decisions\" = \"error\"\n",
-            "\"ledger/rule-decisions\" = \"error\"\n",
+            "\"ledger/config-decisions\" = \"error\"\n",
             "\"ledger/root-exception-owners\" = \"error\"\n",
-            "\"ledger/root-exception-decisions\" = \"error\"\n",
-            "\"ledger/root-rule-decisions\" = \"error\"\n",
         ),
         "",
     );
@@ -2968,7 +3031,7 @@ fn ledger_rules_on_a_project_without_a_ledger_fail_naming_every_file_they_read()
     }
     assert_eq!(said.matches("#input]").count(), 9, "{said}");
     assert!(!said.contains("ledger/exception-"), "{said}");
-    assert!(!said.contains("ledger/rule-decisions"), "{said}");
+    assert!(!said.contains("ledger/config-decisions"), "{said}");
     assert!(!said.contains("ledger/root-"), "{said}");
 }
 
@@ -8305,8 +8368,7 @@ fn standard_config(preset: &str, level: &str) -> String {
         "records",
         "blockers",
         "exception-owners",
-        "exception-decisions",
-        "rule-decisions",
+        "config-decisions",
     ]
     .iter()
     .map(|rule| format!("\"ledger/{rule}\" = \"{level}\""))
