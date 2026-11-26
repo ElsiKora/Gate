@@ -40,7 +40,7 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `markdown` | project | Markdown | no | none | `markdown/recommended`, `markdown/adoption` |
 | `docs` | project | none | no | `docs/layout` | `docs/recommended`, `docs/adoption` |
 | `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` | `agents/recommended`, `agents/adoption` |
-| `ledger` | project; `config-decisions` and `root-exception-owners` repository | none | no | `ledger/decision-counts`, `ledger/layout`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
+| `ledger` | project; `config-decisions` and `exception-owners` repository | none | no | `ledger/decision-counts`, `ledger/layout`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
 | `nestjs` | project | TypeScript | no | none | `nestjs/recommended`, `nestjs/adoption` |
 | `node` | repository, project | none | no | none | `node/recommended`, `node/adoption` |
 | `cdk` | project | TypeScript | no | none | `cdk/recommended`, `cdk/adoption` |
@@ -237,9 +237,10 @@ not the root is a project; when the ledger lives in a project, as below, the roo
 `[plugins.ledger]` names the index by its repository path (`docs/ledger/decision-index.md`). A
 repository-scope rule runs only in the repository call: a project that turns one on (a preset such
 as `ledger/recommended`, a family or a `[rules]` entry) while the root's configuration does not name
-it is a configuration error; a root entry that sets it `off` names it. A project's
-`ledger/exception-owners` judges the owners of its own exceptions; at a root that is not a project,
-`ledger/root-exception-owners` judges the root's.
+it is a configuration error; a root entry that sets it `off` names it. The owners the exceptions
+name are judged the same way: `ledger/exception-owners`, repository scope, judges the owner of every
+exception of every `gate.exceptions.toml` the core reads, the root's and each project's, against the
+implementation records the root's `[plugins.ledger]` names, relative to the repository root.
 
 ```toml
 # gate.toml, the root
@@ -247,10 +248,11 @@ it is a configuration error; a root entry that sets it `off` names it. A project
 projects = ["docs"]
 
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "docs/ledger/decision-index.md" } }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "docs/ledger/decision-index.md", implementation = "docs/ledger/implementation-slices.md" } }
 
 [rules]
 "ledger/config-decisions" = "error"
+"ledger/exception-owners" = "error"
 ```
 
 ```toml
@@ -264,7 +266,6 @@ ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "ledge
 [rules]
 "ledger/decisions" = "error"
 "ledger/records" = "error"
-"ledger/exception-owners" = "error"
 ```
 
 | Rule | Checks |
@@ -276,17 +277,15 @@ ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "ledge
 | `ledger/blockers` | a planned record names no closed blocker, and a started record no blocker |
 | `ledger/closing-notes` | a temporary difference whose closer is closed carries a dated closing note |
 | `ledger/reuses` | every open implementation record names the shared mechanisms it reuses |
-| `ledger/exception-owners` | the owner an exception names is an open implementation record |
-| `ledger/root-exception-owners` | the owner a root exception names is an open implementation record, at a root that is not a project |
+| `ledger/exception-owners` | the owner an exception names, in any `gate.exceptions.toml` of the workspace, is an open implementation record; repository scope |
 | `ledger/config-decisions` | the decision a rule entry or an exception names, in any `gate.toml` or `gate.exceptions.toml` of the workspace, is an accepted decision of the index; repository scope; whether every one needs a decision is `[decision-policy] require-decision` |
 
 Presets: `ledger/recommended` turns on `decisions`, `manifest`, `records`, `blockers`,
-`exception-owners`, `root-exception-owners` and `config-decisions` at `error`, and
+`exception-owners` and `config-decisions` at `error`, and
 `ledger/adoption` the same at `warning`. Both leave out `closing-notes`, `reuses` and
 `record-status`, which need the project's `field` and `catalog` and the plugin option `parity`. A
 root that is not a project takes only the two repository-scope rules, `config-decisions` and
-`root-exception-owners`, from `[workspace] extends`; a single-project repository takes them all,
-and `root-exception-owners` reports nothing there.
+`exception-owners`, from `[workspace] extends`; a single-project repository takes them all.
 
 ### `nestjs`
 

@@ -115,9 +115,11 @@ The repository turns it on:
   an `Err(Error::config(..))` with a message that names the option and what to do.
 - A rule never reads `gate.toml`. What it may need of the configuration beyond its options, the core
   hands to every call: `run.norms()`, every norm the configuration maps, and
-  `run.rule_decisions()`, every decision the rule entries of the project's own `gate.toml` name
-  (`key` as written, `decision`, and `at`, the entry's line relative to the project root; the root
-  file's in the root project's call).
+  `run.rule_decisions()`, in the repository call only, every decision the workspace's configuration
+  writes: each rule entry of any `gate.toml` that names one, and every exception of any
+  `gate.exceptions.toml`, with an empty `decision` when it names none (`key` as written, `decision`,
+  and `at`, the entry's or the `[[exception]]`'s line, a repository path). A project's call carries
+  none.
 
 ## 3. Scope
 

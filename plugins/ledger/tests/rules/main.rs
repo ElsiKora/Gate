@@ -18,7 +18,10 @@ mod reuses;
 
 use std::collections::BTreeMap;
 
-use gate_sdk::{CheckRequest, Finding, GitHost, Host, Location, RuleRun, TreeHost};
+use gate_sdk::{
+    CheckRequest, FileLocation, Finding, GitHost, Host, Location, RuleDecision, RuleRun, Span,
+    TreeHost,
+};
 
 /// A fixture tree: tracked paths and their text, no git.
 #[derive(Clone, Debug, Default)]
@@ -118,16 +121,15 @@ pub(crate) fn run(
     plugin_options: &str,
     files: &Files,
 ) -> gate_sdk::Result<Vec<Seen>> {
-    run_in(rule, options, plugin_options, "", files)
+    run_listed(rule, options, plugin_options, &[], files)
 }
 
-/// Runs `rule` as [`run`] does, in a call whose own `gate.toml` is `config_file` (empty: none, as
-/// in the repository call under a root project).
-pub(crate) fn run_in(
+/// Runs `rule` as [`run`] does, in a repository call whose `rule-decisions` are `listed`.
+pub(crate) fn run_listed(
     rule: &str,
     options: &str,
     plugin_options: &str,
-    config_file: &str,
+    listed: &[RuleDecision],
     files: &Files,
 ) -> gate_sdk::Result<Vec<Seen>> {
     let request = CheckRequest {
@@ -141,8 +143,8 @@ pub(crate) fn run_in(
         plugin_options: plugin_options.to_owned(),
         languages: "{}".to_owned(),
         norms: Vec::new(),
-        rule_decisions: Vec::new(),
-        config_file: config_file.to_owned(),
+        rule_decisions: listed.to_vec(),
+        config_file: String::new(),
     };
     gate_sdk::check(&ledger::PLUGIN, files, &request).map(|findings| {
         findings
@@ -208,15 +210,28 @@ pub(crate) fn findings(
     run(rule, options, plugin_options, files).expect("the rule runs")
 }
 
-/// The findings of a run that must succeed, in a call whose own `gate.toml` is `config_file`.
-pub(crate) fn findings_in(
+/// The findings of a run that must succeed, in a repository call whose `rule-decisions` are
+/// `listed`.
+pub(crate) fn findings_listed(
     rule: &str,
-    options: &str,
     plugin_options: &str,
-    config_file: &str,
+    listed: &[RuleDecision],
     files: &Files,
 ) -> Vec<Seen> {
-    run_in(rule, options, plugin_options, config_file, files).expect("the rule runs")
+    run_listed(rule, "", plugin_options, listed, files).expect("the rule runs")
+}
+
+/// An exception the core lists in the repository call: its `rule` as the key, at `path`:`line`,
+/// with the decision `decision` (empty when it names none).
+pub(crate) fn listed(path: &str, rule: &str, line: u32, decision: &str) -> RuleDecision {
+    RuleDecision {
+        key: rule.to_owned(),
+        decision: decision.to_owned(),
+        at: FileLocation {
+            path: path.to_owned(),
+            span: Some(Span::line(line)),
+        },
+    }
 }
 
 /// The error of a run that must fail.
@@ -349,12 +364,6 @@ fn an_option_path_must_be_in_normal_form() {
             r#"{"coverage":"docs/adr/../adr/decision-coverage.md"}"#,
             "",
             r#"ledger/decisions option coverage "docs/adr/../adr/decision-coverage.md" is not in normal form; write "docs/adr/decision-coverage.md""#,
-        ),
-        (
-            "exception-owners",
-            r#"{"exceptions":"config/./gate.exceptions.toml"}"#,
-            "",
-            r#"ledger/exception-owners option exceptions "config/./gate.exceptions.toml" is not in normal form; write "config/gate.exceptions.toml""#,
         ),
         (
             "reuses",

@@ -2809,7 +2809,8 @@ fn a_root_that_is_not_a_project_gives_every_decision_to_the_repository_call() {
 fn under_a_root_project_the_repository_call_carries_every_decision_and_no_file() {
     // The root file is the root project's own, so the repository call names no file of its own;
     // it still carries every decision: the root file's, of both scopes, and the nested project's
-    // entry and exception. Neither project's call carries one, so no entry is judged twice.
+    // entry and exceptions, the one that names no decision with an empty one. Neither project's
+    // call carries one, so no entry is judged twice.
     let repo = Repo::empty();
     let source = "acme/rules:probe@0.1.0";
     repo.write(
@@ -2824,7 +2825,10 @@ fn under_a_root_project_the_repository_call_carries_every_decision_and_no_file()
     );
     repo.write(
         "infra/cdk/gate.exceptions.toml",
-        &probe_exception("D-CDK-EXC"),
+        &format!(
+            "{}\n[[exception]]\nrule = \"probe/aspects\"\ntarget = \"src/b.ts\"\nreason = \"kept for now\"\n",
+            probe_exception("D-CDK-EXC")
+        ),
     );
     repo.write(
         "gate.lock",
@@ -2842,6 +2846,7 @@ fn under_a_root_project_the_repository_call_carries_every_decision_and_no_file()
             Some(1),
             vec![
                 "- config-file -".to_owned(),
+                "- decision probe/aspects  at infra/cdk/gate.exceptions.toml:7 [infra/cdk/gate.exceptions.toml:7]".to_owned(),
                 "- decision probe/aspects D-CDK-EXC at infra/cdk/gate.exceptions.toml:1 [infra/cdk/gate.exceptions.toml:1]".to_owned(),
                 "- decision probe/decisions D-CDK at infra/cdk/gate.toml:5 [infra/cdk/gate.toml:5]".to_owned(),
                 "- decision probe/decisions D-TOP at gate.toml:13 [gate.toml:13]".to_owned(),
@@ -2989,7 +2994,7 @@ fn ledger_root(rules: &str, status: &str) -> Repo {
 /// (line 6) and `D-API-002` (line 7), each on a rule entry that is off.
 fn nested_project_toml(name: &str) -> String {
     format!(
-        "[project]\nname = \"{name}\"\n\n[rules]\n\"ledger/exception-owners\" = {{ level = \"off\", decision = \"D-API-001\" }}\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n\"ledger/records\" = {{ level = \"off\", decision = \"D-API-002\" }}\n"
+        "[project]\nname = \"{name}\"\n\n[rules]\n\"ledger/manifest\" = {{ level = \"off\", decision = \"D-API-001\" }}\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n\"ledger/records\" = {{ level = \"off\", decision = \"D-API-002\" }}\n"
     )
 }
 
@@ -3095,7 +3100,7 @@ fn a_nested_projects_decisions_are_judged_once_against_the_root_index_under_a_ro
 #[test]
 fn a_nested_projects_decisions_are_judged_once_under_a_root_that_is_not_a_project() {
     let repo = ledger_root(
-        "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-001\" }\n",
+        "\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = { level = \"off\", decision = \"D-API-001\" }\n",
         "proposed",
     );
     repo.write("apps/one/gate.toml", &nested_project_toml("one"));
@@ -3121,6 +3126,158 @@ fn a_cached_run_of_the_decision_rule_equals_a_cold_one() {
     assert_eq!(ledger_check(&repo), cold, "warm");
     std::fs::remove_dir_all(repo.cache.path().join("results")).expect("the stored results");
     assert_eq!(ledger_check(&repo), cold, "cold again");
+}
+
+/// The implementation records at the repository root: `I-OPEN-001` planned, `I-DONE-002`
+/// completed.
+const ROOT_RECORDS: &str = "# Implementation\n\n- `I-OPEN-001`: Open work\n  - Status: `planned`\n- `I-DONE-002`: Done work\n  - Status: `completed`\n";
+
+/// Exceptions of `ledger/records` that name owners and no decision: `I-OPEN-001` at line 1, `owner`
+/// at line 7.
+fn owner_exceptions(owner: &str) -> String {
+    format!(
+        "[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/a.md\"\nreason = \"kept for now\"\nowner = \"I-OPEN-001\"\n\n[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/b.md\"\nreason = \"kept for now\"\nowner = \"{owner}\"\n"
+    )
+}
+
+/// The finding of `ledger/exception-owners` for an owner the root records do not list.
+fn unlisted_owner(path: &str, line: u32, owner: &str) -> String {
+    format!(
+        "ledger/exception-owners {path}:{line} the exception for ledger/records names the owner {owner}, which docs/ledger/implementation-slices.md does not list; name an open implementation record, or remove the owner"
+    )
+}
+
+/// The finding of `ledger/exception-owners` for the completed `I-DONE-002`.
+fn completed_owner(path: &str, line: u32, rule: &str) -> String {
+    format!(
+        "ledger/exception-owners {path}:{line} the exception for {rule} names the owner I-DONE-002, which is `completed`; only an open record, planned or in progress, owns an exception, so fix the finding, or move the exception to the open record that owns the work"
+    )
+}
+
+/// A root project `top` with `ledger/config-decisions` and `ledger/exception-owners` on, the
+/// records at the root, a root `gate.exceptions.toml` naming `I-OPEN-001` and `I-DONE-002`, and,
+/// when `nested` holds an owner, the project `infra/cdk` whose exceptions name `I-OPEN-001` and
+/// that owner, beside records of its own that list it.
+fn owners_under_a_root_project(nested: Option<&str>) -> Repo {
+    let repo = Repo::empty();
+    let source = "acme/rules:ledger@0.1.0";
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"top\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = \"error\"\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/ledger.wasm",
+            &"c".repeat(64),
+        ),
+    );
+    repo.write("docs/ledger/implementation-slices.md", ROOT_RECORDS);
+    repo.write("gate.exceptions.toml", &owner_exceptions("I-DONE-002"));
+    decision_index(&repo, "accepted");
+    if let Some(owner) = nested {
+        repo.write("infra/cdk/gate.toml", "[project]\nname = \"cdk\"\n");
+        repo.write("infra/cdk/gate.exceptions.toml", &owner_exceptions(owner));
+        repo.write(
+            "infra/cdk/docs/ledger/implementation-slices.md",
+            &format!("# Implementation\n\n- `{owner}`: Nested work\n  - Status: `planned`\n"),
+        );
+    }
+    repo.commit("exceptions that name owners");
+    repo
+}
+
+#[test]
+fn every_exceptions_owner_is_judged_once_against_the_root_records_under_a_root_project() {
+    // The open owners pass, in both files; the completed root owner and the nested owner the root
+    // records do not list are each reported once, at their own file and line, although the nested
+    // project's own records list it. No exception names a decision, so ledger/config-decisions
+    // reports nothing.
+    let repo = owners_under_a_root_project(Some("I-NOPE-003"));
+    assert_eq!(
+        ledger_check(&repo),
+        (
+            Some(1),
+            vec![
+                completed_owner("gate.exceptions.toml", 7, "ledger/records"),
+                unlisted_owner("infra/cdk/gate.exceptions.toml", 7, "I-NOPE-003"),
+            ]
+        )
+    );
+}
+
+#[test]
+fn a_root_projects_own_exceptions_alone_are_judged_as_before() {
+    // One root project with the only gate.exceptions.toml at the root: the same finding, file and
+    // line as when the rule ran in the root project's own call.
+    let repo = owners_under_a_root_project(None);
+    assert_eq!(
+        ledger_check(&repo),
+        (
+            Some(1),
+            vec![completed_owner("gate.exceptions.toml", 7, "ledger/records")]
+        )
+    );
+}
+
+#[test]
+fn every_exceptions_owner_is_judged_once_under_a_root_that_is_not_a_project() {
+    // The root exception accepts the finding on the root entry's unlisted decision and names the
+    // completed owner; project one's exceptions name an open owner and an unknown one.
+    let repo = ledger_root(
+        "\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = { level = \"error\", decision = \"D-NOPE-009\" }\n",
+        "accepted",
+    );
+    repo.write("docs/ledger/implementation-slices.md", ROOT_RECORDS);
+    repo.write(
+        "gate.exceptions.toml",
+        "[[exception]]\nrule = \"ledger/config-decisions\"\ntarget = \"gate.toml\"\nreason = \"kept for now\"\nowner = \"I-DONE-002\"\ndecision = \"D-API-001\"\n",
+    );
+    repo.write(
+        "apps/one/gate.exceptions.toml",
+        &owner_exceptions("I-NOPE-003"),
+    );
+    repo.commit("exceptions that name owners at a root that is not a project");
+    assert_eq!(
+        ledger_check(&repo),
+        (
+            Some(1),
+            vec![
+                unlisted_owner("apps/one/gate.exceptions.toml", 7, "I-NOPE-003"),
+                completed_owner("gate.exceptions.toml", 1, "ledger/config-decisions"),
+            ]
+        )
+    );
+}
+
+#[test]
+fn a_changed_owner_is_not_answered_from_the_result_cache() {
+    // The listing of the exceptions is the same before and after: only the file's text changes.
+    let repo = owners_under_a_root_project(Some("I-NOPE-003"));
+    let (_, first) = ledger_check(&repo);
+    assert!(
+        first.contains(&unlisted_owner(
+            "infra/cdk/gate.exceptions.toml",
+            7,
+            "I-NOPE-003"
+        )),
+        "{first:?}"
+    );
+    repo.write(
+        "infra/cdk/gate.exceptions.toml",
+        &owner_exceptions("I-OPEN-001"),
+    );
+    repo.commit("the nested exception names an open owner");
+    assert_eq!(
+        ledger_check(&repo),
+        (
+            Some(1),
+            vec![completed_owner("gate.exceptions.toml", 7, "ledger/records")]
+        )
+    );
 }
 
 #[test]
@@ -3157,8 +3314,8 @@ fn a_project_that_turns_on_a_repository_scope_rule_the_root_never_names_is_a_con
         // The same project loads when the root turns both repository-scope rules on, and when
         // it turns one on and sets the other off on purpose, with its decision under the policy.
         for root in [
-            "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = \"error\"\n",
-            "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-001\" }\n\n[decision-policy]\nrequire-decision = true\n",
+            "\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = \"error\"\n",
+            "\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = { level = \"off\", decision = \"D-API-001\" }\n\n[decision-policy]\nrequire-decision = true\n",
         ] {
             let repo = ledger_root(root, "accepted");
             repo.write("apps/one/gate.toml", project);
@@ -3174,10 +3331,10 @@ fn a_project_that_turns_on_a_repository_scope_rule_the_root_never_names_is_a_con
     }
 }
 
-const ROOT_ENTRY: &str = "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n";
+const ROOT_ENTRY: &str = "\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n";
 
 /// The finding of [`ROOT_ENTRY`] when `D-API-002` is proposed.
-const ROOT_FINDING: &str = "ledger/config-decisions gate.toml:12 the entry for \"ledger/root-exception-owners\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision";
+const ROOT_FINDING: &str = "ledger/config-decisions gate.toml:12 the entry for \"ledger/exception-owners\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision";
 
 #[test]
 fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_rule_entries_name() {
@@ -3197,7 +3354,7 @@ fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_rule_entries_name()
 fn a_root_that_is_not_a_project_is_held_to_the_decisions_its_exceptions_name() {
     // The root exception accepts the finding of an unlisted decision on a root entry by naming a
     // decision of its own, which must be accepted.
-    let rules = "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-NOPE-009\" }\n";
+    let rules = "\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = { level = \"off\", decision = \"D-NOPE-009\" }\n";
     let exception = "[[exception]]\nrule = \"ledger/config-decisions\"\ntarget = \"gate.toml\"\nreason = \"kept for now\"\ndecision = \"D-API-002\"\n";
     let repo = ledger_root(rules, "proposed");
     repo.write("gate.exceptions.toml", exception);
@@ -3225,7 +3382,7 @@ fn a_root_that_is_not_a_project_takes_the_root_rules_from_the_recommended_preset
         ("accepted", (Some(0), vec![])),
     ] {
         let repo = ledger_root(
-            "\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n",
+            "\"ledger/exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n",
             status,
         );
         let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
@@ -3271,9 +3428,7 @@ fn a_single_project_repository_on_the_recommended_preset_reports_a_decision_once
     let judged: Vec<&String> = seen
         .iter()
         .filter(|line| {
-            line.starts_with("ledger/config-decisions ")
-                || line.starts_with("ledger/root-")
-                || line.starts_with("ledger/exception-")
+            line.starts_with("ledger/config-decisions ") || line.starts_with("ledger/exception-")
         })
         .collect();
     assert_eq!(
@@ -3294,7 +3449,7 @@ fn a_single_project_repository_reports_an_unlisted_decision_once() {
     repo.write(
         "gate.toml",
         &format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = \"error\"\n\"ledger/root-exception-owners\" = \"error\"\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n"
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\nledger = {{ source = \"{source}\" }}\n\n[rules]\n\"ledger/config-decisions\" = \"error\"\n\"ledger/exception-owners\" = \"error\"\n\"ledger/decisions\" = {{ level = \"off\", decision = \"D-NOPE-009\" }}\n"
         ),
     );
     repo.write(
@@ -3421,7 +3576,6 @@ fn ledger_rules_on_a_project_without_a_ledger_fail_naming_every_file_they_read()
             "\"ledger/reuses\" = { level = \"error\", options = { catalog = \"docs/reference/mechanisms.md\" } }\n",
             "\"ledger/exception-owners\" = \"error\"\n",
             "\"ledger/config-decisions\" = \"error\"\n",
-            "\"ledger/root-exception-owners\" = \"error\"\n",
         ),
         "",
     );
@@ -3448,7 +3602,6 @@ fn ledger_rules_on_a_project_without_a_ledger_fail_naming_every_file_they_read()
     assert_eq!(said.matches("#input]").count(), 9, "{said}");
     assert!(!said.contains("ledger/exception-"), "{said}");
     assert!(!said.contains("ledger/config-decisions"), "{said}");
-    assert!(!said.contains("ledger/root-"), "{said}");
 }
 
 #[test]

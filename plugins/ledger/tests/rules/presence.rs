@@ -3,7 +3,8 @@
 //! passes every rule.
 
 use crate::{
-    Files, IMPLEMENTATION, PARITY, PLAN, Seen, findings, findings_in, input, ledger, seen,
+    Files, IMPLEMENTATION, PARITY, PLAN, Seen, findings, findings_listed, input, ledger, listed,
+    seen,
 };
 
 const MANIFEST: &str = "docs/ledger/manifest.json";
@@ -25,7 +26,7 @@ const SYNTHETIC: &str = r#"{
 }"#;
 
 /// Every rule of the plugin, with the options it requires.
-const RULES: [(&str, &str); 10] = [
+const RULES: [(&str, &str); 9] = [
     ("blockers", ""),
     ("closing-notes", r#"{"field":"`TEMPORARY_DELTA` records"}"#),
     ("config-decisions", ""),
@@ -35,7 +36,6 @@ const RULES: [(&str, &str); 10] = [
     ("record-status", ""),
     ("records", ""),
     ("reuses", r#"{"catalog":"docs/reference/mechanisms.md"}"#),
-    ("root-exception-owners", ""),
 ];
 
 /// The findings of every rule over `files`, with [`PARITY`], by rule.
@@ -135,7 +135,6 @@ fn an_absent_ledger_fails_every_rule_that_reads_a_file_naming_it() {
                     input("reuses", INDEX, "[plugins.ledger] options decisions"),
                 ]
             ),
-            ("root-exception-owners", vec![]),
         ]
     );
 }
@@ -205,16 +204,19 @@ fn a_partial_ledger_reports_what_is_missing() {
 }
 
 #[test]
-fn the_root_rule_in_its_own_call_names_the_file_it_read() {
-    // The repository call of a root that is not a project, with no ledger but a root exception
-    // that names an owner: the root rule reports what its project rule reports, naming the
-    // implementation file it read.
+fn the_owner_rule_without_a_ledger_names_the_file_it_read() {
+    // The repository call, with no ledger but a root exception that names an owner: the rule
+    // reports the owner, naming the implementation file it read.
     let files = Files::default().with(
         "gate.exceptions.toml",
         "[[exception]]\nrule = \"demo/rule\"\ntarget = \"README.md\"\nreason = \"kept for now\"\nowner = \"I-NOPE-001\"\ndecision = \"D-NOPE-001\"\n",
     );
-    let found = findings_in("root-exception-owners", "", PARITY, "gate.toml", &files);
-    assert_eq!(found, findings("exception-owners", "", PARITY, &files));
+    let found = findings_listed(
+        "exception-owners",
+        PARITY,
+        &[listed("gate.exceptions.toml", "demo/rule", 1, "D-NOPE-001")],
+        &files,
+    );
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].1, "gate.exceptions.toml");
     assert!(

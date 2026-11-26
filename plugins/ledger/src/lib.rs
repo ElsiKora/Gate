@@ -1,13 +1,13 @@
 //! The `ledger` plugin: rules over a Markdown ledger of decisions, ADRs, plan, implementation,
-//! verification, follow-up and production blocker records, over the owners the exceptions name
-//! and the decisions every rule entry and exception of the workspace names, and the generators
+//! verification, follow-up and production blocker records, over the owners every exception and
+//! the decisions every rule entry and exception of the workspace names, and the generators
 //! that write the counts of a decision index and the review progress of a roadmap into their
 //! managed blocks and seed the manifest and the shared files of an empty ledger.
 //!
 //! The shared paths, the parity plan and the status vocabularies are `[plugins.ledger] options`
 //! ([`Settings`]); each rule's own options are in its module. Every path is relative to the call's
 //! scope: the project root, or the repository root for the repository-scope rules
-//! (`config-decisions` and `root-exception-owners`). Built for `wasm32-wasip2` the plugin is the
+//! (`config-decisions` and `exception-owners`). Built for `wasm32-wasip2` the plugin is the
 //! component `ledger.wasm`; natively it is a library the tests call through [`PLUGIN`].
 
 mod block;
@@ -29,7 +29,7 @@ pub use self::rules::blockers::Blockers;
 pub use self::rules::closing_notes::ClosingNotes;
 pub use self::rules::config_decisions::ConfigDecisions;
 pub use self::rules::decisions::Decisions;
-pub use self::rules::exceptions::{ExceptionOwners, RootExceptionOwners};
+pub use self::rules::exceptions::ExceptionOwners;
 pub use self::rules::manifest::Manifest;
 pub use self::rules::records::{RecordStatus, Records};
 pub use self::rules::reuses::Reuses;
@@ -38,7 +38,7 @@ pub use self::settings::{Parity, Settings};
 /// `ledger/recommended`: every rule a preset may turn on, at error, for a repository that follows
 /// the standard. It leaves out `closing-notes`, `reuses` and `record-status`, which stay off until
 /// the project sets `field`, `catalog` and the plugin option `parity`. A root that is not a project
-/// takes only its two repository-scope rules, `config-decisions` and `root-exception-owners`, from
+/// takes only its two repository-scope rules, `config-decisions` and `exception-owners`, from
 /// `[workspace] extends`.
 const RECOMMENDED: &str = r#"{
     "blockers": { "level": "error" },
@@ -46,8 +46,7 @@ const RECOMMENDED: &str = r#"{
     "decisions": { "level": "error" },
     "exception-owners": { "level": "error" },
     "manifest": { "level": "error" },
-    "records": { "level": "error" },
-    "root-exception-owners": { "level": "error" }
+    "records": { "level": "error" }
 }"#;
 
 /// `ledger/adoption`: the rules of `ledger/recommended` at warning, for a repository on its way to
@@ -58,8 +57,7 @@ const ADOPTION: &str = r#"{
     "decisions": { "level": "warning" },
     "exception-owners": { "level": "warning" },
     "manifest": { "level": "warning" },
-    "records": { "level": "warning" },
-    "root-exception-owners": { "level": "warning" }
+    "records": { "level": "warning" }
 }"#;
 
 gate_sdk::plugin! {
@@ -77,7 +75,6 @@ gate_sdk::plugin! {
         RecordStatus,
         Records,
         Reuses,
-        RootExceptionOwners,
     ],
     generators: [DecisionCounts, Layout, ReviewProgress],
     presets: [

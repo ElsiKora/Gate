@@ -271,3 +271,27 @@ fn the_examples_of_the_rule_page() {
         ]
     );
 }
+
+#[test]
+fn an_exception_that_names_no_decision_is_not_judged() {
+    // The core lists every exception, an undecided one with an empty decision: no finding, and a
+    // call whose only entries are undecided reads no index.
+    let undecided = written("infra/cdk/gate.exceptions.toml", "demo/rule", "", 7);
+    assert_eq!(reported(vec![undecided.clone()], "", &ledger()), []);
+    assert_eq!(
+        reported(
+            vec![
+                undecided,
+                written("infra/cdk/gate.exceptions.toml", "demo/rule", "D-NOPE-004", 13),
+            ],
+            "",
+            &tree()
+        ),
+        [(
+            "infra/cdk/gate.exceptions.toml".to_owned(),
+            Some(13),
+            "the exception for demo/rule names the decision D-NOPE-004, which docs/ledger/decision-index.md does not list; name an accepted decision of the index".to_owned(),
+            Some("demo/rule/D-NOPE-004#unlisted".to_owned()),
+        )]
+    );
+}

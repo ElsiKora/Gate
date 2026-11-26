@@ -13,8 +13,7 @@ The rules of this plugin keep those records consistent with each other.
 | [`ledger/blockers`](blockers.md) | A planned record names no closed blocker and a started record no blocker |
 | [`ledger/closing-notes`](closing-notes.md) | A temporary difference whose exact closer is closed carries a dated closing note |
 | [`ledger/reuses`](reuses.md) | Every open implementation record names the shared mechanisms it reuses |
-| [`ledger/exception-owners`](exception-owners.md) | The owner an exception names is an open implementation record |
-| [`ledger/root-exception-owners`](root-exception-owners.md) | The owner a root exception names is an open implementation record |
+| [`ledger/exception-owners`](exception-owners.md) | The owner an exception names, in any `gate.exceptions.toml` of the workspace, is an open implementation record |
 | [`ledger/config-decisions`](config-decisions.md) | The decision a configuration entry names, in any `gate.toml` or `gate.exceptions.toml` of the workspace, is an accepted decision of the index |
 
 | Generator | What it writes |
@@ -27,7 +26,7 @@ The rules of this plugin keep those records consistent with each other.
 
 Every rule reads `[plugins.ledger] options`. Paths are relative to the project root; a ledger file
 outside the project is read only when `[plugins.ledger] reads` grants it. The repository-scope rules,
-`ledger/config-decisions` and `ledger/root-exception-owners`, run in the repository call, where the
+`ledger/config-decisions` and `ledger/exception-owners`, run in the repository call, where the
 options are the root's and paths are relative to the repository root.
 
 | Option | Type | Default | Meaning |

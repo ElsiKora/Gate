@@ -1,5 +1,6 @@
 //! `ledger/config-decisions`: the decision a rule entry of any `gate.toml`, or an exception of any
-//! `gate.exceptions.toml`, of the workspace names is an accepted decision of the index.
+//! `gate.exceptions.toml`, of the workspace names is an accepted decision of the index. An
+//! exception that names no decision comes with an empty one, and is not this rule's.
 
 use gate_sdk::{NoOptions, Rule, Run, Scope};
 
@@ -23,7 +24,13 @@ impl Rule<crate::LedgerCall> for ConfigDecisions {
     const SCOPE: Scope = Scope::Repository;
 
     fn check(&self, run: &mut Run<'_, NoOptions, crate::LedgerCall>) -> gate_sdk::Result<()> {
-        let decisions = run.rule_decisions();
+        // An exception that names no decision comes with an empty one: nothing to judge.
+        let decisions: Vec<_> = run
+            .rule_decisions()
+            .iter()
+            .filter(|written| !written.decision.is_empty())
+            .cloned()
+            .collect();
 
         if decisions.is_empty() {
             return Ok(());
@@ -34,7 +41,7 @@ impl Rule<crate::LedgerCall> for ConfigDecisions {
         let index = DecisionIndex::load(&run.tree(), index_path)?;
         let mut findings = Findings::default();
 
-        for written in decisions {
+        for written in &decisions {
             let key = &written.key;
             let decision = &written.decision;
             let at = written.at.span.map_or_else(
@@ -76,6 +83,6 @@ impl Rule<crate::LedgerCall> for ConfigDecisions {
 
 /// Whether `path`, a repository path, is a `gate.exceptions.toml`: the file the core reads a
 /// scope's exceptions from.
-fn is_exceptions_file(path: &str) -> bool {
+pub(crate) fn is_exceptions_file(path: &str) -> bool {
     path.rsplit('/').next() == Some("gate.exceptions.toml")
 }
