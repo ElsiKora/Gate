@@ -1795,31 +1795,45 @@ fn a_finding_in_a_nested_projects_option_file_names_its_path_once() {
 
 #[test]
 fn a_projects_rule_reads_a_nested_projects_file_but_reports_nothing_on_it() {
-    // `apps/one/inner` is a project of its own, nested in `one`. A rule of `one` still reads the
-    // nested file, and reports at its own option file even when that lies in the nested folder;
-    // its finding on the nested file is the nested project's to judge and is not reported.
-    let repo = probe_repo("");
-    repo.write(
-        "apps/one/gate.toml",
-        "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"inner/read.json\" }\n",
-    );
-    repo.write(
-        "apps/one/inner/read.json",
-        "{ \"paths\": [\"inner/a.txt\"], \"at\": \"inner/a.txt\", \"at_message\": \"on the nested file\", \"at_options_file\": true }\n",
-    );
-    repo.write("apps/one/inner/gate.toml", "[project]\nname = \"inner\"\n");
-    repo.write("apps/one/inner/a.txt", "alpha\n");
-    repo.commit("a project nested in one");
+    // `apps/one/inner` is a project of its own, nested in `one`: by a `gate.toml` of its own, or
+    // found by a workspace glob with none. A rule of `one` still reads the nested file, and reports
+    // at its own option file even when that lies in the nested folder; its finding on the nested
+    // file is the nested project's to judge and is not reported.
+    for (how, inner_gate_toml, globs) in [
+        ("a gate.toml", true, r#"["apps/*"]"#),
+        ("a glob", false, r#"["apps/*", "apps/one/inner"]"#),
+    ] {
+        let repo = probe_repo("");
+        let root = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+        repo.write(
+            "gate.toml",
+            &root.replace(r#"projects = ["apps/*"]"#, &format!("projects = {globs}")),
+        );
+        repo.write(
+            "apps/one/gate.toml",
+            "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"inner/read.json\" }\n",
+        );
+        repo.write(
+            "apps/one/inner/read.json",
+            "{ \"paths\": [\"inner/a.txt\"], \"at\": \"inner/a.txt\", \"at_message\": \"on the nested file\", \"at_options_file\": true }\n",
+        );
+        if inner_gate_toml {
+            repo.write("apps/one/inner/gate.toml", "[project]\nname = \"inner\"\n");
+        }
+        repo.write("apps/one/inner/a.txt", "alpha\n");
+        repo.commit("a project nested in one");
 
-    let (code, messages) = probe_check(&repo, &[]);
-    assert_eq!(code, Some(1), "{messages:?}");
-    assert_eq!(
-        messages,
-        [
-            "inner/a.txt: alpha\n",
-            "options file inner/read.json: { \"paths\": [\"inner/a.txt\"], \"at\": \"inner/a.txt\", \"at_message\": \"on the nested file\", \"at_options_file\": true }",
-        ]
-    );
+        let (code, messages) = probe_check(&repo, &[]);
+        assert_eq!(code, Some(1), "{how}: {messages:?}");
+        assert_eq!(
+            messages,
+            [
+                "inner/a.txt: alpha\n",
+                "options file inner/read.json: { \"paths\": [\"inner/a.txt\"], \"at\": \"inner/a.txt\", \"at_message\": \"on the nested file\", \"at_options_file\": true }",
+            ],
+            "{how}"
+        );
+    }
 }
 
 #[test]
@@ -4527,8 +4541,8 @@ fn a_configured_tsconfig_that_is_not_tracked_is_a_configuration_error() {
 /// A root project `app` that runs `typescript/barrel-imports`, and a nested project `cdk` in
 /// `infra/cdk` with a `gate.toml` of its own whose `[rules]` are `nested_rules`: each has a barrel
 /// folder and a file that imports past it, and a root file imports past the nested project's
-/// barrel. The JSON findings of `gate check`, as (project, path) pairs, sorted.
-fn nested_barrel_findings(nested_rules: &str) -> Vec<(String, String)> {
+/// barrel. With `exceptions`, the root's `gate.exceptions.toml`. Committed.
+fn nested_barrel_repo(nested_rules: &str, exceptions: Option<&str>) -> Repo {
     let repo = Repo::empty();
     repo.write(
         "gate.toml",
@@ -4560,54 +4574,146 @@ fn nested_barrel_findings(nested_rules: &str) -> Vec<(String, String)> {
         "infra/cdk/bin/app.ts",
         "import { inner } from \"../lib/inner\";\n",
     );
+    if let Some(exceptions) = exceptions {
+        repo.write("gate.exceptions.toml", exceptions);
+    }
     repo.commit("a root project and a nested project, each with a barrel");
+    repo
+}
 
+/// What `gate check --timings` with the built typescript plugin reports in `repo`: each finding as
+/// (project, rule, path, message), sorted, and whether each typescript call came from the result
+/// cache.
+fn barrel_check(repo: &Repo) -> (Vec<(String, String, String, String)>, Vec<bool>) {
     let output = repo.gate(&[
         "check",
         "--plugin",
         &typescript_plugin(),
         "--format",
         "json",
+        "--timings",
     ]);
     assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
     let report: serde_json::Value =
         serde_json::from_str(&text(&output.stdout)).expect("a JSON report");
-    let mut found: Vec<(String, String)> = report["findings"]
+    let field = |value: &serde_json::Value| value.as_str().unwrap_or("-").to_owned();
+    let mut found: Vec<_> = report["findings"]
         .as_array()
         .expect("findings")
         .iter()
         .map(|finding| {
-            assert_eq!(finding["rule"], "typescript/barrel-imports", "{finding}");
             (
-                finding["project"].as_str().unwrap_or("-").to_owned(),
-                finding["location"]["path"]
-                    .as_str()
-                    .unwrap_or("-")
-                    .to_owned(),
+                field(&finding["project"]),
+                field(&finding["rule"]),
+                field(&finding["location"]["path"]),
+                field(&finding["message"]),
             )
         })
         .collect();
     found.sort();
-    found
+    let stderr = text(&output.stderr);
+    let cached: Vec<bool> = stderr
+        .lines()
+        .filter(|line| line.starts_with("timings: call typescript"))
+        .map(|call| call.contains(": cached, "))
+        .collect();
+    assert!(!cached.is_empty(), "--timings names each call: {stderr}");
+    (found, cached)
+}
+
+/// A `typescript/barrel-imports` deep-path finding of `project` at `path`, which imports
+/// `specifier` (resolving to `target`) past the barrel of `folder`.
+fn deep(
+    project: &str,
+    path: &str,
+    specifier: &str,
+    target: &str,
+    folder: &str,
+) -> (String, String, String, String) {
+    (
+        project.to_owned(),
+        "typescript/barrel-imports".to_owned(),
+        path.to_owned(),
+        format!(
+            "{path} imports {specifier} ({target}) past the barrel {folder}/index.ts of {folder}"
+        ),
+    )
 }
 
 #[test]
 fn a_root_projects_rule_reports_no_file_a_nested_project_owns() {
     // The rule is on in the root only: the nested project's file is judged by no one, and the
-    // root's own findings stay, the one past the nested project's barrel included.
-    let pair = |project: &str, path: &str| (project.to_owned(), path.to_owned());
-    assert_eq!(
-        nested_barrel_findings(""),
-        [pair("app", "src/infra.ts"), pair("app", "src/main.ts")]
-    );
+    // root's own findings stay, the one past the nested project's barrel included. A run answered
+    // from the result cache reports the same.
+    let root = [
+        deep(
+            "app",
+            "src/infra.ts",
+            "../infra/cdk/lib/inner",
+            "infra/cdk/lib/inner.ts",
+            "infra/cdk/lib",
+        ),
+        deep(
+            "app",
+            "src/main.ts",
+            "./lib/deep",
+            "src/lib/deep.ts",
+            "src/lib",
+        ),
+    ];
+    let repo = nested_barrel_repo("", None);
+    let (cold, cached) = barrel_check(&repo);
+    assert_eq!(cold, root);
+    assert!(cached.iter().all(|cached| !cached), "{cached:?}");
+    let (warm, cached) = barrel_check(&repo);
+    assert_eq!(warm, cold);
+    assert!(cached.iter().all(|cached| *cached), "{cached:?}");
+
     // On in both, each finding is reported once, under the project that owns its file.
+    let repo = nested_barrel_repo(
+        "\n[rules]\n\"typescript/barrel-imports\" = \"error\"\n",
+        None,
+    );
+    // The nested project's call addresses its paths from its own root, as its message shows.
+    let mut both = root.to_vec();
+    both.push((
+        "cdk".to_owned(),
+        "typescript/barrel-imports".to_owned(),
+        "infra/cdk/bin/app.ts".to_owned(),
+        "bin/app.ts imports ../lib/inner (lib/inner.ts) past the barrel lib/index.ts of lib"
+            .to_owned(),
+    ));
+    assert_eq!(barrel_check(&repo).0, both);
+}
+
+#[test]
+fn a_root_rules_exception_on_a_nested_projects_file_matches_no_finding() {
+    // The root accepted the finding its rule gave on the nested project's file; the rule no longer
+    // reports there, so the exception is reported as matching nothing.
+    let repo = nested_barrel_repo(
+        "",
+        Some(
+            "[[exception]]\nrule = \"typescript/barrel-imports\"\ntarget = \"infra/cdk/bin/app.ts\"\nreason = \"accepted before the nested project judged its own files\"\n",
+        ),
+    );
+    let (found, _) = barrel_check(&repo);
+    let unmatched: Vec<_> = found
+        .iter()
+        .filter(|(_, rule, _, _)| rule == "gate/exceptions")
+        .map(|(_, _, path, message)| (path.as_str(), message.as_str()))
+        .collect();
     assert_eq!(
-        nested_barrel_findings("\n[rules]\n\"typescript/barrel-imports\" = \"error\"\n"),
-        [
-            pair("app", "src/infra.ts"),
-            pair("app", "src/main.ts"),
-            pair("cdk", "infra/cdk/bin/app.ts"),
-        ]
+        unmatched,
+        [(
+            "gate.exceptions.toml",
+            "the exception for typescript/barrel-imports at infra/cdk/bin/app.ts matches no finding"
+        )]
+    );
+    assert!(
+        found
+            .iter()
+            .all(|(_, _, path, _)| !path.starts_with("infra/")),
+        "{found:?}"
     );
 }
 

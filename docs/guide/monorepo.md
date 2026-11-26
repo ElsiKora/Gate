@@ -107,9 +107,7 @@ a project and never read.
 A path belongs to the project with the longest root that contains it. `apps/server/src/main.ts` belongs
 to `server`; `README.md` at the root belongs to no project and is seen by repository rules only.
 Nested projects work the same way: `apps/server/tools/cli/` with its own `gate.toml` owns its files.
-A rule of `server` may still read them, to follow an import into the nested project for example, but
-a finding it gives on one of them is not reported: those files are judged by the nested project's
-own rules, or by none.
+The rules of `server` may read a nested project's files to resolve them, but never report on them.
 
 ## 🧬 Profiles
 
@@ -137,7 +135,7 @@ project needs it.
 | Rule scope | Configured in | Runs | Sees |
 | --- | --- | --- | --- |
 | `repository` | the root `[rules]` | once per run | the whole repository |
-| `project` | a profile or the project's own file | once per project that enables it | the project's own subtree, paths relative to the project root; a nested project's files are read but never reported on |
+| `project` | a profile or the project's own file | once per project that enables it | the project's own subtree, paths relative to the project root |
 
 A rule declares its scope; the rule's page says it (`Scope: project`). A plugin that needs files of another
 project gets them only through a read grant (`reads = [...]`, see
