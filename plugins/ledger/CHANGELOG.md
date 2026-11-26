@@ -8,6 +8,28 @@ none, because the public history starts at a fresh root at 0.1.0.
 The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<version>`.
 -->
 
+## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.1...plugin-ledger-v0.3.2) (unreleased)
+
+Built for the plugin interface `gate:plugin@0.3.0`. Ledger 0.3.2 needs core 0.3.3 or later; with
+core 0.3.2 it leaves decisions in nested projects unjudged. Adopt the two together.
+
+### Breaking Changes
+
+- **ledger:** one repository-scope rule, `ledger/config-decisions`, judges every decision the
+  workspace's configuration writes, once, against the index of the root's `[plugins.ledger]`: the
+  rule entries, families and `[[profiles]]` rules of the root `gate.toml` and of every project's
+  `gate.toml`, and the exceptions of every `gate.exceptions.toml`, each at its own file and line. It
+  replaces `ledger/rule-decisions`, `ledger/root-rule-decisions`, `ledger/exception-decisions` and
+  `ledger/root-exception-decisions`, which are gone: use `ledger/config-decisions` in the root
+  `gate.toml`, whether or not the root is a project. `ledger/recommended` and `ledger/adoption`
+  turn it on at the level the four had.
+
+### Bug Fixes
+
+- **ledger:** a decision named in a nested project's `gate.toml` or `gate.exceptions.toml` was
+  judged against an index path read inside the nested folder, so every one, valid or not, was
+  reported as unlisted. It is now judged against the workspace's index, at its own file and line.
+
 ## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.0...plugin-ledger-v0.3.1) (2026-11-23)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core. The

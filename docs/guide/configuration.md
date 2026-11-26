@@ -369,24 +369,21 @@ for exceptions when it loads the
 configuration, for rule entries when it loads the plugins, since presets come from plugins. Without
 the policy, or with `require-decision = false`, nothing is checked and `decision` is accepted anyway.
 
-Whether a decision exists is a plugin's check: the `ledger` plugin's `ledger/exception-decisions` rule
-reports an exception's decision that its decision index does not list as accepted, and
-`ledger/rule-decisions` a rule entry's. The core gives each plugin call the decisions the rule
-entries of its scope's own `gate.toml` name, and that file's path, so the plugin never reads
-`gate.toml` itself:
+Whether a decision exists is a plugin's check, made once for the whole workspace: the `ledger`
+plugin's `ledger/config-decisions` reports a decision that its decision index does not list as
+accepted, whether a rule entry or an exception names it, in any file of the workspace. The core
+gives the repository call every decision the configuration writes, so the plugin reads neither
+`gate.toml` nor `gate.exceptions.toml` itself:
 
-| Call | Its own `gate.toml` |
+| Call | The decisions it carries |
 | --- | --- |
-| a project's | the project's `gate.toml`; for the root project, the root file |
-| the repository's, when the root is not a project | the root `gate.toml` |
-| the repository's, under a root project | none: the root file is the root project's |
+| the repository's, whether or not the root is a project | every one: the rule entries and `[[profiles]]` rules of the root `gate.toml`, the rule entries of each project's `gate.toml`, and the exceptions of every `gate.exceptions.toml`, each at its own file and line |
+| a project's | none |
 
-A monorepo whose root is not a project writes its own decisions and exceptions in the root files:
-decisions on the root `[rules]` and `[[profiles]]` entries in the root `gate.toml`, and the
-exceptions of repository-scope rules in the root `gate.exceptions.toml`. The repository-scope rules
-`ledger/root-rule-decisions`, `ledger/root-exception-decisions` and `ledger/root-exception-owners`
-judge them as the project rules judge a project's, with the decision index and records the root's
-`[plugins.ledger] options` name, relative to the repository root:
+So a decision written in a project nested in a root project is judged against the index at the
+repository root, at its own file and line, and no decision is judged twice. The rule is
+repository-scope: turn it on in the root `gate.toml`, with the index the root's `[plugins.ledger]`
+names, relative to the repository root:
 
 ```toml
 # gate.toml at a root that is not a project
@@ -394,16 +391,18 @@ judge them as the project rules judge a project's, with the decision index and r
 projects = ["apps/*"]
 
 [plugins.ledger]
-source = "ElsiKora/Gate:ledger@0.3.1"
+source = "ElsiKora/Gate:ledger@0.3.2"
 options = { decisions = "apps/docs/decisions/index.md" }
 
 [rules]
-"ledger/root-rule-decisions" = "error"
-"ledger/root-exception-decisions" = "error"
+"ledger/config-decisions" = "error"
 ```
 
-In a single-project repository the root files are the project's: the project rules judge them, and
-the `root-` rules report nothing, so no entry is reported twice.
+A root project turns it on in its own `[rules]`, beside its project rules. Each call still names its
+own `gate.toml` (`check-request.config-file`): a project's call its project's file, the repository
+call the root file when the root is not a project, and none under a root project, whose root file is
+that project's. `ledger/root-exception-owners` reads the root exceptions beside it, so in a
+single-project repository it reports nothing and `ledger/exception-owners` judges them.
 
 ## Baselines
 

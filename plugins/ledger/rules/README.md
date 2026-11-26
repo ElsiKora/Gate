@@ -14,11 +14,8 @@ The rules of this plugin keep those records consistent with each other.
 | [`ledger/closing-notes`](closing-notes.md) | A temporary difference whose exact closer is closed carries a dated closing note |
 | [`ledger/reuses`](reuses.md) | Every open implementation record names the shared mechanisms it reuses |
 | [`ledger/exception-owners`](exception-owners.md) | The owner an exception names is an open implementation record |
-| [`ledger/exception-decisions`](exception-decisions.md) | The decision an exception names is an accepted decision of the index |
-| [`ledger/rule-decisions`](rule-decisions.md) | The decision a rule entry names is an accepted decision of the index |
 | [`ledger/root-exception-owners`](root-exception-owners.md) | The owner a root exception names is an open implementation record |
-| [`ledger/root-exception-decisions`](root-exception-decisions.md) | The decision a root exception names is an accepted decision of the index |
-| [`ledger/root-rule-decisions`](root-rule-decisions.md) | The decision a root rule entry names is an accepted decision of the index |
+| [`ledger/config-decisions`](config-decisions.md) | The decision a configuration entry names, in any `gate.toml` or `gate.exceptions.toml` of the workspace, is an accepted decision of the index |
 
 | Generator | What it writes |
 | --- | --- |
@@ -29,8 +26,9 @@ The rules of this plugin keep those records consistent with each other.
 ## Shared options
 
 Every rule reads `[plugins.ledger] options`. Paths are relative to the project root; a ledger file
-outside the project is read only when `[plugins.ledger] reads` grants it. The `root-` rules run in
-the repository call, where paths are relative to the repository root.
+outside the project is read only when `[plugins.ledger] reads` grants it. The repository-scope rules,
+`ledger/config-decisions` and `ledger/root-exception-owners`, run in the repository call, where the
+options are the root's and paths are relative to the repository root.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |

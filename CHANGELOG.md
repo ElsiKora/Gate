@@ -8,6 +8,22 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+## [0.3.3](https://github.com/ElsiKora/Gate/compare/v0.3.2...v0.3.3) (unreleased)
+
+The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, so no plugin needs a
+rebuild, but what the repository call carries in `check-request.rule-decisions` changes. Ledger
+0.3.2 needs core 0.3.3 or later; with core 0.3.2 it leaves decisions in nested projects unjudged.
+Adopt the two together.
+
+### Features
+
+- **host:** the repository call carries every decision the workspace's configuration writes,
+  whether or not the root is a project: the rule entries and `[[profiles]]` rules of the root
+  `gate.toml`, the rule entries of every project's `gate.toml`, and the `decision` of every
+  `[[exception]]` of every `gate.exceptions.toml`, each at its repository path and line. A
+  project's call carries none, so a repository-scope rule judges each decision once, a nested
+  project's included. `check-request.config-file` is unchanged.
+
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/v0.3.1...v0.3.2) (2026-11-23)
 
 The plugin interface stays `gate:plugin@0.3.0`, so every plugin built for 0.3.0 loads in a 0.3.2

@@ -236,11 +236,11 @@ fn the_index_is_the_shared_decisions_option() {
 #[test]
 fn the_examples_of_the_rule_page() {
     // plugins/ledger/rules/config-decisions.md: in a root project, `"demo/rule" = { level = "off",
-    // decision = "D-API-002" }` on line 2 of infra/cdk/gate.toml, and an exception naming
+    // decision = "D-API-002" }` on line 5 of infra/cdk/gate.toml, and an exception naming
     // D-NOPE-009 at line 1 of infra/cdk/gate.exceptions.toml, with D-API-002 `proposed`.
     let found = reported_with(
         vec![
-            written("infra/cdk/gate.toml", "demo/rule", "D-API-002", 2),
+            written("infra/cdk/gate.toml", "demo/rule", "D-API-002", 5),
             written(
                 "infra/cdk/gate.exceptions.toml",
                 "demo/rule",
@@ -260,7 +260,7 @@ fn the_examples_of_the_rule_page() {
         [
             (
                 "infra/cdk/gate.toml",
-                Some(2),
+                Some(5),
                 "the entry for \"demo/rule\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision"
             ),
             (
