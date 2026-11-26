@@ -126,5 +126,11 @@ The filter runs on the call's outcome, so an answer served from the cache is fil
   | head `df39cf1` | 0.51 s, 0.48 s, 0.47 s | 1500 | 0 |
 
   The filter's cost is within the noise.
-- Next: the round on the head after the clippy fix, its exit codes here, push, and report the head
+- The round on `31a9865`:
+  - fmt exited 0;
+  - clippy exited 101 (`type_complexity` in the test helper `barrel_check`), fixed in the next
+    commit with a type alias;
+  - the test exited 0 (1656 passed, 0 failed);
+  - deny exited 0.
+- Next: the round on the head after the second clippy fix, its exit codes here, push, and report the head
   OID to the lead.

@@ -4581,10 +4581,12 @@ fn nested_barrel_repo(nested_rules: &str, exceptions: Option<&str>) -> Repo {
     repo
 }
 
-/// What `gate check --timings` with the built typescript plugin reports in `repo`: each finding as
-/// (project, rule, path, message), sorted, and whether each typescript call came from the result
-/// cache.
-fn barrel_check(repo: &Repo) -> (Vec<(String, String, String, String)>, Vec<bool>) {
+/// A finding of a JSON report as (project, rule, path, message), `-` for a field it lacks.
+type Reported = (String, String, String, String);
+
+/// What `gate check --timings` with the built typescript plugin reports in `repo`: each finding,
+/// sorted, and whether each typescript call came from the result cache.
+fn barrel_check(repo: &Repo) -> (Vec<Reported>, Vec<bool>) {
     let output = repo.gate(&[
         "check",
         "--plugin",
@@ -4623,13 +4625,7 @@ fn barrel_check(repo: &Repo) -> (Vec<(String, String, String, String)>, Vec<bool
 
 /// A `typescript/barrel-imports` deep-path finding of `project` at `path`, which imports
 /// `specifier` (resolving to `target`) past the barrel of `folder`.
-fn deep(
-    project: &str,
-    path: &str,
-    specifier: &str,
-    target: &str,
-    folder: &str,
-) -> (String, String, String, String) {
+fn deep(project: &str, path: &str, specifier: &str, target: &str, folder: &str) -> Reported {
     (
         project.to_owned(),
         "typescript/barrel-imports".to_owned(),
