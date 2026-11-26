@@ -85,7 +85,7 @@ The lead answers within the session.
 
 - `ledger/exception-owners` and `ledger/root-exception-owners` read the implementation records
   relative to their scope root, so in a nested project that inherits the root's ledger options they
-  read a path inside the nested folder; that defect of the owners rules is a follow-up task.
+  read a path inside the nested folder; that defect of the owners rules is T-109.
 
 ## Proof run
 
