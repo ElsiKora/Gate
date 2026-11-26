@@ -1169,7 +1169,6 @@ impl Loaded {
         ));
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
-        let decisions = written_decisions(workspace);
         let mut planned = Vec::new();
         for (project, settings) in scopes(workspace) {
             let runs = match project {
@@ -1182,7 +1181,6 @@ impl Loaded {
             let root = project
                 .and_then(|name| workspace.projects().get(name))
                 .map(|project| project.root.clone());
-            let own = own_config(workspace, project);
             for name in settings.plugins.keys() {
                 let (Some(sha256), Some(declared)) =
                     (self.sha256_of(name), self.declarations.get(name))
@@ -1202,12 +1200,7 @@ impl Loaded {
                     .filter_map(|rule| rule.run.options_file.as_deref())
                     .collect();
                 let grant = grant(root.as_deref(), settings, name, &options_files);
-                let carried = if project.is_none() {
-                    &decisions[..]
-                } else {
-                    &[]
-                };
-                let request = check_request(root.as_deref(), settings, name, &rules, own, carried);
+                let request = check_request(workspace, project, settings, name, &rules);
                 planned.push((project, settings, name, rules, sha256, request, grant));
             }
         }
@@ -2378,21 +2371,28 @@ fn presets(
     Ok(rules)
 }
 
-/// The `check` call of `name` on the project at `root` (the repository when `None`), for `rules`,
-/// with the scope's own `gate.toml` and the written `decisions` it carries (every one of the
-/// workspace in the repository call, none in a project's).
+/// The `check` call of `name` on `project` (the repository when `None`), for `rules`, with the
+/// scope's own `gate.toml` and the written decisions it carries: every one of the workspace in
+/// the repository call, none in a project's.
 fn check_request(
-    root: Option<&str>,
+    workspace: &Workspace,
+    project: Option<&str>,
     settings: &Settings,
     name: &PluginName,
     rules: &[Enabled],
-    own: Option<&Config>,
-    decisions: &[gate_sdk::RuleDecision],
 ) -> gate_sdk::CheckRequest {
+    let root = project
+        .and_then(|name| workspace.projects().get(name))
+        .map(|project| project.root.as_str());
+    let own = own_config(workspace, project);
     gate_sdk::CheckRequest {
         project: root.unwrap_or_default().to_owned(),
         norms: norms(settings),
-        rule_decisions: decisions.to_vec(),
+        rule_decisions: if project.is_none() {
+            written_decisions(workspace)
+        } else {
+            Vec::new()
+        },
         config_file: own.map_or_else(String::new, |config| config.path().to_owned()),
         rules: rules.iter().map(|rule| rule.run.clone()).collect(),
         plugin_options: settings

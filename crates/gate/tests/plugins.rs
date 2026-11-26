@@ -2529,6 +2529,7 @@ fn a_profile_decision_of_the_root_project_reaches_the_repository_call_at_the_roo
         (
             Some(1),
             vec![
+                "- config-file -".to_owned(),
                 "- decision probe/decisions D-PROFILE at gate.toml:14 [gate.toml:14]".to_owned(),
                 "- decision probe/root-decisions D-ROOT at gate.toml:8 [gate.toml:8]".to_owned(),
             ]
@@ -2570,14 +2571,17 @@ fn a_changed_decision_in_a_project_or_at_the_root_is_not_answered_from_the_resul
 
 #[test]
 fn a_project_found_by_glob_without_a_gate_toml_adds_no_decision() {
-    // apps/three is a project by the workspace glob alone: it has no file of its own, so it adds
-    // nothing to the repository call and its own call names no file.
+    // apps/three is a project by the workspace glob alone, named by its path: it has no file of
+    // its own, so it adds nothing to the repository call and its own call names no file.
     let repo = non_project_root_with_decisions();
     repo.write("apps/three/README.md", "# Three\n");
     repo.commit("a project with no gate.toml");
     let (code, seen) = scope_check(&repo, &SCOPE_RULES);
     assert_eq!(code, Some(1), "{seen:?}");
-    assert!(seen.contains(&"three config-file -".to_owned()), "{seen:?}");
+    assert!(
+        seen.contains(&"apps/three config-file -".to_owned()),
+        "{seen:?}"
+    );
     assert_eq!(
         seen.iter()
             .filter(|line| line.starts_with("- decision "))
@@ -2586,7 +2590,9 @@ fn a_project_found_by_glob_without_a_gate_toml_adds_no_decision() {
         "{seen:?}"
     );
     assert!(
-        !seen.iter().any(|line| line.starts_with("three decision ")),
+        !seen
+            .iter()
+            .any(|line| line.starts_with("apps/three decision ")),
         "{seen:?}"
     );
 }
