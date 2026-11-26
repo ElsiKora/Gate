@@ -74,7 +74,7 @@ decision = "D-NOPE-009"
 error ledger/config-decisions infra/cdk/gate.toml:5
   the entry for "demo/rule" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision
 error ledger/config-decisions infra/cdk/gate.exceptions.toml:1
-  the entry for "demo/rule" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index
+  the exception for demo/rule names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index
 ```
 
 ## How to fix it

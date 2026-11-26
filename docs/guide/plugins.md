@@ -40,7 +40,7 @@ file; repository-scope rules in the root `[rules]` ([configuration.md](configura
 | `markdown` | project | Markdown | no | none | `markdown/recommended`, `markdown/adoption` |
 | `docs` | project | none | no | `docs/layout` | `docs/recommended`, `docs/adoption` |
 | `agents` | project; `no-claude-md` repository | none | no | `agents/adapters`, `agents/agents-block` | `agents/recommended`, `agents/adoption` |
-| `ledger` | project; the three `root-` rules repository | none | no | `ledger/decision-counts`, `ledger/layout`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
+| `ledger` | project; `config-decisions` and `root-exception-owners` repository | none | no | `ledger/decision-counts`, `ledger/layout`, `ledger/review-progress` | `ledger/recommended`, `ledger/adoption` |
 | `nestjs` | project | TypeScript | no | none | `nestjs/recommended`, `nestjs/adoption` |
 | `node` | repository, project | none | no | none | `node/recommended`, `node/adoption` |
 | `cdk` | project | TypeScript | no | none | `cdk/recommended`, `cdk/adoption` |
@@ -235,8 +235,22 @@ the index the root's `[plugins.ledger]` names, relative to the repository root; 
 those decisions, so the plugin reads neither file. Turn it on in the root `gate.toml`, whether or
 not the root is a project; when the ledger lives in a project, as below, the root's
 `[plugins.ledger]` names the index by its repository path (`docs/ledger/decision-index.md`). A
-project's `ledger/exception-owners` judges the owners of its own exceptions; at a root that is not a
-project, `ledger/root-exception-owners` judges the root's.
+repository-scope rule runs only in the repository call: a project that turns one on (a preset such
+as `ledger/recommended`, a family or a `[rules]` entry) while the root does not is a configuration
+error. A project's `ledger/exception-owners` judges the owners of its own exceptions; at a root that
+is not a project, `ledger/root-exception-owners` judges the root's.
+
+```toml
+# gate.toml, the root
+[workspace]
+projects = ["docs"]
+
+[plugins]
+ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "docs/ledger/decision-index.md" } }
+
+[rules]
+"ledger/config-decisions" = "error"
+```
 
 ```toml
 # docs/gate.toml, the project that holds the ledger
@@ -244,7 +258,7 @@ project, `ledger/root-exception-owners` judges the root's.
 name = "docs"
 
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.3.1", options = { decisions = "ledger/decision-index.md" } }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "ledger/decision-index.md" } }
 
 [rules]
 "ledger/decisions" = "error"

@@ -177,12 +177,12 @@ fn a_nested_projects_entries_and_exceptions_are_judged_at_their_own_files() {
             (
                 "infra/cdk/gate.exceptions.toml",
                 Some(7),
-                "the entry for \"demo/rule\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision"
+                "the exception for demo/rule names the decision D-API-002, which is `proposed`; an exception needs an accepted decision"
             ),
             (
                 "infra/cdk/gate.exceptions.toml",
                 Some(13),
-                "the entry for \"demo/rule\" names the decision D-NOPE-004, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
+                "the exception for demo/rule names the decision D-NOPE-004, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
             ),
         ]
     );
@@ -266,7 +266,7 @@ fn the_examples_of_the_rule_page() {
             (
                 "infra/cdk/gate.exceptions.toml",
                 Some(1),
-                "the entry for \"demo/rule\" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
+                "the exception for demo/rule names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
             ),
         ]
     );

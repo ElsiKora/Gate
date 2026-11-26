@@ -10,8 +10,10 @@ The ledger plugin is versioned on its own; its releases are `plugin-ledger-v<ver
 
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.1...plugin-ledger-v0.3.2) (unreleased)
 
-Built for the plugin interface `gate:plugin@0.3.0`. Ledger 0.3.2 needs core 0.3.3 or later; with
-core 0.3.2 it leaves decisions in nested projects unjudged. Adopt the two together.
+Built for the plugin interface `gate:plugin@0.3.0`. ledger 0.3.2 needs core 0.3.3 or later, and core
+0.3.3 needs ledger 0.3.2: upgrade both together. With core 0.3.2, ledger 0.3.2 checks no decision
+under a root project, and only the root gate.toml's rule entries under a root that is not a project.
+With ledger 0.3.1, core 0.3.3 reports each exception's decision twice.
 
 ### Breaking Changes
 
@@ -23,6 +25,11 @@ core 0.3.2 it leaves decisions in nested projects unjudged. Adopt the two togeth
   `ledger/root-exception-decisions`, which are gone: use `ledger/config-decisions` in the root
   `gate.toml`, whether or not the root is a project. `ledger/recommended` and `ledger/adoption`
   turn it on at the level the four had.
+- **ledger:** `ledger/config-decisions` and `ledger/root-exception-owners` are repository-scope, so
+  a project that turns them on, by extending `ledger/recommended` or `ledger/adoption` or with a
+  `ledger/*` family, needs the root to turn them on too: under core 0.3.3 a project-only ledger is a
+  configuration error. Declare `[plugins.ledger]` in the root `gate.toml`, with the index by its
+  repository path, and turn the rules on there.
 
 ### Bug Fixes
 

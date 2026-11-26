@@ -2083,6 +2083,11 @@ fn decision_check(rules: &str, extends: &str, project: &str, root: &str) -> (Opt
         );
     }
     toml.push_str(root);
+    // A family in the profile turns on the probe's repository-scope rules in project one too,
+    // which only the root may do: the root turns them on as well.
+    toml.push_str(
+        "\n[rules]\n\"probe/history-undeclared\" = \"error\"\n\"probe/whole\" = \"error\"\n\"probe/root-decisions\" = \"error\"\n",
+    );
     repo.write("gate.toml", &toml);
     repo.write(
         "apps/one/gate.toml",
@@ -2595,7 +2600,7 @@ fn non_project_root_with_decisions() -> Repo {
     repo.write("gate.toml", &toml);
     repo.write(
         "apps/one/gate.toml",
-        "[project]\nname = \"one\"\n\n[rules]\n\"probe/decisions\" = { level = \"error\", decision = \"D-ONE\" }\n",
+        "[project]\nname = \"one\"\n\n[rules]\n\"probe/decisions\" = { level = \"error\", decision = \"D-ONE\" }\n\"probe/*\" = { level = \"off\", decision = \" D-FAM \" }\n",
     );
     repo.write("apps/one/gate.exceptions.toml", &probe_exception("D-EXC"));
     repo.commit("decisions at a root that is not a project");
@@ -2605,7 +2610,8 @@ fn non_project_root_with_decisions() -> Repo {
 #[test]
 fn a_root_that_is_not_a_project_gives_every_decision_to_the_repository_call() {
     // The repository call carries the decisions of every file: the root's profile and root
-    // entries, project one's entry and its exception, each at its own repository path and line.
+    // entries, project one's entry, its family (its decision trimmed) and its exception, each at
+    // its own repository path and line.
     // The projects' calls carry none, and each still names its own file, relative to its root.
     for policy in ["", POLICY] {
         let repo = non_project_root_with_decisions();
@@ -2620,6 +2626,7 @@ fn a_root_that_is_not_a_project_gives_every_decision_to_the_repository_call() {
                 Some(1),
                 vec![
                     "- config-file gate.toml".to_owned(),
+                    "- decision probe/* D-FAM at apps/one/gate.toml:6 [apps/one/gate.toml:6]".to_owned(),
                     "- decision probe/aspects D-EXC at apps/one/gate.exceptions.toml:1 [apps/one/gate.exceptions.toml:1]".to_owned(),
                     "- decision probe/decisions D-ONE at apps/one/gate.toml:5 [apps/one/gate.toml:5]".to_owned(),
                     "- decision probe/decisions D-PROFILE at gate.toml:15 [gate.toml:15]".to_owned(),
@@ -2767,7 +2774,7 @@ fn a_project_found_by_glob_without_a_gate_toml_adds_no_decision() {
         seen.iter()
             .filter(|line| line.starts_with("- decision "))
             .count(),
-        4,
+        5,
         "{seen:?}"
     );
     assert!(
@@ -2821,8 +2828,8 @@ fn nested_project_toml(name: &str) -> String {
     )
 }
 
-/// The exceptions of a nested project: `D-API-002` at line 1, an accepted decision at line 7.
-const NESTED_EXCEPTIONS: &str = "[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/a.md\"\nreason = \"kept for now\"\ndecision = \"D-API-002\"\n\n[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/b.md\"\nreason = \"kept for now\"\ndecision = \"D-API-001\"\n";
+/// The exceptions of a nested project: `D-API-002` at line 1, an unlisted decision at line 7.
+const NESTED_EXCEPTIONS: &str = "[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/a.md\"\nreason = \"kept for now\"\ndecision = \"D-API-002\"\n\n[[exception]]\nrule = \"ledger/records\"\ntarget = \"docs/b.md\"\nreason = \"kept for now\"\ndecision = \"D-NOPE-007\"\n";
 
 /// A root project with the built ledger pinned and `ledger/config-decisions` on, its index at the
 /// repository root listing `D-API-002` as `status`, and the nested project `infra/cdk` writing
@@ -2877,13 +2884,16 @@ fn ledger_check(repo: &Repo) -> (Option<i32>, Vec<String>) {
 }
 
 /// The findings of [`ledger_nested`] (and of the same files under a root that is not a project)
-/// when `D-API-002` is proposed: the unlisted and the proposed entry, and the proposed exception,
-/// each once, at its own file and line in `directory`.
+/// when `D-API-002` is proposed: the unlisted and the proposed entry, the proposed and the
+/// unlisted exception, each once, at its own file and line in `directory`.
 fn nested_findings(directory: &str) -> Vec<String> {
     let index = "docs/ledger/decision-index.md";
     let mut expected = vec![
         format!(
-            "ledger/config-decisions {directory}/gate.exceptions.toml:1 the entry for \"ledger/records\" names the decision D-API-002, which is `proposed`; an entry needs an accepted decision"
+            "ledger/config-decisions {directory}/gate.exceptions.toml:1 the exception for ledger/records names the decision D-API-002, which is `proposed`; an exception needs an accepted decision"
+        ),
+        format!(
+            "ledger/config-decisions {directory}/gate.exceptions.toml:7 the exception for ledger/records names the decision D-NOPE-007, which {index} does not list; name an accepted decision of the index"
         ),
         format!(
             "ledger/config-decisions {directory}/gate.toml:6 the entry for \"ledger/decisions\" names the decision D-NOPE-009, which {index} does not list; name an accepted decision of the index"
@@ -2908,6 +2918,8 @@ fn a_nested_projects_decisions_are_judged_once_against_the_root_index_under_a_ro
         (
             Some(1),
             vec![
+                "ledger/config-decisions infra/cdk/gate.exceptions.toml:7 the exception for ledger/records names the decision D-NOPE-007, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
+                    .to_owned(),
                 "ledger/config-decisions infra/cdk/gate.toml:6 the entry for \"ledger/decisions\" names the decision D-NOPE-009, which docs/ledger/decision-index.md does not list; name an accepted decision of the index"
                     .to_owned()
             ]
@@ -2944,6 +2956,52 @@ fn a_cached_run_of_the_decision_rule_equals_a_cold_one() {
     assert_eq!(ledger_check(&repo), cold, "warm");
     std::fs::remove_dir_all(repo.cache.path().join("results")).expect("the stored results");
     assert_eq!(ledger_check(&repo), cold, "cold again");
+}
+
+#[test]
+fn a_project_that_turns_on_a_repository_scope_rule_the_root_does_not_is_a_configuration_error() {
+    // Only the repository call runs a repository-scope rule: a project's preset or family that
+    // turns one on while the root does not would leave it unrun, so the run stops with exit 2.
+    let plugin = format!("ledger={}", ledger().0.display());
+    for (project, at) in [
+        (
+            "[project]\nname = \"one\"\nextends = [\"ledger/recommended\"]\n",
+            "apps/one/gate.toml:3 [project] extends: \"ledger/recommended\"",
+        ),
+        (
+            // The three rules that need options of their own are off.
+            "[project]\nname = \"one\"\n\n[rules]\n\"ledger/*\" = \"warning\"\n\"ledger/closing-notes\" = \"off\"\n\"ledger/reuses\" = \"off\"\n\"ledger/record-status\" = \"off\"\n",
+            "apps/one/gate.toml:5 [rules]: \"ledger/*\"",
+        ),
+    ] {
+        let repo = ledger_root("", "accepted");
+        repo.write("apps/one/gate.toml", project);
+        repo.commit("project one turns on the ledger's rules");
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        let said = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{said}");
+        assert!(
+            said.contains(&format!(
+                "{at} turns on the repository-scope rule \"ledger/config-decisions\" for project one, but the root does not turn it on, and only the repository call runs it; declare plugin ledger and turn the rule on in the root gate.toml"
+            )),
+            "{said}"
+        );
+
+        // With the root turning both repository-scope rules on, the same project loads.
+        let repo = ledger_root(
+            "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = \"error\"\n",
+            "accepted",
+        );
+        repo.write("apps/one/gate.toml", project);
+        repo.commit("the root turns on the repository-scope rules too");
+        let output = repo.gate(&["check", "--plugin", &plugin]);
+        let said = text(&output.stderr);
+        assert_ne!(output.status.code(), Some(2), "{said}");
+        assert!(
+            !said.contains("turns on the repository-scope rule"),
+            "{said}"
+        );
+    }
 }
 
 const ROOT_ENTRY: &str = "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-002\" }\n";
@@ -8319,13 +8377,48 @@ fn a_preset_of_both_scopes_runs_each_rule_where_its_scope_runs() {
     };
     let (code, messages) = extended("projects = [\"apps/*\"]\n");
     assert_eq!((code, messages), (Some(1), vec!["whole".to_owned()]));
-    let (code, messages) = extended("projects = [\"apps/one\"]\n");
+    // Extended in both places, each takes the rules of its scope.
+    let repo = probe_repo("");
+    let toml = std::fs::read_to_string(repo.path().join("gate.toml")).expect("gate.toml");
+    let both = ["projects = [\"apps/*\"]\n", "projects = [\"apps/one\"]\n"]
+        .iter()
+        .fold(toml, |toml, from| {
+            toml.replace(from, &format!("{from}extends = [\"probe/both\"]\n"))
+        });
+    repo.write("gate.toml", &both);
+    repo.commit("extend probe/both at the root and in the profile");
     assert_eq!(
-        (code, messages),
+        probe_check(&repo, &[]),
         (
             Some(1),
-            vec!["aspect loud".to_owned(), "aspect quiet".to_owned()]
+            vec![
+                "aspect loud".to_owned(),
+                "aspect quiet".to_owned(),
+                "whole".to_owned()
+            ]
         )
+    );
+
+    // Extended in the profile alone, it turns on probe/whole where only the repository call runs
+    // it and the root does not turn it on: a configuration error.
+    let repo = probe_repo("");
+    let toml = std::fs::read_to_string(repo.path().join("gate.toml"))
+        .expect("gate.toml")
+        .replace(
+            "projects = [\"apps/one\"]\n",
+            "projects = [\"apps/one\"]\nextends = [\"probe/both\"]\n",
+        );
+    repo.write("gate.toml", &toml);
+    repo.commit("extend probe/both in the profile");
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin]);
+    let said = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{said}");
+    assert!(
+        said.contains(
+            "[[profiles]] extends: \"probe/both\" turns on the repository-scope rule \"probe/whole\" for project one, but the root does not turn it on"
+        ),
+        "{said}"
     );
 }
 

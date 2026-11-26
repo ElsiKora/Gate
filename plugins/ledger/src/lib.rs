@@ -1,15 +1,14 @@
 //! The `ledger` plugin: rules over a Markdown ledger of decisions, ADRs, plan, implementation,
 //! verification, follow-up and production blocker records, over the owners the exceptions name
-//! and the decisions every rule entry and exception of the workspace names, and the generators that write the counts of a decision index and the
-//! review progress of a roadmap into their managed blocks and seed the manifest and the shared
-//! files of an empty ledger.
+//! and the decisions every rule entry and exception of the workspace names, and the generators
+//! that write the counts of a decision index and the review progress of a roadmap into their
+//! managed blocks and seed the manifest and the shared files of an empty ledger.
 //!
 //! The shared paths, the parity plan and the status vocabularies are `[plugins.ledger] options`
 //! ([`Settings`]); each rule's own options are in its module. Every path is relative to the call's
 //! scope: the project root, or the repository root for the repository-scope rules
-//! (`config-decisions` and `root-exception-owners`). Built
-//! for `wasm32-wasip2` the plugin is the component `ledger.wasm`; natively it is a library the
-//! tests call through [`PLUGIN`].
+//! (`config-decisions` and `root-exception-owners`). Built for `wasm32-wasip2` the plugin is the
+//! component `ledger.wasm`; natively it is a library the tests call through [`PLUGIN`].
 
 mod block;
 mod call;

@@ -809,6 +809,7 @@ impl Loaded {
             };
         workspace.validate_except(&declaration, &preset_options, &JsonSchemaValidator, skipped)?;
         self.check_presets(workspace)?;
+        self.check_repository_rules(workspace)?;
         self.check_needs(workspace, filter)?;
         self.check_decisions(workspace)?;
         self.check_generators(workspace)?;
@@ -862,6 +863,52 @@ impl Loaded {
         }
         if let Some(seen) = reach.iter().find(|seen| !seen.turns_on) {
             return Err(Error::config(seen.message(workspace.root_is_project())));
+        }
+        Ok(())
+    }
+
+    /// Checks that every repository-scope rule a project's scope turns on (a preset, a family or
+    /// a `[rules]` entry) the repository scope turns on too: the repository call is the only one
+    /// that runs it, so a rule only a project turns on would never run.
+    ///
+    /// # Errors
+    /// Fails on the first such rule, naming the rule, the project and where its scope turns it
+    /// on, and what to write in the root `gate.toml` instead.
+    fn check_repository_rules(&self, workspace: &Workspace) -> Result<()> {
+        let repository = workspace.repository();
+        let declares = |name: &PluginName| repository.plugins.contains_key(name);
+        for (project, settings) in scopes(workspace) {
+            let Some(project) = project else { continue };
+            for (name, declared) in &self.declarations {
+                if !settings.plugins.contains_key(name) {
+                    continue;
+                }
+                let own = presets(&declared.info, name, settings)?;
+                let root = if declares(name) {
+                    presets(&declared.info, name, repository)?
+                } else {
+                    BTreeMap::new()
+                };
+                for info in declared
+                    .info
+                    .rules
+                    .iter()
+                    .filter(|info| info.scope == Scope::Repository)
+                {
+                    let id = rule_id(name, &info.name)?;
+                    let preset = own.get(info.name.as_str());
+                    if !turned_on(settings, &id, preset)
+                        || (declares(name)
+                            && turned_on(repository, &id, root.get(info.name.as_str())))
+                    {
+                        continue;
+                    }
+                    return Err(Error::config(format!(
+                        "{} turns on the repository-scope rule \"{id}\" for project {project}, but the root does not turn it on, and only the repository call runs it; declare plugin {name} and turn the rule on in the root gate.toml",
+                        turned_on_at(settings, &id, preset)
+                    )));
+                }
+            }
         }
         Ok(())
     }
@@ -2088,25 +2135,7 @@ fn enabled_rules(
         let id = rule_id(name, &info.name)?;
         let preset = presets.get(info.name.as_str());
         let entry = settings.rules.get(&id);
-        if entry.is_none() && preset.is_none() && !settings.families.contains_key(name.as_str()) {
-            continue;
-        }
-        let whole = settings.setting(&id, "");
-        let level = whole.or_else(|| preset.and_then(|preset| preset.level));
-        // An aspect a preset turns on keeps the rule running, unless `[rules]` turns it off.
-        let any_aspect_on = entry.is_some_and(|entry| {
-            entry
-                .levels
-                .values()
-                .any(|level| matches!(level.value, Setting::On(_)))
-        }) || (whole != Some(Setting::Off)
-            && preset.is_some_and(|preset| {
-                preset
-                    .levels
-                    .values()
-                    .any(|level| matches!(level, Setting::On(_)))
-            }));
-        if level == Some(Setting::Off) && !any_aspect_on {
+        if !turned_on(settings, &id, preset) {
             continue;
         }
         let options = settings
@@ -2138,6 +2167,49 @@ fn enabled_rules(
         });
     }
     Ok(rules)
+}
+
+/// Whether `settings` turn rule `id` on: a `[rules]` entry, a family level or a preset (`preset`)
+/// names it, and not everything about it is `off`.
+fn turned_on(settings: &Settings, id: &RuleId, preset: Option<&PresetRule>) -> bool {
+    let entry = settings.rules.get(id);
+    if entry.is_none() && preset.is_none() && !settings.families.contains_key(id.plugin()) {
+        return false;
+    }
+    let whole = settings.setting(id, "");
+    let level = whole.or_else(|| preset.and_then(|preset| preset.level));
+    // An aspect a preset turns on keeps the rule running, unless `[rules]` turns it off.
+    let any_aspect_on = entry.is_some_and(|entry| {
+        entry
+            .levels
+            .values()
+            .any(|level| matches!(level.value, Setting::On(_)))
+    }) || (whole != Some(Setting::Off)
+        && preset.is_some_and(|preset| {
+            preset
+                .levels
+                .values()
+                .any(|level| matches!(level, Setting::On(_)))
+        }));
+    level != Some(Setting::Off) || any_aspect_on
+}
+
+/// Where `settings` turn rule `id` on, as [`turned_on`] finds it: the `[rules]` entry, else the
+/// family, else the preset's `extends` entry.
+fn turned_on_at(settings: &Settings, id: &RuleId, preset: Option<&PresetRule>) -> String {
+    if let Some(origin) = settings
+        .rules
+        .get(id)
+        .and_then(|entry| entry.origins().next())
+    {
+        return format!("{origin}: \"{id}\"");
+    }
+    if let Some(family) = settings.families.get(id.plugin()) {
+        return format!("{}: \"{}/*\"", family.origin, id.plugin());
+    }
+    preset.map_or_else(String::new, |preset| {
+        format!("{}: \"{}\"", preset.extended.origin, preset.extended.value)
+    })
 }
 
 /// One `extends` entry, the scopes it reached and whether its preset names a rule of any of them.
