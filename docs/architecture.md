@@ -213,6 +213,8 @@ Rules:
 - One `check` call per plugin and project carries every enabled rule of that plugin, so a plugin
   parses a file once for all its rules.
 - A `project` scope rule sees its project's subtree (paths relative to the project root). A
+  project's rules may read a nested project's files to resolve them, but never report on them,
+  except at a rule's own option file that lies there. A
   `repository` scope rule runs once and sees the whole repository. A configuration may grant a plugin
   extra read paths outside its project (`reads = [...]`), for example a ledger that cites records of a
   sibling project; anything else returns `none`.

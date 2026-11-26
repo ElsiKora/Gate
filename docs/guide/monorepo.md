@@ -106,8 +106,9 @@ a project and never read.
 
 A path belongs to the project with the longest root that contains it. `apps/server/src/main.ts` belongs
 to `server`; `README.md` at the root belongs to no project and is seen by repository rules only.
-Nested projects work the same way: `apps/server/tools/cli/` with its own `gate.toml` owns its files,
-and `server` does not see them.
+Nested projects work the same way: `apps/server/tools/cli/` with its own `gate.toml` owns its files.
+The rules of `server` may read a nested project's files to resolve them, but never report on them,
+except at a rule's own option file that lies there.
 
 ## 🧬 Profiles
 
