@@ -734,10 +734,13 @@ The first readers raised these points; each is settled:
 **Findings**
 - **Mandatory decisions on relaxations.** `[decision-policy] require-decision = true` makes a decision
   mandatory on every relaxation of a rule: on every exception, and on every rule entry (a rule or a
-  family) that sets a level, or a level in `levels`, below its default. The default is the preset's
-  level of that aspect, else of the rule; a rule no preset names has none, since turning it on is
-  stricter than not running. `off` is below every level, and a whole-rule level is compared with the
-  preset aspect levels it replaces too. The core refuses an exception
+  family) that sets a level, or a level in `levels`, below its default. The default is the level the
+  configuration resolves to without the entry, in the level order: for a rule entry the rule's
+  family, else the preset's level of that aspect, else of the rule, else `error`; for a family the
+  preset's level, else `error`. So a rule or aspect no preset sets a level for has the default
+  `error`, and a rule raised above its family's level is no relaxation. `off` is below every level,
+  and where no family sets one, a whole-rule level is compared with the preset aspect levels it
+  replaces too. The core refuses an exception
   without a decision when it loads the configuration, and a rule entry without one when it loads the
   plugins, because presets come from plugins. A decision covers the levels of the entry that writes it,
   so a project file that lowers what the root left alone needs its own. Whether a decision names a
