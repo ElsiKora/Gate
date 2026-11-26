@@ -8343,7 +8343,7 @@ fn at_a_root_that_is_a_project_an_entry_of_repository_rules_points_to_the_roots_
 }
 
 #[test]
-fn list_prints_the_repository_rules_a_root_projects_presets_turn_on_as_check_runs_them() {
+fn list_prints_the_repository_rules_a_root_projects_presets_turn_on() {
     let ci = format!("ci={}", ci_component().0.display());
     let git = GitOptions::new();
     let repo = &git.repo;
@@ -8419,35 +8419,6 @@ fn list_prints_the_repository_rules_a_root_projects_presets_turn_on_as_check_run
         );
         from_text
     };
-    // The rules a check runs: every rule it would run, as `--skip-rule` of both families leaves
-    // them out by id.
-    let ran = || {
-        let mut arguments = vec![
-            "check",
-            "--format",
-            "json",
-            "--skip-rule",
-            "ci/*",
-            "--skip-rule",
-            "git/*",
-        ];
-        arguments.extend_from_slice(&plugins);
-        let output = repo.gate(&arguments);
-        let said = text(&output.stdout);
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{said}{}",
-            text(&output.stderr)
-        );
-        let value: serde_json::Value = serde_json::from_str(&said).expect("JSON");
-        value["skipped-rules"]
-            .as_array()
-            .expect("skipped-rules")
-            .iter()
-            .filter_map(|rule| rule.as_str().map(str::to_owned))
-            .collect::<BTreeSet<String>>()
-    };
 
     // No [rules] entry: the presets turn on the repository-scope rules, and the list says so.
     configure("");
@@ -8463,15 +8434,8 @@ fn list_prints_the_repository_rules_a_root_projects_presets_turn_on_as_check_run
             "{rule} from {preset}: {listed_rules:?}"
         );
     }
-    let ids = |listed: &BTreeSet<(String, String)>| {
-        listed
-            .iter()
-            .map(|(key, _)| key.split('#').next().unwrap_or_default().to_owned())
-            .collect::<BTreeSet<String>>()
-    };
-    assert_eq!(ids(&listed_rules), ran());
 
-    // A rule [rules] turns off is not listed as running, and the check does not run it.
+    // A [rules] entry wins over the preset: the list shows it, not the preset's row.
     configure("\"ci/permissions\" = \"off\"");
     let listed_rules = listed();
     assert!(
@@ -8480,9 +8444,230 @@ fn list_prints_the_repository_rules_a_root_projects_presets_turn_on_as_check_run
             .any(|(rule, _)| rule == "ci/permissions"),
         "{listed_rules:?}"
     );
-    let ran_rules = ran();
-    assert!(!ran_rules.contains("ci/permissions"), "{ran_rules:?}");
-    assert_eq!(ids(&listed_rules), ran_rules);
+    assert!(
+        listed_rules.contains(&("ci/runner-pinned".to_owned(), "ci/recommended".to_owned())),
+        "{listed_rules:?}"
+    );
+}
+
+/// A repository whose top is project `one`, extending the probe's presets `extends`, with `rules`
+/// as its `[rules]`; committed.
+fn probe_root(extends: &[&str], rules: &str) -> Repo {
+    let repo = Repo::empty();
+    let source = "acme/rules:probe@0.1.0";
+    let extends = extends
+        .iter()
+        .map(|preset| format!("\"probe/{preset}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [{extends}]\n\n[plugins]\nprobe = {{ source = \"{source}\" }}\n\n[rules]\n{rules}\n"
+        ),
+    );
+    repo.write(
+        "gate.lock",
+        &lock(
+            source,
+            "https://example.invalid/probe.wasm",
+            &"b".repeat(64),
+        ),
+    );
+    repo.commit("configure");
+    repo
+}
+
+/// The rule rows `gate list` prints for project `one`, as `(key, value)`, from the text, which
+/// the JSON must match.
+fn probe_listed(repo: &Repo) -> BTreeSet<(String, String)> {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["list", "--plugin", &plugin]);
+    let said = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{said}{}",
+        text(&output.stderr)
+    );
+    let from_text: BTreeSet<(String, String)> = said
+        .lines()
+        .filter_map(|line| {
+            let cells: Vec<&str> = line
+                .split("  ")
+                .map(str::trim)
+                .filter(|cell| !cell.is_empty())
+                .collect();
+            match cells.as_slice() {
+                ["rule", key, value, ..] => Some(((*key).to_owned(), (*value).to_owned())),
+                _ => None,
+            }
+        })
+        .collect();
+    let output = repo.gate(&["list", "--plugin", &plugin, "--format", "json"]);
+    let said = text(&output.stdout);
+    assert_eq!(output.status.code(), Some(0), "{said}");
+    let value: serde_json::Value = serde_json::from_str(&said).expect("JSON");
+    assert!(value["presets-error"].is_null(), "{said}");
+    let from_json: BTreeSet<(String, String)> = value["project-settings"]["one"]["settings"]
+        .as_array()
+        .expect("the project's settings")
+        .iter()
+        .filter(|row| row["kind"] == "rule")
+        .filter_map(|row| {
+            Some((
+                row["key"].as_str()?.to_owned(),
+                row["value"].as_str()?.to_owned(),
+            ))
+        })
+        .collect();
+    assert_eq!(
+        from_text, from_json,
+        "the text and the JSON list the same rows"
+    );
+    from_text
+}
+
+/// The rules the rows give a level other than `off`, by id.
+fn listed_on(rows: &BTreeSet<(String, String)>) -> BTreeSet<String> {
+    rows.iter()
+        .filter(|(_, value)| value.starts_with("level ") && !value.starts_with("level off"))
+        .map(|(key, _)| key.split('#').next().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// The rules a check of the repository ran, by the findings they reported: each probe rule these
+/// tests turn on reports at least one finding wherever it runs.
+fn probe_found(repo: &Repo) -> BTreeSet<String> {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+    let said = text(&output.stdout);
+    assert!(
+        matches!(output.status.code(), Some(0 | 1)),
+        "{said}{}",
+        text(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_str(&said).expect("JSON");
+    report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["rule"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// What `gate explain <rule>` prints.
+fn probe_explain(repo: &Repo, rule: &str) -> String {
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["explain", rule, "--plugin", &plugin]);
+    let said = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{said}{}",
+        text(&output.stderr)
+    );
+    said
+}
+
+fn row(key: &str, value: &str) -> (String, String) {
+    (key.to_owned(), value.to_owned())
+}
+
+#[test]
+fn list_gives_each_rule_the_level_a_check_runs_it_at_at_a_root_project() {
+    // probe/both turns on the repository-scope probe/whole and the project-scope probe/aspects.
+    let repo = probe_root(&["both"], "");
+    let rows = probe_listed(&repo);
+    assert!(
+        rows.contains(&row("probe/whole", "level error (preset probe/both)")),
+        "{rows:?}"
+    );
+    assert!(
+        rows.contains(&row("probe/aspects", "level error (preset probe/both)")),
+        "{rows:?}"
+    );
+    let found = probe_found(&repo);
+    assert_eq!(
+        found,
+        BTreeSet::from(["probe/aspects".to_owned(), "probe/whole".to_owned()])
+    );
+    assert_eq!(listed_on(&rows), found);
+}
+
+#[test]
+fn a_rule_a_preset_sets_off_is_listed_off_with_its_preset_and_explained() {
+    // probe/whole-off, later, sets probe/whole off over probe/both.
+    let repo = probe_root(&["both", "whole-off"], "");
+    let rows = probe_listed(&repo);
+    assert!(
+        rows.contains(&row("probe/whole", "level off (preset probe/whole-off)")),
+        "{rows:?}"
+    );
+    assert!(
+        !rows.contains(&row("probe/whole", "level error (preset probe/both)")),
+        "{rows:?}"
+    );
+    let found = probe_found(&repo);
+    assert_eq!(found, BTreeSet::from(["probe/aspects".to_owned()]));
+    assert_eq!(listed_on(&rows), found);
+
+    let said = probe_explain(&repo, "probe/whole");
+    assert!(
+        said.contains("level off (preset probe/whole-off)"),
+        "{said}"
+    );
+    assert!(!said.contains("configures it"), "{said}");
+}
+
+#[test]
+fn list_shows_the_rules_entry_that_overrides_a_preset_and_explain_shows_both() {
+    let repo = probe_root(
+        &["both"],
+        "\"probe/whole\" = \"warning\"\n\"probe/aspects\" = \"off\"",
+    );
+    let rows = probe_listed(&repo);
+    assert!(
+        rows.contains(&row("probe/whole", "level warning")),
+        "{rows:?}"
+    );
+    assert!(
+        rows.contains(&row("probe/aspects", "level off")),
+        "{rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|(_, value)| value.contains("(preset ")),
+        "no preset row gives a level the check runs: {rows:?}"
+    );
+    let found = probe_found(&repo);
+    assert_eq!(found, BTreeSet::from(["probe/whole".to_owned()]));
+    assert_eq!(listed_on(&rows), found);
+
+    for rule in ["probe/whole", "probe/aspects"] {
+        let said = probe_explain(&repo, rule);
+        assert!(said.contains("level error (preset probe/both)"), "{said}");
+    }
+    assert!(
+        probe_explain(&repo, "probe/whole").contains("level warning"),
+        "the [rules] entry"
+    );
+    assert!(
+        probe_explain(&repo, "probe/aspects").contains("level off"),
+        "the [rules] entry"
+    );
+}
+
+#[test]
+fn a_family_set_off_leaves_no_preset_row_in_the_list_and_runs_nothing() {
+    let repo = probe_root(&["both"], "\"probe/*\" = \"off\"");
+    let rows = probe_listed(&repo);
+    assert_eq!(rows, BTreeSet::from([row("probe/*", "level off")]));
+    assert_eq!(probe_found(&repo), BTreeSet::new());
+    assert!(listed_on(&rows).is_empty());
+
+    let said = probe_explain(&repo, "probe/whole");
+    assert!(said.contains("level error (preset probe/both)"), "{said}");
+    assert!(said.contains("probe/*"), "{said}");
 }
 
 #[test]

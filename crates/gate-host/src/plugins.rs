@@ -730,9 +730,8 @@ impl Loaded {
 
     /// Every rule the configuration turns on, by scope (the repository's, then each project's in
     /// name order) and by the scope's declared plugins in name order: what `gate check` runs
-    /// before `--rule`, `--skip-rule`, a commit-message run and the change selection narrow it,
-    /// and what `gate list` and `gate explain` show a preset turning on. A plugin with nothing on
-    /// in a scope has no entry.
+    /// before `--rule`, `--skip-rule`, a commit-message run and the change selection narrow it.
+    /// A plugin with nothing on in a scope has no entry.
     ///
     /// # Errors
     /// As [`enabled_rules`].
@@ -1837,12 +1836,15 @@ pub struct PresetSetting {
     pub preset: String,
     /// The `extends` entry that brought the preset in.
     pub origin: SettingOrigin,
+    /// No `[rules]` entry or family level of the scope overrides it, so the rule, its aspect or
+    /// its options run with what the preset gives: `gate list` shows these, `gate explain` all.
+    pub effective: bool,
 }
 
-/// The settings the presets of each scope give the rules of that scope a check runs, later presets
-/// over earlier, by key: the repository's under `None`, each project's under its name. A rule
-/// `[rules]` or a family turns off has none. A `[rules]` entry or a family level of the scope wins
-/// over them, as in a run.
+/// The settings the presets of each scope give the rules of that scope, later presets over
+/// earlier, by key: the repository's under `None`, each project's under its name. A preset that
+/// sets a rule `off` has its row too. A `[rules]` entry or a family level of the scope wins over
+/// them, as in a run; a row it overrides is not [`PresetSetting::effective`].
 pub type PresetSettings = BTreeMap<Option<String>, Vec<PresetSetting>>;
 
 /// What the presets every scope extends set, read from what each declared plugin declares: its
@@ -1887,37 +1889,56 @@ pub fn preset_settings(
     else {
         return Ok(settings_of);
     };
-    // The rules a check runs, so a rule `[rules]` turns off, or one of another scope, has no row.
-    for scope in loaded.enabled(workspace)? {
-        let rows = settings_of
-            .entry(scope.project.map(ToOwned::to_owned))
-            .or_default();
-        for rule in &scope.rules {
-            let Some(preset) = &rule.preset else {
-                continue;
-            };
-            let id = rule.id.to_string();
-            let mut push = |key: String, value: String| {
-                rows.push(PresetSetting {
-                    key,
-                    value,
-                    preset: preset.preset.clone(),
-                    origin: preset.extended.origin.clone(),
-                });
-            };
-            if let Some(level) = preset.level {
-                push(id.clone(), format!("level {level}"));
-            }
-            if preset.options.is_some() {
-                push(id.clone(), "options".to_owned());
-            }
-            for (aspect, level) in &preset.levels {
-                push(format!("{id}#{aspect}"), format!("level {level}"));
+    for (project, settings) in scopes(workspace) {
+        let scope = if project.is_none() {
+            Scope::Repository
+        } else {
+            Scope::Project
+        };
+        let mut rows = Vec::new();
+        for (name, declaration) in &loaded.declarations {
+            for (rule, preset) in presets(&declaration.info, name, settings)? {
+                if declaration
+                    .rule(&rule)
+                    .is_none_or(|info| info.scope != scope)
+                {
+                    continue;
+                }
+                let id = rule_id(name, &rule)?;
+                // What `[rules]` and the family say win over a preset, as in a run ([`level`]).
+                let mut push = |key: String, value: String, effective: bool| {
+                    rows.push(PresetSetting {
+                        key,
+                        value,
+                        preset: preset.preset.clone(),
+                        origin: preset.extended.origin.clone(),
+                        effective,
+                    });
+                };
+                if let Some(level) = preset.level {
+                    push(
+                        id.to_string(),
+                        format!("level {level}"),
+                        settings.setting(&id, "").is_none(),
+                    );
+                }
+                if preset.options.is_some() {
+                    push(
+                        id.to_string(),
+                        "options".to_owned(),
+                        settings.options(&id).is_none(),
+                    );
+                }
+                for (aspect, level) in &preset.levels {
+                    push(
+                        format!("{id}#{aspect}"),
+                        format!("level {level}"),
+                        settings.setting(&id, aspect).is_none(),
+                    );
+                }
             }
         }
-    }
-    for rows in settings_of.values_mut() {
-        rows.sort_by(|left, right| left.key.cmp(&right.key));
+        settings_of.insert(project.map(ToOwned::to_owned), rows);
     }
     Ok(settings_of)
 }
