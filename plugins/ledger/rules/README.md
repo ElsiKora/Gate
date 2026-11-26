@@ -56,7 +56,7 @@ options are the root's and paths are relative to the repository root.
 
 ```toml
 [plugins.ledger]
-source = "ElsiKora/Gate:ledger@0.3.1"
+source = "ElsiKora/Gate:ledger@0.3.2"
 options = { parity = { plan = "docs/ledger/plans/core.md", prefix = "CORE", label = "Core", reference = "Upstream reference", fields = ["Parity evidence"], active-status = "in progress" } }
 ```
 
