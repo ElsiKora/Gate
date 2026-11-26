@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | fix round (the family counts); lane round pending |
+| Status | done (fix round; gates green on `4b40022`; awaiting the lead) |
 | Release | the next core release (the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate T-104" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -82,20 +82,23 @@ rather than by adding the rules to presets.
 
 ## Results
 
-The lane round on `0be04c8` (2026-11-26T02:30:21+00:00 to 2026-11-26T02:53:22+00:00), in order:
+The fix round's lane round on `4b40022` (2026-11-26T08:08:04+00:00 to 2026-11-26T08:27:37+00:00),
+in order:
 
 | Command | Exit |
 | --- | --- |
 | `cargo fmt --all --check` | 0 |
 | `cargo clippy --locked -j 4 --all-targets -- -D warnings` | 0 |
-| `cargo test --locked -j 4` | 0: 1654 passed, 0 failed, 7 ignored, over 124 test binaries |
+| `cargo test --locked -j 4` | 0: 1655 passed, 0 failed, 7 ignored, over 124 test binaries |
 | `cargo deny --locked check` | 0: advisories, bans, licenses and sources ok |
+
+The first round, on `0be04c8` (2026-11-26T02:30:21+00:00 to 2026-11-26T02:53:22+00:00): the same
+four commands each exited 0, with 1654 tests passed, 0 failed, 7 ignored.
 
 `bin/gate check` on this repository: exit 0 (7 rules, 0 errors, 0 warnings), with `gate.toml` as
 it is; it has no `[decision-policy]`, so no entry needed a decision.
 
 ## Resume point
 
-Fix round committed: the family counts in an entry's default, with its tests, the task note, the
-guide and the architecture. Next: the lane round on the fix commit, its exit codes here, push,
-report the head to the lead. The results above are for `0be04c8`, before the fix round.
+Done; the commit after `4b40022` changes only this task file and `docs/plan.md`. Next: the lead's
+decision and merge.
