@@ -608,8 +608,9 @@ name = "server"
 extends = ["typescript/adoption", "nestjs/adoption"]
 ```
 
-`gate list` and `gate explain <plugin>/<rule>` print each rule a preset turns on, with the preset
-and the `extends` line that brought it in. An `extends` entry that names a preset the plugin does
+`gate list` prints each rule a preset sets, with the preset and the `extends` line that brought it
+in, unless a `[rules]` entry or a family level gives the rule its level instead.
+`gate explain <plugin>/<rule>` prints every one, overridden or not. An `extends` entry that names a preset the plugin does
 not have is a configuration error that lists the plugin's presets.
 
 ## 🔌 Plugins of Your Own
