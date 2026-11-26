@@ -125,8 +125,21 @@ them. Two test fixtures did: the decision-policy tests' family in a profile (the
 the probe's repository-scope rules too) and `probe/both` extended in a profile alone (now the S1
 error, with a case that extends it in both places).
 
+Fix round proof, on `056ed98f` (with `origin/main` at `025cd579` merged), in fresh detached
+worktrees through the lane:
+
+| Command | Exit |
+| --- | --- |
+| `cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings`, alone (2026-11-26T09:44:09+00:00 to 09:46:11+00:00) | 0 |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 |
+| `cargo test --locked` (1667 passed, 0 failed) | 0 |
+| `cargo deny --locked check` | 0 |
+
+The full round ran from 2026-11-26T09:46:17+00:00 to 2026-11-26T10:07:56+00:00. Before it, the
+gate, gate-host and ledger tests alone on `74e4cd9c` found one wrong expectation of the new family
+fixture (636 passed, 1 failed), fixed in `056ed98f`.
+
 ## Resume point
 
-Fix round committed and pushed (`74e4cd9c`). Next: the gate, gate-host and ledger tests through
-the lane, then clippy alone (`--workspace --all-targets --keep-going`), then the full round; record
-the exit codes here and send the lead the head.
+Done on the writer's side: the fix round is green on `056ed98f` and pushed. Waiting for the lead.
