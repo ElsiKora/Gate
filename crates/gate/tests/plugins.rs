@@ -1837,6 +1837,128 @@ fn a_projects_rule_reads_a_nested_projects_file_but_reports_nothing_on_it() {
 }
 
 #[test]
+fn three_nested_projects_each_report_only_on_the_files_they_own() {
+    // `one` holds `inner`, which holds `deep`; each reports at its own option file and on `deep`'s
+    // file. Each finding stays under the project that owns its file: `deep`'s file is dropped from
+    // the calls of both projects around it, and reported once, by `deep`.
+    let repo = probe_repo("");
+    let rule = "\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"read.json\" }\n";
+    for (root, name, at) in [
+        ("apps/one", "one", "inner/deep/c.txt"),
+        ("apps/one/inner", "inner", "deep/c.txt"),
+        ("apps/one/inner/deep", "deep", "c.txt"),
+    ] {
+        repo.write(
+            &format!("{root}/gate.toml"),
+            &format!("[project]\nname = \"{name}\"\n{rule}"),
+        );
+        repo.write(
+            &format!("{root}/read.json"),
+            &format!(
+                "{{ \"at\": \"{at}\", \"at_message\": \"{name} at {at}\", \"at_options_file\": true }}\n"
+            ),
+        );
+    }
+    repo.write("apps/one/inner/deep/c.txt", "gamma\n");
+    repo.commit("three nested projects");
+
+    let plugin = format!("probe={}", probe().0.display());
+    let output = repo.gate(&["check", "--plugin", &plugin, "--format", "json"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let report: serde_json::Value = serde_json::from_str(&text(&output.stdout)).expect("JSON");
+    let mut found: Vec<(String, String, String)> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .map(|finding| {
+            let message = finding["message"].as_str().unwrap_or("-");
+            (
+                finding["project"].as_str().unwrap_or("-").to_owned(),
+                finding["location"]["path"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_owned(),
+                message.split(':').next().unwrap_or(message).to_owned(),
+            )
+        })
+        .collect();
+    found.sort();
+    let finding = |project: &str, path: &str, message: &str| {
+        (project.to_owned(), path.to_owned(), message.to_owned())
+    };
+    assert_eq!(
+        found,
+        [
+            finding("deep", "apps/one/inner/deep/c.txt", "deep at c.txt"),
+            finding(
+                "deep",
+                "apps/one/inner/deep/read.json",
+                "options file read.json"
+            ),
+            finding(
+                "inner",
+                "apps/one/inner/read.json",
+                "options file read.json"
+            ),
+            finding("one", "apps/one/read.json", "options file read.json"),
+        ]
+    );
+}
+
+#[test]
+fn a_baseline_entry_on_a_file_that_becomes_a_nested_projects_goes_stale_and_is_pruned() {
+    // `one` baselines its finding on `inner/a.txt`; then `inner` becomes a project of its own,
+    // which owns the file. `one` no longer reports there, so the entry matches no finding, and
+    // `gate baseline prune` removes it.
+    let repo = pinned_probe_repo();
+    repo.write("apps/one/inner/a.txt", "alpha\n");
+    read_with(
+        &repo,
+        r#"{ at = "inner/a.txt", at_message = "on the nested file" }"#,
+    );
+    let output = repo.gate(&["baseline", "write"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    repo.commit("the baseline");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "{findings:?}");
+
+    repo.write("apps/one/inner/gate.toml", "[project]\nname = \"inner\"\n");
+    repo.commit("inner becomes a project");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(1), "{findings:?}");
+    let reported: Vec<(&str, &str)> = findings
+        .iter()
+        .map(|finding| {
+            (
+                finding["rule"].as_str().unwrap_or("-"),
+                finding["message"].as_str().unwrap_or("-"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        reported,
+        [(
+            "gate/baseline",
+            "the baseline entry for probe/read at apps/one/inner/a.txt matches no finding"
+        )]
+    );
+
+    let output = repo.gate(&["baseline", "prune"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let printed = text(&output.stdout);
+    assert!(
+        printed.starts_with(
+            "removed probe/read at apps/one/inner/a.txt: on the nested file\ngate/baseline.json: re-keyed 0, removed 1, added none; 0 kept\n"
+        ),
+        "{printed}"
+    );
+    repo.commit("the pruned baseline");
+    let (code, findings) = check_json(&repo);
+    assert_eq!(code, Some(0), "{findings:?}");
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+#[test]
 fn two_rules_of_one_call_each_read_and_report_at_their_own_option_file() {
     // Both rules of the probe run in one call for `apps/one`, each with an option file of its own:
     // each reads its own file and reports at its own repository path.
