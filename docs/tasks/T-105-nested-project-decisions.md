@@ -76,8 +76,8 @@ The lead answers within the session.
 - The index is the root's `[plugins.ledger] options decisions`, relative to the repository root.
 - The plugin interface stays `gate:plugin@0.3.0`: the WIT types are unchanged; the doc comments of
   `rule-decision`, `check-request.rule-decisions` and `check-request.config-file` state the new
-  contract. Ledger 0.3.2 needs core 0.3.3 or later; with core 0.3.2 it leaves decisions in nested
-  projects unjudged. Both CHANGELOGs say so.
+  contract. Ledger 0.3.2 and core 0.3.3 need each other; both CHANGELOGs say what each mixed pair
+  does.
 - The rule is repository-scope, so the T-107 filter (a project call's findings on files a nested
   project owns are dropped) does not touch it.
 
@@ -104,8 +104,29 @@ Before it, `cargo clippy --locked --workspace --all-targets --keep-going -- -D w
 `useless_format`, a `single_element_loop`) and on two wrong test expectations, each fixed in its
 own commit.
 
+## Review fix round
+
+The review (one round) asked for:
+
+- S1: a repository-scope rule that a project's scope turns on (a preset, a family or a `[rules]`
+  entry) while the repository scope does not is a configuration error (exit 2), in the core,
+  naming the rule, the project and the entry. The plugins guide shows the root half of the ledger
+  example; both CHANGELOGs carry the change.
+- S2: one compatibility sentence in both CHANGELOGs.
+- N1: end-to-end tests for a family with a decision padded with spaces, a second exception that
+  fails, and the S1 error.
+- N2: the ledger's crate doc wraps at 100.
+- N3: an exception's finding reads "the exception for <rule>", as in 0.3.1.
+
+`origin/main` (T-104 and T-106) was merged first; the planning loop of `Plugins::run` walks
+`Loaded::enabled` and keeps this task's `check_request`. Of the configurations on the machine in
+Gate's format, none turns on a repository-scope rule from a project alone, so S1 breaks none of
+them. Two test fixtures did: the decision-policy tests' family in a profile (the root now turns on
+the probe's repository-scope rules too) and `probe/both` extended in a profile alone (now the S1
+error, with a case that extends it in both places).
+
 ## Resume point
 
-Done on the writer's side: the lane round on `0b0c88a3` is green and the branch is pushed. Waiting
-for the review. `main` has since merged T-104 (`2483e35b`), which also touches
-`crates/gate-host/src/plugins.rs`; the lead resolves that merge after review.
+Fix round committed and pushed (`74e4cd9c`). Next: the gate, gate-host and ledger tests through
+the lane, then clippy alone (`--workspace --all-targets --keep-going`), then the full round; record
+the exit codes here and send the lead the head.
