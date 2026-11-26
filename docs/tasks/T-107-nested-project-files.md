@@ -101,9 +101,30 @@ The filter runs on the call's outcome, so an answer served from the cache is fil
   - `a_projects_rule_reads_a_nested_projects_file_but_reports_nothing_on_it`: the runtime probe,
     with the nested project found by its `gate.toml` and by a glob.
 - The fix is `in_nested_project` in `crates/gate-host/src/plugins.rs`; the docs are done.
-- Queued in the lane:
-  - the red run of these tests on `21b4518` with the new tests (main's host code);
-  - the round on `df39cf1`;
-  - the timing (`measure.sh 21b45187 df39cf1b`: release builds, about 6,000 synthetic `.ts`
-    files, three alternating cold runs).
-- Next: record the exit codes and timings here, then push and report the head OID to the lead.
+- Red, through the lane, on `21b4518` with the final tests (main's host code), started at
+  2026-11-26T02:53:22+00:00. The command was `cargo test --offline --locked -j 4 -p gate --test
+  plugins -- nested_project`. It exited 101: the three new tests failed and the three earlier
+  nested-project tests passed.
+  - The root reported `infra/cdk/bin/app.ts`.
+  - The root exception matched, so `gate/exceptions` reported nothing.
+  - The probe's finding "on the nested file" was reported.
+- The round on `df39cf1`:
+  - fmt exited 0;
+  - clippy exited 101 (`too_many_lines` 104/100 in `Loaded::run`), fixed in the next commit by
+    moving the filter into `own_findings`;
+  - the test exited 0 (1656 passed, 0 failed);
+  - deny exited 0.
+- Timing: `measure.sh 21b45187 df39cf1b` used release builds of `gate` at both commits and the
+  release typescript component. The synthetic tree had 12,004 tracked files: 6,000 `.ts` files per
+  project, a root project running barrel-imports and a nested project with its own `gate.toml`
+  that does not. It ran three alternating cold `check` runs, with results and answers cleared and
+  compiled modules kept, at load about 17, ending 2026-11-26T03:13:58+00:00.
+
+  | Commit | Wall time per run | Findings | Under the nested project |
+  | --- | --- | --- | --- |
+  | base `21b4518` | 0.55 s, 0.45 s, 0.46 s | 3000 | 1500 |
+  | head `df39cf1` | 0.51 s, 0.48 s, 0.47 s | 1500 | 0 |
+
+  The filter's cost is within the noise.
+- Next: the round on the head after the clippy fix, its exit codes here, push, and report the head
+  OID to the lead.
