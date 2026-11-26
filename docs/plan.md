@@ -137,6 +137,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-109 | next ledger | The owner every exception names, a nested project's included, is judged once against the root's implementation records: one repository-scope rule, `ledger/exception-owners`, replaces the project rule and its root counterpart, and the repository call lists every exception | done (reviewed, one fix round; gates green on `71c20d13`, 1674 tests passed; merged for core 0.3.4 and ledger 0.3.3, which need each other) | T-105 |
 | T-110 | - | Gate checks itself with the released 0.3.3: `[gate] version = "0.3.3"`, the core's pins in `gate.lock`; the four plugin pins stay at 0.3.0 | done (lock, sync and check exit 0; sync writes nothing) | T-108 |
 | T-111 | v0.3.4 | Version 0.3.4 for the core and 0.3.3 for `ledger`, with their changelogs | done (gates green on `67f3a135`, 1674 tests passed; only `ledger` changes bytes from code; merged, tagged `v0.3.4` and `plugin-ledger-v0.3.3`) | T-109 |
+| T-112 | - | Gate checks itself with the released 0.3.4: `[gate] version = "0.3.4"`, the core's pins in `gate.lock`; the four plugin pins stay at 0.3.0 | done (lock, sync and check exit 0; sync writes nothing) | T-111 |
 
 ## Open after rc.1
 
