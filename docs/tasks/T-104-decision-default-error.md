@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open |
+| Status | done (gates green on `0be04c8`; awaiting review) |
 | Release | the next core release (the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate T-104" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -54,6 +54,39 @@ rather than by adding the rules to presets.
 - All cargo runs go through the lane. `cargo fmt --check`, `clippy -D warnings`, `cargo test` and
   `cargo deny` are green.
 
+## Notes
+
+- The check lives in `crates/gate-host/src/plugins.rs` (`check_decisions`, `Floor`, `decided`),
+  not under `config/`: presets come from plugins, so rule entries are checked when the plugins load.
+- The same default applies to an aspect of a preset-named rule when the preset sets no level for
+  that aspect and none for the rule (the level order gives it `error`). Seen with the probe's
+  `probe/quiet`, which sets `aspects#quiet` only: `levels = { loud = "note" }` and a whole-rule
+  `warning` now need a decision. A level a preset sets is still met first, so every message for a
+  preset-set level is unchanged.
+- A family below `error` over a plugin is met with the first rule no preset names; the existing
+  family test over `probe/lenient` now names `probe/read` (its first rule) instead of
+  `probe/aspects`.
+- The message for the new default: `... sets <rule> below its default error (no preset the scope
+  extends names <rule>)`, or `(no preset the scope extends sets a level for <rule>[#<aspect>])`
+  when a preset names the rule.
+- This repository's `gate.toml` has no `[decision-policy]`, and `bin/gate` runs the released core,
+  so `bin/gate check` is not affected by the change.
+
+## Results
+
+The lane round on `0be04c8` (2026-11-26T02:30:21+00:00 to 2026-11-26T02:53:22+00:00), in order:
+
+| Command | Exit |
+| --- | --- |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --locked -j 4 --all-targets -- -D warnings` | 0 |
+| `cargo test --locked -j 4` | 0: 1654 passed, 0 failed, 7 ignored, over 124 test binaries |
+| `cargo deny --locked check` | 0: advisories, bans, licenses and sources ok |
+
+`bin/gate check` on this repository: exit 0 (7 rules, 0 errors, 0 warnings), with `gate.toml` as
+it is; it has no `[decision-policy]`, so no entry needed a decision.
+
 ## Resume point
 
-Not started.
+Done; the commit after `0be04c8` changes only this task file and `docs/plan.md`. Next: the
+review, then the lead's merge.
