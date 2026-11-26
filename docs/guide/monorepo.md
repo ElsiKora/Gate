@@ -28,7 +28,7 @@ The root `gate.toml`:
 
 ```toml
 [gate]
-version = "0.3.2"
+version = "0.3.3"
 
 [workspace]
 projects = "pnpm"
