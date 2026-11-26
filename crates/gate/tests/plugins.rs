@@ -3124,9 +3124,10 @@ fn a_cached_run_of_the_decision_rule_equals_a_cold_one() {
 }
 
 #[test]
-fn a_project_that_turns_on_a_repository_scope_rule_the_root_does_not_is_a_configuration_error() {
+fn a_project_that_turns_on_a_repository_scope_rule_the_root_never_names_is_a_configuration_error() {
     // Only the repository call runs a repository-scope rule: a project's preset or family that
-    // turns one on while the root does not would leave it unrun, so the run stops with exit 2.
+    // turns one on while the root's configuration never names it would leave it unrun, so the run
+    // stops with exit 2. A root entry names it at any level, `off` included.
     let plugin = format!("ledger={}", ledger().0.display());
     for (project, at) in [
         (
@@ -3134,8 +3135,9 @@ fn a_project_that_turns_on_a_repository_scope_rule_the_root_does_not_is_a_config
             "apps/one/gate.toml:3 [project] extends: \"ledger/recommended\"",
         ),
         (
-            // The three rules that need options of their own are off.
-            "[project]\nname = \"one\"\n\n[rules]\n\"ledger/*\" = \"warning\"\n\"ledger/closing-notes\" = \"off\"\n\"ledger/reuses\" = \"off\"\n\"ledger/record-status\" = \"off\"\n",
+            // The three rules that need options of their own are off; each level below its default
+            // names a decision, for the run under a decision policy.
+            "[project]\nname = \"one\"\n\n[rules]\n\"ledger/*\" = { level = \"warning\", decision = \"D-API-001\" }\n\"ledger/closing-notes\" = { level = \"off\", decision = \"D-API-001\" }\n\"ledger/reuses\" = { level = \"off\", decision = \"D-API-001\" }\n\"ledger/record-status\" = { level = \"off\", decision = \"D-API-001\" }\n",
             "apps/one/gate.toml:5 [rules]: \"ledger/*\"",
         ),
     ] {
@@ -3147,25 +3149,28 @@ fn a_project_that_turns_on_a_repository_scope_rule_the_root_does_not_is_a_config
         assert_eq!(output.status.code(), Some(2), "{said}");
         assert!(
             said.contains(&format!(
-                "{at} turns on the repository-scope rule \"ledger/config-decisions\" for project one, but the root does not turn it on, and only the repository call runs it; declare plugin ledger and turn the rule on in the root gate.toml"
+                "{at} turns on the repository-scope rule \"ledger/config-decisions\" for project one, but the root's configuration does not name it, and only the repository call runs it; declare plugin ledger in the root gate.toml and turn the rule on or set its level there"
             )),
             "{said}"
         );
 
-        // With the root turning both repository-scope rules on, the same project loads.
-        let repo = ledger_root(
+        // The same project loads when the root turns both repository-scope rules on, and when
+        // it turns one on and sets the other off on purpose, with its decision under the policy.
+        for root in [
             "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = \"error\"\n",
-            "accepted",
-        );
-        repo.write("apps/one/gate.toml", project);
-        repo.commit("the root turns on the repository-scope rules too");
-        let output = repo.gate(&["check", "--plugin", &plugin]);
-        let said = text(&output.stderr);
-        assert_ne!(output.status.code(), Some(2), "{said}");
-        assert!(
-            !said.contains("turns on the repository-scope rule"),
-            "{said}"
-        );
+            "\"ledger/config-decisions\" = \"error\"\n\"ledger/root-exception-owners\" = { level = \"off\", decision = \"D-API-001\" }\n\n[decision-policy]\nrequire-decision = true\n",
+        ] {
+            let repo = ledger_root(root, "accepted");
+            repo.write("apps/one/gate.toml", project);
+            repo.commit("the root names the repository-scope rules too");
+            let output = repo.gate(&["check", "--plugin", &plugin]);
+            let said = text(&output.stderr);
+            assert_ne!(output.status.code(), Some(2), "{root}: {said}");
+            assert!(
+                !said.contains("turns on the repository-scope rule"),
+                "{root}: {said}"
+            );
+        }
     }
 }
 
@@ -8756,7 +8761,7 @@ fn a_preset_of_both_scopes_runs_each_rule_where_its_scope_runs() {
     assert_eq!(output.status.code(), Some(2), "{said}");
     assert!(
         said.contains(
-            "[[profiles]] extends: \"probe/both\" turns on the repository-scope rule \"probe/whole\" for project one, but the root does not turn it on"
+            "[[profiles]] extends: \"probe/both\" turns on the repository-scope rule \"probe/whole\" for project one, but the root's configuration does not name it"
         ),
         "{said}"
     );

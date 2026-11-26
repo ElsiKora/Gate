@@ -140,6 +140,18 @@ The full round ran from 2026-11-26T09:46:17+00:00 to 2026-11-26T10:07:56+00:00. 
 gate, gate-host and ledger tests alone on `74e4cd9c` found one wrong expectation of the new family
 fixture (636 passed, 1 failed), fixed in `056ed98f`.
 
+## Correction after the fix round
+
+The second review found one blocker (B1): a root that sets a repository-scope rule `off` on purpose
+(for example `ledger/root-exception-owners`, with its decision) was refused when a project's preset
+or family turned the rule on, and a profile cannot set it. The check now asks whether the root's
+configuration names the rule: a root `[rules]` entry, a root family or a root preset, at any level,
+`off` included. Only a rule the root never names is refused, so a ledger declared only in a project
+still is. The message, the guides and both CHANGELOGs say "turn the rule on or set its level
+there"; a test loads a root `off` with its decision under the policy beside a project preset and,
+separately, a project family.
+
 ## Resume point
 
-Done on the writer's side: the fix round is green on `056ed98f` and pushed. Waiting for the lead.
+The B1 correction is committed and pushed. Next: clippy alone, then the full round through the
+lane; record the exit codes here and send the lead the head.

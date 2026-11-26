@@ -867,9 +867,10 @@ impl Loaded {
         Ok(())
     }
 
-    /// Checks that every repository-scope rule a project's scope turns on (a preset, a family or
-    /// a `[rules]` entry) the repository scope turns on too: the repository call is the only one
-    /// that runs it, so a rule only a project turns on would never run.
+    /// Checks that the root's configuration names every repository-scope rule a project's scope
+    /// turns on (a preset, a family or a `[rules]` entry): the repository call is the only one
+    /// that runs it, so a rule the root never names would never run. A root `[rules]` entry, a
+    /// root family or a root preset that names the rule decides it, at any level, `off` included.
     ///
     /// # Errors
     /// Fails on the first such rule, naming the rule, the project and where its scope turns it
@@ -897,14 +898,15 @@ impl Loaded {
                 {
                     let id = rule_id(name, &info.name)?;
                     let preset = own.get(info.name.as_str());
-                    if !turned_on(settings, &id, preset)
-                        || (declares(name)
-                            && turned_on(repository, &id, root.get(info.name.as_str())))
-                    {
+                    let decided = declares(name)
+                        && (repository.rules.contains_key(&id)
+                            || repository.families.contains_key(name.as_str())
+                            || root.contains_key(info.name.as_str()));
+                    if decided || !turned_on(settings, &id, preset) {
                         continue;
                     }
                     return Err(Error::config(format!(
-                        "{} turns on the repository-scope rule \"{id}\" for project {project}, but the root does not turn it on, and only the repository call runs it; declare plugin {name} and turn the rule on in the root gate.toml",
+                        "{} turns on the repository-scope rule \"{id}\" for project {project}, but the root's configuration does not name it, and only the repository call runs it; declare plugin {name} in the root gate.toml and turn the rule on or set its level there",
                         turned_on_at(settings, &id, preset)
                     )));
                 }

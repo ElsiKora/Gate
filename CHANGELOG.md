@@ -29,9 +29,11 @@ decision twice.
 ### Bug Fixes
 
 - **host:** a repository-scope rule that a project's scope turns on (a preset, a family or a
-  `[rules]` entry) while the repository scope does not was dropped without a message, so it never
-  ran. It is now a configuration error (exit 2) that names the rule, the project and the entry, and
-  says to declare the plugin and turn the rule on in the root `gate.toml`.
+  `[rules]` entry) while the root's configuration does not name it was dropped without a message, so
+  it never ran. It is now a configuration error (exit 2) that names the rule, the project and the
+  entry, and says to declare the plugin in the root `gate.toml` and turn the rule on or set its
+  level there. A root `[rules]` entry, family or preset that names the rule decides it at any level,
+  `off` included.
 
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/v0.3.1...v0.3.2) (2026-11-23)
 

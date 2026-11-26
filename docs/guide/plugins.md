@@ -236,9 +236,10 @@ those decisions, so the plugin reads neither file. Turn it on in the root `gate.
 not the root is a project; when the ledger lives in a project, as below, the root's
 `[plugins.ledger]` names the index by its repository path (`docs/ledger/decision-index.md`). A
 repository-scope rule runs only in the repository call: a project that turns one on (a preset such
-as `ledger/recommended`, a family or a `[rules]` entry) while the root does not is a configuration
-error. A project's `ledger/exception-owners` judges the owners of its own exceptions; at a root that
-is not a project, `ledger/root-exception-owners` judges the root's.
+as `ledger/recommended`, a family or a `[rules]` entry) while the root's configuration does not name
+it is a configuration error; a root entry that sets it `off` names it. A project's
+`ledger/exception-owners` judges the owners of its own exceptions; at a root that is not a project,
+`ledger/root-exception-owners` judges the root's.
 
 ```toml
 # gate.toml, the root
