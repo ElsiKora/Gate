@@ -24,18 +24,18 @@ With ledger 0.3.1, core 0.3.3 reports each exception's decision twice.
   replaces `ledger/rule-decisions`, `ledger/root-rule-decisions`, `ledger/exception-decisions` and
   `ledger/root-exception-decisions`, which are gone: use `ledger/config-decisions` in the root
   `gate.toml`, whether or not the root is a project. `ledger/recommended` and `ledger/adoption`
-  turn it on at the level the four had.
+  turn it on at the level the four had. ([376a9c9](https://github.com/ElsiKora/Gate/commit/376a9c976b8fbaf8a8438cdb637b03381b61ad6c))
 - **ledger:** `ledger/config-decisions` and `ledger/root-exception-owners` are repository-scope, so
   a project that turns them on, by extending `ledger/recommended` or `ledger/adoption` or with a
   `ledger/*` family, needs the root to name them too: under core 0.3.3 a project-only ledger is a
   configuration error. Declare `[plugins.ledger]` in the root `gate.toml`, with the index by its
-  repository path, and turn the rules on there, or set them `off` there on purpose.
+  repository path, and turn the rules on there, or set them `off` there on purpose. ([376a9c9](https://github.com/ElsiKora/Gate/commit/376a9c976b8fbaf8a8438cdb637b03381b61ad6c))
 
 ### Bug Fixes
 
 - **ledger:** a decision named in a nested project's `gate.toml` or `gate.exceptions.toml` was
   judged against an index path read inside the nested folder, so every one, valid or not, was
-  reported as unlisted. It is now judged against the workspace's index, at its own file and line.
+  reported as unlisted. It is now judged against the workspace's index, at its own file and line. ([376a9c9](https://github.com/ElsiKora/Gate/commit/376a9c976b8fbaf8a8438cdb637b03381b61ad6c))
 
 ## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-ledger-v0.3.0...plugin-ledger-v0.3.1) (2026-11-23)
 

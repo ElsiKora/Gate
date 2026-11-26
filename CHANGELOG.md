@@ -11,29 +11,59 @@ Each shared plugin keeps its own changelog next to its code.
 ## [0.3.3](https://github.com/ElsiKora/Gate/compare/v0.3.2...v0.3.3) (unreleased)
 
 The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, so no plugin needs a
-rebuild, but what the repository call carries in `check-request.rule-decisions` changes. ledger
-0.3.2 needs core 0.3.3 or later, and core 0.3.3 needs ledger 0.3.2: upgrade both together. With core
-0.3.2, ledger 0.3.2 checks no decision under a root project, and only the root gate.toml's rule
-entries under a root that is not a project. With ledger 0.3.1, core 0.3.3 reports each exception's
-decision twice.
+rebuild, but what the repository call carries in `check-request.rule-decisions` changes. `ledger` is
+released at 0.3.2; the other twelve plugins keep their versions. ledger 0.3.2 needs core 0.3.3 or
+later, and core 0.3.3 needs ledger 0.3.2: upgrade both together. With core 0.3.2, ledger 0.3.2
+checks no decision under a root project, and only the root gate.toml's rule entries under a root
+that is not a project. With ledger 0.3.1, core 0.3.3 reports each exception's decision twice.
+
+To upgrade, set `[gate] version = "0.3.3"`, move a `ledger` pin to 0.3.2 and run `gate lock`. Four
+changes can need an edit of the configuration:
+
+- `ledger/rule-decisions`, `ledger/root-rule-decisions`, `ledger/exception-decisions` and
+  `ledger/root-exception-decisions` are one repository-scope rule, `ledger/config-decisions`: turn
+  it on in the root `gate.toml`, whose `[plugins.ledger]` names the decision index by its repository
+  path, and remove the four old entries.
+- A repository-scope rule that a project turns on (a preset, a family or a `[rules]` entry) while
+  the root's configuration does not name it is a configuration error: declare the plugin in the root
+  `gate.toml` and turn the rule on or set its level there.
+- Under `[decision-policy] require-decision = true`, a level below `error` for a rule or an aspect
+  that no preset names needs a `decision`, as a preset-named rule's does.
+- A root project's rules no longer report a file that a nested project owns. An exception the root
+  wrote for such a finding matches no finding and is reported, and a baseline entry for one goes
+  stale; move them to the nested project, or remove them.
 
 ### Features
 
-- **host:** the repository call carries every decision the workspace's configuration writes,
-  whether or not the root is a project: the rule entries and `[[profiles]]` rules of the root
-  `gate.toml`, the rule entries of every project's `gate.toml`, and the `decision` of every
-  `[[exception]]` of every `gate.exceptions.toml`, each at its repository path and line. A
-  project's call carries none, so a repository-scope rule judges each decision once, a nested
-  project's included. `check-request.config-file` is unchanged.
+- **host:** the repository call carries every decision the workspace's configuration writes, whether
+  or not the root is a project: the rule entries and `[[profiles]]` rules of the root `gate.toml`,
+  the rule entries of every project's `gate.toml`, and the `decision` of every `[[exception]]` of
+  every `gate.exceptions.toml`, each at its repository path and line. A project's call carries none,
+  so a repository-scope rule judges each decision once, a nested project's included.
+  `check-request.config-file` is unchanged. ([376a9c9](https://github.com/ElsiKora/Gate/commit/376a9c976b8fbaf8a8438cdb637b03381b61ad6c))
 
 ### Bug Fixes
 
+- **host:** a rule or plugin option the schema rejects gets a plain message naming the option path,
+  the allowed forms and what was given, instead of the validator's text (oneOf, anyOf, not, const,
+  enum, type, required, unknown keys, false schema, contains, if/then/else); a plugin that takes no
+  options says "this table takes no keys". ([80db512](https://github.com/ElsiKora/Gate/commit/80db5123a13e56820e67f2cfde45dfededc083ec))
+- **host:** under `[decision-policy] require-decision = true`, a rule or an aspect that no preset
+  names has the default `error`, the level it runs at when nothing sets one, so lowering it to
+  `warning`, `note` or `off` needs a decision; a rule entry under a family has the family's level as
+  its default. ([2483e35](https://github.com/ElsiKora/Gate/commit/2483e35b6aa2d769c933d614d8a92e9c9847455e))
+- **host:** `gate list` prints every rule `gate check` runs, the repository-scope rules that only a
+  preset turns on included, from the rule set the check resolves, each with the row that sets its
+  level; `gate explain` prints every preset row of a rule. ([b78e008](https://github.com/ElsiKora/Gate/commit/b78e00819278f99bba83246b6454a7a69ca989e7))
+- **host:** a root project's rule reported findings on the files of a nested project, which owns
+  them. A project's call still reads a nested project's files to resolve them, but its findings on
+  them are dropped, except at a rule's own option file that lies there. ([025cd57](https://github.com/ElsiKora/Gate/commit/025cd579926721e0b94a68c0a616bde2beb0a35e))
 - **host:** a repository-scope rule that a project's scope turns on (a preset, a family or a
   `[rules]` entry) while the root's configuration does not name it was dropped without a message, so
   it never ran. It is now a configuration error (exit 2) that names the rule, the project and the
   entry, and says to declare the plugin in the root `gate.toml` and turn the rule on or set its
   level there. A root `[rules]` entry, family or preset that names the rule decides it at any level,
-  `off` included.
+  `off` included. ([376a9c9](https://github.com/ElsiKora/Gate/commit/376a9c976b8fbaf8a8438cdb637b03381b61ad6c))
 
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/v0.3.1...v0.3.2) (2026-11-23)
 
