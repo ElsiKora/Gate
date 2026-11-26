@@ -839,11 +839,13 @@ impl Loaded {
     }
 
     /// Checks that, where a `[decision-policy]` requires it, every level configuration sets below
-    /// its default names a decision. The default is the level the configuration resolves to
-    /// without the entry: what the rule's presets give the aspect, else the rule, else `error`, so
-    /// a rule or aspect no preset sets a level for has the default `error`. A whole-rule level (an
-    /// entry's `level`, or a `"<plugin>/*"` family's) is compared with the rule's default and with
-    /// each preset aspect level it overrides.
+    /// its default names a decision. The default of a level a rule entry writes is the level the
+    /// scope resolves to without the entry, in the level order: the rule's family, else what the
+    /// rule's presets give the aspect, else the rule, else `error`. A family's own level is met
+    /// with the presets' default only, so a rule or aspect no preset sets a level for has the
+    /// default `error` there. Where no family sets a level, a whole-rule level (an entry's
+    /// `level`, or a family's) is compared with the rule's default and with each preset aspect
+    /// level it overrides.
     ///
     /// # Errors
     /// Fails on the first level below its default with no decision, naming where it is written,
@@ -871,41 +873,28 @@ impl Loaded {
                     let entry = settings.rules.get(&id);
                     let named =
                         |aspect: &str| entry.is_some_and(|entry| entry.levels.contains_key(aspect));
+                    // A level an entry writes has the default the scope resolves to without the
+                    // entry: the family's level, else the presets', else `error`. A family's own
+                    // level is met with the presets' default only.
+                    let family = settings.families.get(name.as_str());
                     let whole = match entry.and_then(|entry| entry.level.as_ref()) {
-                        Some(level) => Some((level, Written::Rule(&id))),
-                        None => settings
-                            .families
-                            .get(name.as_str())
-                            .map(|level| (level, Written::Family(name))),
+                        Some(level) => Some((level, Written::Rule(&id), family)),
+                        None => family.map(|level| (level, Written::Family(name), None)),
                     };
-                    if let Some((level, written)) = whole {
-                        // A whole-rule level replaces the rule's default and each preset aspect
-                        // level the entry's `levels` does not name. A level a preset sets is met
-                        // first; the `error` no preset sets, after the preset's aspect levels.
-                        let mut defaults: Vec<Floor> = preset
-                            .iter()
-                            .flat_map(|preset| {
-                                preset
-                                    .levels
-                                    .iter()
-                                    .filter(|(aspect, _)| !named(aspect))
-                                    .map(|(aspect, aspect_level)| {
-                                        Floor::aspect(&id, aspect, *aspect_level, preset)
-                                    })
-                            })
-                            .collect();
-                        let rule = Floor::of(&id, None, preset);
-                        if preset.is_some_and(|preset| preset.level.is_some()) {
-                            defaults.insert(0, rule);
-                        } else {
-                            defaults.push(rule);
-                        }
+                    if let Some((level, written, over)) = whole {
+                        let defaults = match over {
+                            Some(family) => vec![Floor::family(&id, None, family.value, name)],
+                            None => preset_defaults(&id, preset, &named),
+                        };
                         for default in defaults {
                             decided(workspace, &written, level, &default)?;
                         }
                     }
                     for (aspect, level) in entry.into_iter().flat_map(|entry| &entry.levels) {
-                        let default = Floor::of(&id, Some(aspect), preset);
+                        let default = match family {
+                            Some(family) => Floor::family(&id, Some(aspect), family.value, name),
+                            None => Floor::of(&id, Some(aspect), preset),
+                        };
                         decided(workspace, &Written::Aspect(&id, aspect), level, &default)?;
                     }
                 }
@@ -2223,6 +2212,17 @@ impl Floor {
         }
     }
 
+    /// The default of `aspect` of `id` (`None`: the whole rule) that the family `"<plugin>/*"`
+    /// gives.
+    fn family(id: &RuleId, aspect: Option<&str>, level: Setting, plugin: &PluginName) -> Self {
+        let subject = aspect.map_or_else(|| id.to_string(), |aspect| format!("{id}#{aspect}"));
+        Self {
+            source: format!("the family \"{plugin}/*\" sets {subject} to {level}"),
+            subject,
+            level,
+        }
+    }
+
     /// The default `error` of `aspect` of `id` (`None`: the whole rule) that no preset sets a
     /// level for; `preset` is the presets' rule, `None` when no preset names the rule at all.
     fn unset(id: &RuleId, aspect: Option<&str>, preset: Option<&PresetRule>) -> Self {
@@ -2256,6 +2256,34 @@ impl Floor {
             source: format!("the preset {} sets {id}#{aspect} to {level}", preset.preset),
         }
     }
+}
+
+/// The defaults a whole-rule level of `id` meets where no family sets one: the presets' level of
+/// the rule (`preset`, `None` when no preset names it), else `error`, and each preset aspect level
+/// the entry's `levels` does not name (`named`). A level a preset sets comes first; the `error` no
+/// preset sets, after the preset's aspect levels.
+fn preset_defaults(
+    id: &RuleId,
+    preset: Option<&PresetRule>,
+    named: &dyn Fn(&str) -> bool,
+) -> Vec<Floor> {
+    let mut defaults: Vec<Floor> = preset
+        .iter()
+        .flat_map(|preset| {
+            preset
+                .levels
+                .iter()
+                .filter(|(aspect, _)| !named(aspect))
+                .map(|(aspect, aspect_level)| Floor::aspect(id, aspect, *aspect_level, preset))
+        })
+        .collect();
+    let rule = Floor::of(id, None, preset);
+    if preset.is_some_and(|preset| preset.level.is_some()) {
+        defaults.insert(0, rule);
+    } else {
+        defaults.push(rule);
+    }
+    defaults
 }
 
 /// Checks that `level`, written at `written`, names a decision when it is below its `default` and

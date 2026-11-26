@@ -2172,7 +2172,7 @@ fn a_rule_no_preset_names_has_the_default_error() {
     ));
 
     // A family below error over the plugin's rules, none of which a preset names.
-    for level in ["warning", "off"] {
+    for level in ["warning", "note", "off"] {
         refused(
             decision_check(&format!(r#""probe/*" = "{level}""#), "", "", POLICY),
             &[
@@ -2202,6 +2202,76 @@ fn a_rule_no_preset_names_has_the_default_error() {
             loads(decision_check(rules, "", "", root));
         }
     }
+}
+
+#[test]
+fn under_a_family_an_entry_has_the_family_level_as_its_default() {
+    // The family is judged on its own, with its decision; a rule or an aspect raised above it is
+    // no relaxation.
+    let off = r#""probe/*" = { level = "off", decision = "D-2" }"#;
+    loads(decision_check(
+        &format!("{off}\n\"probe/aspects\" = \"warning\""),
+        "",
+        "",
+        POLICY,
+    ));
+    loads(decision_check(
+        &format!("{off}\n\"probe/aspects\" = {{ levels = {{ loud = \"note\" }} }}"),
+        "",
+        "",
+        POLICY,
+    ));
+    loads(decision_check(
+        &format!("{off}\n\"probe/aspects\" = \"warning\""),
+        "probe/lenient",
+        "",
+        POLICY,
+    ));
+
+    // A rule or an aspect below the family's level needs a decision.
+    let warning = r#""probe/*" = { level = "warning", decision = "D-2" }"#;
+    refused(
+        decision_check(
+            &format!("{warning}\n\"probe/aspects\" = \"note\""),
+            "",
+            "",
+            POLICY,
+        ),
+        &[
+            "\"probe/aspects\" (level \"note\") sets probe/aspects below its default warning (the family \"probe/*\" sets probe/aspects to warning)",
+            "write it as \"probe/aspects\" = { level = \"note\", decision = \"<record>\" }",
+        ],
+    );
+    refused(
+        decision_check(
+            &format!("{warning}\n\"probe/aspects\" = {{ levels = {{ loud = \"note\" }} }}"),
+            "",
+            "",
+            POLICY,
+        ),
+        &[
+            "\"probe/aspects\" (levels.loud \"note\") sets probe/aspects#loud below its default warning (the family \"probe/*\" sets probe/aspects#loud to warning)",
+        ],
+    );
+    loads(decision_check(
+        &format!("{warning}\n\"probe/aspects\" = {{ level = \"note\", decision = \"D-1\" }}"),
+        "",
+        "",
+        POLICY,
+    ));
+
+    // The family itself still meets the presets' default, or error, whatever an entry raises.
+    refused(
+        decision_check(
+            "\"probe/*\" = \"off\"\n\"probe/aspects\" = \"error\"",
+            "",
+            "",
+            POLICY,
+        ),
+        &[
+            "\"probe/*\" (level \"off\") sets probe/read below its default error (no preset the scope extends names probe/read)",
+        ],
+    );
 }
 
 #[test]

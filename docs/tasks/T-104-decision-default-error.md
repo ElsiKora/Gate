@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | done (gates green on `0be04c8`; awaiting review) |
+| Status | fix round (the family counts); lane round pending |
 | Release | the next core release (the plugin interface stays `gate:plugin@0.3.0`) |
 | Writer | "Gate T-104" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -63,9 +63,17 @@ rather than by adding the rules to presets.
   `probe/quiet`, which sets `aspects#quiet` only: `levels = { loud = "note" }` and a whole-rule
   `warning` now need a decision. A level a preset sets is still met first, so every message for a
   preset-set level is unchanged.
-- A family below `error` over a plugin is met with the first rule no preset names; the existing
-  family test over `probe/lenient` now names `probe/read` (its first rule) instead of
-  `probe/aspects`.
+- A family is reported against the first rule of the plugin, in declared order, whose default is
+  above the family's level and which has no whole-rule `level` of its own. The existing family test
+  over `probe/lenient` now names `probe/read` (the probe's first rule, which no preset names)
+  instead of `probe/aspects`.
+- Fix round (the lead's decision): the family counts. The default of a level a rule entry writes
+  (its `level`, or one in `levels`) is the level the scope resolves to without the entry, in the
+  documented order: the rule's family, the preset's aspect, the preset's rule, then `error`. So a
+  rule or an aspect raised above an `off` family needs no decision, and one below a `warning`
+  family does. The family's own level is still met with the presets' default, or `error`, without
+  other families. The message names the family: `(the family "<plugin>/*" sets <rule>[#<aspect>]
+  to <level>)`.
 - The message for the new default: `... sets <rule> below its default error (no preset the scope
   extends names <rule>)`, or `(no preset the scope extends sets a level for <rule>[#<aspect>])`
   when a preset names the rule.
@@ -88,5 +96,6 @@ it is; it has no `[decision-policy]`, so no entry needed a decision.
 
 ## Resume point
 
-Done; the commit after `0be04c8` changes only this task file and `docs/plan.md`. Next: the
-review, then the lead's merge.
+Fix round committed: the family counts in an entry's default, with its tests, the task note, the
+guide and the architecture. Next: the lane round on the fix commit, its exit codes here, push,
+report the head to the lead. The results above are for `0be04c8`, before the fix round.
