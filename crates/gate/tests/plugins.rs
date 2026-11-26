@@ -1794,6 +1794,35 @@ fn a_finding_in_a_nested_projects_option_file_names_its_path_once() {
 }
 
 #[test]
+fn a_projects_rule_reads_a_nested_projects_file_but_reports_nothing_on_it() {
+    // `apps/one/inner` is a project of its own, nested in `one`. A rule of `one` still reads the
+    // nested file, and reports at its own option file even when that lies in the nested folder;
+    // its finding on the nested file is the nested project's to judge and is not reported.
+    let repo = probe_repo("");
+    repo.write(
+        "apps/one/gate.toml",
+        "[project]\nname = \"one\"\n\n[rules]\n\"probe/read\" = { level = \"error\", options-file = \"inner/read.json\" }\n",
+    );
+    repo.write(
+        "apps/one/inner/read.json",
+        "{ \"paths\": [\"inner/a.txt\"], \"at\": \"inner/a.txt\", \"at_message\": \"on the nested file\", \"at_options_file\": true }\n",
+    );
+    repo.write("apps/one/inner/gate.toml", "[project]\nname = \"inner\"\n");
+    repo.write("apps/one/inner/a.txt", "alpha\n");
+    repo.commit("a project nested in one");
+
+    let (code, messages) = probe_check(&repo, &[]);
+    assert_eq!(code, Some(1), "{messages:?}");
+    assert_eq!(
+        messages,
+        [
+            "inner/a.txt: alpha\n",
+            "options file inner/read.json: { \"paths\": [\"inner/a.txt\"], \"at\": \"inner/a.txt\", \"at_message\": \"on the nested file\", \"at_options_file\": true }",
+        ]
+    );
+}
+
+#[test]
 fn two_rules_of_one_call_each_read_and_report_at_their_own_option_file() {
     // Both rules of the probe run in one call for `apps/one`, each with an option file of its own:
     // each reads its own file and reports at its own repository path.

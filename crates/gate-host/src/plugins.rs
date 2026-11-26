@@ -1228,7 +1228,11 @@ impl Loaded {
                     project.and_then(|name| workspace.projects().get(name)),
                 )
             })?;
+            let call_project = project.and_then(|name| workspace.projects().get(name));
             for finding in outcome.findings {
+                if in_nested_project(workspace, call_project, rules, &finding) {
+                    continue;
+                }
                 if let Some(finding) = reported(name, settings, rules, *project, finding)? {
                     findings.push(finding);
                 }
@@ -1460,6 +1464,33 @@ fn reported(
         project: project.map(str::to_owned),
         key: finding.key,
     }))
+}
+
+/// Whether a finding of a project's call lies in a file that a project nested in it owns: inside
+/// the call's project root, in a path whose owner (the project with the longest root that holds it)
+/// is another project. Such a file is that project's, judged by its own rules or by none, so the
+/// call's finding on it is not reported. The call still lists and reads the nested project's
+/// files, so a rule can follow an import into them; only its findings stop at the boundary. A
+/// finding outside the root (a granted read, a root profile's option file), at an option file of
+/// one of the call's rules, on a commit or without a location is the call's own; so is every
+/// finding of the repository's call (`project` is `None`).
+fn in_nested_project(
+    workspace: &Workspace,
+    project: Option<&Project>,
+    rules: &[Enabled],
+    finding: &gate_sdk::Finding,
+) -> bool {
+    let (Some(project), Some(gate_sdk::Location::File(file))) = (project, &finding.location) else {
+        return false;
+    };
+    project.contains(&file.path)
+        && workspace
+            .projects()
+            .owner(&file.path)
+            .is_some_and(|owner| owner.name != project.name)
+        && !rules
+            .iter()
+            .any(|rule| rule.run.options_file.as_deref() == Some(file.path.as_str()))
 }
 
 /// A failed call of a plugin as the user reads it: a configuration error when the plugin answered
