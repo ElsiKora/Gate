@@ -3281,6 +3281,25 @@ fn a_changed_owner_is_not_answered_from_the_result_cache() {
 }
 
 #[test]
+fn a_changed_record_is_not_answered_from_the_result_cache() {
+    // The exceptions and their listing stay the same: only the records' text changes.
+    let repo = owners_under_a_root_project(None);
+    assert_eq!(
+        ledger_check(&repo),
+        (
+            Some(1),
+            vec![completed_owner("gate.exceptions.toml", 7, "ledger/records")]
+        )
+    );
+    repo.write(
+        "docs/ledger/implementation-slices.md",
+        &ROOT_RECORDS.replace("Status: `completed`", "Status: `planned`"),
+    );
+    repo.commit("the completed owner is planned again");
+    assert_eq!(ledger_check(&repo), (Some(0), vec![]));
+}
+
+#[test]
 fn a_project_that_turns_on_a_repository_scope_rule_the_root_never_names_is_a_configuration_error() {
     // Only the repository call runs a repository-scope rule: a project's preset or family that
     // turns one on while the root's configuration never names it would leave it unrun, so the run

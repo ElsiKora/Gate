@@ -240,7 +240,8 @@ as `ledger/recommended`, a family or a `[rules]` entry) while the root's configu
 it is a configuration error; a root entry that sets it `off` names it. The owners the exceptions
 name are judged the same way: `ledger/exception-owners`, repository scope, judges the owner of every
 exception of every `gate.exceptions.toml` the core reads, the root's and each project's, against the
-implementation records the root's `[plugins.ledger]` names, relative to the repository root.
+implementation records the root's `[plugins.ledger]` names, relative to the repository root; a
+root `off` turns owner checks off for the whole workspace.
 
 ```toml
 # gate.toml, the root
@@ -261,12 +262,16 @@ ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "docs/
 name = "docs"
 
 [plugins]
-ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "ledger/decision-index.md" } }
+ledger = { source = "ElsiKora/Gate:ledger@0.3.2", options = { decisions = "ledger/decision-index.md", implementation = "ledger/implementation-slices.md" } }
 
 [rules]
 "ledger/decisions" = "error"
 "ledger/records" = "error"
 ```
+
+The project's own paths are relative to the project, so it names the same two files the root names
+by repository path: its project-scope rules (`ledger/records` here) read the records the root's
+`ledger/exception-owners` judges the owners against.
 
 | Rule | Checks |
 | --- | --- |

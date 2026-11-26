@@ -121,8 +121,9 @@ interface types {
     /// repository call only, whether or not the root is a project: the rule entries of every
     /// `gate.toml` (the root's and each project's) that name a decision, then every exception of
     /// every `gate.exceptions.toml`, its `decision` empty when it names none; whether or not a
-    /// later layer overrides the entry, and whether or not a policy requires it. Empty in every project's call, so each decision is judged once, in the
-    /// scope that sees the whole repository.
+    /// later layer overrides the entry, and whether or not a policy requires it. Empty in every
+    /// project's call, so each decision is judged once, in the scope that sees the whole
+    /// repository.
     rule-decisions: list<rule-decision>,
     /// The scope's own `gate.toml`, relative to the scope's root: `gate.toml` in a project's call,
     /// and in the repository call when the root is not a project; empty in the repository call

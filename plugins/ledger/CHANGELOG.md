@@ -14,17 +14,20 @@ Built for the plugin interface `gate:plugin@0.3.0`. ledger 0.3.3 needs core 0.3.
 needs ledger 0.3.3: upgrade both together. On a synthetic root project with a nested project, ledger
 0.3.3 on core 0.3.3 judged only the nested file, which has a decided exception, and missed the
 completed owner in the root file; ledger 0.3.2 on core 0.3.4 reported each of the 3 exceptions that
-name no decision as an unlisted decision.
+name no decision as an unlisted decision. The mismatch is harmless when every exception names a
+decision, as under `[decision-policy] require-decision`.
 
 ### Breaking Changes
 
 - **ledger:** `ledger/exception-owners` is repository-scope and judges the owner of every exception
   of every `gate.exceptions.toml` of the workspace once, at its own file and line, whether or not the
   root is a project. It replaces `ledger/root-exception-owners`, which is gone: use
-  `ledger/exception-owners` in the root `gate.toml`, and remove it from projects' `gate.toml` files,
+  `ledger/exception-owners` in the root `gate.toml`, and remove every project-level entry for it,
   where a repository-scope rule is a configuration error. Its option `exceptions` is gone too: the
   rule takes the files the core reads. `ledger/recommended` and `ledger/adoption` turn it on at the
-  level the two had.
+  level the two had. Set the merged rule at the root at the level your projects ran
+  `ledger/exception-owners` at, not at the level of a root `ledger/root-exception-owners`: a root
+  `off` now turns owner checks off for the whole workspace, every project's exceptions included.
 
 ### Bug Fixes
 

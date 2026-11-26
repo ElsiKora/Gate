@@ -211,11 +211,11 @@ impl<'h> Call<'h> {
     /// Every decision the workspace's configuration writes, for rules that check decisions, in the
     /// repository call only, whether or not the root is a project: those of the rule entries of
     /// every `gate.toml` (the root's and each project's) that name one, then every exception of
-    /// every `gate.exceptions.toml`, with an empty [`RuleDecision::decision`] when it names none, so
-    /// a rule about exceptions sees every exceptions file the core read; each whether or not a
-    /// later layer overrides the entry. Empty in a
-    /// project's call, so a repository-scope rule judges each decision once. Paths are relative to
-    /// the scope's root: repository paths in the repository call.
+    /// every `gate.exceptions.toml`, with an empty [`RuleDecision::decision`] when it names none,
+    /// so a rule about exceptions sees every exceptions file the core read; each whether or not a
+    /// later layer overrides the entry. Empty in a project's call, so a repository-scope rule
+    /// judges each decision once. Paths are relative to the scope's root: repository paths in the
+    /// repository call.
     #[must_use]
     pub fn rule_decisions(&self) -> &'h [RuleDecision] {
         self.rule_decisions

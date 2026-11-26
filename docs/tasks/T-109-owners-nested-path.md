@@ -80,9 +80,17 @@ and `I-NOPE-003` with none (line 8); the nested folder has records of its own th
 | this branch | 0.3.2 | 1 | 3 `ledger/config-decisions` findings, "names the decision , which ... does not list", one per undecided exception, plus 0.3.2's `gate.exceptions.toml:7` |
 | this branch | this branch | 1 | `gate.exceptions.toml:7` (completed) and `infra/cdk/gate.exceptions.toml:8` (unlisted), each once |
 
+The mismatched pairs differ only in files where no exception names a decision. When every exception
+names one, as under `[decision-policy] require-decision`, both cores list the same files and judge
+the same owners.
+
 ## Resume point
 
 Written on `task/T-109-owners-nested-path`, in review. Lane on `317e2504`: clippy alone exit 0; the
 gate, gate-host, ledger and SDK tests 651 passed, 2 failed (two new unit tests expected line 7 for an
-exception at line 8; fixed). The lane's clippy and full round on the branch head, and their exit
-codes, are in the writer's report to the lead. Next: review.
+exception at line 8; fixed). Lane on `32a2429d`: clippy alone exit 0; round fmt, clippy, test (1673
+passed, 0 failed) and deny exit 0. Review of `32a2429d`: nothing blocking; the fix round says how to
+set the merged rule at the root when upgrading, makes the guide's example name one records file,
+rewraps three doc comments, adds a cache test for a changed record, and notes when the mismatched
+pairs are harmless. The lane's clippy and full round on the fix-round head, and their exit codes,
+are in the writer's report to the lead. Next: the lead's decision.

@@ -207,7 +207,8 @@ pub struct CheckRequest {
     pub norms: Vec<String>,
     /// Every decision the workspace's configuration writes, in the repository call only: the rule
     /// entries of every `gate.toml` that name one, then every exception of every
-    /// `gate.exceptions.toml`, its decision empty when it names none. Empty in a project's call. See [`Call::rule_decisions`](crate::Call::rule_decisions).
+    /// `gate.exceptions.toml`, its decision empty when it names none. Empty in a project's call.
+    /// See [`Call::rule_decisions`](crate::Call::rule_decisions).
     pub rule_decisions: Vec<RuleDecision>,
     /// The scope's own `gate.toml`, relative to the scope's root; empty in the repository call
     /// under a root project, whose root file is that project's, and for a project without a

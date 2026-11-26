@@ -15,7 +15,13 @@ The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, but the
 0.3.3 needs core 0.3.4: upgrade both together. On a synthetic root project with a nested project,
 ledger 0.3.2 on core 0.3.4 reported each of the 3 exceptions that name no decision as an unlisted
 decision, and ledger 0.3.3 on core 0.3.3 judged only the nested file, which has a decided exception,
-and missed the completed owner in the root file.
+and missed the completed owner in the root file. The mismatch is harmless when every exception names
+a decision, as under `[decision-policy] require-decision`: then both cores list the same files.
+
+To upgrade, replace `ledger/root-exception-owners` with `ledger/exception-owners` in the root
+`gate.toml`, at the level your projects ran `ledger/exception-owners` at, and remove every project's
+entry for it: the merged rule judges every project's exceptions, so a root `off` turns owner checks
+off for the whole workspace.
 
 ### Features
 
