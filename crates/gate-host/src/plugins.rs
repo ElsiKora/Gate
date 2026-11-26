@@ -924,36 +924,38 @@ impl Loaded {
     /// broken plugin, on a rule whose declared needs are not a list of `{ key, when, why }`.
     fn check_needs(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
         let empty = Value::Object(serde_json::Map::new());
-        for (project, settings) in scopes(workspace) {
-            for (name, declared) in &self.declarations {
-                let Some(entry) = settings.plugins.get(name) else {
-                    continue;
-                };
-                if !filter.allows_plugin(name.as_str()) {
+        for scope in self.enabled(workspace)? {
+            let name = scope.plugin;
+            let (Some(entry), Some(declared)) = (
+                scope.settings.plugins.get(name),
+                self.declarations.get(name),
+            ) else {
+                continue;
+            };
+            if !filter.allows_plugin(name.as_str()) {
+                continue;
+            }
+            let options = scope.settings.plugin_options(name).unwrap_or(&empty);
+            for rule in &scope.rules {
+                if !filter.allows(&rule.id.to_string()) {
                     continue;
                 }
-                let options = settings.plugin_options(name).unwrap_or(&empty);
-                for rule in enabled_rules(&declared.info, name, settings, workspace, project)? {
-                    if !filter.allows(&rule.id.to_string()) {
+                let Some(schema) = declared.rules.get(&rule.run.name) else {
+                    continue;
+                };
+                for need in needs(name, &rule.run.name, schema)? {
+                    if options.get(&need.key).is_some()
+                        || need
+                            .when
+                            .as_ref()
+                            .is_some_and(|when| !when.is_valid(options))
+                    {
                         continue;
                     }
-                    let Some(schema) = declared.rules.get(&rule.run.name) else {
-                        continue;
-                    };
-                    for need in needs(name, &rule.run.name, schema)? {
-                        if options.get(&need.key).is_some()
-                            || need
-                                .when
-                                .as_ref()
-                                .is_some_and(|when| !when.is_valid(options))
-                        {
-                            continue;
-                        }
-                        return Err(Error::config(format!(
-                            "{}: [plugins.{name}] options has no {}, which \"{}\" reads: {}",
-                            entry.origin, need.key, rule.id, need.why
-                        )));
-                    }
+                    return Err(Error::config(format!(
+                        "{}: [plugins.{name}] options has no {}, which \"{}\" reads: {}",
+                        entry.origin, need.key, rule.id, need.why
+                    )));
                 }
             }
         }
@@ -973,17 +975,11 @@ impl Loaded {
         if filter.skip_keys().is_empty() {
             return Ok(Vec::new());
         }
-        let mut enabled = BTreeSet::new();
-        for (project, settings) in scopes(workspace) {
-            for (name, declared) in &self.declarations {
-                if !settings.plugins.contains_key(name) {
-                    continue;
-                }
-                for rule in enabled_rules(&declared.info, name, settings, workspace, project)? {
-                    enabled.insert(rule.id.to_string());
-                }
-            }
-        }
+        let enabled: BTreeSet<String> = self
+            .enabled(workspace)?
+            .iter()
+            .flat_map(|scope| scope.rules.iter().map(|rule| rule.id.to_string()))
+            .collect();
         for key in filter.skip_keys() {
             let matched: Vec<&String> = enabled
                 .iter()
@@ -1170,40 +1166,38 @@ impl Loaded {
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
         let mut planned = Vec::new();
-        for (project, settings) in scopes(workspace) {
+        for ScopeRules {
+            project,
+            settings,
+            plugin: name,
+            mut rules,
+        } in self.enabled(workspace)?
+        {
             let runs = match project {
                 None => selection.repository,
                 Some(name) => selection.runs(name),
             };
-            if !runs {
+            let Some(sha256) = self.sha256_of(name).filter(|_| runs) else {
+                continue;
+            };
+            rules.retain(|rule| {
+                filter.allows(&rule.id.to_string())
+                    && (!message_run || self.reads_message(name, &rule.run.name))
+            });
+            if rules.is_empty() {
                 continue;
             }
             let root = project
                 .and_then(|name| workspace.projects().get(name))
                 .map(|project| project.root.clone());
             let own = own_config(workspace, project);
-            for name in settings.plugins.keys() {
-                let (Some(sha256), Some(declared)) =
-                    (self.sha256_of(name), self.declarations.get(name))
-                else {
-                    continue;
-                };
-                let mut rules = enabled_rules(&declared.info, name, settings, workspace, project)?;
-                rules.retain(|rule| {
-                    filter.allows(&rule.id.to_string())
-                        && (!message_run || self.reads_message(name, &rule.run.name))
-                });
-                if rules.is_empty() {
-                    continue;
-                }
-                let options_files: Vec<&str> = rules
-                    .iter()
-                    .filter_map(|rule| rule.run.options_file.as_deref())
-                    .collect();
-                let grant = grant(root.as_deref(), settings, name, &options_files);
-                let request = check_request(root.as_deref(), settings, name, &rules, own);
-                planned.push((project, settings, name, rules, sha256, request, grant));
-            }
+            let options_files: Vec<&str> = rules
+                .iter()
+                .filter_map(|rule| rule.run.options_file.as_deref())
+                .collect();
+            let grant = grant(root.as_deref(), settings, name, &options_files);
+            let request = check_request(root.as_deref(), settings, name, &rules, own);
+            planned.push((project, settings, name, rules, sha256, request, grant));
         }
 
         let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
@@ -1439,7 +1433,7 @@ fn reported(
     let preset = rules
         .iter()
         .find(|rule| rule.id == id)
-        .map(|rule| &rule.preset);
+        .and_then(|rule| rule.preset.as_ref());
     let level = match level(settings, &id, &finding.aspect, preset) {
         Some(Setting::Off) => return Ok(None),
         Some(Setting::On(level)) => level,
@@ -1791,6 +1785,35 @@ impl Generators for PluginGenerators<'_> {
             })
     }
 
+    /// Every rule the configuration turns on, by scope (the repository's, then each project's in
+    /// name order) and by the scope's declared plugins in name order: what `gate check` runs
+    /// before `--rule`, `--skip-rule`, a commit-message run and the change selection narrow it,
+    /// and what `gate list` and `gate explain` show a preset turning on. A plugin with nothing on
+    /// in a scope has no entry.
+    ///
+    /// # Errors
+    /// As [`enabled_rules`].
+    fn enabled<'w>(&self, workspace: &'w Workspace) -> Result<Vec<ScopeRules<'w>>> {
+        let mut enabled = Vec::new();
+        for (project, settings) in scopes(workspace) {
+            for plugin in settings.plugins.keys() {
+                let Some(declared) = self.declarations.get(plugin) else {
+                    continue;
+                };
+                let rules = enabled_rules(&declared.info, plugin, settings, workspace, project)?;
+                if !rules.is_empty() {
+                    enabled.push(ScopeRules {
+                        project,
+                        settings,
+                        plugin,
+                        rules,
+                    });
+                }
+            }
+        }
+        Ok(enabled)
+    }
+
     fn reads_history(&self, filter: &RuleFilter) -> bool {
         let Some(loaded) = self.loaded.as_deref() else {
             return false;
@@ -1828,9 +1851,10 @@ pub struct PresetSetting {
     pub origin: SettingOrigin,
 }
 
-/// The settings the presets of each scope give its rules of that scope, later presets over
-/// earlier: the repository's under `None`, each project's under its name. A `[rules]` entry or a
-/// family level of the scope wins over them, as in a run.
+/// The settings the presets of each scope give the rules of that scope a check runs, later presets
+/// over earlier, by key: the repository's under `None`, each project's under its name. A rule
+/// `[rules]` or a family turns off has none. A `[rules]` entry or a family level of the scope wins
+/// over them, as in a run.
 pub type PresetSettings = BTreeMap<Option<String>, Vec<PresetSetting>>;
 
 /// What the presets every scope extends set, read from what each declared plugin declares: its
@@ -1875,42 +1899,37 @@ pub fn preset_settings(
     else {
         return Ok(settings_of);
     };
-    for (project, settings) in scopes(workspace) {
-        let scope = if project.is_none() {
-            Scope::Repository
-        } else {
-            Scope::Project
-        };
-        let mut rows = Vec::new();
-        for (name, declaration) in &loaded.declarations {
-            for (rule, preset) in presets(&declaration.info, name, settings)? {
-                if declaration
-                    .rule(&rule)
-                    .is_none_or(|info| info.scope != scope)
-                {
-                    continue;
-                }
-                let id = format!("{name}/{rule}");
-                let mut push = |key: String, value: String| {
-                    rows.push(PresetSetting {
-                        key,
-                        value,
-                        preset: preset.preset.clone(),
-                        origin: preset.extended.origin.clone(),
-                    });
-                };
-                if let Some(level) = preset.level {
-                    push(id.clone(), format!("level {level}"));
-                }
-                if preset.options.is_some() {
-                    push(id.clone(), "options".to_owned());
-                }
-                for (aspect, level) in &preset.levels {
-                    push(format!("{id}#{aspect}"), format!("level {level}"));
-                }
+    // The rules a check runs, so a rule `[rules]` turns off, or one of another scope, has no row.
+    for scope in loaded.enabled(workspace)? {
+        let rows = settings_of
+            .entry(scope.project.map(ToOwned::to_owned))
+            .or_default();
+        for rule in &scope.rules {
+            let Some(preset) = &rule.preset else {
+                continue;
+            };
+            let id = rule.id.to_string();
+            let mut push = |key: String, value: String| {
+                rows.push(PresetSetting {
+                    key,
+                    value,
+                    preset: preset.preset.clone(),
+                    origin: preset.extended.origin.clone(),
+                });
+            };
+            if let Some(level) = preset.level {
+                push(id.clone(), format!("level {level}"));
+            }
+            if preset.options.is_some() {
+                push(id.clone(), "options".to_owned());
+            }
+            for (aspect, level) in &preset.levels {
+                push(format!("{id}#{aspect}"), format!("level {level}"));
             }
         }
-        settings_of.insert(project.map(ToOwned::to_owned), rows);
+    }
+    for rows in settings_of.values_mut() {
+        rows.sort_by(|left, right| left.key.cmp(&right.key));
     }
     Ok(settings_of)
 }
@@ -1986,19 +2005,21 @@ fn needs(plugin: &PluginName, rule: &str, schema: &Value) -> Result<Vec<Need>> {
         .collect()
 }
 
+/// The rules one plugin runs in one scope, from [`Loaded::enabled`].
+struct ScopeRules<'w> {
+    /// The project; `None` for the repository.
+    project: Option<&'w str>,
+    settings: &'w Settings,
+    plugin: &'w PluginName,
+    rules: Vec<Enabled>,
+}
+
 /// A rule that runs in a call.
 struct Enabled {
     id: RuleId,
     run: RuleRun,
-    /// The levels its presets give it and its aspects.
-    preset: PresetLevels,
-}
-
-/// The levels presets give a rule: the rule's, and its aspects'.
-#[derive(Clone, Debug, Default)]
-struct PresetLevels {
-    level: Option<Setting>,
-    levels: BTreeMap<String, Setting>,
+    /// What the last preset that names it gives it and its aspects; `None` when no preset does.
+    preset: Option<PresetRule>,
 }
 
 /// The level of `aspect` of rule `id`, first found: the `[rules]` entry's level of the aspect, the
@@ -2010,7 +2031,7 @@ fn level(
     settings: &Settings,
     id: &RuleId,
     aspect: &str,
-    preset: Option<&PresetLevels>,
+    preset: Option<&PresetRule>,
 ) -> Option<Setting> {
     let own = settings
         .rules
@@ -2105,12 +2126,7 @@ fn enabled_rules(
                     .and_then(|options| options.value.file.clone()),
                 exceptions,
             },
-            preset: PresetLevels {
-                level: preset.and_then(|preset| preset.level),
-                levels: preset
-                    .map(|preset| preset.levels.clone())
-                    .unwrap_or_default(),
-            },
+            preset: preset.cloned(),
         });
     }
     Ok(rules)
@@ -2164,7 +2180,7 @@ fn preset_turns_on(info: &PluginInfo, preset: &str, scope: Scope) -> bool {
 }
 
 /// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PresetRule {
     /// The preset that set the rule, `<plugin>/<preset>`.
     preset: String,

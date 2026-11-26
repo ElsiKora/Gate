@@ -8162,6 +8162,149 @@ fn at_a_root_that_is_a_project_an_entry_of_repository_rules_points_to_the_roots_
 }
 
 #[test]
+fn list_prints_the_repository_rules_a_root_projects_presets_turn_on_as_check_runs_them() {
+    let ci = format!("ci={}", ci_component().0.display());
+    let git = GitOptions::new();
+    let repo = &git.repo;
+    repo.write(
+        ".github/workflows/ci.yml",
+        "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+    );
+    let configure = |rules: &str| {
+        repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[project]\nname = \"one\"\nextends = [\"ci/recommended\", \"git/recommended\"]\n\n[plugins.ci]\nsource = \"acme/rules:ci@0.1.0\"\n\n[plugins.git]\nsource = \"acme/rules:git@0.1.0\"\noptions = {{ main = [\"refs/heads/main\"] }}\n\n[rules]\n{rules}\n"
+            ),
+        );
+        repo.git(&["add", "-A"]);
+        repo.git(&["commit", "-q", "--allow-empty", "-m", "configure"]);
+    };
+    let plugins = ["--plugin", ci.as_str(), "--plugin", git.plugin.as_str()];
+    // The rules `gate list` prints as a preset turns them on, by id, with the preset, from the
+    // text and from the JSON, which must agree.
+    let listed = || {
+        let mut arguments = vec!["list"];
+        arguments.extend_from_slice(&plugins);
+        let output = repo.gate(&arguments);
+        let said = text(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{said}{}",
+            text(&output.stderr)
+        );
+        let from_text: BTreeSet<(String, String)> = said
+            .lines()
+            .filter_map(|line| {
+                let cells: Vec<&str> = line
+                    .split("  ")
+                    .map(str::trim)
+                    .filter(|cell| !cell.is_empty())
+                    .collect();
+                match cells.as_slice() {
+                    ["rule", key, value, ..] => value.split_once("(preset ").map(|(_, preset)| {
+                        ((*key).to_owned(), preset.trim_end_matches(')').to_owned())
+                    }),
+                    _ => None,
+                }
+            })
+            .collect();
+        arguments.extend_from_slice(&["--format", "json"]);
+        let output = repo.gate(&arguments);
+        let said = text(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{said}{}",
+            text(&output.stderr)
+        );
+        let value: serde_json::Value = serde_json::from_str(&said).expect("JSON");
+        assert!(value["presets-error"].is_null(), "{said}");
+        let from_json: BTreeSet<(String, String)> = value["project-settings"]["one"]["settings"]
+            .as_array()
+            .expect("the project's settings")
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    row["key"].as_str()?.to_owned(),
+                    row["preset"].as_str()?.to_owned(),
+                ))
+            })
+            .collect();
+        assert_eq!(
+            from_text, from_json,
+            "the text and the JSON list the same rules"
+        );
+        from_text
+    };
+    // The rules a check runs: every rule it would run, as `--skip-rule` of both families leaves
+    // them out by id.
+    let ran = || {
+        let mut arguments = vec![
+            "check",
+            "--format",
+            "json",
+            "--skip-rule",
+            "ci/*",
+            "--skip-rule",
+            "git/*",
+        ];
+        arguments.extend_from_slice(&plugins);
+        let output = repo.gate(&arguments);
+        let said = text(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{said}{}",
+            text(&output.stderr)
+        );
+        let value: serde_json::Value = serde_json::from_str(&said).expect("JSON");
+        value["skipped-rules"]
+            .as_array()
+            .expect("skipped-rules")
+            .iter()
+            .filter_map(|rule| rule.as_str().map(str::to_owned))
+            .collect::<BTreeSet<String>>()
+    };
+
+    // No [rules] entry: the presets turn on the repository-scope rules, and the list says so.
+    configure("");
+    let listed_rules = listed();
+    for (rule, preset) in [
+        ("ci/permissions", "ci/recommended"),
+        ("ci/runner-pinned", "ci/recommended"),
+        ("git/branch-name", "git/recommended"),
+        ("git/commit-message", "git/recommended"),
+    ] {
+        assert!(
+            listed_rules.contains(&(rule.to_owned(), preset.to_owned())),
+            "{rule} from {preset}: {listed_rules:?}"
+        );
+    }
+    let ids = |listed: &BTreeSet<(String, String)>| {
+        listed
+            .iter()
+            .map(|(key, _)| key.split('#').next().unwrap_or_default().to_owned())
+            .collect::<BTreeSet<String>>()
+    };
+    assert_eq!(ids(&listed_rules), ran());
+
+    // A rule [rules] turns off is not listed as running, and the check does not run it.
+    configure("\"ci/permissions\" = \"off\"");
+    let listed_rules = listed();
+    assert!(
+        !listed_rules
+            .iter()
+            .any(|(rule, _)| rule == "ci/permissions"),
+        "{listed_rules:?}"
+    );
+    let ran_rules = ran();
+    assert!(!ran_rules.contains("ci/permissions"), "{ran_rules:?}");
+    assert_eq!(ids(&listed_rules), ran_rules);
+}
+
+#[test]
 fn a_commit_message_check_runs_only_the_rules_that_read_the_message() {
     let git = GitOptions::new();
     let outside = tempfile::tempdir().expect("temporary directory");
