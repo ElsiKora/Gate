@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open |
+| Status | in progress |
 | Release | the next `ledger` plugin release, and the core release if the core must hand more to the rule; the plugin interface stays `gate:plugin@0.3.0` |
 | Writer | "Gate T-105" |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -64,4 +64,6 @@ The lead answers within the session.
 
 ## Resume point
 
-Not started.
+Design sent to the lead (one repository-scope rule judges every written decision; the core's
+repository call carries every `gate.toml` entry and exception decision). Waiting for the answer;
+no code yet.
