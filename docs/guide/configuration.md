@@ -245,9 +245,13 @@ A family wildcard takes only `level` and `decision`; norms, aspect levels and op
 rule. A rule's page lists its options and its aspects.
 
 The root `[rules]` holds repository-scope rules only (for example `git/no-ci-skip`). Project-scope
-rules go in a project's own file or in a profile. `gate list` prints every rule that is on, every rule
-or family that is off, and the file that turned it off. A rule a preset turns on is printed with
-`(preset <plugin>/<preset>)` and, with `--origin`, the line of its `extends` entry. The presets are
+rules go in a project's own file or in a profile. `gate list` prints, for each rule in each scope,
+the row that gives it its level: its `[rules]` entry or its family, else the preset that sets it,
+printed with `(preset <plugin>/<preset>)` and, with `--origin`, the line of its `extends` entry. A
+rule listed with a level other than `off` is a rule `gate check` runs; every rule or family that is
+off is listed with the file or preset that turned it off. When the top is a project, its section
+holds the repository-scope rules too. `gate explain` also prints the preset rows a `[rules]` entry
+overrides. The presets are
 read from what each pinned plugin declares, from the cache only, never downloaded; when that cannot
 be read (no `gate.lock` yet, or a plugin no `gate sync` has fetched on this machine) the last line
 says why.

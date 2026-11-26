@@ -92,14 +92,31 @@ impl Presets {
         }
     }
 
-    /// The settings the presets give the repository (`None`) or a project.
-    fn of(&self, project: Option<&str>) -> &[PresetSetting] {
-        self.settings
-            .as_ref()
-            .ok()
-            .and_then(|settings| settings.get(&project.map(ToOwned::to_owned)))
-            .map(Vec::as_slice)
-            .unwrap_or_default()
+    /// The settings the presets give the rules of the repository scope (`None`) or of a project,
+    /// by rule: with `View::Effective`, only those no `[rules]` entry or family level overrides.
+    /// The section of the project at the repository's top stands for the repository too, so it
+    /// takes the repository scope's as well.
+    fn of(&self, workspace: &Workspace, project: Option<&str>, view: View) -> Vec<&PresetSetting> {
+        let scope = |project: Option<&str>| {
+            self.settings
+                .as_ref()
+                .ok()
+                .and_then(|settings| settings.get(&project.map(ToOwned::to_owned)))
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+                .iter()
+        };
+        let at_top = project
+            .and_then(|name| workspace.projects().get(name))
+            .is_some_and(|project| project.root.is_empty());
+        let repository = if at_top { scope(None) } else { [].iter() };
+        let mut settings: Vec<&PresetSetting> = repository
+            .chain(scope(project))
+            .filter(|setting| view == View::All || setting.effective)
+            .collect();
+        // Stable: a rule's level, options and aspects keep their order.
+        settings.sort_by(|left, right| rule_of(&left.key).cmp(rule_of(&right.key)));
+        settings
     }
 
     /// Why the presets' rules are not shown, when they could not be read.
@@ -111,6 +128,21 @@ impl Presets {
             )
         })
     }
+}
+
+/// Which preset settings a section shows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum View {
+    /// Those that give a rule its level and options, as `gate list` shows them: with `[rules]`
+    /// and the families, the level each rule runs at, `off` included.
+    Effective,
+    /// Every one, overridden included, as `gate explain` shows them.
+    All,
+}
+
+/// The rule a setting's key names: the key without its `#<aspect>`.
+fn rule_of(key: &str) -> &str {
+    key.split_once('#').map_or(key, |(rule, _)| rule)
 }
 
 /// One setting as `gate list` prints it.
@@ -127,7 +159,7 @@ struct Row<'a> {
 /// Every setting of `settings` and of the presets it extends (`presets`), one row each, in a
 /// stable order: the presets' rules come before the families and the `[rules]` entries, which win
 /// over them.
-fn rows<'a>(settings: &'a Settings, presets: &'a [PresetSetting]) -> Vec<Row<'a>> {
+fn rows<'a>(settings: &'a Settings, presets: &[&'a PresetSetting]) -> Vec<Row<'a>> {
     let mut rows = Vec::new();
 
     for (name, plugin) in &settings.plugins {
@@ -333,18 +365,20 @@ fn write_rows(out: &mut String, indent: &str, rows: &[Row<'_>], origin: bool) {
 }
 
 /// The scopes `gate list` prints: the repository's own settings when the top is not a project,
-/// then each project's merged settings; each with the settings its presets give it.
+/// then each project's merged settings; each with the settings its presets give the rules there,
+/// as `view` picks them (at a top that is a project, the repository scope's rules as well).
 fn scopes<'a>(
     workspace: &'a Workspace,
     presets: &'a Presets,
-) -> Vec<(String, &'a Settings, &'a [PresetSetting])> {
+    view: View,
+) -> Vec<(String, &'a Settings, Vec<&'a PresetSetting>)> {
     let mut scopes = Vec::new();
 
     if !workspace.root_is_project() {
         scopes.push((
             format!("repository ({})", workspace.root_config().path()),
             workspace.repository(),
-            presets.of(None),
+            presets.of(workspace, None, view),
         ));
     }
 
@@ -353,7 +387,7 @@ fn scopes<'a>(
             scopes.push((
                 format!("project {} ({})", project.name, display_root(&project.root)),
                 settings,
-                presets.of(Some(&project.name)),
+                presets.of(workspace, Some(&project.name), view),
             ));
         }
     }
@@ -401,9 +435,9 @@ pub fn text(workspace: &Workspace, presets: &Presets, origin: bool) -> String {
         .collect();
     write_table(&mut out, "  ", &table);
 
-    for (title, settings, preset_settings) in scopes(workspace, presets) {
+    for (title, settings, preset_settings) in scopes(workspace, presets, View::Effective) {
         let _ = writeln!(out, "{title}:");
-        let rows = rows(settings, preset_settings);
+        let rows = rows(settings, &preset_settings);
         if rows.is_empty() {
             let _ = writeln!(out, "  nothing configured");
         }
@@ -440,7 +474,7 @@ fn write_table<const N: usize>(out: &mut String, indent: &str, rows: &[[String; 
     }
 }
 
-fn settings_json(settings: &Settings, presets: &[PresetSetting]) -> serde_json::Value {
+fn settings_json(settings: &Settings, presets: &[&PresetSetting]) -> serde_json::Value {
     let rows: Vec<serde_json::Value> = rows(settings, presets)
         .iter()
         .map(|row| {
@@ -479,14 +513,20 @@ pub fn json(workspace: &Workspace, presets: &Presets) -> Result<String, gate_hos
             workspace.settings(&project.name).map(|settings| {
                 (
                     project.name.clone(),
-                    settings_json(settings, presets.of(Some(&project.name))),
+                    settings_json(
+                        settings,
+                        &presets.of(workspace, Some(&project.name), View::Effective),
+                    ),
                 )
             })
         })
         .collect();
     let value = json!({
         "projects": workspace.projects(),
-        "repository": settings_json(workspace.repository(), presets.of(None)),
+        "repository": settings_json(
+            workspace.repository(),
+            &presets.of(workspace, None, View::Effective),
+        ),
         "project-settings": settings,
         "presets-error": presets.missing(),
     });
@@ -502,8 +542,8 @@ pub fn explain(workspace: &Workspace, presets: &Presets, subject: &Subject, name
     let _ = writeln!(out, "{name}");
     let mut found = false;
 
-    for (title, settings, preset_settings) in scopes(workspace, presets) {
-        let related: Vec<Row<'_>> = rows(settings, preset_settings)
+    for (title, settings, preset_settings) in scopes(workspace, presets, View::All) {
+        let related: Vec<Row<'_>> = rows(settings, &preset_settings)
             .into_iter()
             .filter(|row| {
                 (row.kind == "rule" && subject.concerns(&row.key))
