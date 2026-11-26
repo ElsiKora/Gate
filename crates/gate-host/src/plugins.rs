@@ -728,6 +728,34 @@ impl Loaded {
         self.validate_except(workspace, filter, &BTreeSet::new())
     }
 
+    /// Every rule the configuration turns on, by scope (the repository's, then each project's in
+    /// name order) and by the scope's declared plugins in name order: what `gate check` runs
+    /// before `--rule`, `--skip-rule`, a commit-message run and the change selection narrow it.
+    /// A plugin with nothing on in a scope has no entry.
+    ///
+    /// # Errors
+    /// As [`enabled_rules`].
+    fn enabled<'w>(&self, workspace: &'w Workspace) -> Result<Vec<ScopeRules<'w>>> {
+        let mut enabled = Vec::new();
+        for (project, settings) in scopes(workspace) {
+            for plugin in settings.plugins.keys() {
+                let Some(declared) = self.declarations.get(plugin) else {
+                    continue;
+                };
+                let rules = enabled_rules(&declared.info, plugin, settings, workspace, project)?;
+                if !rules.is_empty() {
+                    enabled.push(ScopeRules {
+                        project,
+                        settings,
+                        plugin,
+                        rules,
+                    });
+                }
+            }
+        }
+        Ok(enabled)
+    }
+
     /// [`Loaded::validate`] without the rules and exceptions of the plugins in `skipped`, which a
     /// commit pins and which do not load under this core: what they declare is unknown. The
     /// checks that need no plugin still cover them.
@@ -839,10 +867,13 @@ impl Loaded {
     }
 
     /// Checks that, where a `[decision-policy]` requires it, every level configuration sets below
-    /// its default names a decision. The default is what the rule's presets give the aspect, else
-    /// the rule; a rule no preset names has none, since turning it on at any level is stricter than
-    /// leaving it off. A whole-rule level (an entry's `level`, or a `"<plugin>/*"` family's) is
-    /// compared with the preset's rule level and with each preset aspect level it overrides.
+    /// its default names a decision. The default of a level a rule entry writes is the level the
+    /// scope resolves to without the entry, in the level order: the rule's family, else what the
+    /// rule's presets give the aspect, else the rule, else `error`. A family's own level is met
+    /// with the presets' default only, so a rule or aspect no preset sets a level for has the
+    /// default `error` there. Where no family sets a level, a whole-rule level (an entry's
+    /// `level`, or a family's) is compared with the rule's default and with each preset aspect
+    /// level it overrides.
     ///
     /// # Errors
     /// Fails on the first level below its default with no decision, naming where it is written,
@@ -866,46 +897,31 @@ impl Loaded {
                     .filter(|info| info.scope == scope)
                 {
                     let id = rule_id(name, &info.name)?;
-                    let Some(preset) = presets.get(info.name.as_str()) else {
-                        // No preset names the rule: it runs only because an entry or a family
-                        // turns it on, which is stricter than not running, at any level.
-                        continue;
-                    };
+                    let preset = presets.get(info.name.as_str());
                     let entry = settings.rules.get(&id);
                     let named =
                         |aspect: &str| entry.is_some_and(|entry| entry.levels.contains_key(aspect));
+                    // A level an entry writes has the default the scope resolves to without the
+                    // entry: the family's level, else the presets', else `error`. A family's own
+                    // level is met with the presets' default only.
+                    let family = settings.families.get(name.as_str());
                     let whole = match entry.and_then(|entry| entry.level.as_ref()) {
-                        Some(level) => Some((level, Written::Rule(&id))),
-                        None => settings
-                            .families
-                            .get(name.as_str())
-                            .map(|level| (level, Written::Family(name))),
+                        Some(level) => Some((level, Written::Rule(&id), family)),
+                        None => family.map(|level| (level, Written::Family(name), None)),
                     };
-                    if let Some((level, written)) = whole {
-                        // A whole-rule level replaces the preset's rule level and each preset
-                        // aspect level the entry's `levels` does not name.
-                        let mut defaults: Vec<Floor> = Vec::new();
-                        if let Some(rule_level) = preset.level {
-                            defaults.push(Floor::rule(&id, None, rule_level, preset));
-                        }
-                        for (aspect, aspect_level) in &preset.levels {
-                            if !named(aspect) {
-                                defaults.push(Floor::aspect(&id, aspect, *aspect_level, preset));
-                            }
-                        }
+                    if let Some((level, written, over)) = whole {
+                        let defaults = match over {
+                            Some(family) => vec![Floor::family(&id, None, family.value, name)],
+                            None => preset_defaults(&id, preset, &named),
+                        };
                         for default in defaults {
                             decided(workspace, &written, level, &default)?;
                         }
                     }
                     for (aspect, level) in entry.into_iter().flat_map(|entry| &entry.levels) {
-                        let default = match (preset.levels.get(aspect), preset.level) {
-                            (Some(aspect_level), _) => {
-                                Floor::aspect(&id, aspect, *aspect_level, preset)
-                            }
-                            (None, Some(rule_level)) => {
-                                Floor::rule(&id, Some(aspect), rule_level, preset)
-                            }
-                            (None, None) => continue,
+                        let default = match family {
+                            Some(family) => Floor::family(&id, Some(aspect), family.value, name),
+                            None => Floor::of(&id, Some(aspect), preset),
                         };
                         decided(workspace, &Written::Aspect(&id, aspect), level, &default)?;
                     }
@@ -924,36 +940,38 @@ impl Loaded {
     /// broken plugin, on a rule whose declared needs are not a list of `{ key, when, why }`.
     fn check_needs(&self, workspace: &Workspace, filter: &RuleFilter) -> Result<()> {
         let empty = Value::Object(serde_json::Map::new());
-        for (project, settings) in scopes(workspace) {
-            for (name, declared) in &self.declarations {
-                let Some(entry) = settings.plugins.get(name) else {
-                    continue;
-                };
-                if !filter.allows_plugin(name.as_str()) {
+        for scope in self.enabled(workspace)? {
+            let name = scope.plugin;
+            let (Some(entry), Some(declared)) = (
+                scope.settings.plugins.get(name),
+                self.declarations.get(name),
+            ) else {
+                continue;
+            };
+            if !filter.allows_plugin(name.as_str()) {
+                continue;
+            }
+            let options = scope.settings.plugin_options(name).unwrap_or(&empty);
+            for rule in &scope.rules {
+                if !filter.allows(&rule.id.to_string()) {
                     continue;
                 }
-                let options = settings.plugin_options(name).unwrap_or(&empty);
-                for rule in enabled_rules(&declared.info, name, settings, workspace, project)? {
-                    if !filter.allows(&rule.id.to_string()) {
+                let Some(schema) = declared.rules.get(&rule.run.name) else {
+                    continue;
+                };
+                for need in needs(name, &rule.run.name, schema)? {
+                    if options.get(&need.key).is_some()
+                        || need
+                            .when
+                            .as_ref()
+                            .is_some_and(|when| !when.is_valid(options))
+                    {
                         continue;
                     }
-                    let Some(schema) = declared.rules.get(&rule.run.name) else {
-                        continue;
-                    };
-                    for need in needs(name, &rule.run.name, schema)? {
-                        if options.get(&need.key).is_some()
-                            || need
-                                .when
-                                .as_ref()
-                                .is_some_and(|when| !when.is_valid(options))
-                        {
-                            continue;
-                        }
-                        return Err(Error::config(format!(
-                            "{}: [plugins.{name}] options has no {}, which \"{}\" reads: {}",
-                            entry.origin, need.key, rule.id, need.why
-                        )));
-                    }
+                    return Err(Error::config(format!(
+                        "{}: [plugins.{name}] options has no {}, which \"{}\" reads: {}",
+                        entry.origin, need.key, rule.id, need.why
+                    )));
                 }
             }
         }
@@ -973,17 +991,11 @@ impl Loaded {
         if filter.skip_keys().is_empty() {
             return Ok(Vec::new());
         }
-        let mut enabled = BTreeSet::new();
-        for (project, settings) in scopes(workspace) {
-            for (name, declared) in &self.declarations {
-                if !settings.plugins.contains_key(name) {
-                    continue;
-                }
-                for rule in enabled_rules(&declared.info, name, settings, workspace, project)? {
-                    enabled.insert(rule.id.to_string());
-                }
-            }
-        }
+        let enabled: BTreeSet<String> = self
+            .enabled(workspace)?
+            .iter()
+            .flat_map(|scope| scope.rules.iter().map(|rule| rule.id.to_string()))
+            .collect();
         for key in filter.skip_keys() {
             let matched: Vec<&String> = enabled
                 .iter()
@@ -1170,39 +1182,37 @@ impl Loaded {
         let history: Arc<dyn History> = Arc::clone(&git_history) as Arc<dyn History>;
 
         let mut planned = Vec::new();
-        for (project, settings) in scopes(workspace) {
+        for ScopeRules {
+            project,
+            settings,
+            plugin: name,
+            mut rules,
+        } in self.enabled(workspace)?
+        {
             let runs = match project {
                 None => selection.repository,
                 Some(name) => selection.runs(name),
             };
-            if !runs {
+            let Some(sha256) = self.sha256_of(name).filter(|_| runs) else {
+                continue;
+            };
+            rules.retain(|rule| {
+                filter.allows(&rule.id.to_string())
+                    && (!message_run || self.reads_message(name, &rule.run.name))
+            });
+            if rules.is_empty() {
                 continue;
             }
             let root = project
                 .and_then(|name| workspace.projects().get(name))
                 .map(|project| project.root.clone());
-            for name in settings.plugins.keys() {
-                let (Some(sha256), Some(declared)) =
-                    (self.sha256_of(name), self.declarations.get(name))
-                else {
-                    continue;
-                };
-                let mut rules = enabled_rules(&declared.info, name, settings, workspace, project)?;
-                rules.retain(|rule| {
-                    filter.allows(&rule.id.to_string())
-                        && (!message_run || self.reads_message(name, &rule.run.name))
-                });
-                if rules.is_empty() {
-                    continue;
-                }
-                let options_files: Vec<&str> = rules
-                    .iter()
-                    .filter_map(|rule| rule.run.options_file.as_deref())
-                    .collect();
-                let grant = grant(root.as_deref(), settings, name, &options_files);
-                let request = check_request(workspace, project, settings, name, &rules);
-                planned.push((project, settings, name, rules, sha256, request, grant));
-            }
+            let options_files: Vec<&str> = rules
+                .iter()
+                .filter_map(|rule| rule.run.options_file.as_deref())
+                .collect();
+            let grant = grant(root.as_deref(), settings, name, &options_files);
+            let request = check_request(workspace, project, settings, name, &rules);
+            planned.push((project, settings, name, rules, sha256, request, grant));
         }
 
         let blob = |path: &str| snapshot.blob_id(path).map(|id| id.as_str().to_owned());
@@ -1438,7 +1448,7 @@ fn reported(
     let preset = rules
         .iter()
         .find(|rule| rule.id == id)
-        .map(|rule| &rule.preset);
+        .and_then(|rule| rule.preset.as_ref());
     let level = match level(settings, &id, &finding.aspect, preset) {
         Some(Setting::Off) => return Ok(None),
         Some(Setting::On(level)) => level,
@@ -1825,11 +1835,15 @@ pub struct PresetSetting {
     pub preset: String,
     /// The `extends` entry that brought the preset in.
     pub origin: SettingOrigin,
+    /// No `[rules]` entry or family level of the scope overrides it, so the rule, its aspect or
+    /// its options run with what the preset gives: `gate list` shows these, `gate explain` all.
+    pub effective: bool,
 }
 
-/// The settings the presets of each scope give its rules of that scope, later presets over
-/// earlier: the repository's under `None`, each project's under its name. A `[rules]` entry or a
-/// family level of the scope wins over them, as in a run.
+/// The settings the presets of each scope give the rules of that scope, later presets over
+/// earlier, by key: the repository's under `None`, each project's under its name. A preset that
+/// sets a rule `off` has its row too. A `[rules]` entry or a family level of the scope wins over
+/// them, as in a run; a row it overrides is not [`PresetSetting::effective`].
 pub type PresetSettings = BTreeMap<Option<String>, Vec<PresetSetting>>;
 
 /// What the presets every scope extends set, read from what each declared plugin declares: its
@@ -1889,23 +1903,37 @@ pub fn preset_settings(
                 {
                     continue;
                 }
-                let id = format!("{name}/{rule}");
-                let mut push = |key: String, value: String| {
+                let id = rule_id(name, &rule)?;
+                // What `[rules]` and the family say win over a preset, as in a run ([`level`]).
+                let mut push = |key: String, value: String, effective: bool| {
                     rows.push(PresetSetting {
                         key,
                         value,
                         preset: preset.preset.clone(),
                         origin: preset.extended.origin.clone(),
+                        effective,
                     });
                 };
                 if let Some(level) = preset.level {
-                    push(id.clone(), format!("level {level}"));
+                    push(
+                        id.to_string(),
+                        format!("level {level}"),
+                        settings.setting(&id, "").is_none(),
+                    );
                 }
                 if preset.options.is_some() {
-                    push(id.clone(), "options".to_owned());
+                    push(
+                        id.to_string(),
+                        "options".to_owned(),
+                        settings.options(&id).is_none(),
+                    );
                 }
                 for (aspect, level) in &preset.levels {
-                    push(format!("{id}#{aspect}"), format!("level {level}"));
+                    push(
+                        format!("{id}#{aspect}"),
+                        format!("level {level}"),
+                        settings.setting(&id, aspect).is_none(),
+                    );
                 }
             }
         }
@@ -1985,19 +2013,21 @@ fn needs(plugin: &PluginName, rule: &str, schema: &Value) -> Result<Vec<Need>> {
         .collect()
 }
 
+/// The rules one plugin runs in one scope, from [`Loaded::enabled`].
+struct ScopeRules<'w> {
+    /// The project; `None` for the repository.
+    project: Option<&'w str>,
+    settings: &'w Settings,
+    plugin: &'w PluginName,
+    rules: Vec<Enabled>,
+}
+
 /// A rule that runs in a call.
 struct Enabled {
     id: RuleId,
     run: RuleRun,
-    /// The levels its presets give it and its aspects.
-    preset: PresetLevels,
-}
-
-/// The levels presets give a rule: the rule's, and its aspects'.
-#[derive(Clone, Debug, Default)]
-struct PresetLevels {
-    level: Option<Setting>,
-    levels: BTreeMap<String, Setting>,
+    /// What the last preset that names it gives it and its aspects; `None` when no preset does.
+    preset: Option<PresetRule>,
 }
 
 /// The level of `aspect` of rule `id`, first found: the `[rules]` entry's level of the aspect, the
@@ -2009,7 +2039,7 @@ fn level(
     settings: &Settings,
     id: &RuleId,
     aspect: &str,
-    preset: Option<&PresetLevels>,
+    preset: Option<&PresetRule>,
 ) -> Option<Setting> {
     let own = settings
         .rules
@@ -2104,12 +2134,7 @@ fn enabled_rules(
                     .and_then(|options| options.value.file.clone()),
                 exceptions,
             },
-            preset: PresetLevels {
-                level: preset.and_then(|preset| preset.level),
-                levels: preset
-                    .map(|preset| preset.levels.clone())
-                    .unwrap_or_default(),
-            },
+            preset: preset.cloned(),
         });
     }
     Ok(rules)
@@ -2163,7 +2188,7 @@ fn preset_turns_on(info: &PluginInfo, preset: &str, scope: Scope) -> bool {
 }
 
 /// One rule of a preset: `{ "level": .., "levels": { <aspect>: .. }, "options": .. }`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PresetRule {
     /// The preset that set the rule, `<plugin>/<preset>`.
     preset: String,
@@ -2194,17 +2219,61 @@ enum Written<'a> {
     Aspect(&'a RuleId, &'a str),
 }
 
-/// The level a rule or one of its aspects has without the entry, and where a preset sets it.
+/// The level a rule or one of its aspects has without the entry, and where it comes from.
 struct Floor {
     /// What the level applies to: `<rule>` or `<rule>#<aspect>`.
     subject: String,
     /// The level.
     level: Setting,
-    /// The preset and what it sets: `the preset p/q sets <rule>[#<aspect>] to <level>`.
+    /// Where the level comes from: `the preset p/q sets <rule>[#<aspect>] to <level>`, or that no
+    /// preset sets one.
     source: String,
 }
 
 impl Floor {
+    /// The default of `aspect` of `id` (`None`: the whole rule) given `preset`, the presets' rule
+    /// (`None` when no preset names it): the preset's level of the aspect, else of the rule, else
+    /// `error`.
+    fn of(id: &RuleId, aspect: Option<&str>, preset: Option<&PresetRule>) -> Self {
+        let Some(found) = preset else {
+            return Self::unset(id, aspect, None);
+        };
+        match (
+            aspect.and_then(|aspect| found.levels.get(aspect).map(|level| (aspect, level))),
+            found.level,
+        ) {
+            (Some((aspect, level)), _) => Self::aspect(id, aspect, *level, found),
+            (None, Some(level)) => Self::rule(id, aspect, level, found),
+            (None, None) => Self::unset(id, aspect, preset),
+        }
+    }
+
+    /// The default of `aspect` of `id` (`None`: the whole rule) that the family `"<plugin>/*"`
+    /// gives.
+    fn family(id: &RuleId, aspect: Option<&str>, level: Setting, plugin: &PluginName) -> Self {
+        let subject = aspect.map_or_else(|| id.to_string(), |aspect| format!("{id}#{aspect}"));
+        Self {
+            source: format!("the family \"{plugin}/*\" sets {subject} to {level}"),
+            subject,
+            level,
+        }
+    }
+
+    /// The default `error` of `aspect` of `id` (`None`: the whole rule) that no preset sets a
+    /// level for; `preset` is the presets' rule, `None` when no preset names the rule at all.
+    fn unset(id: &RuleId, aspect: Option<&str>, preset: Option<&PresetRule>) -> Self {
+        let subject = aspect.map_or_else(|| id.to_string(), |aspect| format!("{id}#{aspect}"));
+        let source = match preset {
+            None => format!("no preset the scope extends names {id}"),
+            Some(_) => format!("no preset the scope extends sets a level for {subject}"),
+        };
+        Self {
+            subject,
+            level: Setting::On(Level::Error),
+            source,
+        }
+    }
+
     /// The default of `aspect` of `id` (`None`: the whole rule) that the preset's rule level
     /// gives.
     fn rule(id: &RuleId, aspect: Option<&str>, level: Setting, preset: &PresetRule) -> Self {
@@ -2225,12 +2294,40 @@ impl Floor {
     }
 }
 
-/// Checks that `level`, written at `written`, names a decision when it is below the `default` a
-/// preset gives and a `[decision-policy]` covering the file that wrote it requires one.
+/// The defaults a whole-rule level of `id` meets where no family sets one: the presets' level of
+/// the rule (`preset`, `None` when no preset names it), else `error`, and each preset aspect level
+/// the entry's `levels` does not name (`named`). A level a preset sets comes first; the `error` no
+/// preset sets, after the preset's aspect levels.
+fn preset_defaults(
+    id: &RuleId,
+    preset: Option<&PresetRule>,
+    named: &dyn Fn(&str) -> bool,
+) -> Vec<Floor> {
+    let mut defaults: Vec<Floor> = preset
+        .iter()
+        .flat_map(|preset| {
+            preset
+                .levels
+                .iter()
+                .filter(|(aspect, _)| !named(aspect))
+                .map(|(aspect, aspect_level)| Floor::aspect(id, aspect, *aspect_level, preset))
+        })
+        .collect();
+    let rule = Floor::of(id, None, preset);
+    if preset.is_some_and(|preset| preset.level.is_some()) {
+        defaults.insert(0, rule);
+    } else {
+        defaults.push(rule);
+    }
+    defaults
+}
+
+/// Checks that `level`, written at `written`, names a decision when it is below its `default` and
+/// a `[decision-policy]` covering the file that wrote it requires one.
 ///
 /// # Errors
-/// A configuration error naming the key as written, the level, the default and the preset that
-/// sets it, the policy, and the form that adds the decision.
+/// A configuration error naming the key as written, the level, the default and where it comes
+/// from, the policy, and the form that adds the decision.
 fn decided(
     workspace: &Workspace,
     written: &Written<'_>,

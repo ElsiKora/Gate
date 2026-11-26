@@ -245,9 +245,13 @@ A family wildcard takes only `level` and `decision`; norms, aspect levels and op
 rule. A rule's page lists its options and its aspects.
 
 The root `[rules]` holds repository-scope rules only (for example `git/no-ci-skip`). Project-scope
-rules go in a project's own file or in a profile. `gate list` prints every rule that is on, every rule
-or family that is off, and the file that turned it off. A rule a preset turns on is printed with
-`(preset <plugin>/<preset>)` and, with `--origin`, the line of its `extends` entry. The presets are
+rules go in a project's own file or in a profile. `gate list` prints, for each rule in each scope,
+the row that gives it its level: its `[rules]` entry or its family, else the preset that sets it,
+printed with `(preset <plugin>/<preset>)` and, with `--origin`, the line of its `extends` entry. A
+rule listed with a level other than `off` is a rule `gate check` runs; every rule or family that is
+off is listed with the file or preset that turned it off. When the top is a project, its section
+holds the repository-scope rules too. `gate explain` also prints the preset rows a `[rules]` entry
+overrides. The presets are
 read from what each pinned plugin declares, from the cache only, never downloaded; when that cannot
 be read (no `gate.lock` yet, or a plugin no `gate sync` has fetched on this machine) the last line
 says why.
@@ -346,25 +350,35 @@ require-decision = true
 ```
 
 A relaxation is an `[[exception]]`, or a `[rules]` entry (a rule or a family) whose `level`, or any
-level in `levels`, is below its default. The default is the level a preset the scope extends gives
-the rule or aspect: the preset's level of that aspect, else the preset's level of the rule. Below
-means a lower level (`error` > `warning` > `note`) or `off`. A rule no preset names has no default:
-it runs only because its entry or a family turns it on, which is stricter than not running, so it
-needs no decision at any level. A whole-rule `level` replaces the preset's aspect levels too, so it
-is compared with each one that `levels` does not name:
+level in `levels`, is below its default. The default is the level the rule or aspect has without
+the entry, as in the level order above: for a rule entry, the rule's family, else the level a
+preset the scope extends gives that aspect, else the rule, else `error`; for a family, the presets'
+level, else `error`. So a rule or an aspect that no preset sets a level for has the default `error`,
+and lowering it to `warning`, `note` or `off` needs a decision like any other; `error` needs none.
+That holds for `off` too, though the rule would not run without its entry: a line that only turns
+off a rule nothing turns on does nothing, so leave it out. A rule or an aspect raised above its
+family's level is no relaxation, and the family itself is judged with its own decision. Below means
+a lower level (`error` > `warning` > `note`) or `off`. Where no family sets a level, a whole-rule
+`level` replaces the preset's aspect levels too, so it is compared with each one that `levels` does
+not name:
 
 ```toml
 [rules]
 # a preset sets the rule to error: a decision names the record that accepted the warning
 "nestjs/barrel-exports" = { level = "warning", decision = "D-API-002" }
+# no preset names the rule, so its default is error: a warning needs a decision too
+"git/main-history" = { level = "warning", decision = "D-GIT-004" }
 "ledger/*" = { level = "off", decision = "D-LEDGER-001" }
+# above its family's off: no decision
+"ledger/decisions" = "warning"
 ```
 
 In the root `gate.toml` the policy covers every file, profiles included; a project's own `gate.toml`
 can set its own for its exceptions and its rule entries. A decision covers the levels of the entry
 that writes it, so a project file that lowers a rule or aspect the root left alone needs its own
 decision. The core enforces the policy as a configuration error (exit `2`) that names the key as
-written, the level, the default and the preset that sets it, and the form that adds the decision:
+written, the level, the default and where it comes from (the family, the preset that sets it, or
+that no preset sets one), and the form that adds the decision:
 for exceptions when it loads the
 configuration, for rule entries when it loads the plugins, since presets come from plugins. Without
 the policy, or with `require-decision = false`, nothing is checked and `decision` is accepted anyway.
