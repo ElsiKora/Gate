@@ -279,8 +279,10 @@ impl<'c, 'a> Checker<'c, 'a> {
                         .or_default()
                         .push(module.clone());
                 }
+                // A load in the form: a file of the importer's own kind folder, by its file.
                 if let Some(kind) = kind
                     && !model.is_barrel(&file.path)
+                    && !model.is_barrel(module)
                     && *module != file.path
                     && model.kind_folder(module) == Some(kind)
                     && !matches!(load.form, Form::Call(_))
@@ -450,15 +452,22 @@ impl<'c, 'a> Checker<'c, 'a> {
         push: &mut impl FnMut(&'static str, String),
     ) {
         let specifier = load.specifier.as_str();
-        let mut own: BTreeMap<&Target, BTreeSet<&str>> = BTreeMap::new();
-        let mut other: BTreeMap<&Target, BTreeSet<&str>> = BTreeMap::new();
+        // Groups by module path, then wording: the order of a message.
+        let mut own: BTreeMap<(&str, String), BTreeSet<&str>> = BTreeMap::new();
+        let mut other: BTreeMap<(&str, String), BTreeSet<&str>> = BTreeMap::new();
         for Taken { name, target, .. } in targets {
             if target.holds(module) {
                 continue;
             }
             match target {
-                Target::File { own: true, .. } => own.entry(target).or_default().insert(name),
-                _ => other.entry(target).or_default().insert(name),
+                Target::File { own: true, .. } => own
+                    .entry((target.module(), target.wording()))
+                    .or_default()
+                    .insert(name),
+                _ => other
+                    .entry((target.module(), target.wording()))
+                    .or_default()
+                    .insert(name),
             };
         }
 
@@ -577,14 +586,13 @@ struct Taken {
 }
 
 /// `{names} {wording}` per group, groups joined by ` and `.
-fn groups(groups: &BTreeMap<&Target, BTreeSet<&str>>) -> String {
+fn groups(groups: &BTreeMap<(&str, String), BTreeSet<&str>>) -> String {
     groups
         .iter()
-        .map(|(target, names)| {
+        .map(|((_, wording), names)| {
             format!(
-                "{} {}",
-                names.iter().copied().collect::<Vec<_>>().join(", "),
-                target.wording()
+                "{} {wording}",
+                names.iter().copied().collect::<Vec<_>>().join(", ")
             )
         })
         .collect::<Vec<_>>()

@@ -39,7 +39,7 @@ fn ancestors<'p>(root: &str, path: &'p str) -> impl Iterator<Item = &'p str> {
 }
 
 /// The module the layout gives one name a load takes, and how a message words it.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Target {
     /// The declaring file: it sits in no kind folder, the importer sits in its kind folder (`own`),
     /// or no kind barrel exports it.

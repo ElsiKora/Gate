@@ -550,6 +550,15 @@ fn a_mock_names_a_module_the_form_makes_the_source_load() {
         ),
     )));
 
+    // A semantic subfolder's barrel that a file of the kind folder loads is still no module the
+    // source loads under the form: that load is out of the form itself.
+    let mut sibling = tree.clone();
+    sibling.push((
+        "src/modules/domain/book/function/shelve.function.ts",
+        "import { bookIsAvailable } from \"./is\";\n\nexport const BOOK_SHELVED = bookIsAvailable();\n",
+    ));
+    assert!(check(RULE, KINDS, &sibling).contains(&expected[1]));
+
     // A hoisted call is any of `hoisted-mock-calls`: with none, two mocks of one module pass.
     let none = r#"{ "kinds": ["function"], "hoisted-mock-calls": [] }"#;
     assert_eq!(check(RULE, none, &tree).len(), 3);
@@ -942,5 +951,45 @@ fn options_that_cannot_hold_are_errors_that_name_the_key() {
         .expect_err("the rule fails")
         .message()
         .contains("layout.exclusive-kind-folders is empty")
+    );
+}
+
+#[test]
+fn the_groups_of_a_message_follow_the_paths_of_their_modules() {
+    let reader = "src/modules/domain/author/reader.ts";
+    let tree = [
+        (
+            "src/modules/domain/shelf/a.service.ts",
+            "export class ShelfAService {}\n",
+        ),
+        (
+            "src/modules/domain/shelf/constant/index.ts",
+            "export { SHELF_SIZE_CONSTANT } from \"./size.constant\";\n",
+        ),
+        (
+            "src/modules/domain/shelf/constant/size.constant.ts",
+            "const SHELF_SIZE_CONSTANT = 3;\n\nexport { SHELF_SIZE_CONSTANT };\n",
+        ),
+        (
+            "src/modules/domain/shelf/index.ts",
+            "export * from \"./a.service\";\nexport * from \"./constant\";\nexport * from \"./z.service\";\n",
+        ),
+        (
+            "src/modules/domain/shelf/z.service.ts",
+            "export class ShelfZService {}\n",
+        ),
+        (
+            reader,
+            "import { ShelfZService, SHELF_SIZE_CONSTANT, ShelfAService } from \"@modules/domain/shelf\";\n\nexport const READER = [ShelfAService, SHELF_SIZE_CONSTANT, ShelfZService];\n",
+        ),
+    ];
+    assert_eq!(
+        check(RULE, KINDS, &tree),
+        [finding(
+            "kind-barrel",
+            reader,
+            1,
+            "loads @modules/domain/shelf; import ShelfAService by its file src/modules/domain/shelf/a.service.ts and SHELF_SIZE_CONSTANT through the kind barrel src/modules/domain/shelf/constant and ShelfZService by its file src/modules/domain/shelf/z.service.ts",
+        )]
     );
 }
