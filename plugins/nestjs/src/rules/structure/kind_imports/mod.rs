@@ -346,18 +346,7 @@ impl<'c, 'a> Checker<'c, 'a> {
                 {
                     hoisted.entry(module).or_default().push(load);
                 }
-                if !self.loaded_under_the_form(module)? {
-                    let fix = match self.model.kind_folder(module) {
-                        Some(kind) => format!("name the kind barrel {kind}"),
-                        None => "name the kind barrel or file that the source loads".to_owned(),
-                    };
-                    push(
-                        "mock-target",
-                        format!(
-                            "{path} names {specifier} in {call}, which no source file loads under the form; {fix}"
-                        ),
-                    );
-                }
+                self.mock(path, call, specifier, module, &mut push)?;
                 continue;
             }
             if load.form == Form::SideEffect {
@@ -368,59 +357,115 @@ impl<'c, 'a> Checker<'c, 'a> {
             let targets = self.targets(path, load, module)?;
             if !direct_child {
                 self.form(path, load, module, &targets, &mut push);
-            }
-
-            if in_source
-                && !direct_child
-                && is_relative(specifier)
-                && specifier.split('/').filter(|part| *part == "..").count() <= 1
-                && self.model.in_source(module)
-                && self.model.owner(module) == self.model.owner(path)
-            {
-                let own = self.model.resource(parent(path));
-                if own != self.model.resource(parent(module)) {
-                    push(
-                        "resource-relative",
-                        format!(
-                            "{path} loads {specifier}, which leaves its resource {own}; use the owner alias"
-                        ),
-                    );
-                }
-            }
-
-            if load.form == Form::Dynamic {
-                let modules: BTreeSet<String> = targets
-                    .iter()
-                    .map(|taken| self.shown(taken.target.module()))
-                    .collect();
-                if modules.len() > 1 {
-                    push(
-                        "dynamic-import",
-                        format!(
-                            "{path} loads {specifier} with import(); its names come from {} modules ({}); use one import() per module",
-                            modules.len(),
-                            modules.into_iter().collect::<Vec<_>>().join(", ")
-                        ),
-                    );
-                }
                 if in_source {
-                    let statics = statics.get_or_insert_with(|| closure(&self.edges, path));
-                    let deferred_loaded = statics.contains(module)
-                        || targets
-                            .iter()
-                            .any(|taken| statics.contains(taken.declaring.as_str()));
-                    if deferred_loaded {
-                        push(
-                            "dynamic-import",
-                            format!(
-                                "{path} defers {specifier} with import() but already loads it statically; place the deferred module behind a barrel that {path} does not load statically"
-                            ),
-                        );
-                    }
+                    self.relative(path, specifier, module, &mut push);
                 }
+            }
+            if load.form == Form::Dynamic {
+                let statics = if in_source {
+                    Some(&*statics.get_or_insert_with(|| closure(&self.edges, path)))
+                } else {
+                    None
+                };
+                self.dynamic(path, specifier, module, &targets, statics, &mut push);
             }
         }
 
+        self.hoisted(path, &hoisted, findings);
+        Ok(())
+    }
+
+    /// The `mock-target` finding of a mock call that names a module the source does not load.
+    fn mock(
+        &self,
+        path: &str,
+        call: &str,
+        specifier: &str,
+        module: &str,
+        push: &mut impl FnMut(&'static str, String),
+    ) -> gate_sdk::Result<()> {
+        if !self.loaded_under_the_form(module)? {
+            let fix = match self.model.kind_folder(module) {
+                Some(kind) => format!("name the kind barrel {kind}"),
+                None => "name the kind barrel or file that the source loads".to_owned(),
+            };
+            push(
+                "mock-target",
+                format!(
+                    "{path} names {specifier} in {call}, which no source file loads under the form; {fix}"
+                ),
+            );
+        }
+        Ok(())
+    }
+
+    /// The `resource-relative` finding of a relative load below the source root.
+    fn relative(
+        &self,
+        path: &str,
+        specifier: &str,
+        module: &str,
+        push: &mut impl FnMut(&'static str, String),
+    ) {
+        if is_relative(specifier)
+            && specifier.split('/').filter(|part| *part == "..").count() <= 1
+            && self.model.in_source(module)
+            && self.model.owner(module) == self.model.owner(path)
+        {
+            let own = self.model.resource(parent(path));
+            if own != self.model.resource(parent(module)) {
+                push(
+                    "resource-relative",
+                    format!(
+                        "{path} loads {specifier}, which leaves its resource {own}; use the owner alias"
+                    ),
+                );
+            }
+        }
+    }
+
+    /// The `dynamic-import` findings of an `import()`; `statics` is the importer's static closure,
+    /// given below the source root.
+    fn dynamic(
+        &self,
+        path: &str,
+        specifier: &str,
+        module: &str,
+        targets: &[Taken],
+        statics: Option<&HashSet<String>>,
+        push: &mut impl FnMut(&'static str, String),
+    ) {
+        let modules: BTreeSet<String> = targets
+            .iter()
+            .map(|taken| self.shown(taken.target.module()))
+            .collect();
+        if modules.len() > 1 {
+            push(
+                "dynamic-import",
+                format!(
+                    "{path} loads {specifier} with import(); its names come from {} modules ({}); use one import() per module",
+                    modules.len(),
+                    modules.into_iter().collect::<Vec<_>>().join(", ")
+                ),
+            );
+        }
+        if let Some(statics) = statics
+            && (statics.contains(module)
+                || targets
+                    .iter()
+                    .any(|taken| statics.contains(taken.declaring.as_str())))
+        {
+            push(
+                "dynamic-import",
+                format!(
+                    "{path} defers {specifier} with import() but already loads it statically; place the deferred module behind a barrel that {path} does not load statically"
+                ),
+            );
+        }
+    }
+
+    /// One `mock-target` finding per module that two or more hoisted mock calls of a file name.
+    fn hoisted(&self, path: &str, hoisted: &BTreeMap<&str, Vec<&Load>>, findings: &mut Findings) {
         for loads in hoisted.values() {
             if let [first, _, ..] = loads.as_slice() {
                 let call = match first.form {
@@ -439,7 +484,6 @@ impl<'c, 'a> Checker<'c, 'a> {
                 );
             }
         }
-        Ok(())
     }
 
     /// The `kind-barrel` and `own-kind-folder` findings of one load.
