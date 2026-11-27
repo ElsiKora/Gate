@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open (requested by the first consumer for two products; no date asked) |
+| Status | in progress (requested by the first consumer for two products; no date asked) |
 | Release | the next `nestjs` plugin release, with T-115 |
-| Writer | not assigned |
+| Writer | assigned, branch `task/T-114-nestjs-kind-imports` |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
 | Depends on | `main` at `faf776e` |
 | Touches | `plugins/nestjs/` (a new rule under `src/rules/`, its page, `src/lib.rs`, `CHANGELOG.md`, tests), the `barrel-exports` page, `languages/typescript/` only if code moves there to be shared, `docs/plan.md`, this task file |
@@ -76,4 +76,5 @@ is reused from `typescript/barrel-imports`, and where shared code lives.
 
 ## Resume point
 
-Not started.
+The design went to the lead (load extractor and export map in `languages/typescript`, the rule
+under `plugins/nestjs/src/rules/structure/kind_imports/`). Next: write code once the lead answers.
