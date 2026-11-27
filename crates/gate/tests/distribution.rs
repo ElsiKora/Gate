@@ -1769,6 +1769,61 @@ fn a_cache_restored_after_a_pin_moved_serves_only_what_the_new_lock_pins() {
         "the call's result is stored under the moved pin"
     );
 
+    // A prune it cannot do fails, saying what to do: a copy of the restored parts alone, without
+    // the tag `bin/gate` writes, may not be Gate's cache.
+    let untagged = restored(cache);
+    let output = repo.gate(
+        &["cache", "prune", "--yes"],
+        None,
+        &[("GATE_CACHE_DIR", path(untagged.path()))],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    assert!(
+        text(&output.stderr).contains("has no CACHEDIR.TAG")
+            && text(&output.stderr).contains("nothing was pruned"),
+        "{}",
+        text(&output.stderr)
+    );
+    assert!(
+        untagged
+            .path()
+            .join("blobs/sha256")
+            .join(&git_hash)
+            .exists(),
+        "the failed prune removed nothing"
+    );
+
+    // Before its save, the job prunes what the new lock no longer pins: the previous pin's
+    // download, declaration and results. What the lock pins and the compiled modules stay.
+    assert!(cache.join("declarations").join(&git_hash).is_dir());
+    assert!(cache.join("results").join(&git_hash).is_dir());
+    let output = repo.gate(
+        &["cache", "prune", "--yes"],
+        None,
+        &[("GATE_CACHE_DIR", path(cache))],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    for gone in [
+        cache.join("blobs/sha256").join(&git_hash),
+        cache.join("declarations").join(&git_hash),
+        cache.join("results").join(&git_hash),
+    ] {
+        assert!(!gone.exists(), "{} is pruned", gone.display());
+    }
+    for kept in [
+        cache.join("blobs/sha256").join(&moved_hash),
+        cache.join("blobs/sha256").join(&hello_hash),
+        cache.join("declarations").join(&moved_hash),
+        cache.join("declarations").join(&hello_hash),
+        cache.join("results").join(&moved_hash),
+    ] {
+        assert!(kept.exists(), "{} is kept", kept.display());
+    }
+    assert!(
+        !files(&cache.join("modules")).is_empty(),
+        "the compiled modules are kept"
+    );
+
     // The next job, restoring what that one saved, answers the call from the new result.
     let next = restored(cache);
     let output = repo.gate(

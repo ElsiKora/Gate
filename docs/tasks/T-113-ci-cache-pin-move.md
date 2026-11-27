@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open (backlog; reported by the first consumer, no date asked) |
+| Status | in progress (branch `task/T-113-ci-cache-pin-move`) |
 | Release | the next core release |
-| Writer | not assigned |
+| Writer | the T-113 writer session |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
 | Depends on | `main` at `b7a271a` |
 | Touches | `crates/gate-host/src/sync/github.rs` (the cache steps of the generated workflow), its tests, `docs/guide/` where the CI cache is described, `CHANGELOG.md`, `docs/plan.md`, this task file |
@@ -58,6 +58,35 @@ lock hash differently and sends the lead the choice before writing code.
 - `bin/gate sync` on this repository writes nothing: it has no `cache`.
 - All cargo runs go through the lane.
 
+## Design (sent to the lead before the code)
+
+- The consumer's third key, `gate/<os>/<arch>/<job>/`, added after the two keys we had, would match
+  nothing: every saved key has the lock hash in the third part. So the job comes before the lock
+  hash. Key: `gate/<os>/<arch>/<job>/<lock hash>/<sha>`. Restore keys, in order:
+  `gate/<os>/<arch>/<job>/<lock hash>/` (same job, same lock), `gate/<os>/<arch>/<job>/` (same job,
+  any lock: the fix), `gate/<os>/<arch>/` (any job, any lock: a new job's first run). The earlier
+  fallback, any job under the same lock, can no longer be written as a prefix.
+- The save condition is unchanged. `cache-hit` is true only when the primary key matches exactly,
+  so a job that restored an entry saved under another lock saves under the current one.
+- The places a stale entry is never trusted:
+  - `plugins.rs`: `declared()` takes each sha256 from `gate.lock`. `fetch_components()` gets the
+    blob through `Cache::get(&pin.sha256)`, which hashes the file again, then hashes the bytes again
+    before they load.
+  - `usable_declaration()` reads `declarations/<pin sha256>/<core key>`.
+  - `results::key()` hashes the core version, the pin's sha256, the request and the grant.
+    `results::load()` reads only `results/<pin sha256>/../<key>`.
+- The lead accepted all five points of the design (2026-11-27). The lead also asked for:
+  - a generator test with two jobs where one id is a prefix of the other (`lint` and `lint-x`);
+  - the three trust checks stated on the guide page;
+  - the prune step below.
+- The lead's decision on outcome 4: "nothing else in the generated workflow changes" now carries one
+  more step. With `cache = true` only, each job runs `bin/gate cache prune --yes` right before the
+  save, under exactly the save's condition. The prune removes the downloads, declarations and
+  results of pins the current `gate.lock` no longer names. A restored entry would otherwise carry
+  every earlier pin forward. `modules/` is kept. A cache the prune cannot read fails the step, with
+  its message: for example, a cache without `CACHEDIR.TAG`, which `bin/gate` always writes.
+
 ## Resume point
 
-Not started.
+The keys, the prune step, their tests and the guide are on `task/T-113-ci-cache-pin-move`.
+Next: clippy, then the full lane round, then report the head and each exit code to the lead.

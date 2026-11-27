@@ -3099,10 +3099,15 @@ const CACHE_KEY: &str = "gate/${{ runner.os }}/${{ runner.arch }}/";
 /// The part of a key after the job: the hash of `gate.lock`.
 const CACHE_LOCK: &str = "${{ hashFiles('gate.lock') }}/";
 
-/// The save step of a job whose last `bin/gate` step has the id `last`.
+/// The prune and save steps of a job whose last `bin/gate` step has the id `last`, both under
+/// the same condition: the prune removes what the current `gate.lock` no longer pins, right
+/// before the save.
 fn cache_save_step(last: &str) -> String {
+    let condition = format!(
+        "${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.gate-cache.outputs.cache-hit != 'true' }}}}"
+    );
     format!(
-        "      - name: Save the Gate cache\n        if: ${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.gate-cache.outputs.cache-hit != 'true' }}}}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
+        "      - name: Prune the Gate cache\n        if: {condition}\n        run: bin/gate cache prune --yes\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n{CACHE_ENV}          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Save the Gate cache\n        if: {condition}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
     )
 }
 
@@ -3117,16 +3122,16 @@ fn last_step(id: &str) -> &'static str {
 
 /// `workflow` without what `cache = true` adds to the jobs `ids`.
 fn uncached(workflow: &str, ids: &[&str]) -> String {
-    let mut stripped = workflow.replace(CACHE_ENV, "").replace(
-        "      - id: gate-run\n        name: gate ",
-        "      - name: gate ",
-    );
+    let mut stripped = workflow.to_owned();
     for id in ids {
         stripped = stripped
             .replace(&cache_restore_step(id), "")
             .replace(&cache_save_step(last_step(id)), "");
     }
-    stripped
+    stripped.replace(CACHE_ENV, "").replace(
+        "      - id: gate-run\n        name: gate ",
+        "      - name: gate ",
+    )
 }
 
 #[test]
@@ -3185,9 +3190,17 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
         assert!(!workflow.contains(never), "{never}: {workflow}");
     }
 
-    // Every bin/gate step, and no other, gets GATE_CACHE_DIR, between the branch and the token.
+    // Every bin/gate step, and no other, gets GATE_CACHE_DIR, between the branch and the token:
+    // the five gate commands and the four jobs' prunes.
     let runs = workflow.matches("        run: bin/gate ").count();
-    assert_eq!(runs, 5, "{workflow}");
+    assert_eq!(runs, 9, "{workflow}");
+    assert_eq!(
+        workflow
+            .matches("        run: bin/gate cache prune --yes\n")
+            .count(),
+        4,
+        "{workflow}"
+    );
     assert_eq!(
         workflow
             .matches(&format!(
@@ -3221,7 +3234,11 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
     assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
     repo.write(
         ".github/workflows/gate.yml",
-        &workflow.replacen("/check/${{ github.sha }}", "/check/", 1),
+        &workflow.replacen(
+            "/${{ github.sha }}\n          restore-keys:",
+            "/\n          restore-keys:",
+            1,
+        ),
     );
     let output = repo.gate(&["sync", "--check"]);
     assert_eq!(output.status.code(), Some(1), "{}", stdout(&output));
@@ -3230,6 +3247,58 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
         "{}",
         stdout(&output)
     );
+}
+
+#[test]
+fn no_restore_key_of_a_cached_job_matches_the_entries_of_a_job_whose_id_it_starts() {
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &format!(
+            r#"[gate]
+version = "{VERSION}"
+
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+checkout = "actions/checkout@{ACTION} # v4.2.2"
+aggregate = "gate-passed"
+cache = true
+
+[ci.github.jobs.lint]
+name = "Lint"
+timeout-minutes = 10
+run = ["check"]
+
+[ci.github.jobs.lint-x]
+name = "Lint more"
+timeout-minutes = 10
+run = ["check"]
+"#
+        ),
+    );
+    repo.commit("configure");
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+    let (lint, other) = (job(&workflow, "lint"), job(&workflow, "lint-x"));
+    assert!(lint.contains(&cache_restore_step("lint")), "{lint}");
+    assert!(other.contains(&cache_restore_step("lint-x")), "{other}");
+
+    // The key every entry of lint-x is saved under, as the restore step of lint-x names it.
+    let saved = format!("{CACHE_KEY}lint-x/{CACHE_LOCK}${{{{ github.sha }}}}");
+    // Every restore key of lint that names a job ends that job's id with `/`, so none is a prefix
+    // of a key of lint-x; only the last, which names no job, matches any job's entries.
+    let restore_keys = [
+        format!("{CACHE_KEY}lint/{CACHE_LOCK}"),
+        format!("{CACHE_KEY}lint/"),
+    ];
+    for key in &restore_keys {
+        assert!(!saved.starts_with(key.as_str()), "{key} matches {saved}");
+        assert!(
+            format!("{CACHE_KEY}lint/{CACHE_LOCK}${{{{ github.sha }}}}").starts_with(key.as_str()),
+            "{key} matches the entries of lint"
+        );
+    }
 }
 
 #[test]

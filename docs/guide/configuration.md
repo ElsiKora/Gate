@@ -810,8 +810,9 @@ plugins. Actions and other steps get neither, and a `[steps]` command gets no `G
 Without `cache`, every generated job starts on an empty Gate cache: it downloads the core and the
 plugins, compiles the plugins and runs every rule again. `cache = true` keeps the cache between runs.
 Each job that runs `bin/gate` (`changes` and each job of `[ci.github.jobs]`; not the aggregate job)
-restores it right after the checkout, with `actions/cache/restore`, and saves it as its last step,
-with `actions/cache/save`, both pinned by commit:
+restores it right after the checkout, with `actions/cache/restore`, and ends with two steps: it prunes
+it with `bin/gate cache prune --yes`, then saves it with `actions/cache/save`. Both actions are pinned
+by commit:
 
 ```yaml
 - id: gate-cache
@@ -829,27 +830,35 @@ finds there only what it restored. A GitHub cache entry never changes once saved
 commit saves its own; a job restores the entry of its commit (a rerun), else the newest of the same job
 under the same `gate.lock`, else the newest of the same job under any `gate.lock`, else the newest of
 any job; the runner's OS and architecture keep the entries of different runners apart. So a move of a
-pin does not start the job cold: it restores the entry saved under the previous lock, fetches the
-plugin whose pin moved and runs its rules again, and takes every other plugin, compiled module and
-result from the entry. Nothing in an entry is keyed by `gate.lock` itself: a download is found by the
-sha256 the current `gate.lock` pins and hashed again when it is read; a plugin's declaration and its
-results are found by that sha256 and the core's version. What was stored for a pin that moved is never
-looked up. The save step runs after a red check too, whose results are as valid as a green one's, but
-not in a cancelled run or a job that timed out, not when the job's last `bin/gate` step never ran (a
-step before it failed), and not when the restore step found the commit's own entry. An entry found by
-a restore key, one saved under another `gate.lock` among them, is not the commit's own, so the job saves
-under the current lock and the next run starts from that. The job's last `bin/gate` step
-gets the id `gate-run` for that condition (`changes` in the `changes` job). Each entry counts against the
+pin does not start the job cold. The job restores the entry saved under the previous lock, fetches the
+plugin whose pin moved, and runs that plugin's rules again. Every other plugin, compiled module and
+result comes from the entry. A restored entry is trusted only by its own keys. A plugin's bytes are
+found by the sha256 that the current `gate.lock` pins, and are hashed again before they load. Its
+declaration and its results are found by that sha256 and by the core's version. So nothing stored for
+a pin that moved is ever looked up.
+
+The prune and save steps run after a red check too, because its results are as valid as a green
+one's. They do not run in a cancelled run or a job that timed out, or when the job's last `bin/gate`
+step never ran (a step before it failed). They also do not run when the restore step found the
+commit's own entry. An entry found by a restore key is not the commit's own, including one saved
+under another `gate.lock`, so the job saves under the current lock and the next run starts from that.
+
+The prune removes the downloads, declarations and results of plugins the current `gate.lock` no
+longer pins. Without it, an entry would carry every earlier pin forward. It keeps `modules/`, whose
+files do not say which plugin they came from. A cache it cannot prune fails the step and says why.
+
+The job's last `bin/gate` step gets the id `gate-run` for the condition of the prune and the save
+(`changes` in the `changes` job). Each entry counts against the
 repository's GitHub cache limit (10 GB by default), where GitHub evicts the least recently used entries
-and those unused for 7 days, including other caches of the repository. Gate never prunes the CI cache:
-`gate cache prune` runs on a machine's cache, not on GitHub's entries.
+and those unused for 7 days, including other caches of the repository. Gate never deletes GitHub's
+entries: the prune works on the job's own copy of the cache, before the save.
 
 Each job restores the newest entry and saves what it leaves under the next commit's key, so an entry
 that went bad (a broken compiled module, a wrong git answer) is carried forward, also across a change
 to `gate.lock`, and a rerun of the commit finds its own entry and saves nothing. For the same reason an
-entry keeps the downloads, modules and results of pins that have moved on. To clear it, delete the
-job's entries, on the default branch as well as on the branch, since every branch reads the default
-branch's:
+entry keeps the compiled modules of pins that have moved on. Deleting the job's entries is the only
+way to clear a bad entry. Delete them on the default branch as well as on the branch, since every
+branch reads the default branch's:
 
 ```bash
 gh cache list --key gate/ --ref refs/heads/main
