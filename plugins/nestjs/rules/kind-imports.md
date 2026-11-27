@@ -170,6 +170,7 @@ barrel outside it. Inside the roots this rule decides which module a file names,
 which `typescript/barrel-imports` checks with its default options, are then checked by neither rule:
 
 - a name a barrel does not export, `#not-exported`: `import { hidden } from "@modules/domain/shelf/function"`;
+  `tsc` reports such an import as an error;
 - a side-effect import past a barrel: `import "@modules/domain/book/book.service"`;
 - a load past a barrel that takes only a default export or a name behind `export =`;
 - an importer that is not a `.ts` file (`.tsx`, `.mts`, `.cts`);
@@ -177,6 +178,9 @@ which `typescript/barrel-imports` checks with its default options, are then chec
   name;
 - a load from below the test root of a file below the test root, past a barrel of a test helper
   folder.
+
+A repository that needs any of these checks keeps the default options of
+`typescript/barrel-imports` in the projects where `nestjs/kind-imports` is not on.
 
 ## Options
 
