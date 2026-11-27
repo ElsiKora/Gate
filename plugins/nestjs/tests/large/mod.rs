@@ -70,7 +70,7 @@ impl Host for Counted {
 
 /// The rules that run with their default options on the synthetic tree; the other declared rules
 /// need options and fail without them.
-pub const RUNNING_RULES: usize = 30;
+pub const RUNNING_RULES: usize = 31;
 
 /// The rules of the plugin that run with their default options, by name: [`RUNNING_RULES`] of
 /// them, or the call panics naming the rules that fail.

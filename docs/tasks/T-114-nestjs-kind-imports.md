@@ -76,5 +76,9 @@ is reused from `typescript/barrel-imports`, and where shared code lives.
 
 ## Resume point
 
-The design went to the lead (load extractor and export map in `languages/typescript`, the rule
-under `plugins/nestjs/src/rules/structure/kind_imports/`). Next: write code once the lead answers.
+The lead accepted the design, with a seventh option `hoisted-mock-calls` and the skip of an
+entity's enum files through `entity-folder` and `enum-kind`. Written: `gate_typescript::loads` and
+`gate_typescript::exports`, with `typescript/barrel-imports` moved onto them; the rule under
+`plugins/nestjs/src/rules/structure/kind_imports/`, its page, its tests and the CHANGELOG lines.
+Next: get the tests green through the lane, then run both import rules on the synthetic trees and
+write the page's section on `typescript/barrel-imports`.

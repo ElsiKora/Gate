@@ -3,6 +3,18 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
+## Unreleased
+
+### Features
+
+- `kind-imports`, a new rule in no preset: every source and test file loads each declaration from
+  the barrel of the kind folder that declares it, or from its file when it sits in no kind folder,
+  in the importer's own kind folder, or behind no barrel. Aspects `kind-barrel`, `own-kind-folder`,
+  `resource-relative`, `index-segment`, `dynamic-import` and `mock-target`; options `kinds`,
+  `barrel-name`, `internal-folder`, `registry`, `registry-import`, `mock-calls`,
+  `hoisted-mock-calls`, `entity-folder` and `enum-kind`. Its page says how it relates to
+  `barrel-exports`, `import-aliases`, `migrations` and `typescript/barrel-imports`.
+
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.1...plugin-nestjs-v0.3.2) (2026-11-24)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core.

@@ -4,8 +4,10 @@ Source folders expose re-export-only barrels without private entrypoints.
 
 ## What it checks and why
 
-A folder's barrel is its public surface: an importer names the folder, not a file inside it. A folder
-without a barrel, or a barrel that misses a file, makes importers reach past it; a barrel that holds code
+A folder's barrel is its public surface. Which module an importer names is
+[`nestjs/kind-imports`](kind-imports.md): the barrel of a kind folder for the declarations in it, and
+the file itself for a file in no kind folder. A folder without a barrel, or a barrel that misses a
+file, leaves an importer of the kind folder nothing to name but the file; a barrel that holds code
 hides an owner in a file named for something else; a wildcard re-export of anything but a child folder
 exposes more than the folder owns; and a barrel that re-exports a runtime's start file pulls a whole
 application into whoever imports the folder.

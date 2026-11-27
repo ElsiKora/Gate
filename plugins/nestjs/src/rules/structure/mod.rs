@@ -15,6 +15,7 @@ pub mod error_logging;
 pub mod error_string_shim;
 pub mod field_inventory;
 pub mod import_direction;
+pub mod kind_imports;
 pub mod notification_egress;
 pub mod package_pins;
 pub mod raw_config_access;
@@ -43,6 +44,7 @@ macro_rules! structure_rules {
                 $crate::rules::structure::error_string_shim::ErrorStringShim,
                 $crate::rules::structure::field_inventory::FieldInventory,
                 $crate::rules::structure::import_direction::ImportDirection,
+                $crate::rules::structure::kind_imports::KindImports,
                 $crate::rules::structure::notification_egress::NotificationEgress,
                 $crate::rules::structure::package_pins::PackagePins,
                 $crate::rules::structure::raw_config_access::RawConfigAccess,
