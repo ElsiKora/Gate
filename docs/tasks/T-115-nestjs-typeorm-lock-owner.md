@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | open (requested by the first consumer for two products; no date asked) |
 | Release | the next `nestjs` plugin release, with T-114 |
-| Writer | not assigned |
+| Writer | assigned (branch `task/T-115-nestjs-typeorm-lock-owner`) |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
 | Depends on | `main` at `faf776e` |
 | Touches | `plugins/nestjs/` (a new rule under `src/rules/semantics/typeorm_lock_owner/`, its page, `src/lib.rs`, `CHANGELOG.md`, tests), `docs/plan.md`, this task file |
@@ -82,4 +82,4 @@ negatives the page will list.
 
 ## Resume point
 
-Not started.
+The design is sent to the lead (2026-11-27). No rule code is written until it answers.
