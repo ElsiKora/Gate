@@ -3084,15 +3084,20 @@ const CACHE_RESTORE: &str =
 const CACHE_SAVE: &str = "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0";
 const CACHE_ENV: &str = "          GATE_CACHE_DIR: ${{ runner.temp }}/gate-cache\n";
 
-/// The restore step of the job `id`.
+/// The restore step of the job `id`. Its restore keys, in order: the job under the same
+/// `gate.lock`, the job under any lock (a moved pin starts warm), any job. No key but the first
+/// carries the lock's hash.
 fn cache_restore_step(id: &str) -> String {
     format!(
-        "      - id: gate-cache\n        name: Restore the Gate cache\n        uses: {CACHE_RESTORE}\n        with:\n          path: {CACHE_PATH}\n          key: {CACHE_KEY}{id}/${{{{ github.sha }}}}\n          restore-keys: \"{CACHE_KEY}{id}/\\n{CACHE_KEY}\"\n"
+        "      - id: gate-cache\n        name: Restore the Gate cache\n        uses: {CACHE_RESTORE}\n        with:\n          path: {CACHE_PATH}\n          key: {CACHE_KEY}{id}/{CACHE_LOCK}${{{{ github.sha }}}}\n          restore-keys: \"{CACHE_KEY}{id}/{CACHE_LOCK}\\n{CACHE_KEY}{id}/\\n{CACHE_KEY}\"\n"
     )
 }
 
-/// The start of every key: the runner's OS and architecture and the hash of `gate.lock`.
-const CACHE_KEY: &str = "gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/";
+/// The start of every key: the runner's OS and architecture.
+const CACHE_KEY: &str = "gate/${{ runner.os }}/${{ runner.arch }}/";
+
+/// The part of a key after the job: the hash of `gate.lock`.
+const CACHE_LOCK: &str = "${{ hashFiles('gate.lock') }}/";
 
 /// The save step of a job whose last `bin/gate` step has the id `last`.
 fn cache_save_step(last: &str) -> String {
@@ -3151,6 +3156,17 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
             text.matches("uses: actions/cache/").count(),
             2,
             "{id}: {text}"
+        );
+        // A move of a pin changes the key and the first restore key only: the job's own entries
+        // under any lock still match the second.
+        assert_eq!(
+            text.matches("hashFiles('gate.lock')").count(),
+            2,
+            "{id}: {text}"
+        );
+        assert!(
+            text.contains(&format!("\\n{CACHE_KEY}{id}/\\n{CACHE_KEY}\"\n")),
+            "{id}: the job's entries under any lock, then any job's: {text}"
         );
     }
     // The aggregate job runs no bin/gate and touches no cache.

@@ -1635,6 +1635,157 @@ fn a_tampered_plugin_in_a_restored_cache_is_never_run() {
     server.stop();
 }
 
+/// The hello example plugin built from this tree, as a second plugin a lock pins.
+fn hello_component() -> Vec<u8> {
+    built::component("gate-plugin-hello", "gate_plugin_hello", "")
+        .1
+        .clone()
+}
+
+/// The paths the server was asked for, from the `from`th request on.
+fn asked_since(server: &Server, from: usize) -> Vec<String> {
+    server
+        .requests()
+        .into_iter()
+        .skip(from)
+        .map(|request| request.path)
+        .collect()
+}
+
+#[test]
+fn a_cache_restored_after_a_pin_moved_serves_only_what_the_new_lock_pins() {
+    let server = Server::start();
+    let git = git_component();
+    // Another build of the git plugin: the same component with one more custom section, so other
+    // bytes under another sha256, as a release moves the pin.
+    let mut moved = git.clone();
+    moved.extend_from_slice(&[0, 6, 5]);
+    moved.extend_from_slice(b"moved");
+    let hello = hello_component();
+    let (git_hash, moved_hash, hello_hash) = (sha256(&git), sha256(&moved), sha256(&hello));
+    let git_route = format!("/acme/releases/download/plugin-git-v{VERSION}/git.wasm");
+    let moved_route = "/acme/releases/download/plugin-git-moved/git.wasm";
+    let hello_route = "/acme/releases/download/plugin-hello-v0.1.0/hello.wasm";
+    server.serve(&git_route, git.clone());
+    server.serve(moved_route, moved.clone());
+    server.serve(hello_route, hello.clone());
+
+    let git_source = format!("ElsiKora/Gate:git@{VERSION}");
+    let hello_source = "acme/rules:hello@0.1.0";
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &format!(
+            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ngit = {{ source = \"{git_source}\", options = {{ main = [\"refs/heads/main\"] }} }}\nhello = {{ source = \"{hello_source}\" }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n"
+        ),
+    )
+    .write(
+        "gate.lock",
+        &pinned(&[(&git_source, 'b'), (hello_source, 'c')])
+            .replace("https://example.invalid/b.wasm", &server.url(&git_route))
+            .replace(&"b".repeat(64), &git_hash)
+            .replace("https://example.invalid/c.wasm", &server.url(hello_route))
+            .replace(&"c".repeat(64), &hello_hash),
+    );
+    repo.commit();
+    let passed = |output: &Output| {
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}{}",
+            text(&output.stdout),
+            text(&output.stderr)
+        );
+        assert!(
+            text(&output.stdout).contains("gate check (tree): 1 rule, 0 errors"),
+            "{}",
+            text(&output.stdout)
+        );
+    };
+
+    // A job under the first lock fills the cache: both plugins, the git plugin's compiled module,
+    // declarations and its call's result.
+    let output = repo.gate(&["check"], None, &[]);
+    passed(&output);
+    assert_eq!(asked_since(&server, 0).len(), 2, "{:?}", server.requests());
+
+    // A later job under the same lock restores it and answers the call from the stored result.
+    let same = restored(repo.cache.path());
+    let output = repo.gate(
+        &["check", "--timings"],
+        None,
+        &[("GATE_CACHE_DIR", path(same.path()))],
+    );
+    passed(&output);
+    assert!(
+        text(&output.stderr).contains("timings: load: not loaded, every call cached: git\n"),
+        "{}",
+        text(&output.stderr)
+    );
+    assert_eq!(asked_since(&server, 2), Vec::<String>::new());
+
+    // The git pin moves; the hello pin stays. A job restores the entry saved under the first lock.
+    repo.write(
+        "gate.lock",
+        &repo
+            .read("gate.lock")
+            .replace(&server.url(&git_route), &server.url(moved_route))
+            .replace(&git_hash, &moved_hash),
+    );
+    let restored_cache = restored(repo.cache.path());
+    let cache = restored_cache.path();
+    // The previous pin's download is no longer anything the lock names: it is never read, so even
+    // a changed one is neither run nor removed.
+    let previous = cache.join("blobs/sha256").join(&git_hash);
+    std::fs::write(&previous, b"\0asm not the previous build").expect("change the previous blob");
+    let output = repo.gate(
+        &["check", "--timings"],
+        None,
+        &[("GATE_CACHE_DIR", path(cache))],
+    );
+    passed(&output);
+    let stderr = text(&output.stderr);
+    // The moved plugin is fetched and loads; the unmoved one comes from the restored cache.
+    assert_eq!(asked_since(&server, 2), vec![moved_route.to_owned()]);
+    assert_eq!(
+        std::fs::read(cache.join("blobs/sha256").join(&moved_hash)).expect("the moved blob"),
+        moved
+    );
+    assert_eq!(
+        std::fs::read(cache.join("blobs/sha256").join(&hello_hash)).expect("the hello blob"),
+        hello
+    );
+    assert_eq!(
+        std::fs::read(&previous).expect("the previous blob"),
+        b"\0asm not the previous build",
+        "the previous pin's download was not read"
+    );
+    // No result stored under the first lock answers the moved plugin's call: it runs, and its
+    // result is stored under the new pin.
+    assert!(stderr.contains("timings: load git: module "), "{stderr}");
+    assert!(!stderr.contains("every call cached"), "{stderr}");
+    assert!(
+        cache.join("results").join(&moved_hash).is_dir(),
+        "the call's result is stored under the moved pin"
+    );
+
+    // The next job, restoring what that one saved, answers the call from the new result.
+    let next = restored(cache);
+    let output = repo.gate(
+        &["check", "--timings"],
+        None,
+        &[("GATE_CACHE_DIR", path(next.path()))],
+    );
+    passed(&output);
+    assert!(
+        text(&output.stderr).contains("timings: load: not loaded, every call cached: git\n"),
+        "{}",
+        text(&output.stderr)
+    );
+    assert_eq!(asked_since(&server, 3), Vec::<String>::new());
+    server.stop();
+}
+
 #[test]
 fn a_pin_whose_blob_is_missing_and_cannot_be_downloaded_fails_closed_and_says_what_to_do() {
     let server = Server::start();

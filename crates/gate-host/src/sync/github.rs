@@ -84,8 +84,11 @@ const LAST_GATE_STEP_ID: &str = "gate-run";
 
 /// The start of every key of the Gate cache: `/` separates the parts, since no job id holds one.
 /// The architecture keeps an x86 and an Arm runner of one OS apart.
-const CACHE_KEY_PREFIX: &str =
-    "gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/";
+const CACHE_KEY_PREFIX: &str = "gate/${{ runner.os }}/${{ runner.arch }}/";
+
+/// The part of a key after the job: the hash of `gate.lock`. It comes after the job, so that one
+/// restore key can match the job's entries under any lock.
+const CACHE_KEY_LOCK: &str = "${{ hashFiles('gate.lock') }}/";
 
 /// The token a `bin/gate` step reads private plugin releases with: the repository secret
 /// `GATE_GITHUB_TOKEN` when it is set, else the job's own token. Only `bin/gate` steps get it; other
@@ -239,17 +242,21 @@ pub fn cache_paths() -> String {
 }
 
 /// The step that restores the Gate cache of the job `id`: the entry of this commit, else the newest
-/// of the job under the same `gate.lock`, else the newest of any job under it. Every entry restored
-/// was written under the same core archive and plugins, so a stale part is unused, never wrong.
+/// of the job under the same `gate.lock`, else the newest of the job under any lock, so that a move
+/// of a pin starts warm, else the newest of any job. A restored part is keyed by what produced it:
+/// a plugin's download by its sha256, which the run takes from the current `gate.lock` and hashes
+/// again on every read; its declaration and results by that sha256 and the core's version. A part
+/// written for a pin that moved is never looked up, so it is unused, never wrong.
 fn cache_restore(id: &str) -> Value {
+    let job = format!("{CACHE_KEY_PREFIX}{id}/");
     json!({
         "id": CACHE_STEP_ID,
         "name": "Restore the Gate cache",
         "uses": CACHE_RESTORE,
         "with": {
             "path": cache_paths(),
-            "key": format!("{CACHE_KEY_PREFIX}{id}/${{{{ github.sha }}}}"),
-            "restore-keys": format!("{CACHE_KEY_PREFIX}{id}/\n{CACHE_KEY_PREFIX}"),
+            "key": format!("{job}{CACHE_KEY_LOCK}${{{{ github.sha }}}}"),
+            "restore-keys": format!("{job}{CACHE_KEY_LOCK}\n{job}\n{CACHE_KEY_PREFIX}"),
         },
     })
 }
@@ -258,7 +265,9 @@ fn cache_restore(id: &str) -> Value {
 /// after a red check, whose results are as valid as a green one's; not when the run was cancelled
 /// or the job timed out, not when the job's last `bin/gate` step (`last`, its step id) never ran,
 /// so that a job that failed before it saves nothing a rerun would then find under this commit's
-/// key, and not when the restore step found this very key (a rerun).
+/// key, and not when the restore step found this very key (a rerun). An entry found by a restore
+/// key, one saved under another `gate.lock` among them, is no hit, so the job saves under the
+/// current lock and the next run starts from that.
 fn cache_save(last: &str) -> Value {
     json!({
         "name": "Save the Gate cache",

@@ -819,37 +819,42 @@ with `actions/cache/save`, both pinned by commit:
   uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
   with:
     path: "${{ runner.temp }}/gate-cache/blobs\n${{ runner.temp }}/gate-cache/modules\n${{ runner.temp }}/gate-cache/results\n${{ runner.temp }}/gate-cache/declarations\n${{ runner.temp }}/gate-cache/git"
-    key: gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/check/${{ github.sha }}
-    restore-keys: "gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/check/\ngate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/"
+    key: gate/${{ runner.os }}/${{ runner.arch }}/check/${{ hashFiles('gate.lock') }}/${{ github.sha }}
+    restore-keys: "gate/${{ runner.os }}/${{ runner.arch }}/check/${{ hashFiles('gate.lock') }}/\ngate/${{ runner.os }}/${{ runner.arch }}/check/\ngate/${{ runner.os }}/${{ runner.arch }}/"
 ```
 
 The cache is `${{ runner.temp }}/gate-cache`, which each `bin/gate` step gets as `GATE_CACHE_DIR`;
 GitHub empties `runner.temp` at the start and end of every job, also on a self-hosted runner, so a job
 finds there only what it restored. A GitHub cache entry never changes once saved, so each job and
 commit saves its own; a job restores the entry of its commit (a rerun), else the newest of the same job
-under the same `gate.lock`, else the newest of any job under it. Every entry it can restore was saved
-under the same `gate.lock`, so by the same core and the same plugins; a change to `gate.lock` starts one
-cold run per job; the runner's OS and architecture keep the entries of different runners apart. The
-save step runs after a red check too, whose results are as valid as a green one's, but not in a
-cancelled run or a job that timed out, not when the job's last `bin/gate` step never ran (a step before
-it failed), and not when the restore step found the commit's own entry. The job's last `bin/gate` step
+under the same `gate.lock`, else the newest of the same job under any `gate.lock`, else the newest of
+any job; the runner's OS and architecture keep the entries of different runners apart. So a move of a
+pin does not start the job cold: it restores the entry saved under the previous lock, fetches the
+plugin whose pin moved and runs its rules again, and takes every other plugin, compiled module and
+result from the entry. Nothing in an entry is keyed by `gate.lock` itself: a download is found by the
+sha256 the current `gate.lock` pins and hashed again when it is read; a plugin's declaration and its
+results are found by that sha256 and the core's version. What was stored for a pin that moved is never
+looked up. The save step runs after a red check too, whose results are as valid as a green one's, but
+not in a cancelled run or a job that timed out, not when the job's last `bin/gate` step never ran (a
+step before it failed), and not when the restore step found the commit's own entry. An entry found by
+a restore key, one saved under another `gate.lock` among them, is not the commit's own, so the job saves
+under the current lock and the next run starts from that. The job's last `bin/gate` step
 gets the id `gate-run` for that condition (`changes` in the `changes` job). Each entry counts against the
 repository's GitHub cache limit (10 GB by default), where GitHub evicts the least recently used entries
 and those unused for 7 days, including other caches of the repository. Gate never prunes the CI cache:
 `gate cache prune` runs on a machine's cache, not on GitHub's entries.
 
 Each job restores the newest entry and saves what it leaves under the next commit's key, so an entry
-that went bad (a broken compiled module, a wrong git answer) is carried forward until `gate.lock`
-changes, and a rerun of the commit finds its own entry and saves nothing. To clear it, delete the job's
-entries, on the default branch as well as on the branch, since every branch reads the default
+that went bad (a broken compiled module, a wrong git answer) is carried forward, also across a change
+to `gate.lock`, and a rerun of the commit finds its own entry and saves nothing. For the same reason an
+entry keeps the downloads, modules and results of pins that have moved on. To clear it, delete the
+job's entries, on the default branch as well as on the branch, since every branch reads the default
 branch's:
 
 ```bash
 gh cache list --key gate/ --ref refs/heads/main
 gh cache delete <id>
 ```
-
-or change `gate.lock`, which no entry saved before matches.
 
 What is kept, and what is never trusted:
 
