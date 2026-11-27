@@ -136,19 +136,25 @@ A checked load, mock calls and direct-child re-exports included, whose specifier
 
 `typescript/barrel-imports` asks for another form: a file is loaded from outside the outermost
 folder that holds it and has a barrel through that barrel, and only for the names the barrel exports.
-With its default options the two rules disagree on four kinds of load:
+With its default options the two rules disagree on four kinds of load inside the roots:
 
-- a resource barrel above a kind folder: `typescript/barrel-imports` asks for the resource barrel
-  (`@modules/book`), this rule for the kind barrel (`@modules/book/function`);
-- a file in no kind folder whose folder, or a folder above it, has a barrel: the barrel against the
-  file (`@modules/book/book.service`);
-- a private file of a kind folder below a barrel: the barrel against the file;
-- a file in an `internal` child of a kind folder: the kind barrel, which leaves the child out,
-  against the internal barrel.
+- a resource barrel above a kind folder: for `src/modules/domain/author/service.ts` loading
+  `@modules/domain/book/function`, it asks for `@modules/domain/book`, this rule for the kind barrel;
+- a file in no kind folder below a barrel: for `src/runtime/a.ts` loading
+  `@infrastructure/storage/snapshot/snapshot.service`, it asks for the barrel
+  `@infrastructure/storage/snapshot`, this rule for the file;
+- a private file of a kind folder below a barrel: for `src/runtime/c.ts` loading
+  `@infrastructure/storage/snapshot/function/seed.function`, which no barrel re-exports, it asks for
+  the barrel, this rule for the file;
+- a file in an `internal` child of a kind folder: for `src/runtime/a.ts` loading
+  `@common/function/internal`, it asks for the kind barrel `@common/function`, which leaves the child
+  out, this rule for the internal barrel.
 
 The only exemption of `typescript/barrel-imports` is an owner folder that holds the importer, and a
 load across top-level owners has no common folder below the source root. So the two rules agree only
-when the source root is that owner and the test root is exempt:
+when the source root is that owner and the test root is exempt. When both rules are on, set the
+options of `typescript/barrel-imports` to the project's `layout.source-root` and `layout.test-root`;
+with the default roots:
 
 ```toml
 [rules]
@@ -156,10 +162,21 @@ when the source root is that owner and the test root is exempt:
 "typescript/barrel-imports" = { level = "error", options = { owners = ["src"], exempt = ["test/**"] } }
 ```
 
-Write the project's `layout.source-root` for `src` and `layout.test-root` for `test`. With these
-options `typescript/barrel-imports` checks the importers outside both roots, such as scripts and root
-configuration files, which this rule does not read. Inside the roots, this rule decides which module
-a file names.
+The snippet is needed only when both rules are on; either rule alone keeps its own options.
+
+With these options `typescript/barrel-imports` checks the importers outside both roots, such as
+scripts and root configuration files, and a load from below the source root into a folder with a
+barrel outside it. Inside the roots this rule decides which module a file names, and these loads,
+which `typescript/barrel-imports` checks with its default options, are then checked by neither rule:
+
+- a name a barrel does not export, `#not-exported`: `import { hidden } from "@modules/domain/shelf/function"`;
+- a side-effect import past a barrel: `import "@modules/domain/book/book.service"`;
+- a load past a barrel that takes only a default export or a name behind `export =`;
+- an importer that is not a `.ts` file (`.tsx`, `.mts`, `.cts`);
+- a specifier that only the tsconfig `paths` resolve, through an alias `layout.path-aliases` does not
+  name;
+- a load from below the test root of a file below the test root, past a barrel of a test helper
+  folder.
 
 ## Options
 

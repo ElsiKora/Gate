@@ -80,5 +80,13 @@ The lead accepted the design, with a seventh option `hoisted-mock-calls` and the
 entity's enum files through `entity-folder` and `enum-kind`. Written: `gate_typescript::loads` and
 `gate_typescript::exports`, with `typescript/barrel-imports` moved onto them; the rule under
 `plugins/nestjs/src/rules/structure/kind_imports/`, its page, its tests and the CHANGELOG lines.
-Next: get the tests green through the lane, then run both import rules on the synthetic trees and
-write the page's section on `typescript/barrel-imports`.
+
+Both import rules were run with `bin/gate check --format json` on the 28 synthetic trees of the
+rule's tests, outside the repository. `typescript/barrel-imports` gives the same findings from the
+released `typescript@0.3.1` and from this branch's build on every tree. Next to `kind-imports` it
+reports 28 findings with its default options and 0 with `owners = ["src"]` and
+`exempt = ["test/**"]`, the configuration the page names; the lead accepted that configuration.
+The page also lists the loads inside the roots that only `typescript/barrel-imports` checks with
+its default options, each one seen on a synthetic probe tree.
+
+Next: the full gates through the lane, then the report to the lead.
