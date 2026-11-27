@@ -231,8 +231,10 @@ fn nth_line(text: &str, needle: &str, n: usize) -> u32 {
         .enumerate()
         .filter(|(_, line)| line.contains(needle))
         .nth(n - 1)
-        .map(|(index, _)| index)
-        .unwrap_or_else(|| panic!("{needle:?} is in the fixture {n} times"));
+        .map_or_else(
+            || panic!("{needle:?} is in the fixture {n} times"),
+            |(index, _)| index,
+        );
     u32::try_from(index + 1).expect("a small fixture")
 }
 

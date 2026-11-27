@@ -12,6 +12,8 @@ mod reads;
 mod sites;
 mod values;
 
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 use gate_sdk::Run;
@@ -136,6 +138,8 @@ pub(crate) struct Context<'r, 'a> {
     pub typescript: &'r TypeScript<'a>,
     /// The sources of each root.
     pub roots: Vec<Rc<Sources<'a>>>,
+    /// Whether an export (file and name) is the owner's function, as answered so far.
+    pub exports: RefCell<HashMap<(String, String), bool>>,
 }
 
 impl<'a> Context<'_, 'a> {
@@ -194,6 +198,11 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
             let layout = PluginOptions::read(run)?.layout;
             run.options().check_paths()?;
             let options = run.options();
+            let framework_package = super::package::resolve(
+                "framework-package",
+                options.framework_package.as_deref(),
+                &layout.automator_package,
+            )?;
             let roots = options
                 .roots
                 .clone()
@@ -204,17 +213,17 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
                 .map(|root| shared.contexts(root))
                 .collect::<gate_sdk::Result<Vec<_>>>()?;
             let mut findings = Findings::default();
-            let configuration = run
-                .options_file()
-                .or(run.config_file())
-                .unwrap_or("gate.toml")
-                .to_owned();
-            let in_roots = sources
+            let function = sources
                 .iter()
-                .find_map(|sources| sources.get(&options.owner));
-            let function = in_roots.and_then(owner::function);
+                .find_map(|sources| sources.get(&options.owner))
+                .and_then(owner::function);
 
             let Some(function) = function else {
+                let configuration = run
+                    .options_file()
+                    .or(run.config_file())
+                    .unwrap_or("gate.toml")
+                    .to_owned();
                 findings.push_keyed(
                     "owner",
                     configuration,
@@ -229,54 +238,26 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
                 return Ok(());
             };
 
-            let row_free_modes = ROW_FREE_MODES
-                .into_iter()
-                .filter(|mode| !options.lock_modes.iter().any(|listed| listed == mode))
-                .collect();
             let context = Context {
                 owner: &options.owner,
                 function,
                 service_base: &options.service_base,
-                framework_package: super::package::resolve(
-                    "framework-package",
-                    options.framework_package.as_deref(),
-                    &layout.automator_package,
-                )?,
+                framework_package,
                 typeorm_package: layout.typeorm_package.clone(),
                 service_read_methods: &options.service_read_methods,
                 step_context_method: &options.step_context_method,
                 read_methods: &options.read_methods,
                 lock_modes: &options.lock_modes,
-                row_free_modes,
+                row_free_modes: ROW_FREE_MODES
+                    .into_iter()
+                    .filter(|mode| !options.lock_modes.iter().any(|listed| listed == mode))
+                    .collect(),
                 typescript,
                 roots: sources,
+                exports: RefCell::default(),
             };
-            let mut pending = Vec::new();
-            let mut seen = std::collections::BTreeSet::new();
 
-            for sources in &context.roots {
-                for path in typescript.files() {
-                    if sources.unparsed(path) && seen.insert((*path).to_owned()) {
-                        pending.push(sites::Pending::file(
-                            "unreadable",
-                            path,
-                            format!("{path} does not parse, so its row locks are not checked."),
-                        ));
-                    }
-                }
-
-                for source in sources.iter() {
-                    if seen.insert(source.path.clone()) {
-                        pending.extend(sites::check(&context, source)?);
-                    }
-                }
-            }
-
-            pending.sort_by(|left, right| {
-                (&left.path, left.line, left.start).cmp(&(&right.path, right.line, right.start))
-            });
-
-            for finding in pending {
+            for finding in pending(&context) {
                 findings.push_keyed(
                     finding.aspect,
                     finding.path,
@@ -290,6 +271,35 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
             Ok(())
         })
     }
+}
+
+/// The findings of every file below the roots, in path and line order.
+fn pending(context: &Context<'_, '_>) -> Vec<sites::Pending> {
+    let mut pending = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for sources in &context.roots {
+        for path in context.typescript.files() {
+            if sources.unparsed(path) && seen.insert((*path).to_owned()) {
+                pending.push(sites::Pending::file(
+                    "unreadable",
+                    path,
+                    format!("{path} does not parse, so its row locks are not checked."),
+                ));
+            }
+        }
+
+        for source in sources.iter() {
+            if seen.insert(source.path.clone()) {
+                pending.extend(sites::check(context, source));
+            }
+        }
+    }
+
+    pending.sort_by(|left, right| {
+        (&left.path, left.line, left.start).cmp(&(&right.path, right.line, right.start))
+    });
+    pending
 }
 
 /// What to do about a finding of `aspect`.

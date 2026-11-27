@@ -75,6 +75,7 @@ pub(crate) fn classify<'e, 'a>(
             Expression::ThisExpression(_) => {
                 match enclosing_class(&source.file, call.span)
                     .and_then(|class| service_entity(context, source, class))
+                    .map(|base| base.entity)
                 {
                     Some(entity) => return Some(Read::Service(entity)),
                     None if !context.read_methods.iter().any(|method| method == name) => {
@@ -137,13 +138,18 @@ fn enclosing_class<'a>(file: &SourceFile<'a>, span: Span) -> Option<&'a Class<'a
         .min_by_key(|class| class.span.end - class.span.start)
 }
 
-/// Whether a class directly extends the service base of the framework package: `Some` with the
-/// base's type argument when it is one identifier, `Some(None)` without one.
+/// A class that directly extends the service base of the framework package.
+struct ServiceBase {
+    /// The base's type argument, when it is one identifier.
+    entity: Option<String>,
+}
+
+/// The service base a class directly extends, if it extends the one of the framework package.
 fn service_entity(
     context: &Context<'_, '_>,
     source: &SourceContext<'_>,
     class: &Class<'_>,
-) -> Option<Option<String>> {
+) -> Option<ServiceBase> {
     let heritage = class.heritage.as_ref()?;
     let identity = source.identity(&heritage.expression, true)?;
 
@@ -153,18 +159,17 @@ fn service_entity(
         return None;
     }
 
-    Some(
-        heritage
-            .type_arguments
-            .as_ref()
-            .and_then(|arguments| match arguments.params.as_slice() {
+    Some(ServiceBase {
+        entity: heritage.type_arguments.as_ref().and_then(|arguments| {
+            match arguments.params.as_slice() {
                 [TSType::TSTypeReference(reference)] => match &reference.type_name {
                     TSTypeName::IdentifierReference(name) => Some(name.name.to_string()),
                     _ => None,
                 },
                 _ => None,
-            }),
-    )
+            }
+        }),
+    })
 }
 
 /// The entity of the service a class member holds: a constructor parameter property or a class
@@ -219,7 +224,7 @@ fn member_entity(
     let declared_source = context.source(declared.path.as_deref()?)?;
     let declared_class = find_class(&declared_source.file, &declared.name)?;
 
-    service_entity(context, declared_source, declared_class).flatten()
+    service_entity(context, declared_source, declared_class)?.entity
 }
 
 /// The repository of a query builder chain: `R` for `R.createQueryBuilder(alias)` and
@@ -294,15 +299,15 @@ pub(crate) fn is_builder<'a>(
     let Expression::Identifier(identifier) = base else {
         return false;
     };
-    let annotation = match binding(file, identifier) {
-        Some(
-            Binding::Variable {
-                annotation: Some(annotation),
-                ..
-            }
-            | Binding::Parameter(Some(annotation)),
-        ) => annotation,
-        _ => return false,
+    let Some(
+        Binding::Variable {
+            annotation: Some(annotation),
+            ..
+        }
+        | Binding::Parameter(Some(annotation)),
+    ) = binding(file, identifier)
+    else {
+        return false;
     };
     let TSType::TSTypeReference(reference) = &annotation.type_annotation else {
         return false;

@@ -57,49 +57,80 @@ struct Site {
 }
 
 /// The findings of one file.
-pub(crate) fn check<'a>(
-    context: &Context<'_, 'a>,
-    source: &SourceContext<'a>,
-) -> gate_sdk::Result<Vec<Pending>> {
-    let file = &*source.file;
-    let nodes = file.semantic().nodes();
-    let path = source.path.as_str();
-    let function = context.function.name.as_str();
-    let at = |offset: u32| format!("{path}:{}", file.line(offset));
-    let mut sites: Vec<Site> = Vec::new();
-    // The `lock` properties already read, whose `mode` objects are no site of their own.
-    let mut handled: Vec<Span> = Vec::new();
-    // The owner calls that are `lock` values.
-    let mut lock_values: HashSet<Span> = HashSet::new();
+pub(crate) fn check<'a>(context: &Context<'_, 'a>, source: &SourceContext<'a>) -> Vec<Pending> {
+    let mut walk = Walk {
+        context,
+        source,
+        file: &source.file,
+        nodes: source.file.semantic().nodes(),
+        sites: Vec::new(),
+        handled: Vec::new(),
+        lock_values: HashSet::new(),
+    };
 
-    for node in nodes.iter() {
-        let AstKind::ObjectProperty(property) = node.kind() else {
-            continue;
-        };
-
-        if !named(property, "lock") {
-            continue;
+    for node in walk.nodes.iter() {
+        if let AstKind::ObjectProperty(property) = node.kind()
+            && named(property, "lock")
+        {
+            walk.lock(node.id(), property);
         }
+    }
 
-        let object = nodes.parent_id(node.id());
-        let read = argument(nodes, object)
-            .and_then(|(call, index)| reads::classify(context, source, call, index));
+    for node in walk.nodes.iter() {
+        match node.kind() {
+            AstKind::CallExpression(call) => walk.call(node.id(), call),
+            AstKind::ObjectProperty(property) if named(property, "mode") => {
+                walk.mode(node.id(), property);
+            }
+            _ => {}
+        }
+    }
+
+    walk.finish()
+}
+
+/// The walk of one file.
+struct Walk<'w, 'a> {
+    context: &'w Context<'w, 'a>,
+    source: &'w SourceContext<'a>,
+    file: &'w SourceFile<'a>,
+    nodes: &'w AstNodes<'a>,
+    sites: Vec<Site>,
+    /// The `lock` properties already read, whose `mode` objects are no site of their own.
+    handled: Vec<Span>,
+    /// The owner calls that are `lock` values.
+    lock_values: HashSet<Span>,
+}
+
+impl<'a> Walk<'_, 'a> {
+    /// `<path>:<line>` of an offset.
+    fn at(&self, offset: u32) -> String {
+        format!("{}:{}", self.source.path, self.file.line(offset))
+    }
+
+    /// The finding of a `lock` property, if it is a site that breaks an aspect.
+    fn lock(&mut self, node: NodeId, property: &'a ObjectProperty<'a>) {
+        let context = self.context;
+        let file = self.file;
+        let object = self.nodes.parent_id(node);
+        let read = argument(self.nodes, object)
+            .and_then(|(call, index)| reads::classify(context, self.source, call, index));
         let branches = branches(&property.value);
         let calls: Vec<&CallExpression<'_>> = branches
             .iter()
             .filter_map(|branch| owner_call(context, file, branch))
             .collect();
 
-        if matches!(read, Some(Read::Ignored)) || (read.is_none() && calls.is_empty()) {
-            if read.is_some() {
-                handled.push(property.span);
-                lock_values.extend(calls.iter().map(|call| call.span));
-            }
-            continue;
+        if read.is_none() && calls.is_empty() {
+            return;
         }
 
-        handled.push(property.span);
-        lock_values.extend(calls.iter().map(|call| call.span));
+        self.handled.push(property.span);
+        self.lock_values.extend(calls.iter().map(|call| call.span));
+
+        if matches!(read, Some(Read::Ignored)) {
+            return;
+        }
 
         let modes: Vec<Option<Vec<values::Branch>>> = branches
             .iter()
@@ -118,149 +149,159 @@ pub(crate) fn check<'a>(
         }) && modes.iter().any(Option::is_some);
 
         if row_free {
-            continue;
+            return;
         }
 
-        let site = |aspect: &'static str, message: String| Site {
-            node: node.id(),
-            start: property.span.start,
-            aspect,
-            message,
-        };
-        let here = at(property.span.start);
-
-        if modes
+        let here = self.at(property.span.start);
+        let function = &context.function.name;
+        let finding = if modes
             .iter()
             .flatten()
             .any(|mode| values::locks_rows(context, mode))
         {
-            sites.push(site(
+            Some((
                 "lock-object",
                 format!(
                     "{here} builds a row lock object outside {}; take the lock from {function}.",
                     context.owner
                 ),
-            ));
-            continue;
-        }
-
-        if branches
+            ))
+        } else if branches
             .iter()
             .any(|branch| !undefined(branch) && owner_call(context, file, branch).is_none())
         {
-            sites.push(site(
+            Some((
                 "lock-value",
                 format!("{here} sets lock to a value that is not a call of {function}."),
-            ));
-            continue;
-        }
-
-        let Some(read) = read else {
-            sites.push(site(
+            ))
+        } else if let Some(read) = read {
+            receiver(context, file, &read, &calls, &here)
+                .map(|message| ("receiver", message))
+                .or_else(|| row_list(file, &read, &calls, &here).map(|message| ("row-list", message)))
+                .or_else(|| {
+                    (matches!(read, Read::Find { builder: true, .. })
+                        && !eager_free(self.nodes, object))
+                    .then(|| {
+                        (
+                            "builder",
+                            format!(
+                                "{here} passes lock to setFindOptions without loadEagerRelations: false."
+                            ),
+                        )
+                    })
+                })
+        } else {
+            Some((
                 "receiver",
                 format!(
                     "{here} passes lock in options that are not an argument of a read, so the repository it locks cannot be checked."
                 ),
-            ));
-            continue;
+            ))
         };
 
-        if let Some(message) = receiver(context, file, &read, &calls, &here) {
-            sites.push(site("receiver", message));
-            continue;
-        }
-
-        if let Some(message) = row_list(file, &read, &calls, &here) {
-            sites.push(site("row-list", message));
-            continue;
-        }
-
-        if matches!(read, Read::Find { builder: true, .. }) && !eager_free(nodes, object) {
-            sites.push(site(
-                "builder",
-                format!("{here} passes lock to setFindOptions without loadEagerRelations: false."),
-            ));
+        if let Some((aspect, message)) = finding {
+            self.sites.push(Site {
+                node,
+                start: property.span.start,
+                aspect,
+                message,
+            });
         }
     }
 
-    for node in nodes.iter() {
-        match node.kind() {
-            AstKind::CallExpression(call) => {
-                if let Some((object, name)) = property_access(unwrap(&call.callee))
-                    && matches!(name, "setLock" | "setOnLocked")
-                    && reads::is_builder(context, file, object)
-                {
-                    let start = member_start(&call.callee);
-                    sites.push(Site {
-                        node: node.id(),
-                        start,
-                        aspect: "builder",
-                        message: format!(
-                            "{} calls {name}; take the lock through setFindOptions with {function}.",
-                            at(start)
-                        ),
-                    });
-                } else if path != context.owner
-                    && !lock_values.contains(&call.span)
-                    && owner::is_call(context, file, call)
-                {
-                    sites.push(Site {
-                        node: node.id(),
-                        start: call.span.start,
-                        aspect: "lock-value",
-                        message: format!(
-                            "{} calls {function} outside the lock property of a read.",
-                            at(call.span.start)
-                        ),
-                    });
+    /// The finding of a call: `setLock` or `setOnLocked` on a builder, or an owner call that is
+    /// no `lock` value.
+    fn call(&mut self, node: NodeId, call: &'a CallExpression<'a>) {
+        let context = self.context;
+        let function = &context.function.name;
+
+        if let Some((object, name)) = property_access(unwrap(&call.callee))
+            && matches!(name, "setLock" | "setOnLocked")
+            && reads::is_builder(context, self.file, object)
+        {
+            let start = member_start(&call.callee);
+            let message = format!(
+                "{} calls {name}; take the lock through setFindOptions with {function}.",
+                self.at(start)
+            );
+            self.sites.push(Site {
+                node,
+                start,
+                aspect: "builder",
+                message,
+            });
+        } else if self.source.path != context.owner
+            && !self.lock_values.contains(&call.span)
+            && owner::is_call(context, self.file, call)
+        {
+            let message = format!(
+                "{} calls {function} outside the lock property of a read.",
+                self.at(call.span.start)
+            );
+            self.sites.push(Site {
+                node,
+                start: call.span.start,
+                aspect: "lock-value",
+                message,
+            });
+        }
+    }
+
+    /// The finding of a `mode` property outside the owner and outside every `lock` site that
+    /// folds to a row-lock mode.
+    fn mode(&mut self, node: NodeId, property: &'a ObjectProperty<'a>) {
+        let context = self.context;
+
+        if self.source.path == context.owner
+            || self
+                .handled
+                .iter()
+                .any(|span| span.start <= property.span.start && property.span.end <= span.end)
+            || !values::locks_rows(context, &values::fold(context, self.file, &property.value))
+        {
+            return;
+        }
+
+        let message = format!(
+            "{} builds a row lock object outside {}; take the lock from {}.",
+            self.at(property.span.start),
+            context.owner,
+            context.function.name
+        );
+        self.sites.push(Site {
+            node,
+            start: property.span.start,
+            aspect: "lock-object",
+            message,
+        });
+    }
+
+    /// The findings, keyed by their function and ordinal.
+    fn finish(mut self) -> Vec<Pending> {
+        self.sites.sort_by_key(|site| site.start);
+        let mut ordinals: BTreeMap<String, usize> = BTreeMap::new();
+        let nodes = self.nodes;
+        let file = self.file;
+        let path = &self.source.path;
+
+        self.sites
+            .into_iter()
+            .map(|site| {
+                let label = label(nodes, site.node);
+                let ordinal = ordinals.entry(label.clone()).or_default();
+                *ordinal += 1;
+
+                Pending {
+                    aspect: site.aspect,
+                    path: path.clone(),
+                    line: Some(file.line(site.start)),
+                    start: site.start,
+                    key: format!("{label}#{ordinal}"),
+                    message: site.message,
                 }
-            }
-            AstKind::ObjectProperty(property)
-                if path != context.owner
-                    && named(property, "mode")
-                    && !handled.iter().any(|span| {
-                        span.start <= property.span.start && property.span.end <= span.end
-                    })
-                    && values::locks_rows(
-                        context,
-                        &values::fold(context, file, &property.value),
-                    ) =>
-            {
-                sites.push(Site {
-                    node: node.id(),
-                    start: property.span.start,
-                    aspect: "lock-object",
-                    message: format!(
-                        "{} builds a row lock object outside {}; take the lock from {function}.",
-                        at(property.span.start),
-                        context.owner
-                    ),
-                });
-            }
-            _ => {}
-        }
+            })
+            .collect()
     }
-
-    sites.sort_by_key(|site| site.start);
-    let mut ordinals: BTreeMap<String, usize> = BTreeMap::new();
-
-    Ok(sites
-        .into_iter()
-        .map(|site| {
-            let label = label(nodes, site.node);
-            let ordinal = ordinals.entry(label.clone()).or_default();
-            *ordinal += 1;
-
-            Pending {
-                aspect: site.aspect,
-                path: path.to_owned(),
-                line: Some(file.line(site.start)),
-                start: site.start,
-                key: format!("{label}#{ordinal}"),
-                message: site.message,
-            }
-        })
-        .collect())
 }
 
 /// Whether an object property is a plain `name: value` (or shorthand) property named `name`.

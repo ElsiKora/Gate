@@ -99,34 +99,7 @@ pub(crate) fn function(source: &SourceContext<'_>) -> Option<Function> {
                 exports.push(Export::Other);
             }
             Statement::ExportDefaultDeclaration(export) => {
-                exports.push(match &export.declaration {
-                    ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
-                        Export::Function(Function {
-                            export: "default".to_owned(),
-                            name: function
-                                .id
-                                .as_ref()
-                                .map_or_else(|| "default".to_owned(), |id| id.name.to_string()),
-                        })
-                    }
-                    ExportDefaultDeclarationKind::ArrowFunctionExpression(_)
-                    | ExportDefaultDeclarationKind::FunctionExpression(_) => {
-                        Export::Function(Function {
-                            export: "default".to_owned(),
-                            name: "default".to_owned(),
-                        })
-                    }
-                    ExportDefaultDeclarationKind::Identifier(identifier)
-                        if local_function(&source.file, &identifier.name) =>
-                    {
-                        Export::Function(Function {
-                            export: "default".to_owned(),
-                            name: identifier.name.to_string(),
-                        })
-                    }
-                    ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => continue,
-                    _ => Export::Other,
-                });
+                exports.extend(default_export(&source.file, &export.declaration));
             }
             Statement::TSExportAssignment(_) => exports.push(Export::Other),
             _ => {}
@@ -137,6 +110,37 @@ pub(crate) fn function(source: &SourceContext<'_>) -> Option<Function> {
         [Export::Function(function)] => Some(function.clone()),
         _ => None,
     }
+}
+
+/// What a default export is; `None` for an interface, which is a type.
+fn default_export(
+    file: &SourceFile<'_>,
+    kind: &ExportDefaultDeclarationKind<'_>,
+) -> Option<Export> {
+    let function = |name: String| {
+        Export::Function(Function {
+            export: "default".to_owned(),
+            name,
+        })
+    };
+
+    Some(match kind {
+        ExportDefaultDeclarationKind::FunctionDeclaration(declaration) => function(
+            declaration
+                .id
+                .as_ref()
+                .map_or_else(|| "default".to_owned(), |id| id.name.to_string()),
+        ),
+        ExportDefaultDeclarationKind::ArrowFunctionExpression(_)
+        | ExportDefaultDeclarationKind::FunctionExpression(_) => function("default".to_owned()),
+        ExportDefaultDeclarationKind::Identifier(identifier)
+            if local_function(file, &identifier.name) =>
+        {
+            function(identifier.name.to_string())
+        }
+        ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => return None,
+        _ => Export::Other,
+    })
 }
 
 /// Whether an initializer is an arrow or function expression.
@@ -262,10 +266,36 @@ fn exports(
         return name == context.function.export;
     }
 
-    if !visited.insert((path.to_owned(), name.to_owned())) {
+    let key = (path.to_owned(), name.to_owned());
+
+    if let Some(known) = context.exports.borrow().get(&key) {
+        return *known;
+    }
+
+    // Only the first call of a chase sees every way on; a later one may be cut short by a cycle,
+    // so only its yes is kept.
+    let first = visited.is_empty();
+
+    if !visited.insert(key.clone()) {
         return false;
     }
 
+    let answer = chase(context, path, name, visited);
+
+    if answer || first {
+        context.exports.borrow_mut().insert(key, answer);
+    }
+
+    answer
+}
+
+/// The re-exports of the file at `path` that could make its export `name` the owner's function.
+fn chase(
+    context: &Context<'_, '_>,
+    path: &str,
+    name: &str,
+    visited: &mut HashSet<(String, String)>,
+) -> bool {
     let Ok(Some(file)) = context.typescript.parse(path) else {
         return false;
     };
