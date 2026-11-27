@@ -103,3 +103,7 @@ Import the name from the folder's barrel: `import { UserService } from './accoun
 does not export the name, the name is internal to the folder: either it belongs to the folder's
 public surface, and the barrel exports it, or the code that needs it moves into the folder. A folder
 whose subfolders are meant to import each other directly is an owner: name it in `owners`.
+
+A NestJS service that holds the kind-barrel form of
+[`nestjs/kind-imports`](../../nestjs/rules/kind-imports.md) names its source root in `owners` and
+exempts its test root; that rule's page says why.

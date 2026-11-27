@@ -134,13 +134,32 @@ A checked load, mock calls and direct-child re-exports included, whose specifier
 
 ## With `typescript/barrel-imports`
 
-`typescript/barrel-imports` asks for another form: a load of a file from outside the outermost folder
-with a barrel that holds the file goes through that barrel. A resource barrel above a kind folder is
-such a folder, so for an importer outside the resource it asks for the resource barrel where this
-rule asks for the kind barrel, and for a file in no kind folder it asks for a barrel where this rule
-asks for the file.
+`typescript/barrel-imports` asks for another form: a file is loaded from outside the outermost
+folder that holds it and has a barrel through that barrel, and only for the names the barrel exports.
+With its default options the two rules disagree on four kinds of load:
 
-TO BE WRITTEN after the comparison on the synthetic trees.
+- a resource barrel above a kind folder: `typescript/barrel-imports` asks for the resource barrel
+  (`@modules/book`), this rule for the kind barrel (`@modules/book/function`);
+- a file in no kind folder whose folder, or a folder above it, has a barrel: the barrel against the
+  file (`@modules/book/book.service`);
+- a private file of a kind folder below a barrel: the barrel against the file;
+- a file in an `internal` child of a kind folder: the kind barrel, which leaves the child out,
+  against the internal barrel.
+
+The only exemption of `typescript/barrel-imports` is an owner folder that holds the importer, and a
+load across top-level owners has no common folder below the source root. So the two rules agree only
+when the source root is that owner and the test root is exempt:
+
+```toml
+[rules]
+"nestjs/kind-imports" = "error"
+"typescript/barrel-imports" = { level = "error", options = { owners = ["src"], exempt = ["test/**"] } }
+```
+
+Write the project's `layout.source-root` for `src` and `layout.test-root` for `test`. With these
+options `typescript/barrel-imports` checks the importers outside both roots, such as scripts and root
+configuration files, which this rule does not read. Inside the roots, this rule decides which module
+a file names.
 
 ## Options
 
