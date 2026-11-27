@@ -25,11 +25,14 @@ overrides it wherever they differ.
    `row-list`. The last three are the specification's `object`, `option` and `guarded`.
 3. **Options:** `owner`, `roots`, `framework-package` (defaults to `layout.automator-package`),
    `service-base`, `service-read-methods`, `step-context-method`, and two new ones:
-   - `read-methods`: TypeORM's find-option methods by default (`find`, `findOne`, `findOneOrFail`,
-     `findAndCount`, `findBy`, `findOneBy`, `count`, `exists`, and the like). A call's shape alone
-     does not make it a read.
+   - `read-methods`: TypeORM's find-option methods by default (`count`, `exists`, `find`,
+     `findAndCount`, `findOne`, `findOneOrFail`). The `*By` methods take a `where`, not find
+     options, so a `lock` key there is a column filter and they are left out (the lead's answer to
+     the design, 2026-11-27). A call's shape alone does not make it a read.
    - `lock-modes`: the four row-lock modes by default. `optimistic` and `dirty_read` are not row
-     locks.
+     locks: a `lock` whose mode folds to one of them is no site. A mode that folds to any other
+     string outside `lock-modes`, or that does not fold, is a `lock-value` finding (the lead's
+     answer to the design, 2026-11-27).
 
    The service base is matched by an import from `framework-package`, as `native-repository` does,
    never by name alone.
@@ -82,4 +85,6 @@ negatives the page will list.
 
 ## Resume point
 
-The design is sent to the lead (2026-11-27). No rule code is written until it answers.
+The design is accepted (2026-11-27; note `T-115-design.md` in the lead's notes folder). The rule, its
+page, the tests and the CHANGELOG entry are written; next: the gates through the lane, then the
+comparison with the specification's figures (outside the repository), then the report to the lead.
