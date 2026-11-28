@@ -8,7 +8,8 @@ use gate_typescript::owners::{
 };
 use gate_typescript::oxc_ast::AstKind;
 use gate_typescript::oxc_ast::ast::{
-    Argument, CallExpression, ChainElement, Class, ClassElement, Expression, TSType, TSTypeName,
+    Argument, CallExpression, ChainElement, Class, ClassElement, Expression, TSLiteral, TSType,
+    TSTypeName,
 };
 use gate_typescript::oxc_span::{GetSpan, Span};
 use gate_typescript::syntax::{constructor, key_name, parameter_type};
@@ -19,6 +20,9 @@ use super::values::{Binding, binding};
 
 /// How many `const` bindings a builder chain is followed through.
 const CHAIN_HOPS: usize = 1;
+
+/// How many `const` bindings an argument is followed through to find a string.
+const STRING_HOPS: usize = 8;
 
 /// What a read runs on.
 #[derive(Clone, Copy, Debug)]
@@ -244,15 +248,12 @@ pub(crate) fn root<'e, 'a>(
             return root(file, object, hops);
         }
 
+        // A repository takes `(alias?, queryRunner?)` with a string first; an entity manager
+        // takes `(entity, alias, queryRunner?)`.
         let first = call.arguments.first().and_then(Argument::as_expression);
 
         return Some(match first.map(unwrap) {
-            Some(entity)
-                if !matches!(
-                    entity,
-                    Expression::StringLiteral(_) | Expression::TemplateLiteral(_)
-                ) =>
-            {
+            Some(entity) if call.arguments.len() >= 2 && !string(file, entity, 0) => {
                 Repository::Manager {
                     manager: unwrap(object),
                     entity,
@@ -273,6 +274,46 @@ pub(crate) fn root<'e, 'a>(
             ..
         } if hops < CHAIN_HOPS => root(file, init, hops + 1),
         _ => None,
+    }
+}
+
+/// Whether an argument is a string: a string or template literal, a `const` bound to one, or a
+/// variable or parameter whose written type is `string`, a string literal type or a union of them.
+fn string<'a>(file: &SourceFile<'a>, expression: &Expression<'a>, hops: usize) -> bool {
+    match unwrap(expression) {
+        Expression::StringLiteral(_) | Expression::TemplateLiteral(_) => true,
+        Expression::Identifier(identifier) if hops < STRING_HOPS => {
+            match binding(file, identifier) {
+                Some(
+                    Binding::Variable {
+                        annotation: Some(annotation),
+                        ..
+                    }
+                    | Binding::Parameter(Some(annotation)),
+                ) => string_type(&annotation.type_annotation),
+                Some(Binding::Variable {
+                    constant: true,
+                    init: Some(init),
+                    ..
+                }) => string(file, init, hops + 1),
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Whether a written type is a string type.
+fn string_type(annotation: &TSType<'_>) -> bool {
+    match annotation {
+        TSType::TSStringKeyword(_) | TSType::TSTemplateLiteralType(_) => true,
+        TSType::TSLiteralType(literal) => matches!(
+            literal.literal,
+            TSLiteral::StringLiteral(_) | TSLiteral::TemplateLiteral(_)
+        ),
+        TSType::TSUnionType(union) => union.types.iter().all(string_type),
+        TSType::TSParenthesizedType(inner) => string_type(&inner.type_annotation),
+        _ => false,
     }
 }
 

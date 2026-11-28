@@ -37,6 +37,9 @@ pub(crate) fn function(source: &SourceContext<'_>) -> Option<Function> {
     for statement in top_level(&source.file) {
         match statement {
             Statement::ExportDeclaration(export) => match &export.declaration {
+                // An overload signature or a `declare function` has no body and is no export of
+                // its own: the implementation is.
+                Declaration::FunctionDeclaration(function) if function.body.is_none() => {}
                 Declaration::FunctionDeclaration(function) => {
                     let name = function.id.as_ref()?.name.to_string();
                     exports.push(Export::Function(Function {
@@ -112,7 +115,8 @@ pub(crate) fn function(source: &SourceContext<'_>) -> Option<Function> {
     }
 }
 
-/// What a default export is; `None` for an interface, which is a type.
+/// What a default export is; `None` for an interface, which is a type, and for an overload
+/// signature.
 fn default_export(
     file: &SourceFile<'_>,
     kind: &ExportDefaultDeclarationKind<'_>,
@@ -125,6 +129,11 @@ fn default_export(
     };
 
     Some(match kind {
+        ExportDefaultDeclarationKind::FunctionDeclaration(declaration)
+            if declaration.body.is_none() =>
+        {
+            return None;
+        }
         ExportDefaultDeclarationKind::FunctionDeclaration(declaration) => function(
             declaration
                 .id

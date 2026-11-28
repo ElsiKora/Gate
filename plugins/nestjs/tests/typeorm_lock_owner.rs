@@ -75,7 +75,7 @@ export class ShelfService extends ApiServiceBase<ShelfEntity> {}
 "#;
 
 /// Every repository, entity-manager and builder form, with the three named false positives.
-const PASS_READS: &str = r#"import type { EntityManager, Repository } from "typeorm";
+const PASS_READS: &str = r#"import type { EntityManager, QueryRunner, Repository } from "typeorm";
 
 import { RowLockStrength, RowLockWaitPolicy, lockRows } from "../../lock";
 import type { ShelfEntity } from "../../shelf/entity";
@@ -85,6 +85,9 @@ enum TransferMode {
   STRICT = "strict",
 }
 
+const BOOK_ALIAS = "book";
+const ALIAS = BOOK_ALIAS;
+
 export async function readBooks(
   manager: EntityManager,
   repository: Repository<BookEntity>,
@@ -92,6 +95,8 @@ export async function readBooks(
   mutex: { setLock(value: boolean): void },
   isWrite: boolean,
   shouldLock: boolean,
+  alias: string,
+  queryRunner: QueryRunner,
 ): Promise<void> {
   await repository.findOne({
     lock: lockRows(repository, RowLockStrength.FOR_UPDATE),
@@ -135,6 +140,31 @@ export async function readBooks(
       loadEagerRelations: false,
       lock: lockRows([shelfRepository, repository], RowLockStrength.FOR_UPDATE),
     })
+    .getOne();
+
+  await repository
+    .createQueryBuilder(BOOK_ALIAS)
+    .setFindOptions({ loadEagerRelations: false, lock: lockRows(repository, RowLockStrength.FOR_UPDATE) })
+    .getOne();
+
+  await repository
+    .createQueryBuilder(alias)
+    .setFindOptions({ loadEagerRelations: false, lock: lockRows(repository, RowLockStrength.FOR_UPDATE) })
+    .getOne();
+
+  await repository
+    .createQueryBuilder(ALIAS, queryRunner)
+    .setFindOptions({ loadEagerRelations: false, lock: lockRows(repository, RowLockStrength.FOR_UPDATE) })
+    .getOne();
+
+  await repository
+    .createQueryBuilder(alias, queryRunner)
+    .setFindOptions({ loadEagerRelations: false, lock: lockRows(repository, RowLockStrength.FOR_UPDATE) })
+    .getOne();
+
+  await manager
+    .createQueryBuilder(BookEntity, BOOK_ALIAS)
+    .setFindOptions({ loadEagerRelations: false, lock: lockRows(manager.getRepository(BookEntity), RowLockStrength.FOR_UPDATE) })
     .getOne();
 
   mutex.setLock(true);
@@ -764,6 +794,8 @@ export async function readBook(repository: Repository<BookEntity>, query: Select
     .setFindOptions({ lock: lockRows(repository, RowLockStrength.FOR_UPDATE) })
     .getOne();
 
+  await repository.createQueryBuilder("book").setFindOptions({ lock: undefined }).getOne();
+
   await query.innerJoin("book.shelf", "shelf").setLock("pessimistic_read").getOne();
 }
 "#;
@@ -809,6 +841,52 @@ export async function readBook(repository: Repository<BookEntity>, query: Select
                 )
             ),
         ]
+    );
+}
+
+#[test]
+fn a_builder_takes_the_entity_manager_form_only_with_an_entity_and_an_alias() {
+    let reader = r#"import type { EntityManager, QueryRunner, Repository } from "typeorm";
+
+import { RowLockStrength, lockRows } from "../lock";
+import { BookEntity } from "./entity";
+
+const ALIAS = "book";
+
+export async function readBook(
+  manager: EntityManager,
+  repository: Repository<BookEntity>,
+  alias: "book" | "shelf",
+  queryRunner: QueryRunner,
+): Promise<void> {
+  await repository
+    .createQueryBuilder(alias, queryRunner)
+    .setFindOptions({ loadEagerRelations: false, lock: lockRows(repository, RowLockStrength.FOR_UPDATE) })
+    .getOne();
+
+  await manager
+    .createQueryBuilder(BookEntity, ALIAS)
+    .setFindOptions({ loadEagerRelations: false, lock: lockRows(repository, RowLockStrength.FOR_UPDATE) })
+    .getOne();
+}
+"#;
+    let path = "src/book/reader.ts";
+    let receiver = |line: u32, argument: &str, expected: &str| {
+        row(
+            "receiver",
+            path,
+            Some(line),
+            &format!("{path}:{line} locks through {argument}, but the read runs on {expected}."),
+        )
+    };
+
+    assert_eq!(
+        findings(&[(path, reader)]),
+        [receiver(
+            nth_line(reader, "lock: lockRows(repository", 2),
+            "repository",
+            "manager.getRepository(BookEntity)"
+        )]
     );
 }
 
@@ -895,6 +973,45 @@ fn an_owner_that_does_not_export_exactly_one_function_stops_the_run() {
             &message(OWNER)
         )]
     );
+}
+
+#[test]
+fn an_overloaded_owner_is_one_function() {
+    let named = r#"import type { ObjectLiteral, Repository } from "typeorm";
+
+import type { RowLockStrength } from "./strength";
+import type { RowLockWaitPolicy } from "./wait-policy";
+
+export function lockRows(repository: Repository<ObjectLiteral>, strength: RowLockStrength, waitPolicy?: RowLockWaitPolicy): object;
+export function lockRows(repositories: ReadonlyArray<Repository<ObjectLiteral>>, strength: RowLockStrength, waitPolicy?: RowLockWaitPolicy): object;
+export function lockRows(repositories: unknown, strength: RowLockStrength, waitPolicy?: RowLockWaitPolicy): object {
+  return { mode: strength, onLocked: waitPolicy, tables: [String(repositories)] };
+}
+"#;
+    let default = "export default function lockRows(repository: object, strength: string): object;\n\
+                   export default function lockRows(repository: object, strength: string): object {\n\
+                   \x20 return { mode: strength, tables: [String(repository)] };\n\
+                   }\n";
+    let caller = "import type { Repository } from \"typeorm\";\n\
+                  import lock from \"../lock/row-lock\";\n\
+                  export async function readBook(repository: Repository<object>): Promise<void> {\n\
+                  \x20 await repository.findOne({ lock: lock(repository, \"pessimistic_write\") });\n\
+                  }\n";
+
+    let mut files = tree(&[
+        ("src/book/function/read.ts", PASS_READS),
+        ("src/book/service.ts", PASS_SERVICE),
+    ]);
+    files[0] = (OWNER, named);
+    assert_eq!(check(RULE, OPTIONS, &files), []);
+
+    let mut files = tree(&[("src/book/reader.ts", caller)]);
+    files[0] = (OWNER, default);
+    files[3] = (
+        "src/lock/index.ts",
+        "export { RowLockStrength } from \"./strength\";\n",
+    );
+    assert_eq!(check(RULE, OPTIONS, &files), []);
 }
 
 #[test]
@@ -985,4 +1102,52 @@ fn options_are_checked() {
         )
         .contains("guarded")
     );
+
+    for (options, message) in [
+        (
+            r#""lock-modes": []"#,
+            "the option `lock-modes` is empty; list at least one lock mode, or leave the option out for its default",
+        ),
+        (
+            r#""read-methods": []"#,
+            "the option `read-methods` is empty; list at least one read method, or leave the option out for its default",
+        ),
+        (
+            r#""service-read-methods": []"#,
+            "the option `service-read-methods` is empty; list at least one service method, or leave the option out for its default",
+        ),
+        (
+            r#""lock-modes": ["pessimistic_write", ""]"#,
+            "the option `lock-modes` has an empty entry; remove it, or name a lock mode there",
+        ),
+        (
+            r#""read-methods": ["findOne", ""]"#,
+            "the option `read-methods` has an empty entry; remove it, or name a read method there",
+        ),
+        (
+            r#""service-read-methods": [""]"#,
+            "the option `service-read-methods` has an empty entry; remove it, or name a service method there",
+        ),
+        (
+            r#""roots": []"#,
+            "the option `roots` is empty; list at least one folder, or leave the option out to read layout.source-root",
+        ),
+        (
+            r#""service-base": """#,
+            "the option `service-base` is empty; name it, or leave the option out for its default",
+        ),
+        (
+            r#""step-context-method": """#,
+            "the option `step-context-method` is empty; name it, or leave the option out for its default",
+        ),
+        (
+            r#""framework-package": """#,
+            "the option `framework-package` is empty; name a package, or leave the option out to use the layout's package (@elsikora/nestjs-crud-automator)",
+        ),
+    ] {
+        let options = format!(r#"{{ "owner": "src/lock/row-lock.ts", {options} }}"#);
+        let error = error(RULE, &options, &tree(&[]));
+
+        assert!(error.contains(message), "{options}: {error}");
+    }
 }

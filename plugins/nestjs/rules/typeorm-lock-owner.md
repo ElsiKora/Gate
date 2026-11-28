@@ -16,7 +16,8 @@ It reads every tracked `.ts` file below `roots` (declaration files and the folde
 
 **The owner.** `owner` must be a tracked `.ts` file below `roots` with exactly one value export, a
 function: a function declaration or a `const` bound to an arrow or function expression, named or
-default. Type exports do not count. A call is an owner call when its callee is an identifier (or a
+default. Type exports do not count, and neither do overload signatures, which have no body: the
+implementation is the one export. A call is an owner call when its callee is an identifier (or a
 member of a namespace import) that the file's scopes bind to an import, and that import, resolved
 through the project's module resolution (relative paths and the tsconfig's `paths`) and followed
 through re-exports and barrels, is the owner's function. A local function, a parameter or any other
@@ -34,8 +35,15 @@ of one of these calls:
 | `this.<m>(options)`, `<m>` one of `service-read-methods`, in a class that directly extends `service-base<E>` imported from `framework-package` | `this.<step-context-method><E>().getRepository(E)` |
 | `this.<member>.<m>(options)`, `<m>` one of `service-read-methods` | the same, with the entity of the member's class when its written type names a class that directly extends `service-base<E>`; otherwise one identifier as both the type argument and the argument |
 
-Only the method name and the argument's position make a call a read. `this.<m>(options)` in a class
+Only the method name and the argument's position make a call a read: `this.<member>.<m>(options)` is
+a service read whatever the member is, `this.cache.get({ … })` as well. `this.<m>(options)` in a class
 that does not directly extend `service-base` is no read, and nothing in its options is checked.
+
+A `createQueryBuilder` call is the entity-manager form `M.createQueryBuilder(E, alias)` only when it
+has two or more arguments and the first is not a string. A string is a string or template literal, a
+`const` bound to one, or a name whose written type is `string`, a string literal type or a union of
+them. Any other call, `R.createQueryBuilder(alias)` or `R.createQueryBuilder(alias, queryRunner)`, is
+the repository form, and its repository is `R`.
 
 **Sites.** A site is one `lock` property of a read's options; one `lock` property anywhere whose
 value is an owner call; one `setLock` or `setOnLocked` call on a query builder (a chain from
@@ -57,7 +65,9 @@ lock value, so its `lock` is a `lock-value` finding.
 - `#lock-object`: the `lock` value is an object literal whose `mode` is a lock value, or (outside
   `owner`) an object literal has such a `mode` outside any `lock` site.
 - `#lock-value`: a read's `lock` is not an owner call (each branch of a conditional must be an owner
-  call or `undefined`), or an owner call is not the value of a `lock` property.
+  call or `undefined`; a branch that is a lock object whose `mode` locks no row is no owner call, so
+  `c ? lockRows(r, s) : { mode: "optimistic", version: 1 }` is a finding), or an owner call is not
+  the value of a `lock` property.
 - `#receiver`: a `lock` holding an owner call is not in a read's options; the owner's first argument
   is not the read's repository; or the read's repository cannot be named (an entity-manager read
   whose entity is not an identifier, a `setFindOptions` on a chain without `createQueryBuilder`).
@@ -69,6 +79,7 @@ lock value, so its `lock` is a `lock-value` finding.
   with the builder's repository.
 - `#builder`: a `setLock` or `setOnLocked` call on a query builder (reported at the method name), or
   a builder's `setFindOptions` options with an owner `lock` and without `loadEagerRelations: false`.
+  A `lock` that holds no owner call, such as `lock: undefined`, is no `#builder` finding.
 - `#unreadable`: a file does not parse; that file is not read.
 - `#owner`: `owner` is not a tracked TypeScript file below `roots` that exports exactly one function.
   Reported at the options file (at the configuration file when the options are inline); no other
@@ -92,9 +103,11 @@ the project's `owner`, so no preset turns it on.
   read's argument, so its `lock` is read only when its value is an owner call (`#receiver`).
 - A read whose method is not in `read-methods`, called through `call` or `apply`, a destructured
   method or an element access (`repository["find"]`).
-- A query builder that is a parameter without a written `TypeORM` builder type, or that is reached
-  through more than one `const`: its `setLock` is not seen, and its `setFindOptions` repository cannot
-  be named.
+- A query builder that is a parameter without a written `TypeORM` builder type, that is held in a
+  `let` or a class member (`this.builder`), or that is reached through more than one `const`: its
+  `setLock` is not seen, and its `setFindOptions` repository cannot be named.
+- A read through `super` (`super.getMany({ lock: lockRows(…) })`): it is no read, so a `lock` with an
+  owner call there is a `#receiver` finding, and one without is not read.
 - A declared type known only by inference, through generics, a type alias or a union; and a class
   member (`this.strength`) as a `mode`.
 - A service member whose class extends the service base indirectly: only the step-context shape is
@@ -114,7 +127,8 @@ the project's `owner`, so no preset turns it on.
 | `read-methods` | list of strings | `["count", "exists", "find", "findAndCount", "findOne", "findOneOrFail"]` | The repository and entity-manager methods whose argument is a find-options object. The `*By` methods take a `where`, in which `lock` is a column, so they are not listed. |
 | `lock-modes` | list of strings | `["for_key_share", "for_no_key_update", "pessimistic_read", "pessimistic_write"]` | The lock modes that lock rows. |
 
-Paths are relative to the project root and in normal form. The options may be inline or in an
+Paths are relative to the project root and in normal form. A list option may not be empty or hold
+an empty entry, and a string option may not be empty; leave the option out for its default. The options may be inline or in an
 options file:
 
 ```toml

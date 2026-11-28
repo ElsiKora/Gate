@@ -180,6 +180,7 @@ impl<'a> Walk<'_, 'a> {
                 .or_else(|| row_list(file, &read, &calls, &here).map(|message| ("row-list", message)))
                 .or_else(|| {
                     (matches!(read, Read::Find { builder: true, .. })
+                        && !calls.is_empty()
                         && !eager_free(self.nodes, object))
                     .then(|| {
                         (

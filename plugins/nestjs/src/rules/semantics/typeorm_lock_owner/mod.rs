@@ -159,7 +159,8 @@ impl<'a> Context<'_, 'a> {
 }
 
 impl Options {
-    fn check_paths(&self) -> gate_sdk::Result<()> {
+    /// Rejects a path that is not normal, an empty name and an empty list or list entry.
+    fn validate(&self) -> gate_sdk::Result<()> {
         paths::check("owner", &self.owner, Form::File)?;
         paths::check_all("roots", self.roots.iter().flatten(), Form::Folder)?;
 
@@ -180,6 +181,28 @@ impl Options {
             ));
         }
 
+        for (option, values, item) in [
+            ("lock-modes", &self.lock_modes, "lock mode"),
+            ("read-methods", &self.read_methods, "read method"),
+            (
+                "service-read-methods",
+                &self.service_read_methods,
+                "service method",
+            ),
+        ] {
+            if values.is_empty() {
+                return Err(gate_sdk::Error::config(format!(
+                    "the option `{option}` is empty; list at least one {item}, or leave the option out for its default"
+                )));
+            }
+
+            if values.iter().any(String::is_empty) {
+                return Err(gate_sdk::Error::config(format!(
+                    "the option `{option}` has an empty entry; remove it, or name a {item} there"
+                )));
+            }
+        }
+
         Ok(())
     }
 }
@@ -196,7 +219,7 @@ impl gate_sdk::Rule<crate::Nest> for Rule {
     fn check(&self, run: &mut Run<'_, Options, crate::Nest>) -> gate_sdk::Result<()> {
         run.with_call(|run, shared| {
             let layout = PluginOptions::read(run)?.layout;
-            run.options().check_paths()?;
+            run.options().validate()?;
             let options = run.options();
             let framework_package = super::package::resolve(
                 "framework-package",
