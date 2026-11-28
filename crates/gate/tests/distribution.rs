@@ -2577,8 +2577,14 @@ fn the_ci_prune_bound_removes_what_another_core_left_and_keeps_what_this_run_use
     for path in recent.iter().chain(&ours) {
         assert!(path.exists(), "{} is kept", path.display());
     }
-    assert!(cache.join("blobs/sha256").join(&hash).exists());
-    assert!(!files(&cache.join("modules")).is_empty());
+    assert!(
+        cache.join("blobs/sha256").join(&hash).exists(),
+        "the pinned download is kept"
+    );
+    assert!(
+        !files(&cache.join("modules")).is_empty(),
+        "the compiled modules are kept"
+    );
 
     // The next job finds everything it uses.
     let output = repo.gate(&["check", "--timings"], None, &[]);
