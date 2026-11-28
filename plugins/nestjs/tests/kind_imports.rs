@@ -400,6 +400,9 @@ fn a_specifier_never_ends_in_index() {
     );
 }
 
+const EAGER: &str = "src/runtime/function/prepare-eager.function.ts";
+const START: &str = "src/runtime/start.ts";
+
 /// The tree of the `dynamic-import` tests.
 fn dynamic_tree() -> Vec<(&'static str, &'static str)> {
     with(&[
@@ -436,7 +439,7 @@ fn dynamic_tree() -> Vec<(&'static str, &'static str)> {
             "export * from \"./constant\";\nexport * from \"./function\";\n",
         ),
         (
-            eager,
+            EAGER,
             "import { metricsIsFull } from \"@infrastructure/metrics/function\";\n\nexport async function runtimePrepareEager(): Promise<boolean> {\n\tconst { metricsIsFull: isFull } = await import(\"@infrastructure/metrics/function\");\n\treturn metricsIsFull() && isFull();\n}\n",
         ),
         (
@@ -444,7 +447,7 @@ fn dynamic_tree() -> Vec<(&'static str, &'static str)> {
             "import { metricsIsFull } from \"@infrastructure/metrics/function\";\n\nexport async function runtimePrepare(): Promise<void> {\n\tif (metricsIsFull()) {\n\t\tconst { metricsRuntimeCompose } = await import(\"@infrastructure/metrics/runtime/function\");\n\t\tmetricsRuntimeCompose();\n\t}\n}\n",
         ),
         (
-            start,
+            START,
             "export async function runtimeStart(): Promise<string> {\n\tconst { BOOK_LIMIT_CONSTANT, bookFormat } = await import(\"@modules/domain/book\");\n\treturn `${bookFormat()}:${BOOK_LIMIT_CONSTANT.MAX}`;\n}\n",
         ),
     ])
@@ -452,8 +455,7 @@ fn dynamic_tree() -> Vec<(&'static str, &'static str)> {
 
 #[test]
 fn one_import_per_module_and_a_deferred_module_is_not_loaded_statically() {
-    let eager = "src/runtime/function/prepare-eager.function.ts";
-    let start = "src/runtime/start.ts";
+    let (eager, start) = (EAGER, START);
     let tree = dynamic_tree();
     assert_eq!(
         check(RULE, KINDS, &tree),
