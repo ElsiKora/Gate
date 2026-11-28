@@ -126,6 +126,11 @@ fills a cache, ages this core's entries and the entries another core would leave
 prunes with the bound. The other core's entries older than 30 days go. Those younger stay, and so
 does everything the run used. The next check answers every call from the cache.
 
+## Known limit
+
+The answer files under `git/answers/` are not bounded in CI, as before this task; the lead keeps
+their bound as a follow-up in the backlog.
+
 ## Resume point
 
 The fix round is committed. Next: clippy and the full lane round on the new head, then the report
