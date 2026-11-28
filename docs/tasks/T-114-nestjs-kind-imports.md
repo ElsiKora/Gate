@@ -105,5 +105,14 @@ fix round:
   through an eighth option `enum-folder`;
 - a name a kind barrel imports and exports with `export { … }` counts as re-exported.
 
-Next: the cost of the move for `typescript/barrel-imports`, the consumer comparison again, and the
-gates on the fix round.
+The move had made `typescript/barrel-imports` slower: it walked every expression to read loads it
+then dropped. It now reads the top-level declarations only (`gate_typescript::loads::static_loads`).
+On the speed tree of `plugins/nestjs/tests/speed.rs` (10 670 files), `barrel-imports` alone, 12
+alternating runs of `bin/gate check --timings` with the results cache emptied, median plugin time:
+released `typescript@0.3.1` 1073.5 ms, a local build of its tag 1079.0 ms, this branch before the
+change 1278.5 ms, after it 1092.5 ms. Every build gave the same 6588 findings.
+
+The consumer comparison, run again outside the repository, gives the same findings as before the
+fix round; none of its loads is one of the cases the round changed.
+
+Next: the gates on the fix round, then review.
