@@ -35,6 +35,7 @@ const LEFT_OUT: &[(&str, &str)] = &[
     ("package-pins", "the `artifacts` list is the project's own"),
     ("raw-config-access", "`raw-imports` has no default"),
     ("runtime-factory", "`contracts` has no default"),
+    ("typeorm-lock-owner", "`owner` has no default"),
 ];
 
 #[test]

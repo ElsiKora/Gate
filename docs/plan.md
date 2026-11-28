@@ -140,7 +140,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-112 | - | Gate checks itself with the released 0.3.4: `[gate] version = "0.3.4"`, the core's pins in `gate.lock`; the four plugin pins stay at 0.3.0 | done (lock, sync and check exit 0; sync writes nothing) | T-111 |
 | T-113 | next | The generated CI cache survives a move of `gate.lock`: a job restores its newest entry across a pin move, plugins and results still verified by their own keys | open (backlog) | none |
 | T-114 | next nestjs | `nestjs/kind-imports`: how code imports the files of kind folders and the rest of a resource, a new rule in no preset | open | none |
-| T-115 | next nestjs | `nestjs/typeorm-lock-owner`: every TypeORM row lock comes from one owner function through recognised read shapes, a new rule in no preset | open | none |
+| T-115 | next nestjs | `nestjs/typeorm-lock-owner`: every TypeORM row lock comes from one owner function through recognised read shapes, a new rule in no preset | done (one fix round; fmt, clippy, test 1694 passed, deny and release build exit 0 on `52901d53`; merged) | none |
 
 ## Open after rc.1
 
