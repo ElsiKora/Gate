@@ -8,10 +8,15 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
-## Unreleased
+## [0.3.5](https://github.com/ElsiKora/Gate/compare/v0.3.4...v0.3.5) (unreleased)
 
-With `[ci.github] cache = true`, `gate sync` writes new cache keys and two new steps. Run `gate sync`
-and commit the workflow to take them.
+The plugin interface stays `gate:plugin@0.3.0`, so no plugin needs a rebuild. `nestjs` is released
+at 0.3.3 with two new rules; the other twelve plugins keep their versions, and every plugin loads in
+core 0.3.5 as in 0.3.4.
+
+To upgrade, set `[gate] version = "0.3.5"` and run `gate lock`. With `[ci.github] cache = true`,
+`gate sync` writes new cache keys and two new steps: run `gate sync` and commit the workflow to take
+them.
 
 ### Bug Fixes
 
@@ -22,6 +27,7 @@ and commit the workflow to take them.
   the same lock, else the newest of the same job under any lock, else the newest of any job. A plugin
   is still verified by sha256 against the current `gate.lock` before it loads, and a declaration or
   result is used only under its own key, which carries the plugin's sha256 and the core's version.
+  ([201e623](https://github.com/ElsiKora/Gate/commit/201e623890190a7879a2cee3572a5ad06d6a3875))
 
 ### Features
 
@@ -30,7 +36,7 @@ and commit the workflow to take them.
   removes what the current `gate.lock` no longer pins, and every result, declaration and stored file
   content unused for 30 days, among them what a previous core left. So an entry restored across moves
   of a pin does not grow at every release. When the prune fails, the step fails and says to delete
-  the job's cache entries with `gh cache delete`.
+  the job's cache entries with `gh cache delete`. ([201e623](https://github.com/ElsiKora/Gate/commit/201e623890190a7879a2cee3572a5ad06d6a3875))
 
 ## [0.3.4](https://github.com/ElsiKora/Gate/compare/v0.3.3...v0.3.4) (2026-11-26)
 

@@ -3,9 +3,21 @@
 All notable changes to the `nestjs` plugin are recorded here. The plugin follows semantic versioning;
 a rule id, aspect, option or finding message that changes is a breaking change.
 
-## Unreleased
+## [0.3.3](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.2...plugin-nestjs-v0.3.3) (unreleased)
 
-Built for the plugin interface `gate:plugin@0.3.0`.
+Built for the plugin interface `gate:plugin@0.3.0`; it loads in any 0.3 core, 0.3.0 to 0.3.5. Two
+new rules, both in no preset, so a project that does not turn them on gets the same findings as
+from 0.3.2; no rule id, aspect, option or message of an existing rule changes.
+
+- Turn `nestjs/kind-imports` on in `[rules]`, with `kinds` when `layout.exclusive-kind-folders`
+  does not list the project's kind folders:
+  `"nestjs/kind-imports" = { level = "error", options = { kinds = ["dto", "function"] } }`. Where
+  `typescript/barrel-imports` is on too, give it `owners = ["src"]` and `exempt = ["test/**"]` (the
+  project's `layout.source-root` and `layout.test-root`), so that the two rules agree:
+  `"typescript/barrel-imports" = { level = "error", options = { owners = ["src"], exempt = ["test/**"] } }`.
+- Turn `nestjs/typeorm-lock-owner` on in `[rules]` with `owner`, the file that exports the lock
+  function, which has no default:
+  `"nestjs/typeorm-lock-owner" = { level = "error", options = { owner = "src/lock/row-lock.ts" } }`.
 
 ### Features
 
@@ -15,7 +27,7 @@ Built for the plugin interface `gate:plugin@0.3.0`.
   `setFindOptions`, and a service read of `service-read-methods`), with the repository the read runs
   on as its first argument. Aspects `builder`, `lock-object`, `lock-value`, `owner`, `receiver`,
   `row-list` and `unreadable`; options `owner`, `roots`, `framework-package`, `service-base`,
-  `service-read-methods`, `step-context-method`, `read-methods` and `lock-modes`.
+  `service-read-methods`, `step-context-method`, `read-methods` and `lock-modes`. ([250e9e7](https://github.com/ElsiKora/Gate/commit/250e9e792e76c42163280e32bd94e6bf07b2f9aa))
 - `nestjs/kind-imports`, a new rule in no preset: every source and test file loads each declaration
   from the barrel of the kind folder that declares it, or from its file when it sits in no kind
   folder, in the importer's own kind folder, or behind no barrel. Aspects `kind-barrel`,
@@ -23,6 +35,7 @@ Built for the plugin interface `gate:plugin@0.3.0`.
   options `kinds`, `barrel-name`, `internal-folder`, `registry`, `registry-import`, `mock-calls`,
   `hoisted-mock-calls`, `entity-folder`, `enum-kind` and `enum-folder`. Its page says how it
   relates to `barrel-exports`, `import-aliases`, `migrations` and `typescript/barrel-imports`.
+  ([f1540f5](https://github.com/ElsiKora/Gate/commit/f1540f597acd508322e43c8aba9aa66ada38299d))
 
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.1...plugin-nestjs-v0.3.2) (2026-11-24)
 

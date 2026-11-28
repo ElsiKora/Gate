@@ -2,11 +2,6 @@
 
 The plugin is versioned on its own; its source is `ElsiKora/Gate:typescript@<version>`.
 
-## Unreleased
-
-- Internal: the export map of `barrel-imports` and its reading of a file's loads move to the
-  TypeScript language library, which the `nestjs` plugin shares; no finding changes.
-
 ## [0.3.1](https://github.com/ElsiKora/Gate/compare/plugin-typescript-v0.3.0...plugin-typescript-v0.3.1) (2026-11-23)
 
 Built for the plugin interface `gate:plugin@0.3.0`; it loads in a 0.3.0, 0.3.1 or 0.3.2 core. The
