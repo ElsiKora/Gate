@@ -24,6 +24,10 @@ const LEFT_OUT: &[(&str, &str)] = &[
     ),
     ("import-direction", "`contracts` has no default"),
     (
+        "kind-imports",
+        "a service takes on the kind-barrel import form by choice",
+    ),
+    (
         "notification-egress",
         "`owner-classes`, `egress.modules` and `owners` have no default",
     ),
