@@ -85,9 +85,10 @@ negatives the page will list.
 
 ## Resume point
 
-The design is accepted (2026-11-27). The rule, its page, the tests and the CHANGELOG entry are on the
-branch at `7d707a3e`. The gates ran on that commit through the lane: `cargo fmt --all --check`,
-`cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked` (1692 passed, 0 failed),
-`cargo deny --locked check` and `cargo build --release --locked`, each exit 0. The comparison with the
-specification's figures ran outside the repository and went to the lead. Next: review by a session
-that did not write it.
+The design is accepted (2026-11-27). The review of `06f0af96` asked for one fix round: a builder
+alias held in a `const` or a string parameter is the repository form, an overloaded owner is one
+function, the list options reject an empty list or entry, and `lock: undefined` on a builder is no
+finding. The fixes are at `52901d53`; each new or extended test failed on `06f0af96` (exit 101, 5
+failed). The gates ran on `52901d53` through the lane: `cargo fmt --all --check`,
+`cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked` (1694 passed, 0 failed),
+`cargo deny --locked check` and `cargo build --release --locked`, each exit 0. Next: the lead decides.
