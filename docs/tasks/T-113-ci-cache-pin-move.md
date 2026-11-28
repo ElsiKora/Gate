@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress (branch `task/T-113-ci-cache-pin-move`) |
+| Status | ready for review (branch `task/T-113-ci-cache-pin-move`) |
 | Release | the next core release |
 | Writer | the T-113 writer session |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -88,5 +88,17 @@ lock hash differently and sends the lead the choice before writing code.
 
 ## Resume point
 
-The keys, the prune step, their tests and the guide are on `task/T-113-ci-cache-pin-move`.
-Next: clippy, then the full lane round, then report the head and each exit code to the lead.
+Ready for review. Lane round on `a95d28b`, as one lane job: clippy alone first, then the full round,
+stopping at the first failure. Each code is cargo's own status, which the job writes straight after
+cargo returns. Between 2026-11-28T05:31:16Z and 06:29:16Z:
+
+| Command | Exit |
+| --- | --- |
+| `cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings` | 0 |
+| `cargo build --release --locked` | 0 |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 |
+| `cargo test --locked` | 0 (1677 passed, 0 failed, 7 ignored, over 124 test binaries) |
+| `cargo deny --locked check` | 0 |
+
+`bin/gate sync` on this repository exits 0 and writes nothing ("4 generated, 0 written, 0 removed").
