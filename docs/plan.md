@@ -142,7 +142,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-114 | next nestjs | `nestjs/kind-imports`: how code imports the files of kind folders and the rest of a resource, a new rule in no preset | done (one fix round; fmt, clippy, test 1719 passed, deny, release build and speed exit 0 on `df8b3e4`; merged) | none |
 | T-115 | next nestjs | `nestjs/typeorm-lock-owner`: every TypeORM row lock comes from one owner function through recognised read shapes, a new rule in no preset | done (one fix round; fmt, clippy, test 1694 passed, deny and release build exit 0 on `52901d53`; merged) | none |
 | T-116 | later | The CI prune's age bound also removes stored git answers that no run used within it | open (backlog) | T-113 |
-| T-117 | v0.3.5 | Version 0.3.5 for the core and 0.3.3 for `nestjs`, with their changelogs | open | T-113, T-114, T-115 |
+| T-117 | v0.3.5 | Version 0.3.5 for the core and 0.3.3 for `nestjs`, with their changelogs | in progress | T-113, T-114, T-115 |
 
 ## Open after rc.1
 
