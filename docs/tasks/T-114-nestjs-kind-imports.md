@@ -89,4 +89,9 @@ reports 28 findings with its default options and 0 with `owners = ["src"]` and
 The page also lists the loads inside the roots that only `typescript/barrel-imports` checks with
 its default options, each one seen on a synthetic probe tree.
 
-Next: the full gates through the lane, then the report to the lead.
+The lane ran the gates on `b3662dea`: fmt, clippy, test (with `--no-fail-fast`), deny and the
+release build, each read from `$?` right after its cargo call, all 0. `origin/main` with T-115 was
+merged in without a rebase; the conflicts were the guide's table and count, the plan's rows and the
+CHANGELOG's Unreleased section.
+
+Next: the gates and the speed measure on the merge, then review.
