@@ -400,11 +400,9 @@ fn a_specifier_never_ends_in_index() {
     );
 }
 
-#[test]
-fn one_import_per_module_and_a_deferred_module_is_not_loaded_statically() {
-    let eager = "src/runtime/function/prepare-eager.function.ts";
-    let start = "src/runtime/start.ts";
-    let tree = with(&[
+/// The tree of the `dynamic-import` tests.
+fn dynamic_tree() -> Vec<(&'static str, &'static str)> {
+    with(&[
         (
             "src/infrastructure/metrics/function/index.ts",
             "export * from \"./is\";\n",
@@ -449,7 +447,14 @@ fn one_import_per_module_and_a_deferred_module_is_not_loaded_statically() {
             start,
             "export async function runtimeStart(): Promise<string> {\n\tconst { BOOK_LIMIT_CONSTANT, bookFormat } = await import(\"@modules/domain/book\");\n\treturn `${bookFormat()}:${BOOK_LIMIT_CONSTANT.MAX}`;\n}\n",
         ),
-    ]);
+    ])
+}
+
+#[test]
+fn one_import_per_module_and_a_deferred_module_is_not_loaded_statically() {
+    let eager = "src/runtime/function/prepare-eager.function.ts";
+    let start = "src/runtime/start.ts";
+    let tree = dynamic_tree();
     assert_eq!(
         check(RULE, KINDS, &tree),
         [
@@ -492,10 +497,12 @@ fn one_import_per_module_and_a_deferred_module_is_not_loaded_statically() {
             "defers @infrastructure/metrics/runtime/function with import() but already loads it statically; place the deferred module behind a barrel that {prepare} does not load statically"
         ),
     )));
+}
 
-    // An import() with both reasons gets one finding that gives both.
+#[test]
+fn an_import_with_both_reasons_gets_one_finding_that_gives_both() {
     let lazy = "src/runtime/lazy.ts";
-    let mut both = tree.clone();
+    let mut both = dynamic_tree();
     both.push((
         lazy,
         "import { bookFormat } from \"@modules/domain/book/function\";\n\nexport async function runtimeLazy(): Promise<unknown> {\n\tconst { BOOK_LIMIT_CONSTANT, bookFormat: format } = await import(\"@modules/domain/book\");\n\treturn [bookFormat, format, BOOK_LIMIT_CONSTANT];\n}\n",
@@ -518,10 +525,9 @@ fn one_import_per_module_and_a_deferred_module_is_not_loaded_statically() {
     assert_one_per_key(KINDS, &both);
 }
 
-#[test]
-fn a_mock_names_a_module_the_form_makes_the_source_load() {
-    let tests = "test/unit/modules/domain/author";
-    let tree = with(&[
+/// The tree of the `mock-target` tests.
+fn mock_tree() -> Vec<(&'static str, &'static str)> {
+    with(&[
         (
             "src/modules/domain/author/service.ts",
             "import { bookIsAvailable } from \"@modules/domain/book/function\";\n\nexport function authorCanLend(): boolean {\n\treturn bookIsAvailable();\n}\n",
@@ -554,7 +560,13 @@ fn a_mock_names_a_module_the_form_makes_the_source_load() {
             "test/unit/modules/domain/book/function/is/available.test.ts",
             "import { vi } from \"vitest\";\n\nvi.mock(\"@modules/domain/book/function/format.function\", () => ({ bookFormat: vi.fn(() => \"book\") }));\n",
         ),
-    ]);
+    ])
+}
+
+#[test]
+fn a_mock_names_a_module_the_form_makes_the_source_load() {
+    let tests = "test/unit/modules/domain/author";
+    let tree = mock_tree();
     let expected = [
         finding(
             "mock-target",
@@ -616,31 +628,33 @@ fn a_mock_names_a_module_the_form_makes_the_source_load() {
     // A hoisted call is any of `hoisted-mock-calls`: with none, two mocks of one module pass.
     let none = r#"{ "kinds": ["function"], "hoisted-mock-calls": [] }"#;
     assert_eq!(check(RULE, none, &tree).len(), 3);
+}
 
-    // A repeated call that also names a module out of the form gets one finding with both
-    // reasons, on its own line; the first call keeps its own finding.
-    let twice = format!("{tests}/twice.test.ts");
-    let mut repeated = tree.clone();
+#[test]
+fn a_repeated_mock_out_of_the_form_gets_one_finding_on_its_own_line() {
+    // The first call keeps its own finding; the repeat gets one finding with both reasons.
+    let twice = "test/unit/modules/domain/author/twice.test.ts";
+    let mut repeated = mock_tree();
     repeated.push((
-        "test/unit/modules/domain/author/twice.test.ts",
+        twice,
         "import { vi } from \"vitest\";\n\nvi.mock(\"@modules/domain/book\", () => ({}));\nvi.mock(\"@modules/domain/book\", () => ({}));\n",
     ));
     let found: Vec<Row> = check(RULE, KINDS, &repeated)
         .into_iter()
-        .filter(|(_, path, ..)| *path == twice)
+        .filter(|(_, path, ..)| path == twice)
         .collect();
     assert_eq!(
         found,
         [
             finding(
                 "mock-target",
-                &twice,
+                twice,
                 3,
                 "names @modules/domain/book in vi.mock, which no source file loads under the form; name the kind barrel or file that the source loads",
             ),
             finding(
                 "mock-target",
-                &twice,
+                twice,
                 4,
                 "names @modules/domain/book in vi.mock more than once, and no source file loads it under the form; name the kind barrel or file that the source loads, and merge the factories, since the test runner keeps only the last one",
             ),
