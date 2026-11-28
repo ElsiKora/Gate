@@ -141,6 +141,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-113 | next | The generated CI cache survives a move of `gate.lock`: a job restores its newest entry across a pin move, plugins and results still verified by their own keys, and prunes what the lock no longer pins before it saves | done (one fix round; clippy, build, fmt, test 1678 passed and deny exit 0 on `d729eeb`; merged) | none |
 | T-114 | next nestjs | `nestjs/kind-imports`: how code imports the files of kind folders and the rest of a resource, a new rule in no preset | open | none |
 | T-115 | next nestjs | `nestjs/typeorm-lock-owner`: every TypeORM row lock comes from one owner function through recognised read shapes, a new rule in no preset | done (one fix round; fmt, clippy, test 1694 passed, deny and release build exit 0 on `52901d53`; merged) | none |
+| T-116 | later | The CI prune's age bound also removes stored git answers that no run used within it | open (backlog) | T-113 |
 
 ## Open after rc.1
 
