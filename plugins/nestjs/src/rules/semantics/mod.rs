@@ -19,6 +19,7 @@ pub mod owner_roots;
 mod package;
 pub mod prefix_nesting;
 pub mod repeated_segment;
+pub mod typeorm_lock_owner;
 pub mod typeorm_relation;
 pub mod wrappers;
 
@@ -45,6 +46,7 @@ macro_rules! semantics_rules {
                 $crate::rules::semantics::owner_roots::Rule,
                 $crate::rules::semantics::prefix_nesting::Rule,
                 $crate::rules::semantics::repeated_segment::Rule,
+                $crate::rules::semantics::typeorm_lock_owner::Rule,
                 $crate::rules::semantics::typeorm_relation::Rule,
                 $crate::rules::semantics::wrappers::Rule,
             ]

@@ -5,13 +5,22 @@ a rule id, aspect, option or finding message that changes is a breaking change.
 
 ## Unreleased
 
+Built for the plugin interface `gate:plugin@0.3.0`.
+
 ### Features
 
-- `kind-imports`, a new rule in no preset: every source and test file loads each declaration from
-  the barrel of the kind folder that declares it, or from its file when it sits in no kind folder,
-  in the importer's own kind folder, or behind no barrel. Aspects `kind-barrel`, `own-kind-folder`,
-  `resource-relative`, `index-segment`, `dynamic-import` and `mock-target`; options `kinds`,
-  `barrel-name`, `internal-folder`, `registry`, `registry-import`, `mock-calls`,
+- `nestjs/typeorm-lock-owner`, a new rule in no preset: every TypeORM row lock of a read takes its
+  options from the one function the `owner` file exports, through the read shapes the rule
+  recognises (a repository or entity-manager read of `read-methods`, a query builder's
+  `setFindOptions`, and a service read of `service-read-methods`), with the repository the read runs
+  on as its first argument. Aspects `builder`, `lock-object`, `lock-value`, `owner`, `receiver`,
+  `row-list` and `unreadable`; options `owner`, `roots`, `framework-package`, `service-base`,
+  `service-read-methods`, `step-context-method`, `read-methods` and `lock-modes`.
+- `nestjs/kind-imports`, a new rule in no preset: every source and test file loads each declaration
+  from the barrel of the kind folder that declares it, or from its file when it sits in no kind
+  folder, in the importer's own kind folder, or behind no barrel. Aspects `kind-barrel`,
+  `own-kind-folder`, `resource-relative`, `index-segment`, `dynamic-import` and `mock-target`;
+  options `kinds`, `barrel-name`, `internal-folder`, `registry`, `registry-import`, `mock-calls`,
   `hoisted-mock-calls`, `entity-folder` and `enum-kind`. Its page says how it relates to
   `barrel-exports`, `import-aliases`, `migrations` and `typescript/barrel-imports`.
 

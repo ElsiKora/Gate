@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open (requested by the first consumer for two products; no date asked) |
+| Status | done (reviewed, one fix round; gates green on `52901d53`; merged) |
 | Release | the next `nestjs` plugin release, with T-114 |
-| Writer | not assigned |
+| Writer | assigned (branch `task/T-115-nestjs-typeorm-lock-owner`) |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
 | Depends on | `main` at `faf776e` |
 | Touches | `plugins/nestjs/` (a new rule under `src/rules/semantics/typeorm_lock_owner/`, its page, `src/lib.rs`, `CHANGELOG.md`, tests), `docs/plan.md`, this task file |
@@ -25,11 +25,14 @@ overrides it wherever they differ.
    `row-list`. The last three are the specification's `object`, `option` and `guarded`.
 3. **Options:** `owner`, `roots`, `framework-package` (defaults to `layout.automator-package`),
    `service-base`, `service-read-methods`, `step-context-method`, and two new ones:
-   - `read-methods`: TypeORM's find-option methods by default (`find`, `findOne`, `findOneOrFail`,
-     `findAndCount`, `findBy`, `findOneBy`, `count`, `exists`, and the like). A call's shape alone
-     does not make it a read.
+   - `read-methods`: TypeORM's find-option methods by default (`count`, `exists`, `find`,
+     `findAndCount`, `findOne`, `findOneOrFail`). The `*By` methods take a `where`, not find
+     options, so a `lock` key there is a column filter and they are left out (the lead's answer to
+     the design, 2026-11-27). A call's shape alone does not make it a read.
    - `lock-modes`: the four row-lock modes by default. `optimistic` and `dirty_read` are not row
-     locks.
+     locks: a `lock` whose mode folds to one of them is no site. A mode that folds to any other
+     string outside `lock-modes`, or that does not fold, is a `lock-value` finding (the lead's
+     answer to the design, 2026-11-27).
 
    The service base is matched by an import from `framework-package`, as `native-repository` does,
    never by name alone.
@@ -82,4 +85,10 @@ negatives the page will list.
 
 ## Resume point
 
-Not started.
+The design is accepted (2026-11-27). The review of `06f0af96` asked for one fix round: a builder
+alias held in a `const` or a string parameter is the repository form, an overloaded owner is one
+function, the list options reject an empty list or entry, and `lock: undefined` on a builder is no
+finding. The fixes are at `52901d53`; each new or extended test failed on `06f0af96` (exit 101, 5
+failed). The gates ran on `52901d53` through the lane: `cargo fmt --all --check`,
+`cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked` (1694 passed, 0 failed),
+`cargo deny --locked check` and `cargo build --release --locked`, each exit 0. Next: the lead decides.
