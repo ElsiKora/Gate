@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open (backlog; reported by the first consumer, no date asked) |
+| Status | done (reviewed, one fix round; gates green on `d729eeb`; merged) |
 | Release | the next core release |
-| Writer | not assigned |
+| Writer | the T-113 writer session |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
 | Depends on | `main` at `b7a271a` |
 | Touches | `crates/gate-host/src/sync/github.rs` (the cache steps of the generated workflow), its tests, `docs/guide/` where the CI cache is described, `CHANGELOG.md`, `docs/plan.md`, this task file |
@@ -58,6 +58,94 @@ lock hash differently and sends the lead the choice before writing code.
 - `bin/gate sync` on this repository writes nothing: it has no `cache`.
 - All cargo runs go through the lane.
 
+## Design (sent to the lead before the code)
+
+- The consumer's third key, `gate/<os>/<arch>/<job>/`, added after the two keys we had, would match
+  nothing: every saved key has the lock hash in the third part. So the job comes before the lock
+  hash. Key: `gate/<os>/<arch>/<job>/<lock hash>/<sha>`. Restore keys, in order:
+  `gate/<os>/<arch>/<job>/<lock hash>/` (same job, same lock), `gate/<os>/<arch>/<job>/` (same job,
+  any lock: the fix), `gate/<os>/<arch>/` (any job, any lock: a new job's first run). The earlier
+  fallback, any job under the same lock, can no longer be written as a prefix.
+- The save condition is unchanged. `cache-hit` is true only when the primary key matches exactly,
+  so a job that restored an entry saved under another lock saves under the current one.
+- The places a stale entry is never trusted:
+  - `plugins.rs`: `declared()` takes each sha256 from `gate.lock`. `fetch_components()` gets the
+    blob through `Cache::get(&pin.sha256)`, which hashes the file again, then hashes the bytes again
+    before they load.
+  - `usable_declaration()` reads `declarations/<pin sha256>/<core key>`.
+  - `results::key()` hashes the core version, the pin's sha256, the request and the grant.
+    `results::load()` reads only `results/<pin sha256>/../<key>`.
+- The lead accepted all five points of the design (2026-11-27). The lead also asked for:
+  - a generator test with two jobs where one id is a prefix of the other (`lint` and `lint-x`);
+  - the three trust checks stated on the guide page;
+  - the prune step below.
+- The lead's decision on outcome 4: "nothing else in the generated workflow changes" now carries one
+  more step. With `cache = true` only, each job runs `bin/gate cache prune --yes` right before the
+  save, under exactly the save's condition. The prune removes the downloads, declarations and
+  results of pins the current `gate.lock` no longer names. A restored entry would otherwise carry
+  every earlier pin forward. `modules/` is kept. A cache the prune cannot read fails the step, with
+  its message: for example, a cache without `CACHEDIR.TAG`, which `bin/gate` always writes.
+
+## Review round 1 (review of `db663d1`)
+
+The review raised two blocking findings, both about a move of the core pin:
+
+- **B1.** The guide said a pin move reuses every other result. A core move reruns every rule, since
+  every declaration and result key carries the core's version. The guide now says what each kind of
+  move reuses.
+- **B2.** The prune kept an old core's declarations and results, so they were carried forward at
+  every core release. The lead's decision: the generated prune takes an age bound,
+  `--older-than 30`, which is `CACHE_PRUNE_DAYS` in `sync/github.rs`.
+
+Checked before relying on the bound:
+
+- **Results and declarations.** A result is touched when it is read (`cache/results.rs`, `load`),
+  and so is a declaration (`plugins/declarations.rs`, `read`). A stored git content is touched in
+  `cache/answers.rs` (`blob`), and a sync state in `plugins.rs`. A written entry starts with the
+  current time.
+- **Downloads.** No bound ever removes a pinned download, and the prune removes an unpinned one
+  anyway, so their times do not matter.
+- **Times across a save and restore.** `actions/cache` at the pinned commit creates the archive
+  with `tar --posix -cf` and extracts it with `tar -xf`, with neither `-m` nor `--touch`
+  (`dist/restore-only/index.js` and `dist/save-only/index.js`, `getTarArgs`). So the times survive.
+- **Not bounded: the answer files under `git/answers/`.** `Answers::load` touches every answer
+  file, whether or not the run uses its answers, so the bound never removes them while runs keep
+  asking git questions. The guide says so. Bounding them would need a per-answer last use, which is
+  not part of this task.
+
+Non-blocking findings handled in the same round:
+
+- The guide states the real condition for `modules/`: kept whole while any plugin is pinned.
+- The guide says that GitHub tries the run's own branch before the default branch.
+- A failed prune adds a `::error` that names the CI fix, `gh cache list --key
+  gate/<os>/<arch>/<job>/` and `gh cache delete`, next to the core's own message.
+- `CHANGELOG.md` has an Unreleased entry.
+
+New test: `the_ci_prune_bound_removes_what_another_core_left_and_keeps_what_this_run_used`. It
+fills a cache, ages this core's entries and the entries another core would leave, runs a check, and
+prunes with the bound. The other core's entries older than 30 days go. Those younger stay, and so
+does everything the run used. The next check answers every call from the cache.
+
+## Known limit
+
+The answer files under `git/answers/` are not bounded in CI, as before this task; the lead keeps
+their bound as a follow-up in the backlog.
+
 ## Resume point
 
-Not started.
+The fix round is done. Lane round on `d729eeb`, as one lane job: clippy alone first, then the full
+round, stopping at the first failure. Each code is cargo's own status, which the job writes straight
+after cargo returns. Between 2026-11-28T07:01:49Z and 07:20:07Z:
+
+| Command | Exit |
+| --- | --- |
+| `cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings` | 0 |
+| `cargo build --release --locked` | 0 |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 |
+| `cargo test --locked` | 0 (1678 passed, 0 failed, 7 ignored, over 124 test binaries) |
+| `cargo deny --locked check` | 0 |
+
+The earlier round on `16125df` stopped at clippy with exit 101: an assert without a message, fixed
+in `d729eeb`. `bin/gate sync` on this repository exits 0 and writes nothing ("4 generated, 0
+written, 0 removed").

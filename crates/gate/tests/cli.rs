@@ -3084,20 +3084,34 @@ const CACHE_RESTORE: &str =
 const CACHE_SAVE: &str = "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0";
 const CACHE_ENV: &str = "          GATE_CACHE_DIR: ${{ runner.temp }}/gate-cache\n";
 
-/// The restore step of the job `id`.
+/// The restore step of the job `id`. Its restore keys, in order: the job under the same
+/// `gate.lock`, the job under any lock (a moved pin starts warm), any job. No key but the first
+/// carries the lock's hash.
 fn cache_restore_step(id: &str) -> String {
     format!(
-        "      - id: gate-cache\n        name: Restore the Gate cache\n        uses: {CACHE_RESTORE}\n        with:\n          path: {CACHE_PATH}\n          key: {CACHE_KEY}{id}/${{{{ github.sha }}}}\n          restore-keys: \"{CACHE_KEY}{id}/\\n{CACHE_KEY}\"\n"
+        "      - id: gate-cache\n        name: Restore the Gate cache\n        uses: {CACHE_RESTORE}\n        with:\n          path: {CACHE_PATH}\n          key: {CACHE_KEY}{id}/{CACHE_LOCK}${{{{ github.sha }}}}\n          restore-keys: \"{CACHE_KEY}{id}/{CACHE_LOCK}\\n{CACHE_KEY}{id}/\\n{CACHE_KEY}\"\n"
     )
 }
 
-/// The start of every key: the runner's OS and architecture and the hash of `gate.lock`.
-const CACHE_KEY: &str = "gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/";
+/// The start of every key: the runner's OS and architecture.
+const CACHE_KEY: &str = "gate/${{ runner.os }}/${{ runner.arch }}/";
 
-/// The save step of a job whose last `bin/gate` step has the id `last`.
-fn cache_save_step(last: &str) -> String {
+/// The part of a key after the job: the hash of `gate.lock`.
+const CACHE_LOCK: &str = "${{ hashFiles('gate.lock') }}/";
+
+/// The prune and save steps of the job `id`, both under the condition of the save, which reads
+/// the job's last `bin/gate` step. The prune removes what the current `gate.lock` no longer pins and
+/// what has gone unused for 30 days, right before the save; when it fails, it names the CI fix.
+fn cache_save_step(id: &str) -> String {
+    let last = last_step(id);
+    let condition = format!(
+        "${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.gate-cache.outputs.cache-hit != 'true' }}}}"
+    );
+    let prune = format!(
+        "bin/gate cache prune --yes --older-than 30 || {{ echo \"::error title=Gate cache::the prune of the Gate cache failed (see above). To start this job from an empty cache, delete its entries on this branch and on the default branch, with gh cache list --key {CACHE_KEY}{id}/ --ref <ref> and gh cache delete <id>\"; exit 1; }}"
+    );
     format!(
-        "      - name: Save the Gate cache\n        if: ${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.gate-cache.outputs.cache-hit != 'true' }}}}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
+        "      - name: Prune the Gate cache\n        if: {condition}\n        run: {prune}\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n{CACHE_ENV}          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Save the Gate cache\n        if: {condition}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
     )
 }
 
@@ -3112,16 +3126,16 @@ fn last_step(id: &str) -> &'static str {
 
 /// `workflow` without what `cache = true` adds to the jobs `ids`.
 fn uncached(workflow: &str, ids: &[&str]) -> String {
-    let mut stripped = workflow.replace(CACHE_ENV, "").replace(
-        "      - id: gate-run\n        name: gate ",
-        "      - name: gate ",
-    );
+    let mut stripped = workflow.to_owned();
     for id in ids {
         stripped = stripped
             .replace(&cache_restore_step(id), "")
-            .replace(&cache_save_step(last_step(id)), "");
+            .replace(&cache_save_step(id), "");
     }
-    stripped
+    stripped.replace(CACHE_ENV, "").replace(
+        "      - id: gate-run\n        name: gate ",
+        "      - name: gate ",
+    )
 }
 
 #[test]
@@ -3144,13 +3158,24 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
             "{id}: the restore step follows the checkout: {text}"
         );
         assert!(
-            text.ends_with(&cache_save_step(last_step(id))),
+            text.ends_with(&cache_save_step(id)),
             "{id}: the save step is last: {text}"
         );
         assert_eq!(
             text.matches("uses: actions/cache/").count(),
             2,
             "{id}: {text}"
+        );
+        // A move of a pin changes the key and the first restore key only: the job's own entries
+        // under any lock still match the second.
+        assert_eq!(
+            text.matches("hashFiles('gate.lock')").count(),
+            2,
+            "{id}: {text}"
+        );
+        assert!(
+            text.contains(&format!("\\n{CACHE_KEY}{id}/\\n{CACHE_KEY}\"\n")),
+            "{id}: the job's entries under any lock, then any job's: {text}"
         );
     }
     // The aggregate job runs no bin/gate and touches no cache.
@@ -3169,9 +3194,17 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
         assert!(!workflow.contains(never), "{never}: {workflow}");
     }
 
-    // Every bin/gate step, and no other, gets GATE_CACHE_DIR, between the branch and the token.
+    // Every bin/gate step, and no other, gets GATE_CACHE_DIR, between the branch and the token:
+    // the five gate commands and the four jobs' prunes.
     let runs = workflow.matches("        run: bin/gate ").count();
-    assert_eq!(runs, 5, "{workflow}");
+    assert_eq!(runs, 9, "{workflow}");
+    assert_eq!(
+        workflow
+            .matches("        run: bin/gate cache prune --yes --older-than 30 || ")
+            .count(),
+        4,
+        "{workflow}"
+    );
     assert_eq!(
         workflow
             .matches(&format!(
@@ -3205,7 +3238,11 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
     assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
     repo.write(
         ".github/workflows/gate.yml",
-        &workflow.replacen("/check/${{ github.sha }}", "/check/", 1),
+        &workflow.replacen(
+            "/${{ github.sha }}\n          restore-keys:",
+            "/\n          restore-keys:",
+            1,
+        ),
     );
     let output = repo.gate(&["sync", "--check"]);
     assert_eq!(output.status.code(), Some(1), "{}", stdout(&output));
@@ -3214,6 +3251,58 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
         "{}",
         stdout(&output)
     );
+}
+
+#[test]
+fn no_restore_key_of_a_cached_job_matches_the_entries_of_a_job_whose_id_it_starts() {
+    let repo = Repo::new();
+    repo.write(
+        "gate.toml",
+        &format!(
+            r#"[gate]
+version = "{VERSION}"
+
+[ci.github]
+workflow = ".github/workflows/gate.yml"
+checkout = "actions/checkout@{ACTION} # v4.2.2"
+aggregate = "gate-passed"
+cache = true
+
+[ci.github.jobs.lint]
+name = "Lint"
+timeout-minutes = 10
+run = ["check"]
+
+[ci.github.jobs.lint-x]
+name = "Lint more"
+timeout-minutes = 10
+run = ["check"]
+"#
+        ),
+    );
+    repo.commit("configure");
+    let output = repo.gate(&["sync"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let workflow = repo.read(".github/workflows/gate.yml");
+    let (lint, other) = (job(&workflow, "lint"), job(&workflow, "lint-x"));
+    assert!(lint.contains(&cache_restore_step("lint")), "{lint}");
+    assert!(other.contains(&cache_restore_step("lint-x")), "{other}");
+
+    // The key every entry of lint-x is saved under, as the restore step of lint-x names it.
+    let saved = format!("{CACHE_KEY}lint-x/{CACHE_LOCK}${{{{ github.sha }}}}");
+    // Every restore key of lint that names a job ends that job's id with `/`, so none is a prefix
+    // of a key of lint-x; only the last, which names no job, matches any job's entries.
+    let restore_keys = [
+        format!("{CACHE_KEY}lint/{CACHE_LOCK}"),
+        format!("{CACHE_KEY}lint/"),
+    ];
+    for key in &restore_keys {
+        assert!(!saved.starts_with(key.as_str()), "{key} matches {saved}");
+        assert!(
+            format!("{CACHE_KEY}lint/{CACHE_LOCK}${{{{ github.sha }}}}").starts_with(key.as_str()),
+            "{key} matches the entries of lint"
+        );
+    }
 }
 
 #[test]
@@ -3291,7 +3380,7 @@ deploy = {{ run = "true" }}
     );
     for (id, text) in [("reports", &reports), ("deploy", &deploy)] {
         assert!(text.contains(&cache_restore_step(id)), "{id}: {text}");
-        assert!(text.ends_with(&cache_save_step("gate-run")), "{id}: {text}");
+        assert!(text.ends_with(&cache_save_step(id)), "{id}: {text}");
     }
     // Of the two gate commands of reports, only the last carries the id the save step reads.
     assert!(

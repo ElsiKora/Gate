@@ -84,8 +84,11 @@ const LAST_GATE_STEP_ID: &str = "gate-run";
 
 /// The start of every key of the Gate cache: `/` separates the parts, since no job id holds one.
 /// The architecture keeps an x86 and an Arm runner of one OS apart.
-const CACHE_KEY_PREFIX: &str =
-    "gate/${{ runner.os }}/${{ runner.arch }}/${{ hashFiles('gate.lock') }}/";
+const CACHE_KEY_PREFIX: &str = "gate/${{ runner.os }}/${{ runner.arch }}/";
+
+/// The part of a key after the job: the hash of `gate.lock`. It comes after the job, so that one
+/// restore key can match the job's entries under any lock.
+const CACHE_KEY_LOCK: &str = "${{ hashFiles('gate.lock') }}/";
 
 /// The token a `bin/gate` step reads private plugin releases with: the repository secret
 /// `GATE_GITHUB_TOKEN` when it is set, else the job's own token. Only `bin/gate` steps get it; other
@@ -150,7 +153,7 @@ pub fn workflow(
         }),
     ]);
     if cached {
-        steps.push(cache_save(CHANGES_JOB));
+        steps.extend(cache_end(CHANGES_JOB, CHANGES_JOB));
     }
     let mut jobs = Map::new();
     jobs.insert(
@@ -239,38 +242,82 @@ pub fn cache_paths() -> String {
 }
 
 /// The step that restores the Gate cache of the job `id`: the entry of this commit, else the newest
-/// of the job under the same `gate.lock`, else the newest of any job under it. Every entry restored
-/// was written under the same core archive and plugins, so a stale part is unused, never wrong.
+/// of the job under the same `gate.lock`, else the newest of the job under any lock, so that a move
+/// of a pin starts warm, else the newest of any job. A restored part is keyed by what produced it:
+/// a plugin's download by its sha256, which the run takes from the current `gate.lock` and hashes
+/// again on every read; its declaration and results by that sha256 and the core's version. A part
+/// written for a pin that moved is never looked up, so it is unused, never wrong.
 fn cache_restore(id: &str) -> Value {
+    let job = format!("{CACHE_KEY_PREFIX}{id}/");
     json!({
         "id": CACHE_STEP_ID,
         "name": "Restore the Gate cache",
         "uses": CACHE_RESTORE,
         "with": {
             "path": cache_paths(),
-            "key": format!("{CACHE_KEY_PREFIX}{id}/${{{{ github.sha }}}}"),
-            "restore-keys": format!("{CACHE_KEY_PREFIX}{id}/\n{CACHE_KEY_PREFIX}"),
+            "key": format!("{job}{CACHE_KEY_LOCK}${{{{ github.sha }}}}"),
+            "restore-keys": format!("{job}{CACHE_KEY_LOCK}\n{job}\n{CACHE_KEY_PREFIX}"),
         },
     })
 }
 
-/// The step that saves the Gate cache under the key the restore step tried, last in the job: also
-/// after a red check, whose results are as valid as a green one's; not when the run was cancelled
-/// or the job timed out, not when the job's last `bin/gate` step (`last`, its step id) never ran,
-/// so that a job that failed before it saves nothing a rerun would then find under this commit's
-/// key, and not when the restore step found this very key (a rerun).
-fn cache_save(last: &str) -> Value {
-    json!({
-        "name": "Save the Gate cache",
-        "if": format!(
-            "${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.{CACHE_STEP_ID}.outputs.cache-hit != 'true' }}}}"
-        ),
-        "uses": CACHE_SAVE,
-        "with": {
-            "path": cache_paths(),
-            "key": format!("${{{{ steps.{CACHE_STEP_ID}.outputs.cache-primary-key }}}}"),
-        },
-    })
+/// How many days a derived file of the Gate cache (a result, a declaration, a stored git content)
+/// may go unused before the prune of a generated job removes it. A run sets the time of each such
+/// file it uses, and `actions/cache` keeps file times through a save and a restore. So the bound
+/// removes what a previous core left (its results and declarations are keyed by its version), and
+/// results no input of the job asks for any more.
+pub const CACHE_PRUNE_DAYS: u64 = 30;
+
+/// The steps that end the job `job` with `[ci.github] cache`: the prune, then the save, both under
+/// [`cache_saved`].
+///
+/// The prune removes what the current `gate.lock` no longer pins: the downloads, declarations and
+/// results of plugin pins that moved, and the previous core's download. With
+/// [`CACHE_PRUNE_DAYS`], it also removes derived files unused that long, among them a previous
+/// core's results and declarations. A job restores an entry saved under an earlier lock, so
+/// without the prune every entry would carry each earlier pin forward. While the lock pins a
+/// plugin, `modules/` stays whole, since its files do not say which plugin they came from.
+///
+/// A cache it cannot prune fails the step: the core says what is wrong and the local fix, and the
+/// step adds the CI fix, deleting the job's entries.
+///
+/// The save stores the cache under the key the restore step tried.
+fn cache_end(job: &str, last: &str) -> [Value; 2] {
+    let condition = cache_saved(last);
+    [
+        json!({
+            "name": "Prune the Gate cache",
+            "if": condition,
+            "run": format!(
+                "{LAUNCHER} cache prune --yes --older-than {CACHE_PRUNE_DAYS} || {{ echo \"::error title=Gate cache::the prune of the Gate cache failed (see above). To start this job from an empty cache, delete its entries on this branch and on the default branch, with gh cache list --key {CACHE_KEY_PREFIX}{job}/ --ref <ref> and gh cache delete <id>\"; exit 1; }}"
+            ),
+            "env": gate_env(true, false),
+        }),
+        json!({
+            "name": "Save the Gate cache",
+            "if": condition,
+            "uses": CACHE_SAVE,
+            "with": {
+                "path": cache_paths(),
+                "key": format!("${{{{ steps.{CACHE_STEP_ID}.outputs.cache-primary-key }}}}"),
+            },
+        }),
+    ]
+}
+
+/// When a job prunes and saves the Gate cache. A red check saves too, because its results are as
+/// valid as a green one's. A job does not save:
+/// - when the run was cancelled or the job timed out;
+/// - when its last `bin/gate` step (`last`, its step id) never ran, so that a job that failed
+///   before it saves nothing a rerun would then find under this commit's key;
+/// - when the restore step found this very key (a rerun).
+///
+/// An entry found by a restore key is not a hit, including one saved under another `gate.lock`.
+/// So the job saves under the current lock, and the next run starts from that.
+fn cache_saved(last: &str) -> String {
+    format!(
+        "${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.{CACHE_STEP_ID}.outputs.cache-hit != 'true' }}}}"
+    )
 }
 
 /// The checkout step, named, with `fetch-depth` when one is set. It keeps no credentials
@@ -435,7 +482,7 @@ fn job_value(
     }
     steps.extend(job.after.iter().map(|step| step_value(step, directory)));
     if github.cache {
-        steps.push(cache_save(LAST_GATE_STEP_ID));
+        steps.extend(cache_end(id, LAST_GATE_STEP_ID));
     }
     value.insert("steps".to_owned(), Value::Array(steps));
 
