@@ -143,6 +143,7 @@ reference for every ported rule is the reference implementation, outside this re
 | T-115 | next nestjs | `nestjs/typeorm-lock-owner`: every TypeORM row lock comes from one owner function through recognised read shapes, a new rule in no preset | done (one fix round; fmt, clippy, test 1694 passed, deny and release build exit 0 on `52901d53`; merged) | none |
 | T-116 | later | The CI prune's age bound also removes stored git answers that no run used within it | open (backlog) | T-113 |
 | T-117 | v0.3.5 | Version 0.3.5 for the core and 0.3.3 for `nestjs`, with their changelogs | done (gates green on `0dcae0d2`, 1722 tests passed; nestjs changes bytes from code, typescript, cdk and frontend only through gate-typescript and keep their versions; merged, tagged `v0.3.5` and `plugin-nestjs-v0.3.3`) | T-113, T-114, T-115 |
+| T-118 | - | Gate checks itself with the released 0.3.5: `[gate] version = "0.3.5"`, the core's pins in `gate.lock`; the four plugin pins stay at 0.3.0 | done (lock, sync and check exit 0; sync writes nothing) | T-117 |
 
 ## Open after rc.1
 
