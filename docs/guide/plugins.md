@@ -326,7 +326,7 @@ Every rule reads the shared `layout` block of `[plugins.nestjs] options`
 ([its page](../../plugins/nestjs/rules/layout.md)); each rule's page is under
 [plugins/nestjs/rules](../../plugins/nestjs/rules).
 
-Presets: `nestjs/recommended` turns on every rule but the thirteen below at `error`, and
+Presets: `nestjs/recommended` turns on every rule but the fourteen below at `error`, and
 `nestjs/adoption` the same at `warning`. Each of these takes something only the project can give;
 turn it on in `[rules]` with its options:
 
@@ -343,6 +343,7 @@ turn it on in `[rules]` with its options:
 | `nestjs/package-pins` | the `artifacts` it pins are the project's own |
 | `nestjs/advisory-lock-manifest` | only a service that uses advisory locks has the manifest |
 | `nestjs/asset-storage` | only a service that stores assets has the storage adapter |
+| `nestjs/kind-imports` | a service takes on the kind-barrel import form by choice, and with it the `kinds` of its own layout; see its page for `typescript/barrel-imports` |
 | `nestjs/typeorm-lock-owner` | `owner` has no default |
 
 ### `node`

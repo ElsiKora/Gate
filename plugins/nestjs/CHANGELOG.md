@@ -16,6 +16,13 @@ Built for the plugin interface `gate:plugin@0.3.0`.
   on as its first argument. Aspects `builder`, `lock-object`, `lock-value`, `owner`, `receiver`,
   `row-list` and `unreadable`; options `owner`, `roots`, `framework-package`, `service-base`,
   `service-read-methods`, `step-context-method`, `read-methods` and `lock-modes`.
+- `nestjs/kind-imports`, a new rule in no preset: every source and test file loads each declaration
+  from the barrel of the kind folder that declares it, or from its file when it sits in no kind
+  folder, in the importer's own kind folder, or behind no barrel. Aspects `kind-barrel`,
+  `own-kind-folder`, `resource-relative`, `index-segment`, `dynamic-import` and `mock-target`;
+  options `kinds`, `barrel-name`, `internal-folder`, `registry`, `registry-import`, `mock-calls`,
+  `hoisted-mock-calls`, `entity-folder`, `enum-kind` and `enum-folder`. Its page says how it
+  relates to `barrel-exports`, `import-aliases`, `migrations` and `typescript/barrel-imports`.
 
 ## [0.3.2](https://github.com/ElsiKora/Gate/compare/plugin-nestjs-v0.3.1...plugin-nestjs-v0.3.2) (2026-11-24)
 

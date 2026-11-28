@@ -10,17 +10,14 @@
 //! owner directly, and importers that `exempt` matches are not checked. Type-only imports follow the
 //! same rule.
 
-use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 
 use gate_sdk::schemars::JsonSchema;
 use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
-use gate_typescript::owners::export_name;
-use gate_typescript::oxc_ast::ast::{
-    Declaration, ImportDeclarationSpecifier, Statement, TSModuleReference,
-};
+use gate_typescript::exports::ExportMap;
+use gate_typescript::loads::{Form, Names, static_loads};
 use gate_typescript::{SourceFile, TypeScript};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
@@ -94,7 +91,9 @@ fn check(run: &mut Run<'_, Options, TypeScriptCall>, typescript: &TypeScript<'_>
         files: typescript.files().iter().copied().collect(),
         barrel_name,
         owners: &owners,
-        own: RefCell::new(HashMap::new()),
+        exports: ExportMap::new(typescript, |importer, specifier| {
+            typescript.resolve(importer, specifier)
+        }),
     };
 
     let mut found = Vec::new();
@@ -109,6 +108,9 @@ fn check(run: &mut Run<'_, Options, TypeScriptCall>, typescript: &TypeScript<'_>
             checker.check(path, &load, &mut found)?;
         }
     }
+
+    // The checker holds the options; it ends before the run reports.
+    drop(checker);
 
     for finding in found {
         let help = match finding.aspect {
@@ -167,85 +169,21 @@ struct Load {
     line: usize,
 }
 
-/// The static imports and re-exports of a file.
+/// The static imports and re-exports of a file: the top-level declarations with a source and
+/// `import x = require("x")`, which takes the whole module, as `import * as x` does.
 fn loads(file: &SourceFile<'_>) -> Vec<Load> {
-    let line = |start: u32| usize::try_from(file.line(start)).unwrap_or(usize::MAX);
-    let mut loads = Vec::new();
-    for statement in &file.program().body {
-        match statement {
-            Statement::ImportDeclaration(import) => {
-                let names = match &import.specifiers {
-                    None => None,
-                    Some(specifiers) if specifiers.is_empty() => None,
-                    Some(specifiers) => specifiers
-                        .iter()
-                        .map(|specifier| match specifier {
-                            ImportDeclarationSpecifier::ImportSpecifier(named) => {
-                                Some(export_name(&named.imported))
-                            }
-                            ImportDeclarationSpecifier::ImportDefaultSpecifier(_) => {
-                                Some("default".to_owned())
-                            }
-                            ImportDeclarationSpecifier::ImportNamespaceSpecifier(_) => None,
-                        })
-                        .collect::<Option<Vec<_>>>(),
-                };
-                loads.push(Load {
-                    specifier: import.source.value.to_string(),
-                    names,
-                    line: line(import.span.start),
-                });
-            }
-            Statement::ExportFromDeclaration(export) => loads.push(Load {
-                specifier: export.source.value.to_string(),
-                names: Some(
-                    export
-                        .specifiers
-                        .iter()
-                        .map(|specifier| export_name(&specifier.local))
-                        .collect(),
-                ),
-                line: line(export.span.start),
-            }),
-            Statement::ExportAllDeclaration(export) => loads.push(Load {
-                specifier: export.source.value.to_string(),
-                names: None,
-                line: line(export.span.start),
-            }),
-            // `import x = require("x")` takes the whole module, as `import * as x` does.
-            Statement::TSImportEqualsDeclaration(import) => {
-                if let TSModuleReference::ExternalModuleReference(reference) =
-                    &import.module_reference
-                {
-                    loads.push(Load {
-                        specifier: reference.expression.value.to_string(),
-                        names: None,
-                        line: line(import.span.start),
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-    loads
-}
-
-/// What one module exports by itself: the names it declares or re-exports by name, the tracked
-/// modules it re-exports with `export *`, and whether its names cannot all be known (`open`: an
-/// `export =`, an `export *` from a module that does not resolve to a tracked file, a file that
-/// does not parse).
-#[derive(Clone, Debug, Default)]
-struct Own {
-    names: BTreeSet<String>,
-    stars: Vec<String>,
-    open: bool,
-}
-
-/// The names a module exports, followed through `export *`; `open` when one module on the way is.
-#[derive(Debug, Default)]
-struct Exports {
-    names: BTreeSet<String>,
-    open: bool,
+    static_loads(file)
+        .into_iter()
+        .map(|load| Load {
+            specifier: load.specifier,
+            names: match (load.form, load.names) {
+                (Form::ExportFrom, Names::Listed(names)) => Some(names),
+                (_, Names::Listed(names)) if !names.is_empty() => Some(names),
+                _ => None,
+            },
+            line: load.line,
+        })
+        .collect()
 }
 
 /// One finding before it is reported.
@@ -265,8 +203,8 @@ struct Checker<'c, 'a> {
     files: HashSet<&'a str>,
     barrel_name: &'c str,
     owners: &'c GlobSet,
-    /// What each module read exports by itself, by path.
-    own: RefCell<HashMap<String, Own>>,
+    /// What each module read exports, followed through `export *`.
+    exports: ExportMap<'c, 'a>,
 }
 
 impl<'a> Checker<'_, 'a> {
@@ -305,13 +243,13 @@ impl<'a> Checker<'_, 'a> {
         let Some(names) = &load.names else {
             return Ok(());
         };
-        let exports = self.exports(&barrel)?;
-        if exports.open {
+        let (exported, open) = self.exports.names(&barrel)?;
+        if open {
             return Ok(());
         }
         let mut reported = BTreeSet::new();
         for name in names {
-            if !exports.names.contains(name) && reported.insert(name) {
+            if !exported.contains(name) && reported.insert(name) {
                 found.push(Found {
                     aspect: "not-exported",
                     path: path.to_owned(),
@@ -341,132 +279,6 @@ impl<'a> Checker<'_, 'a> {
                     && !importer_owners.iter().any(|owner| inside(owner, folder))
             })
             .map(str::to_owned)
-    }
-
-    /// The names `path` exports, following `export * from` through tracked files. `export *`
-    /// passes on every name but the default, so they are the module's own names and the names but
-    /// the default of every module its stars reach. Each module is read once, so a cycle of
-    /// `export *` ends and the answer does not depend on the order the files are read in.
-    fn exports(&self, path: &str) -> Result<Exports> {
-        let mut exports = Exports::default();
-        let mut seen = HashSet::from([path.to_owned()]);
-        let mut pending = vec![(path.to_owned(), true)];
-        while let Some((module, root)) = pending.pop() {
-            let own = self.own(&module)?;
-            exports.open |= own.open;
-            exports.names.extend(
-                own.names
-                    .into_iter()
-                    .filter(|name| root || name != "default"),
-            );
-            for star in own.stars {
-                if seen.insert(star.clone()) {
-                    pending.push((star, false));
-                }
-            }
-        }
-        Ok(exports)
-    }
-
-    /// What `path` exports by itself, read once per run.
-    fn own(&self, path: &str) -> Result<Own> {
-        if let Some(known) = self.own.borrow().get(path) {
-            return Ok(known.clone());
-        }
-        let mut own = Own::default();
-        match self.parse(path)? {
-            None => own.open = true,
-            Some(file) => {
-                for statement in &file.program().body {
-                    self.statement_exports(path, statement, &mut own)?;
-                }
-            }
-        }
-        self.own.borrow_mut().insert(path.to_owned(), own.clone());
-        Ok(own)
-    }
-
-    fn statement_exports(
-        &self,
-        path: &str,
-        statement: &Statement<'_>,
-        own: &mut Own,
-    ) -> Result<()> {
-        match statement {
-            Statement::ExportDeclaration(export) => {
-                declaration_names(&export.declaration, &mut own.names);
-            }
-            Statement::ExportNamedDeclaration(export) => {
-                own.names.extend(
-                    export
-                        .specifiers
-                        .iter()
-                        .map(|specifier| export_name(&specifier.exported)),
-                );
-            }
-            Statement::ExportFromDeclaration(export) => {
-                own.names.extend(
-                    export
-                        .specifiers
-                        .iter()
-                        .map(|specifier| export_name(&specifier.exported)),
-                );
-            }
-            Statement::ExportDefaultDeclaration(_) => {
-                own.names.insert("default".to_owned());
-            }
-            Statement::ExportAllDeclaration(export) => match &export.exported {
-                Some(name) => {
-                    own.names.insert(export_name(name));
-                }
-                None => match self.typescript.resolve(path, &export.source.value)? {
-                    Some(target) => own.stars.push(target),
-                    None => own.open = true,
-                },
-            },
-            Statement::TSExportAssignment(_) => own.open = true,
-            _ => {}
-        }
-        Ok(())
-    }
-}
-
-/// The names an exported declaration binds, destructured variables included.
-fn declaration_names(declaration: &Declaration<'_>, names: &mut BTreeSet<String>) {
-    match declaration {
-        Declaration::VariableDeclaration(variable) => {
-            for declarator in &variable.declarations {
-                names.extend(
-                    declarator
-                        .id
-                        .get_binding_identifiers()
-                        .into_iter()
-                        .map(|identifier| identifier.name.to_string()),
-                );
-            }
-        }
-        Declaration::FunctionDeclaration(function) => {
-            names.extend(function.id.as_ref().map(|id| id.name.to_string()));
-        }
-        Declaration::ClassDeclaration(class) => {
-            names.extend(class.id.as_ref().map(|id| id.name.to_string()));
-        }
-        Declaration::TSTypeAliasDeclaration(alias) => {
-            names.insert(alias.id.name.to_string());
-        }
-        Declaration::TSInterfaceDeclaration(interface) => {
-            names.insert(interface.id.name.to_string());
-        }
-        Declaration::TSEnumDeclaration(enumeration) => {
-            names.insert(enumeration.id.name.to_string());
-        }
-        Declaration::TSNamespaceDeclaration(namespace) => {
-            names.insert(namespace.id.name.to_string());
-        }
-        Declaration::TSImportEqualsDeclaration(import) => {
-            names.insert(import.id.name.to_string());
-        }
-        Declaration::TSExternalModuleDeclaration(_) | Declaration::TSGlobalDeclaration(_) => {}
     }
 }
 

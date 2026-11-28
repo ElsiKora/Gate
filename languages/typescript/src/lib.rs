@@ -3,7 +3,8 @@
 //! The TypeScript language library of gate: the TypeScript and JavaScript files of a [`Source`],
 //! one parse per file and run, line numbers, module resolution with tsconfig `paths`, source
 //! owner tables ([`owners`]), environment coverage ([`env`]), import bindings ([`binding`], [`binder`]), module edges
-//! ([`modules`]), static value folding ([`value`]), JavaScript text semantics ([`javascript`],
+//! ([`modules`]), the loads of a file with the names they take ([`loads`]), the export map of a
+//! module with each name's declaring file ([`exports`]), static value folding ([`value`]), JavaScript text semantics ([`javascript`],
 //! [`js`]), the syntax helpers rule plugins share ([`syntax`]) and the call state that lets the
 //! rules of one plugin call share their sources and parses ([`call`]).
 //!
@@ -19,9 +20,11 @@ pub mod binder;
 pub mod binding;
 pub mod call;
 pub mod env;
+pub mod exports;
 pub mod javascript;
 pub mod js;
 mod lines;
+pub mod loads;
 pub mod modules;
 pub mod owners;
 mod resolver;

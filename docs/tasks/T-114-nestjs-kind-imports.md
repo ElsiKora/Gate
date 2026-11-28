@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | open (requested by the first consumer for two products; no date asked) |
+| Status | done (reviewed, one fix round; gates green on `df8b3e4`; merged) |
 | Release | the next `nestjs` plugin release, with T-115 |
-| Writer | not assigned |
+| Writer | assigned, branch `task/T-114-nestjs-kind-imports` |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
 | Depends on | `main` at `faf776e` |
 | Touches | `plugins/nestjs/` (a new rule under `src/rules/`, its page, `src/lib.rs`, `CHANGELOG.md`, tests), the `barrel-exports` page, `languages/typescript/` only if code moves there to be shared, `docs/plan.md`, this task file |
@@ -50,7 +50,8 @@ a contract: this task file overrides it wherever they differ.
    - `/index` segments: checked only for loads that resolve below the source root, as the
      specification's definitions say.
    - `.d.ts` files: they count when a kind folder is decided, and are tried in resolution.
-   - The order of the listed kinds in a message: the order of `kinds`.
+   - The order of the listed kinds in a message: the path of each group's module, whatever the
+     order of `kinds` (amended at review). It matches the reference the consumer compares against.
    - An entity that loads another resource's enum file: the writer adds a fixture and says on the
      page which rule reports it, so that no load is reported twice.
 8. **The interface stays `gate:plugin@0.3.0`.** If the work needs a change to it, stop and report
@@ -76,4 +77,42 @@ is reused from `typescript/barrel-imports`, and where shared code lives.
 
 ## Resume point
 
-Not started.
+The lead accepted the design, with a seventh option `hoisted-mock-calls` and the skip of an
+entity's enum files through `entity-folder` and `enum-kind`. Written: `gate_typescript::loads` and
+`gate_typescript::exports`, with `typescript/barrel-imports` moved onto them; the rule under
+`plugins/nestjs/src/rules/structure/kind_imports/`, its page, its tests and the CHANGELOG lines.
+
+Both import rules were run with `bin/gate check --format json` on the 28 synthetic trees of the
+rule's tests, outside the repository. `typescript/barrel-imports` gives the same findings from the
+released `typescript@0.3.1` and from this branch's build on every tree. Next to `kind-imports` it
+reports 28 findings with its default options and 0 with `owners = ["src"]` and
+`exempt = ["test/**"]`, the configuration the page names; the lead accepted that configuration.
+The page also lists the loads inside the roots that only `typescript/barrel-imports` checks with
+its default options, each one seen on a synthetic probe tree.
+
+The lane ran the gates on `b3662dea`: fmt, clippy, test (with `--no-fail-fast`), deny and the
+release build, each read from `$?` right after its cargo call, all 0. `origin/main` with T-115 was
+merged in without a rebase; the conflicts were the guide's table and count, the plan's rows and the
+CHANGELOG's Unreleased section.
+
+The lane ran the gates and the speed measure on the merge `08949b6e`, all 0. The review asked for one
+fix round:
+- groups follow module paths (Decision 7 amended), with a test whose `kinds` are not in
+  alphabetical order;
+- an `import()` with both reasons, and a repeated hoisted mock call, get one finding each, the
+  repeat on its own line;
+- an entity's non-relative load of its own resource's enum folder is skipped by every aspect,
+  through an eighth option `enum-folder`;
+- a name a kind barrel imports and exports with `export { … }` counts as re-exported.
+
+The move had made `typescript/barrel-imports` slower: it walked every expression to read loads it
+then dropped. It now reads the top-level declarations only (`gate_typescript::loads::static_loads`).
+On the speed tree of `plugins/nestjs/tests/speed.rs` (10 670 files), `barrel-imports` alone, 12
+alternating runs of `bin/gate check --timings` with the results cache emptied, median plugin time:
+released `typescript@0.3.1` 1073.5 ms, a local build of its tag 1079.0 ms, this branch before the
+change 1278.5 ms, after it 1092.5 ms. Every build gave the same 6588 findings.
+
+The consumer comparison, run again outside the repository, gives the same findings as before the
+fix round; none of its loads is one of the cases the round changed.
+
+Next: the gates on the fix round, then review.
