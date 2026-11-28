@@ -11,7 +11,7 @@ body:
     attributes:
       label: Gate version
       description: The output of `gate --version`.
-      placeholder: gate 0.3.4
+      placeholder: gate 0.3.5
     validations:
       required: true
   - type: dropdown

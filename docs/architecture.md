@@ -281,10 +281,10 @@ between repositories.
 Root:
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.4/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.5/gate.schema.json
 
 [gate]
-version = "0.3.4"                     # the pinned core; checksums in gate.lock
+version = "0.3.5"                     # the pinned core; checksums in gate.lock
 
 [workspace]
 projects = "pnpm"                     # discover from pnpm-workspace.yaml; or a list of globs
@@ -325,7 +325,7 @@ extends = ["nestjs/recommended", "ledger/recommended"]
 
 [plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.3.1" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2", options-file = "gate/options/nestjs.json" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.3", options-file = "gate/options/nestjs.json" }
 ledger = { source = "ElsiKora/Gate:ledger@0.3.3" }
 agents = { source = "ElsiKora/Gate:agents@0.3.0" }
 

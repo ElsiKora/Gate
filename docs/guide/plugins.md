@@ -305,7 +305,7 @@ name = "server"
 
 [plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.3.1", reads = ["tsconfig.base.json"] }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2", options = { layout = { source-root = "src" } }, reads = ["tsconfig.base.json"] }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.3", options = { layout = { source-root = "src" } }, reads = ["tsconfig.base.json"] }
 
 [rules]
 "nestjs/barrel-exports" = "error"

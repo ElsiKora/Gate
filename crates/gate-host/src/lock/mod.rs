@@ -5,10 +5,10 @@
 //!
 //! ```toml
 //! [core]
-//! version = "0.3.4"
+//! version = "0.3.5"
 //!
 //! [core.targets.aarch64-apple-darwin]
-//! url = "https://github.com/ElsiKora/Gate/releases/download/v0.3.4/gate-aarch64-apple-darwin.tar.gz"
+//! url = "https://github.com/ElsiKora/Gate/releases/download/v0.3.5/gate-aarch64-apple-darwin.tar.gz"
 //! sha256 = "<64 hexadecimal digits>"
 //!
 //! [plugins."ElsiKora/Gate:git@0.3.0"]
