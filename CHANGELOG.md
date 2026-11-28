@@ -8,6 +8,30 @@ none, because the public history starts at a fresh root at 0.1.0.
 Each shared plugin keeps its own changelog next to its code.
 -->
 
+## Unreleased
+
+With `[ci.github] cache = true`, `gate sync` writes new cache keys and two new steps. Run `gate sync`
+and commit the workflow to take them.
+
+### Bug Fixes
+
+- **host:** the generated CI cache survives a move of a pin in `gate.lock`. Before, every key and
+  restore key carried the hash of `gate.lock`, so each move started every job cold: one consumer
+  measured a static check at 10166 and 13095 ms cold against 2733 and 3587 ms warm. The key is now
+  `gate/<os>/<arch>/<job>/<lock hash>/<sha>`. A job restores the newest entry of the same job under
+  the same lock, else the newest of the same job under any lock, else the newest of any job. A plugin
+  is still verified by sha256 against the current `gate.lock` before it loads, and a declaration or
+  result is used only under its own key, which carries the plugin's sha256 and the core's version.
+
+### Features
+
+- **host:** each cached job prunes its cache before the save, with
+  `bin/gate cache prune --yes --older-than 30`, under the same condition as the save. The prune
+  removes what the current `gate.lock` no longer pins, and every result, declaration and stored file
+  content unused for 30 days, among them what a previous core left. So an entry restored across moves
+  of a pin does not grow at every release. When the prune fails, the step fails and says to delete
+  the job's cache entries with `gh cache delete`.
+
 ## [0.3.4](https://github.com/ElsiKora/Gate/compare/v0.3.3...v0.3.4) (2026-11-26)
 
 The plugin interface stays `gate:plugin@0.3.0`: its types are unchanged, so no plugin needs a

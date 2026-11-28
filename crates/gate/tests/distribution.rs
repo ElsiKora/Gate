@@ -2492,6 +2492,106 @@ fn refused(output: &Output) {
     );
 }
 
+/// Sets the last use of `path` to `days` days ago, as an earlier run would have left it.
+fn used_days_ago(path: &Path, days: u64) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| {
+            file.set_modified(std::time::SystemTime::now() - Duration::from_hours(24 * days))
+        })
+        .expect("set the last use");
+}
+
+/// Writes `path`, with its directories, and sets its last use to `days` days ago.
+fn left_by_another_core(path: &Path, days: u64) {
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("directories");
+    std::fs::write(path, b"{}").expect("an entry of another core");
+    used_days_ago(path, days);
+}
+
+#[test]
+fn the_ci_prune_bound_removes_what_another_core_left_and_keeps_what_this_run_used() {
+    let server = Server::start();
+    let (repo, hash, _) = checked_once(&server);
+    let cache = repo.cache.path();
+    let declarations = cache.join("declarations").join(&hash);
+    let results = cache.join("results").join(&hash);
+    let ours: Vec<PathBuf> = [&declarations, &results]
+        .into_iter()
+        .flat_map(|directory| {
+            files(directory)
+                .into_iter()
+                .map(|file| directory.join(file))
+        })
+        .collect();
+    assert!(
+        ours.iter().any(|path| path.starts_with(&declarations))
+            && ours.iter().any(|path| path.starts_with(&results)),
+        "a declaration and a result of this core: {ours:?}"
+    );
+
+    // The entry restored after a move of the core pin holds what the previous core wrote under
+    // the same plugin: its declaration and its result, under names this core never reads. One
+    // pair was last used 31 days ago, one 10 days ago. This core's own entries were last used
+    // 31 days ago too.
+    let digest = |text: &str| sha256(text.as_bytes());
+    let old = [
+        declarations.join(digest("a previous core")),
+        results.join("ab").join(digest("a previous core's result")),
+    ];
+    let recent = [
+        declarations.join(digest("a recent core")),
+        results.join("cd").join(digest("a recent core's result")),
+    ];
+    for path in &old {
+        left_by_another_core(path, 31);
+    }
+    for path in &recent {
+        left_by_another_core(path, 10);
+    }
+    for path in &ours {
+        used_days_ago(path, 31);
+    }
+
+    // A job of this core uses its own declaration and result, which sets their last use to now.
+    let output = repo.gate(&["check", "--timings"], None, &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stderr).contains("timings: load: not loaded, every call cached: git\n"),
+        "{}",
+        text(&output.stderr)
+    );
+
+    // The prune of a generated job removes what went unused longer than its bound, and nothing
+    // the run used.
+    let output = repo.gate(
+        &["cache", "prune", "--yes", "--older-than", "30"],
+        None,
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    for path in &old {
+        assert!(!path.exists(), "{} is pruned", path.display());
+    }
+    for path in recent.iter().chain(&ours) {
+        assert!(path.exists(), "{} is kept", path.display());
+    }
+    assert!(cache.join("blobs/sha256").join(&hash).exists());
+    assert!(!files(&cache.join("modules")).is_empty());
+
+    // The next job finds everything it uses.
+    let output = repo.gate(&["check", "--timings"], None, &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stderr).contains("timings: load: not loaded, every call cached: git\n"),
+        "{}",
+        text(&output.stderr)
+    );
+    assert!(server.requests().is_empty(), "nothing was downloaded");
+    server.stop();
+}
+
 #[test]
 fn a_run_whose_every_call_is_cached_loads_no_plugin_and_says_so() {
     let server = Server::start();

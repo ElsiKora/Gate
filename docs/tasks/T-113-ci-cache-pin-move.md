@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | ready for review (branch `task/T-113-ci-cache-pin-move`) |
+| Status | fix round after review (branch `task/T-113-ci-cache-pin-move`) |
 | Release | the next core release |
 | Writer | the T-113 writer session |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -86,19 +86,47 @@ lock hash differently and sends the lead the choice before writing code.
   every earlier pin forward. `modules/` is kept. A cache the prune cannot read fails the step, with
   its message: for example, a cache without `CACHEDIR.TAG`, which `bin/gate` always writes.
 
+## Review round 1 (review of `db663d1`)
+
+The review raised two blocking findings, both about a move of the core pin:
+
+- **B1.** The guide said a pin move reuses every other result. A core move reruns every rule, since
+  every declaration and result key carries the core's version. The guide now says what each kind of
+  move reuses.
+- **B2.** The prune kept an old core's declarations and results, so they were carried forward at
+  every core release. The lead's decision: the generated prune takes an age bound,
+  `--older-than 30`, which is `CACHE_PRUNE_DAYS` in `sync/github.rs`.
+
+Checked before relying on the bound:
+
+- **Results and declarations.** A result is touched when it is read (`cache/results.rs`, `load`),
+  and so is a declaration (`plugins/declarations.rs`, `read`). A stored git content is touched in
+  `cache/answers.rs` (`blob`), and a sync state in `plugins.rs`. A written entry starts with the
+  current time.
+- **Downloads.** No bound ever removes a pinned download, and the prune removes an unpinned one
+  anyway, so their times do not matter.
+- **Times across a save and restore.** `actions/cache` at the pinned commit creates the archive
+  with `tar --posix -cf` and extracts it with `tar -xf`, with neither `-m` nor `--touch`
+  (`dist/restore-only/index.js` and `dist/save-only/index.js`, `getTarArgs`). So the times survive.
+- **Not bounded: the answer files under `git/answers/`.** `Answers::load` touches every answer
+  file, whether or not the run uses its answers, so the bound never removes them while runs keep
+  asking git questions. The guide says so. Bounding them would need a per-answer last use, which is
+  not part of this task.
+
+Non-blocking findings handled in the same round:
+
+- The guide states the real condition for `modules/`: kept whole while any plugin is pinned.
+- The guide says that GitHub tries the run's own branch before the default branch.
+- A failed prune adds a `::error` that names the CI fix, `gh cache list --key
+  gate/<os>/<arch>/<job>/` and `gh cache delete`, next to the core's own message.
+- `CHANGELOG.md` has an Unreleased entry.
+
+New test: `the_ci_prune_bound_removes_what_another_core_left_and_keeps_what_this_run_used`. It
+fills a cache, ages this core's entries and the entries another core would leave, runs a check, and
+prunes with the bound. The other core's entries older than 30 days go. Those younger stay, and so
+does everything the run used. The next check answers every call from the cache.
+
 ## Resume point
 
-Ready for review. Lane round on `a95d28b`, as one lane job: clippy alone first, then the full round,
-stopping at the first failure. Each code is cargo's own status, which the job writes straight after
-cargo returns. Between 2026-11-28T05:31:16Z and 06:29:16Z:
-
-| Command | Exit |
-| --- | --- |
-| `cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings` | 0 |
-| `cargo build --release --locked` | 0 |
-| `cargo fmt --all --check` | 0 |
-| `cargo clippy --locked --all-targets -- -D warnings` | 0 |
-| `cargo test --locked` | 0 (1677 passed, 0 failed, 7 ignored, over 124 test binaries) |
-| `cargo deny --locked check` | 0 |
-
-`bin/gate sync` on this repository exits 0 and writes nothing ("4 generated, 0 written, 0 removed").
+The fix round is committed. Next: clippy and the full lane round on the new head, then the report
+to the lead.

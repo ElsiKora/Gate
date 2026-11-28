@@ -3099,15 +3099,19 @@ const CACHE_KEY: &str = "gate/${{ runner.os }}/${{ runner.arch }}/";
 /// The part of a key after the job: the hash of `gate.lock`.
 const CACHE_LOCK: &str = "${{ hashFiles('gate.lock') }}/";
 
-/// The prune and save steps of a job whose last `bin/gate` step has the id `last`, both under
-/// the same condition: the prune removes what the current `gate.lock` no longer pins, right
-/// before the save.
-fn cache_save_step(last: &str) -> String {
+/// The prune and save steps of the job `id`, both under the condition of the save, which reads
+/// the job's last `bin/gate` step. The prune removes what the current `gate.lock` no longer pins and
+/// what has gone unused for 30 days, right before the save; when it fails, it names the CI fix.
+fn cache_save_step(id: &str) -> String {
+    let last = last_step(id);
     let condition = format!(
         "${{{{ !cancelled() && steps.{last}.outcome != 'skipped' && steps.gate-cache.outputs.cache-hit != 'true' }}}}"
     );
+    let prune = format!(
+        "bin/gate cache prune --yes --older-than 30 || {{ echo \"::error title=Gate cache::the prune of the Gate cache failed (see above). To start this job from an empty cache, delete its entries on this branch and on the default branch, with gh cache list --key {CACHE_KEY}{id}/ --ref <ref> and gh cache delete <id>\"; exit 1; }}"
+    );
     format!(
-        "      - name: Prune the Gate cache\n        if: {condition}\n        run: bin/gate cache prune --yes\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n{CACHE_ENV}          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Save the Gate cache\n        if: {condition}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
+        "      - name: Prune the Gate cache\n        if: {condition}\n        run: {prune}\n        env:\n          GATE_BRANCH: ${{{{ github.head_ref || github.ref_name }}}}\n{CACHE_ENV}          GATE_GITHUB_TOKEN: ${{{{ secrets.GATE_GITHUB_TOKEN || github.token }}}}\n      - name: Save the Gate cache\n        if: {condition}\n        uses: {CACHE_SAVE}\n        with:\n          path: {CACHE_PATH}\n          key: ${{{{ steps.gate-cache.outputs.cache-primary-key }}}}\n"
     )
 }
 
@@ -3126,7 +3130,7 @@ fn uncached(workflow: &str, ids: &[&str]) -> String {
     for id in ids {
         stripped = stripped
             .replace(&cache_restore_step(id), "")
-            .replace(&cache_save_step(last_step(id)), "");
+            .replace(&cache_save_step(id), "");
     }
     stripped.replace(CACHE_ENV, "").replace(
         "      - id: gate-run\n        name: gate ",
@@ -3154,7 +3158,7 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
             "{id}: the restore step follows the checkout: {text}"
         );
         assert!(
-            text.ends_with(&cache_save_step(last_step(id))),
+            text.ends_with(&cache_save_step(id)),
             "{id}: the save step is last: {text}"
         );
         assert_eq!(
@@ -3196,7 +3200,7 @@ fn a_cached_workflow_restores_and_saves_the_gate_cache_in_every_job_that_runs_bi
     assert_eq!(runs, 9, "{workflow}");
     assert_eq!(
         workflow
-            .matches("        run: bin/gate cache prune --yes\n")
+            .matches("        run: bin/gate cache prune --yes --older-than 30 || ")
             .count(),
         4,
         "{workflow}"
@@ -3376,7 +3380,7 @@ deploy = {{ run = "true" }}
     );
     for (id, text) in [("reports", &reports), ("deploy", &deploy)] {
         assert!(text.contains(&cache_restore_step(id)), "{id}: {text}");
-        assert!(text.ends_with(&cache_save_step("gate-run")), "{id}: {text}");
+        assert!(text.ends_with(&cache_save_step(id)), "{id}: {text}");
     }
     // Of the two gate commands of reports, only the last carries the id the save step reads.
     assert!(

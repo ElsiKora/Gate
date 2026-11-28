@@ -153,7 +153,7 @@ pub fn workflow(
         }),
     ]);
     if cached {
-        steps.extend(cache_end(CHANGES_JOB));
+        steps.extend(cache_end(CHANGES_JOB, CHANGES_JOB));
     }
     let mut jobs = Map::new();
     jobs.insert(
@@ -261,23 +261,36 @@ fn cache_restore(id: &str) -> Value {
     })
 }
 
-/// The steps that end a job with `[ci.github] cache`: the prune, then the save, both under
+/// How many days a derived file of the Gate cache (a result, a declaration, a stored git content)
+/// may go unused before the prune of a generated job removes it. A run sets the time of each such
+/// file it uses, and `actions/cache` keeps file times through a save and a restore. So the bound
+/// removes what a previous core left (its results and declarations are keyed by its version), and
+/// results no input of the job asks for any more.
+pub const CACHE_PRUNE_DAYS: u64 = 30;
+
+/// The steps that end the job `job` with `[ci.github] cache`: the prune, then the save, both under
 /// [`cache_saved`].
 ///
-/// The prune (`bin/gate cache prune --yes`) removes what the current `gate.lock` no longer pins:
-/// the downloads, declarations and results of pins that moved. A job restores an entry saved
-/// under an earlier lock, so without it every entry would carry each earlier pin forward. It keeps
-/// `modules/`, whose files do not say which plugin they came from. A cache it cannot prune fails
-/// the step, saying why.
+/// The prune removes what the current `gate.lock` no longer pins: the downloads, declarations and
+/// results of plugin pins that moved, and the previous core's download. With
+/// [`CACHE_PRUNE_DAYS`], it also removes derived files unused that long, among them a previous
+/// core's results and declarations. A job restores an entry saved under an earlier lock, so
+/// without the prune every entry would carry each earlier pin forward. While the lock pins a
+/// plugin, `modules/` stays whole, since its files do not say which plugin they came from.
+///
+/// A cache it cannot prune fails the step: the core says what is wrong and the local fix, and the
+/// step adds the CI fix, deleting the job's entries.
 ///
 /// The save stores the cache under the key the restore step tried.
-fn cache_end(last: &str) -> [Value; 2] {
+fn cache_end(job: &str, last: &str) -> [Value; 2] {
     let condition = cache_saved(last);
     [
         json!({
             "name": "Prune the Gate cache",
             "if": condition,
-            "run": format!("{LAUNCHER} cache prune --yes"),
+            "run": format!(
+                "{LAUNCHER} cache prune --yes --older-than {CACHE_PRUNE_DAYS} || {{ echo \"::error title=Gate cache::the prune of the Gate cache failed (see above). To start this job from an empty cache, delete its entries on this branch and on the default branch, with gh cache list --key {CACHE_KEY_PREFIX}{job}/ --ref <ref> and gh cache delete <id>\"; exit 1; }}"
+            ),
             "env": gate_env(true, false),
         }),
         json!({
@@ -469,7 +482,7 @@ fn job_value(
     }
     steps.extend(job.after.iter().map(|step| step_value(step, directory)));
     if github.cache {
-        steps.extend(cache_end(LAST_GATE_STEP_ID));
+        steps.extend(cache_end(id, LAST_GATE_STEP_ID));
     }
     value.insert("steps".to_owned(), Value::Array(steps));
 
