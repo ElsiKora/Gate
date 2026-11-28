@@ -1652,170 +1652,228 @@ fn asked_since(server: &Server, from: usize) -> Vec<String> {
         .collect()
 }
 
-#[test]
-fn a_cache_restored_after_a_pin_moved_serves_only_what_the_new_lock_pins() {
-    let server = Server::start();
-    let git = git_component();
-    // Another build of the git plugin: the same component with one more custom section, so other
-    // bytes under another sha256, as a release moves the pin.
-    let mut moved = git.clone();
-    moved.extend_from_slice(&[0, 6, 5]);
-    moved.extend_from_slice(b"moved");
-    let hello = hello_component();
-    let (git_hash, moved_hash, hello_hash) = (sha256(&git), sha256(&moved), sha256(&hello));
-    let git_route = format!("/acme/releases/download/plugin-git-v{VERSION}/git.wasm");
-    let moved_route = "/acme/releases/download/plugin-git-moved/git.wasm";
-    let hello_route = "/acme/releases/download/plugin-hello-v0.1.0/hello.wasm";
-    server.serve(&git_route, git.clone());
-    server.serve(moved_route, moved.clone());
-    server.serve(hello_route, hello.clone());
+/// A repository pinning two plugins, git and hello, whose cache a first job filled; then the git
+/// pin moved to another build, served at another URL, and the hello pin stayed.
+struct MovedPin {
+    server: Server,
+    repo: Repo,
+    /// The sha256 of the git build pinned first, of the build it moved to, and of hello.
+    git: String,
+    moved: String,
+    hello: String,
+    /// The bytes of the build the git pin moved to, and of hello.
+    moved_bytes: Vec<u8>,
+    hello_bytes: Vec<u8>,
+    /// The route of the moved build.
+    moved_route: &'static str,
+}
 
-    let git_source = format!("ElsiKora/Gate:git@{VERSION}");
-    let hello_source = "acme/rules:hello@0.1.0";
-    let repo = Repo::new();
-    repo.write(
-        "gate.toml",
-        &format!(
-            "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ngit = {{ source = \"{git_source}\", options = {{ main = [\"refs/heads/main\"] }} }}\nhello = {{ source = \"{hello_source}\" }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n"
-        ),
-    )
-    .write(
-        "gate.lock",
-        &pinned(&[(&git_source, 'b'), (hello_source, 'c')])
-            .replace("https://example.invalid/b.wasm", &server.url(&git_route))
-            .replace(&"b".repeat(64), &git_hash)
-            .replace("https://example.invalid/c.wasm", &server.url(hello_route))
-            .replace(&"c".repeat(64), &hello_hash),
-    );
-    repo.commit();
-    let passed = |output: &Output| {
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{}{}",
-            text(&output.stdout),
+impl MovedPin {
+    fn new() -> Self {
+        let server = Server::start();
+        let git_bytes = git_component();
+        // The same component with one more custom section: other bytes under another sha256, as
+        // a release moves the pin.
+        let mut moved_bytes = git_bytes.clone();
+        moved_bytes.extend_from_slice(&[0, 6, 5]);
+        moved_bytes.extend_from_slice(b"moved");
+        let hello_bytes = hello_component();
+        let git_route = format!("/acme/releases/download/plugin-git-v{VERSION}/git.wasm");
+        let moved_route = "/acme/releases/download/plugin-git-moved/git.wasm";
+        let hello_route = "/acme/releases/download/plugin-hello-v0.1.0/hello.wasm";
+        server.serve(&git_route, git_bytes.clone());
+        server.serve(moved_route, moved_bytes.clone());
+        server.serve(hello_route, hello_bytes.clone());
+        let (git, moved, hello) = (
+            sha256(&git_bytes),
+            sha256(&moved_bytes),
+            sha256(&hello_bytes),
+        );
+
+        let git_source = format!("ElsiKora/Gate:git@{VERSION}");
+        let hello_source = "acme/rules:hello@0.1.0";
+        let repo = Repo::new();
+        repo.write(
+            "gate.toml",
+            &format!(
+                "[gate]\nversion = \"{VERSION}\"\n\n[plugins]\ngit = {{ source = \"{git_source}\", options = {{ main = [\"refs/heads/main\"] }} }}\nhello = {{ source = \"{hello_source}\" }}\n\n[rules]\n\"git/commit-message\" = \"error\"\n"
+            ),
+        )
+        .write(
+            "gate.lock",
+            &pinned(&[(&git_source, 'b'), (hello_source, 'c')])
+                .replace("https://example.invalid/b.wasm", &server.url(&git_route))
+                .replace(&"b".repeat(64), &git)
+                .replace("https://example.invalid/c.wasm", &server.url(hello_route))
+                .replace(&"c".repeat(64), &hello),
+        );
+        repo.commit();
+
+        // A job under the first lock fills the cache: both plugins, the git plugin's compiled
+        // module, both declarations and the git call's result.
+        passed(&repo.gate(&["check"], None, &[]));
+        assert_eq!(asked_since(&server, 0).len(), 2, "{:?}", server.requests());
+        // A later job under the same lock restores it and answers the call from its result.
+        let same = restored(repo.cache.path());
+        let output = checked_in(&repo, same.path());
+        assert!(
+            text(&output.stderr).contains("timings: load: not loaded, every call cached: git\n"),
+            "{}",
             text(&output.stderr)
         );
-        assert!(
-            text(&output.stdout).contains("gate check (tree): 1 rule, 0 errors"),
-            "{}",
-            text(&output.stdout)
+
+        repo.write(
+            "gate.lock",
+            &repo
+                .read("gate.lock")
+                .replace(&server.url(&git_route), &server.url(moved_route))
+                .replace(&git, &moved),
         );
-    };
+        Self {
+            server,
+            repo,
+            git,
+            moved,
+            hello,
+            moved_bytes,
+            hello_bytes,
+            moved_route,
+        }
+    }
 
-    // A job under the first lock fills the cache: both plugins, the git plugin's compiled module,
-    // declarations and its call's result.
-    let output = repo.gate(&["check"], None, &[]);
-    passed(&output);
-    assert_eq!(asked_since(&server, 0).len(), 2, "{:?}", server.requests());
+    /// A copy of the first job's cache, as a job under the moved pin restores it, checked once.
+    /// Its download of the first git build is changed before the run: the lock no longer names
+    /// it, so the run never reads it.
+    fn restored_and_checked(&self) -> (tempfile::TempDir, Output) {
+        let copy = restored(self.repo.cache.path());
+        std::fs::write(
+            blob_at(copy.path(), &self.git),
+            b"\0asm not the previous build",
+        )
+        .expect("change the previous blob");
+        let output = checked_in(&self.repo, copy.path());
+        (copy, output)
+    }
+}
 
-    // A later job under the same lock restores it and answers the call from the stored result.
-    let same = restored(repo.cache.path());
+/// Where the cache at `cache` holds the download with this sha256.
+fn blob_at(cache: &Path, sha256: &str) -> PathBuf {
+    cache.join("blobs/sha256").join(sha256)
+}
+
+/// The run passed its one rule.
+fn passed(output: &Output) {
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}{}",
+        text(&output.stdout),
+        text(&output.stderr)
+    );
+    assert!(
+        text(&output.stdout).contains("gate check (tree): 1 rule, 0 errors"),
+        "{}",
+        text(&output.stdout)
+    );
+}
+
+/// `gate check --timings` of `repo` on the cache at `cache`, which passed.
+fn checked_in(repo: &Repo, cache: &Path) -> Output {
     let output = repo.gate(
         &["check", "--timings"],
         None,
-        &[("GATE_CACHE_DIR", path(same.path()))],
+        &[("GATE_CACHE_DIR", path(cache))],
     );
     passed(&output);
+    output
+}
+
+#[test]
+fn a_cache_restored_after_a_pin_moved_serves_only_what_the_new_lock_pins() {
+    let moved = MovedPin::new();
+    let asked = moved.server.requests().len();
+    let (copy, output) = moved.restored_and_checked();
+    let cache = copy.path();
+    let stderr = text(&output.stderr);
+
+    // The moved plugin is fetched and loads; the unmoved one comes from the restored cache; the
+    // previous pin's download is not read.
+    assert_eq!(
+        asked_since(&moved.server, asked),
+        vec![moved.moved_route.to_owned()]
+    );
+    let read = |sha256: &str| std::fs::read(blob_at(cache, sha256)).expect("a blob");
+    assert_eq!(read(&moved.moved), moved.moved_bytes);
+    assert_eq!(read(&moved.hello), moved.hello_bytes);
+    assert_eq!(read(&moved.git), b"\0asm not the previous build");
+    // No result stored under the first lock answers the moved plugin's call: it runs, and its
+    // result is stored under the new pin.
+    assert!(stderr.contains("timings: load git: module "), "{stderr}");
+    assert!(!stderr.contains("every call cached"), "{stderr}");
+    assert!(cache.join("results").join(&moved.moved).is_dir());
+
+    // The next job, restoring what that one saved, answers the call from the new result.
+    let next = restored(cache);
+    let output = checked_in(&moved.repo, next.path());
     assert!(
         text(&output.stderr).contains("timings: load: not loaded, every call cached: git\n"),
         "{}",
         text(&output.stderr)
     );
-    assert_eq!(asked_since(&server, 2), Vec::<String>::new());
+    assert_eq!(asked_since(&moved.server, asked + 1), Vec::<String>::new());
+    moved.server.stop();
+}
 
-    // The git pin moves; the hello pin stays. A job restores the entry saved under the first lock.
-    repo.write(
-        "gate.lock",
-        &repo
-            .read("gate.lock")
-            .replace(&server.url(&git_route), &server.url(moved_route))
-            .replace(&git_hash, &moved_hash),
-    );
-    let restored_cache = restored(repo.cache.path());
-    let cache = restored_cache.path();
-    // The previous pin's download is no longer anything the lock names: it is never read, so even
-    // a changed one is neither run nor removed.
-    let previous = cache.join("blobs/sha256").join(&git_hash);
-    std::fs::write(&previous, b"\0asm not the previous build").expect("change the previous blob");
-    let output = repo.gate(
-        &["check", "--timings"],
-        None,
-        &[("GATE_CACHE_DIR", path(cache))],
-    );
-    passed(&output);
-    let stderr = text(&output.stderr);
-    // The moved plugin is fetched and loads; the unmoved one comes from the restored cache.
-    assert_eq!(asked_since(&server, 2), vec![moved_route.to_owned()]);
-    assert_eq!(
-        std::fs::read(cache.join("blobs/sha256").join(&moved_hash)).expect("the moved blob"),
-        moved
-    );
-    assert_eq!(
-        std::fs::read(cache.join("blobs/sha256").join(&hello_hash)).expect("the hello blob"),
-        hello
-    );
-    assert_eq!(
-        std::fs::read(&previous).expect("the previous blob"),
-        b"\0asm not the previous build",
-        "the previous pin's download was not read"
-    );
-    // No result stored under the first lock answers the moved plugin's call: it runs, and its
-    // result is stored under the new pin.
-    assert!(stderr.contains("timings: load git: module "), "{stderr}");
-    assert!(!stderr.contains("every call cached"), "{stderr}");
-    assert!(
-        cache.join("results").join(&moved_hash).is_dir(),
-        "the call's result is stored under the moved pin"
-    );
+#[test]
+fn the_prune_before_a_save_removes_what_a_moved_pin_left_and_keeps_the_rest() {
+    let moved = MovedPin::new();
+    let (copy, _) = moved.restored_and_checked();
+    let cache = copy.path();
 
     // A prune it cannot do fails, saying what to do: a copy of the restored parts alone, without
     // the tag `bin/gate` writes, may not be Gate's cache.
     let untagged = restored(cache);
-    let output = repo.gate(
-        &["cache", "prune", "--yes"],
-        None,
-        &[("GATE_CACHE_DIR", path(untagged.path()))],
-    );
+    let prune = |cache: &Path| {
+        moved.repo.gate(
+            &["cache", "prune", "--yes"],
+            None,
+            &[("GATE_CACHE_DIR", path(cache))],
+        )
+    };
+    let output = prune(untagged.path());
     assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    let stderr = text(&output.stderr);
     assert!(
-        text(&output.stderr).contains("has no CACHEDIR.TAG")
-            && text(&output.stderr).contains("nothing was pruned"),
-        "{}",
-        text(&output.stderr)
+        stderr.contains("has no CACHEDIR.TAG") && stderr.contains("nothing was pruned"),
+        "{stderr}"
     );
-    assert!(
-        untagged
-            .path()
-            .join("blobs/sha256")
-            .join(&git_hash)
-            .exists(),
-        "the failed prune removed nothing"
-    );
+    assert!(blob_at(untagged.path(), &moved.git).exists());
 
-    // Before its save, the job prunes what the new lock no longer pins: the previous pin's
-    // download, declaration and results. What the lock pins and the compiled modules stay.
-    assert!(cache.join("declarations").join(&git_hash).is_dir());
-    assert!(cache.join("results").join(&git_hash).is_dir());
-    let output = repo.gate(
-        &["cache", "prune", "--yes"],
-        None,
-        &[("GATE_CACHE_DIR", path(cache))],
-    );
+    // The job prunes what the new lock no longer pins: the previous pin's download, declaration
+    // and results. What the lock pins and the compiled modules stay.
+    let previous = [
+        blob_at(cache, &moved.git),
+        cache.join("declarations").join(&moved.git),
+        cache.join("results").join(&moved.git),
+    ];
+    for path in &previous {
+        assert!(
+            path.exists(),
+            "{} is there before the prune",
+            path.display()
+        );
+    }
+    let output = prune(cache);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    for gone in [
-        cache.join("blobs/sha256").join(&git_hash),
-        cache.join("declarations").join(&git_hash),
-        cache.join("results").join(&git_hash),
-    ] {
+    for gone in &previous {
         assert!(!gone.exists(), "{} is pruned", gone.display());
     }
     for kept in [
-        cache.join("blobs/sha256").join(&moved_hash),
-        cache.join("blobs/sha256").join(&hello_hash),
-        cache.join("declarations").join(&moved_hash),
-        cache.join("declarations").join(&hello_hash),
-        cache.join("results").join(&moved_hash),
+        blob_at(cache, &moved.moved),
+        blob_at(cache, &moved.hello),
+        cache.join("declarations").join(&moved.moved),
+        cache.join("declarations").join(&moved.hello),
+        cache.join("results").join(&moved.moved),
     ] {
         assert!(kept.exists(), "{} is kept", kept.display());
     }
@@ -1824,21 +1882,15 @@ fn a_cache_restored_after_a_pin_moved_serves_only_what_the_new_lock_pins() {
         "the compiled modules are kept"
     );
 
-    // The next job, restoring what that one saved, answers the call from the new result.
+    // What the prune left answers the next job's call.
     let next = restored(cache);
-    let output = repo.gate(
-        &["check", "--timings"],
-        None,
-        &[("GATE_CACHE_DIR", path(next.path()))],
-    );
-    passed(&output);
+    let output = checked_in(&moved.repo, next.path());
     assert!(
         text(&output.stderr).contains("timings: load: not loaded, every call cached: git\n"),
         "{}",
         text(&output.stderr)
     );
-    assert_eq!(asked_since(&server, 3), Vec::<String>::new());
-    server.stop();
+    moved.server.stop();
 }
 
 #[test]
