@@ -3,7 +3,9 @@
 
 mod host;
 
-use host::{Row, check, error, row};
+use std::collections::HashSet;
+
+use host::{Row, check, error, row, rows};
 
 const RULE: &str = "kind-imports";
 
@@ -54,6 +56,19 @@ fn with(files: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static s
 
 fn finding(aspect: &str, path: &str, line: u32, message: &str) -> Row {
     row(aspect, path, Some(line), &format!("{path} {message}"))
+}
+
+/// Fails when two findings share an aspect, a path, a line and a key: an exception keyed on the
+/// specifier could not tell them apart.
+fn assert_one_per_key(options: &str, tree: &[(&str, &str)]) {
+    let findings = host::run(RULE, options, "{}", tree).expect("the rule runs");
+    let mut seen = HashSet::new();
+    for ((aspect, path, line, message), finding) in rows(&findings).into_iter().zip(&findings) {
+        assert!(
+            seen.insert((aspect, path, line, finding.key.clone())),
+            "a second finding of the same aspect, line and key: {message}"
+        );
+    }
 }
 
 #[test]
@@ -300,6 +315,21 @@ fn a_file_in_no_kind_folder_and_a_private_entrypoint_are_loaded_by_their_file() 
 }
 
 #[test]
+fn a_name_a_kind_barrel_imports_and_exports_is_exported_through_it() {
+    let tree = with(&[
+        (
+            "src/modules/domain/book/function/index.ts",
+            "import { bookFormat } from \"./format.function\";\n\nexport { bookFormat };\nexport * from \"./is\";\n",
+        ),
+        (
+            "src/modules/domain/author/service.ts",
+            "import { bookFormat } from \"@modules/domain/book/function\";\n\nexport const AUTHOR_LABEL = bookFormat();\n",
+        ),
+    ]);
+    assert_eq!(check(RULE, KINDS, &tree), []);
+}
+
+#[test]
 fn a_relative_path_stays_inside_the_importers_resource() {
     let apply = "src/modules/domain/shelf/version/function/apply.function.ts";
     let tree = [
@@ -462,6 +492,30 @@ fn one_import_per_module_and_a_deferred_module_is_not_loaded_statically() {
             "defers @infrastructure/metrics/runtime/function with import() but already loads it statically; place the deferred module behind a barrel that {prepare} does not load statically"
         ),
     )));
+
+    // An import() with both reasons gets one finding that gives both.
+    let lazy = "src/runtime/lazy.ts";
+    let mut both = tree.clone();
+    both.push((
+        lazy,
+        "import { bookFormat } from \"@modules/domain/book/function\";\n\nexport async function runtimeLazy(): Promise<unknown> {\n\tconst { BOOK_LIMIT_CONSTANT, bookFormat: format } = await import(\"@modules/domain/book\");\n\treturn [bookFormat, format, BOOK_LIMIT_CONSTANT];\n}\n",
+    ));
+    let found: Vec<Row> = check(RULE, KINDS, &both)
+        .into_iter()
+        .filter(|(aspect, path, ..)| path == lazy && aspect == "dynamic-import")
+        .collect();
+    assert_eq!(
+        found,
+        [finding(
+            "dynamic-import",
+            lazy,
+            4,
+            &format!(
+                "loads @modules/domain/book with import(); its names come from 2 modules (src/modules/domain/book/constant, src/modules/domain/book/function), and {lazy} already loads it statically; use one import() per module, and place each deferred module behind a barrel that {lazy} does not load statically"
+            ),
+        )]
+    );
+    assert_one_per_key(KINDS, &both);
 }
 
 #[test]
@@ -521,7 +575,7 @@ fn a_mock_names_a_module_the_form_makes_the_source_load() {
         finding(
             "mock-target",
             &format!("{tests}/merge.test.ts"),
-            3,
+            4,
             "names @modules/domain/book/function in vi.mock more than once; the test runner keeps only the last factory, so merge the factories",
         ),
         finding(
@@ -562,6 +616,37 @@ fn a_mock_names_a_module_the_form_makes_the_source_load() {
     // A hoisted call is any of `hoisted-mock-calls`: with none, two mocks of one module pass.
     let none = r#"{ "kinds": ["function"], "hoisted-mock-calls": [] }"#;
     assert_eq!(check(RULE, none, &tree).len(), 3);
+
+    // A repeated call that also names a module out of the form gets one finding with both
+    // reasons, on its own line; the first call keeps its own finding.
+    let twice = format!("{tests}/twice.test.ts");
+    let mut repeated = tree.clone();
+    repeated.push((
+        "test/unit/modules/domain/author/twice.test.ts",
+        "import { vi } from \"vitest\";\n\nvi.mock(\"@modules/domain/book\", () => ({}));\nvi.mock(\"@modules/domain/book\", () => ({}));\n",
+    ));
+    let found: Vec<Row> = check(RULE, KINDS, &repeated)
+        .into_iter()
+        .filter(|(_, path, ..)| *path == twice)
+        .collect();
+    assert_eq!(
+        found,
+        [
+            finding(
+                "mock-target",
+                &twice,
+                3,
+                "names @modules/domain/book in vi.mock, which no source file loads under the form; name the kind barrel or file that the source loads",
+            ),
+            finding(
+                "mock-target",
+                &twice,
+                4,
+                "names @modules/domain/book in vi.mock more than once, and no source file loads it under the form; name the kind barrel or file that the source loads, and merge the factories, since the test runner keeps only the last one",
+            ),
+        ]
+    );
+    assert_one_per_key(KINDS, &repeated);
 }
 
 #[test]
@@ -582,7 +667,7 @@ fn the_registry_and_an_entitys_enum_loads_are_left_to_their_rules() {
         ),
         (
             "src/modules/domain/book/entity/book.entity.ts",
-            "import { EBookState } from \"../enum\";\n\nexport class BookEntity {\n\tstate: EBookState = EBookState.ACTIVE;\n}\n",
+            "import { EBookState } from \"../enum\";\nimport { EBookState as EState } from \"@modules/domain/book/enum/index\";\n\nexport class BookEntity {\n\tstate: EBookState = EState.ACTIVE;\n}\n",
         ),
         (
             "src/modules/domain/book/entity/index.ts",
@@ -606,16 +691,40 @@ fn the_registry_and_an_entitys_enum_loads_are_left_to_their_rules() {
         ),
     ];
     assert_eq!(check(RULE, KINDS, &tree), []);
-    // `nestjs/import-aliases` reports the enum file, and this rule does not report it again.
-    assert_eq!(
-        check("import-aliases", "{}", &tree),
-        [row(
+    // `nestjs/import-aliases` reports the enum file and the own enum barrel through `/index`, and
+    // this rule reports neither again, under any aspect.
+    let own = "src/modules/domain/book/entity/book.entity.ts";
+    let aliases = check("import-aliases", "{}", &tree);
+    assert_eq!(aliases.len(), 2, "{aliases:?}");
+    for expected in [
+        row(
             "entity-enum-barrel",
             foreign,
             None,
             &format!(
                 "{foreign} loads the enum file @modules/domain/book/enum/state.enum; import the enum through its owner's enum barrel"
             ),
+        ),
+        row(
+            "entity-enum-barrel",
+            own,
+            None,
+            &format!(
+                "{own} loads its own resource's enum barrel through @modules/domain/book/enum/index; import it as ../enum"
+            ),
+        ),
+    ] {
+        assert!(aliases.contains(&expected), "{aliases:?}");
+    }
+    // With another enum folder, the load through `/index` is this rule's.
+    let enums = r#"{ "kinds": ["entity", "enum"], "enum-folder": "enums" }"#;
+    assert_eq!(
+        check(RULE, enums, &tree),
+        [finding(
+            "index-segment",
+            own,
+            2,
+            "loads @modules/domain/book/enum/index; drop the /index segment",
         )]
     );
     // Outside an entity folder, the enum file is this rule's.
@@ -936,6 +1045,10 @@ fn options_that_cannot_hold_are_errors_that_name_the_key() {
             r#"{ "mock-calls": ["vi..mock"], "hoisted-mock-calls": [] }"#,
             "option `mock-calls[0]` is \"vi..mock\", which is not a dotted name",
         ),
+        (
+            r#"{ "enum-folder": "enum/x" }"#,
+            "option `enum-folder` is \"enum/x\"",
+        ),
         (r#"{ "kind": ["dto"] }"#, "`kind`"),
     ] {
         let message = error(RULE, options, &tree);
@@ -991,5 +1104,45 @@ fn the_groups_of_a_message_follow_the_paths_of_their_modules() {
             1,
             "loads @modules/domain/shelf; import ShelfAService by its file src/modules/domain/shelf/a.service.ts and SHELF_SIZE_CONSTANT through the kind barrel src/modules/domain/shelf/constant and ShelfZService by its file src/modules/domain/shelf/z.service.ts",
         )]
+    );
+}
+
+#[test]
+fn the_groups_follow_the_paths_of_their_modules_whatever_the_order_of_kinds() {
+    let service = "src/modules/domain/author/service.ts";
+    let tree = with(&[
+        (
+            "src/modules/domain/book/dto/book.dto.ts",
+            "export class BookDto {}\n",
+        ),
+        (
+            "src/modules/domain/book/dto/index.ts",
+            "export { BookDto } from \"./book.dto\";\n",
+        ),
+        (
+            "src/modules/domain/book/index.ts",
+            "export * from \"./function\";\nexport * from \"./dto\";\n",
+        ),
+        (
+            service,
+            "import { bookFormat, BookDto } from \"@modules/domain/book\";\n\nexport const AUTHOR = [bookFormat, BookDto];\n",
+        ),
+    ]);
+    let expected = [finding(
+        "kind-barrel",
+        service,
+        1,
+        &format!(
+            "loads @modules/domain/book; import BookDto through the kind barrel src/modules/domain/book/dto and bookFormat through the kind barrel {KIND}"
+        ),
+    )];
+    // `kinds` not in alphabetical order: the groups still follow the paths.
+    assert_eq!(
+        check(RULE, r#"{ "kinds": ["function", "dto"] }"#, &tree),
+        expected
+    );
+    assert_eq!(
+        check(RULE, r#"{ "kinds": ["dto", "function"] }"#, &tree),
+        expected
     );
 }

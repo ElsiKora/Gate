@@ -50,7 +50,8 @@ a contract: this task file overrides it wherever they differ.
    - `/index` segments: checked only for loads that resolve below the source root, as the
      specification's definitions say.
    - `.d.ts` files: they count when a kind folder is decided, and are tried in resolution.
-   - The order of the listed kinds in a message: the order of `kinds`.
+   - The order of the listed kinds in a message: the path of each group's module, whatever the
+     order of `kinds` (amended at review). It matches the reference the consumer compares against.
    - An entity that loads another resource's enum file: the writer adds a fixture and says on the
      page which rule reports it, so that no load is reported twice.
 8. **The interface stays `gate:plugin@0.3.0`.** If the work needs a change to it, stop and report
@@ -94,4 +95,15 @@ release build, each read from `$?` right after its cargo call, all 0. `origin/ma
 merged in without a rebase; the conflicts were the guide's table and count, the plan's rows and the
 CHANGELOG's Unreleased section.
 
-Next: the gates and the speed measure on the merge, then review.
+The lane ran the gates and the speed measure on the merge `08949b6e`, all 0. The review asked for one
+fix round:
+- groups follow module paths (Decision 7 amended), with a test whose `kinds` are not in
+  alphabetical order;
+- an `import()` with both reasons, and a repeated hoisted mock call, get one finding each, the
+  repeat on its own line;
+- an entity's non-relative load of its own resource's enum folder is skipped by every aspect,
+  through an eighth option `enum-folder`;
+- a name a kind barrel imports and exports with `export { … }` counts as re-exported.
+
+Next: the cost of the move for `typescript/barrel-imports`, the consumer comparison again, and the
+gates on the fix round.

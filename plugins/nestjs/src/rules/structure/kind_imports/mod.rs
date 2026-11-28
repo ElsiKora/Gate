@@ -69,6 +69,8 @@ pub struct Options {
     pub entity_folder: String,
     /// The kind of an enum file, as `nestjs/import-aliases` names it.
     pub enum_kind: String,
+    /// The folder of a resource's enums, as `nestjs/import-aliases` names it.
+    pub enum_folder: String,
 }
 
 impl Default for Options {
@@ -85,6 +87,7 @@ impl Default for Options {
             hoisted_mock_calls: vec!["vi.mock".to_owned()],
             entity_folder: "entity".to_owned(),
             enum_kind: "enum".to_owned(),
+            enum_folder: "enum".to_owned(),
         }
     }
 }
@@ -160,6 +163,7 @@ fn check_options(options: &Options, layout: &Layout) -> gate_sdk::Result<Vec<Str
     paths::check("registry", &options.registry, PathForm::File)?;
     paths::check("entity-folder", &options.entity_folder, PathForm::Name)?;
     paths::check("enum-kind", &options.enum_kind, PathForm::Name)?;
+    paths::check("enum-folder", &options.enum_folder, PathForm::Name)?;
     if options.registry_import.is_empty() {
         return Err(Error::config(
             "option `registry-import` is empty; write the specifier the registry imports the migrations from, such as \"./generated\"",
@@ -308,7 +312,8 @@ impl<'c, 'a> Checker<'c, 'a> {
         let path = file.path.as_str();
         let in_source = self.model.in_source(path);
         let in_test = below(self.model.layout.test_root.trim_end_matches('/'), path);
-        let mut hoisted: BTreeMap<&str, Vec<&Load>> = BTreeMap::new();
+        // The modules a hoisted mock call of the file has named so far.
+        let mut hoisted: HashSet<&str> = HashSet::new();
         let mut statics: Option<HashSet<String>> = None;
 
         for (load, module) in &file.loads {
@@ -338,15 +343,13 @@ impl<'c, 'a> Checker<'c, 'a> {
 
             if let Form::Call(index) = load.form {
                 let call = self.options.mock_calls[index].as_str();
-                if self
+                let repeat = self
                     .options
                     .hoisted_mock_calls
                     .iter()
                     .any(|known| known == call)
-                {
-                    hoisted.entry(module).or_default().push(load);
-                }
-                self.mock(path, call, specifier, module, &mut push)?;
+                    && !hoisted.insert(module);
+                self.mock(path, call, specifier, module, repeat, &mut push)?;
                 continue;
             }
             if load.form == Form::SideEffect {
@@ -370,32 +373,41 @@ impl<'c, 'a> Checker<'c, 'a> {
                 self.dynamic(path, specifier, module, &targets, statics, &mut push);
             }
         }
-
-        self.hoisted(path, &hoisted, findings);
         Ok(())
     }
 
-    /// The `mock-target` finding of a mock call that names a module the source does not load.
+    /// The `mock-target` finding of a mock call: one that names a module the source does not load,
+    /// or, when `repeat`, a hoisted call naming a module an earlier hoisted call of the file names.
     fn mock(
         &self,
         path: &str,
         call: &str,
         specifier: &str,
         module: &str,
+        repeat: bool,
         push: &mut impl FnMut(&'static str, String),
     ) -> gate_sdk::Result<()> {
-        if !self.loaded_under_the_form(module)? {
-            let fix = match self.model.kind_folder(module) {
+        let fix = if self.loaded_under_the_form(module)? {
+            None
+        } else {
+            Some(match self.model.kind_folder(module) {
                 Some(kind) => format!("name the kind barrel {kind}"),
                 None => "name the kind barrel or file that the source loads".to_owned(),
-            };
-            push(
-                "mock-target",
-                format!(
-                    "{path} names {specifier} in {call}, which no source file loads under the form; {fix}"
-                ),
-            );
-        }
+            })
+        };
+        let message = match (fix, repeat) {
+            (Some(fix), false) => format!(
+                "{path} names {specifier} in {call}, which no source file loads under the form; {fix}"
+            ),
+            (None, true) => format!(
+                "{path} names {specifier} in {call} more than once; the test runner keeps only the last factory, so merge the factories"
+            ),
+            (Some(fix), true) => format!(
+                "{path} names {specifier} in {call} more than once, and no source file loads it under the form; {fix}, and merge the factories, since the test runner keeps only the last one"
+            ),
+            (None, false) => return Ok(()),
+        };
+        push("mock-target", message);
         Ok(())
     }
 
@@ -424,8 +436,8 @@ impl<'c, 'a> Checker<'c, 'a> {
         }
     }
 
-    /// The `dynamic-import` findings of an `import()`; `statics` is the importer's static closure,
-    /// given below the source root.
+    /// The `dynamic-import` finding of an `import()`, with each of its reasons; `statics` is the
+    /// importer's static closure, given below the source root.
     fn dynamic(
         &self,
         path: &str,
@@ -439,51 +451,36 @@ impl<'c, 'a> Checker<'c, 'a> {
             .iter()
             .map(|taken| self.shown(taken.target.module()))
             .collect();
-        if modules.len() > 1 {
-            push(
-                "dynamic-import",
-                format!(
-                    "{path} loads {specifier} with import(); its names come from {} modules ({}); use one import() per module",
-                    modules.len(),
-                    modules.into_iter().collect::<Vec<_>>().join(", ")
-                ),
-            );
-        }
-        if let Some(statics) = statics
-            && (statics.contains(module)
+        let split = (modules.len() > 1).then(|| {
+            format!(
+                "its names come from {} modules ({})",
+                modules.len(),
+                modules
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        });
+        let deferred = statics.is_some_and(|statics| {
+            statics.contains(module)
                 || targets
                     .iter()
-                    .any(|taken| statics.contains(taken.declaring.as_str())))
-        {
-            push(
-                "dynamic-import",
-                format!(
-                    "{path} defers {specifier} with import() but already loads it statically; place the deferred module behind a barrel that {path} does not load statically"
-                ),
-            );
-        }
-    }
-
-    /// One `mock-target` finding per module that two or more hoisted mock calls of a file name.
-    fn hoisted(&self, path: &str, hoisted: &BTreeMap<&str, Vec<&Load>>, findings: &mut Findings) {
-        for loads in hoisted.values() {
-            if let [first, _, ..] = loads.as_slice() {
-                let call = match first.form {
-                    Form::Call(index) => self.options.mock_calls[index].as_str(),
-                    _ => continue,
-                };
-                let specifier = first.specifier.as_str();
-                findings.push_keyed(
-                    "mock-target",
-                    path,
-                    u32::try_from(first.line).ok(),
-                    specifier,
-                    format!(
-                        "{path} names {specifier} in {call} more than once; the test runner keeps only the last factory, so merge the factories"
-                    ),
-                );
-            }
-        }
+                    .any(|taken| statics.contains(taken.declaring.as_str()))
+        });
+        let message = match (split, deferred) {
+            (Some(split), false) => format!(
+                "{path} loads {specifier} with import(); {split}; use one import() per module"
+            ),
+            (None, true) => format!(
+                "{path} defers {specifier} with import() but already loads it statically; place the deferred module behind a barrel that {path} does not load statically"
+            ),
+            (Some(split), true) => format!(
+                "{path} loads {specifier} with import(); {split}, and {path} already loads it statically; use one import() per module, and place each deferred module behind a barrel that {path} does not load statically"
+            ),
+            (None, false) => return,
+        };
+        push("dynamic-import", message);
     }
 
     /// The `kind-barrel` and `own-kind-folder` findings of one load.
@@ -602,9 +599,9 @@ impl<'c, 'a> Checker<'c, 'a> {
             })
     }
 
-    /// Whether another rule owns the load: the registry's import of its migrations
-    /// (`nestjs/migrations`), and an entity's load of an enum file
-    /// (`nestjs/import-aliases#entity-enum-barrel`).
+    /// Whether another rule owns the load, for every aspect: the registry's import of its migrations
+    /// (`nestjs/migrations`), and an entity's load of an enum file or a non-relative load of its own
+    /// resource's enum barrel (`nestjs/import-aliases#entity-enum-barrel`).
     fn skipped(&self, path: &str, load: &Load) -> bool {
         if path == self.options.registry && load.specifier == self.options.registry_import {
             return true;
@@ -616,9 +613,14 @@ impl<'c, 'a> Checker<'c, 'a> {
         let Some(target) = source_target(layout, path, &load.specifier) else {
             return false;
         };
-        std::path::Path::new(name(stem(&target)))
-            .extension()
-            .is_some_and(|extension| extension == self.options.enum_kind.as_str())
+        let target = stem(target.trim_end_matches('/'));
+        let barrel = format!("{}/{}", parent(parent(path)), self.options.enum_folder);
+        let own_barrel = !load.specifier.starts_with('.')
+            && (target == barrel || target == format!("{barrel}/index"));
+        own_barrel
+            || std::path::Path::new(name(target))
+                .extension()
+                .is_some_and(|extension| extension == self.options.enum_kind.as_str())
     }
 }
 

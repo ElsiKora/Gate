@@ -43,7 +43,8 @@ carry no target, and are keyed by the specifier as written.
 - **Barrels:** a kind barrel is `<kind folder>/<barrel-name>`; an internal barrel is
   `<kind folder>/<internal-folder>/<barrel-name>`. The module plane named like `internal-folder` is a
   structural position, not such a child.
-- **Private file:** a file other than a barrel that no barrel's `export … from` resolves to.
+- **Private file:** a file other than a barrel that no barrel re-exports, either by an
+  `export … from` that resolves to it or by an `export { … }` of a name the barrel imports from it.
 - **Names a load takes:** the names in its braces (`a as b` takes `a`), the destructured property
   names of `const { a, b: c } = await import("…")`, `default` for a default import, `T` of
   `import("…").T`, and every name the module exports for `import * as`, `export *`, `export * as`,
@@ -74,8 +75,8 @@ A load, other than a side-effect import, a mock call or a direct-child re-export
 out of the form whose case is not "own": a declaration of a kind folder loaded through its file, a
 semantic subfolder or a wider barrel; an internal child loaded other than through its own barrel; a
 file in no kind folder or a private file loaded through a barrel; a barrel that re-exports past a
-kind barrel. Names are grouped by module and sorted, joined by `, `; groups are ordered by module and
-joined by ` and `.
+kind barrel. Names are grouped by module and sorted, joined by `, `; groups are ordered by the path
+of their module, whatever the order of `kinds`, and joined by ` and `.
 
 A direct-child re-export is an `export … from "./<name>"` of a barrel, one segment: the chain of
 barrels. `kind-barrel`, `own-kind-folder` and `resource-relative` never report it.
@@ -107,6 +108,8 @@ A checked load, mock calls and direct-child re-exports included, whose specifier
   file already loads statically: through its value loads (imports and `export … from` that are not
   type-only, side-effect imports, `import x = require` and `require`), transitively.
 
+An `import()` with both reasons gets one finding that gives both.
+
 ### `mock-target`
 
 - A call of `mock-calls` whose first argument resolves to a module below the source root that no
@@ -115,18 +118,21 @@ A checked load, mock calls and direct-child re-exports included, whose specifier
   kind folder that another non-barrel file of the same kind folder loads. A resource barrel never
   counts.
 - Two or more calls of `hoisted-mock-calls` in one file that resolve to one module: the test runner
-  hoists such calls and keeps only the last factory. Reported once per module, at the first call.
+  hoists such calls and keeps only the last factory. Reported at each call after the first, on
+  that call's line. When such a call also names a module out of the form, its one finding gives
+  both reasons.
 
 ### Left to other rules
 
 - **The migration registry.** The load of `registry-import` by `registry` is skipped by every aspect;
   `nestjs/migrations` owns it. Keep the two options equal to that rule's.
-- **An entity's enum files.** A file directly in an `entity-folder` folder that loads an enum file
-  (`*.<enum-kind>`, any script extension) by a relative, source-root or alias path is skipped by every
-  aspect; `nestjs/import-aliases#entity-enum-barrel` reports it, whether the enum file is the
-  entity's own resource's or another's. The skip is exact only when `entity-folder` and `enum-kind`
-  equal the options of `nestjs/import-aliases`. An entity's load of another resource's enum barrel is
-  in the form for both rules.
+- **An entity's enum loads.** A file directly in an `entity-folder` folder is skipped by every
+  aspect, `index-segment` included, when it loads an enum file (`*.<enum-kind>`, any script
+  extension) by a relative, source-root or alias path, or its own resource's `enum-folder` (the folder
+  itself or its `index`) by a non-relative path. `nestjs/import-aliases#entity-enum-barrel` reports
+  both, whether the enum file is the entity's own resource's or another's. The skip is exact only when
+  `entity-folder`, `enum-kind` and `enum-folder` equal the options of `nestjs/import-aliases`. An
+  entity's load of another resource's enum barrel is in the form for both rules.
 - **Barrel shape.** Which files a barrel re-exports, and which wildcards it may use, is
   `nestjs/barrel-exports`. That rule decides a kind folder by its name in `layout.kind-folders`; this
   rule decides it by `kinds` and the names of the files it holds.
@@ -199,6 +205,7 @@ that names the key.
 | `hoisted-mock-calls` | list of dotted names | `["vi.mock"]` | The calls of `mock-calls` the test runner hoists and keeps once per module. Each one listed in `mock-calls`, no name twice. |
 | `entity-folder` | string | `"entity"` | The folder whose files are entities, as `nestjs/import-aliases` sets it. |
 | `enum-kind` | string | `"enum"` | The kind of an enum file, as `nestjs/import-aliases` sets it. |
+| `enum-folder` | string | `"enum"` | The folder of a resource's enums, as `nestjs/import-aliases` sets it. |
 
 The rule also reads `layout.source-root`, `test-root`, `source-owners`, `module-planes`,
 `modules-root`, `path-aliases` and `exclusive-kind-folders`. No preset turns it on.

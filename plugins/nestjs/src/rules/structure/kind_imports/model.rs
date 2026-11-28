@@ -257,7 +257,8 @@ impl<'c, 'a> Model<'c, 'a> {
             && self.kind_folders.contains(parent(folder))
     }
 
-    /// Whether `path`, not a barrel, is a file no barrel's `export … from` resolves to.
+    /// Whether `path`, not a barrel, is a file no barrel re-exports: by `export … from`, or by
+    /// `export { … }` of a binding it imports.
     ///
     /// # Errors
     /// When a barrel cannot be read.
@@ -272,7 +273,9 @@ impl<'c, 'a> Model<'c, 'a> {
                 .collect();
             barrels.sort_unstable();
             for barrel in barrels {
-                reexported.extend(self.exports.own(barrel)?.reexported.iter().cloned());
+                let own = self.exports.own(barrel)?;
+                reexported.extend(own.reexported.iter().cloned());
+                reexported.extend(own.named.iter().filter_map(|(_, from, _)| from.clone()));
             }
             let _ = self.reexported.set(reexported);
         }
