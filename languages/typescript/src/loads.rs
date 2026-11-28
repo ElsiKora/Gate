@@ -92,6 +92,24 @@ pub fn file_loads(file: &SourceFile<'_>, calls: &[&str]) -> Vec<Load> {
     finder.loads
 }
 
+/// The loads of `file`'s top-level declarations, in source order: imports, side-effect imports,
+/// `export … from`, `export *`, `export * as` and `import x = require`. The loads of
+/// [`file_loads`] in those forms, read without walking expressions or building the semantic model.
+#[must_use]
+pub fn static_loads(file: &SourceFile<'_>) -> Vec<Load> {
+    let mut finder = Finder {
+        file,
+        calls: &[],
+        loads: Vec::new(),
+        destructured: Vec::new(),
+    };
+    for statement in &file.program().body {
+        finder.statement(statement);
+    }
+    finder.loads.sort_by_key(|load| load.start);
+    finder.loads
+}
+
 struct Finder<'f, 'a> {
     file: &'f SourceFile<'a>,
     calls: &'f [&'f str],

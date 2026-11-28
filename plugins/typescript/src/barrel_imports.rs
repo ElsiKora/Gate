@@ -17,7 +17,7 @@ use gate_sdk::serde::Deserialize;
 use gate_sdk::{Error, Location, Result, Rule, Run};
 use gate_typescript::call::TypeScriptCall;
 use gate_typescript::exports::ExportMap;
-use gate_typescript::loads::{Form, Names, file_loads};
+use gate_typescript::loads::{Form, Names, static_loads};
 use gate_typescript::{SourceFile, TypeScript};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
@@ -172,19 +172,8 @@ struct Load {
 /// The static imports and re-exports of a file: the top-level declarations with a source and
 /// `import x = require("x")`, which takes the whole module, as `import * as x` does.
 fn loads(file: &SourceFile<'_>) -> Vec<Load> {
-    file_loads(file, &[])
+    static_loads(file)
         .into_iter()
-        .filter(|load| {
-            matches!(
-                load.form,
-                Form::Import
-                    | Form::SideEffect
-                    | Form::ExportFrom
-                    | Form::ExportAll
-                    | Form::ExportAllAs
-                    | Form::ImportEquals
-            )
-        })
         .map(|load| Load {
             specifier: load.specifier,
             names: match (load.form, load.names) {
