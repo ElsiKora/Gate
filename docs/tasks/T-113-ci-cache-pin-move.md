@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | fix round after review (branch `task/T-113-ci-cache-pin-move`) |
+| Status | fix round done, ready for the lead (branch `task/T-113-ci-cache-pin-move`) |
 | Release | the next core release |
 | Writer | the T-113 writer session |
 | Reviewer | a session that did not write it; the lead decides after one fix round |
@@ -133,5 +133,19 @@ their bound as a follow-up in the backlog.
 
 ## Resume point
 
-The fix round is committed. Next: clippy and the full lane round on the new head, then the report
-to the lead.
+The fix round is done. Lane round on `d729eeb`, as one lane job: clippy alone first, then the full
+round, stopping at the first failure. Each code is cargo's own status, which the job writes straight
+after cargo returns. Between 2026-11-28T07:01:49Z and 07:20:07Z:
+
+| Command | Exit |
+| --- | --- |
+| `cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings` | 0 |
+| `cargo build --release --locked` | 0 |
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 |
+| `cargo test --locked` | 0 (1678 passed, 0 failed, 7 ignored, over 124 test binaries) |
+| `cargo deny --locked check` | 0 |
+
+The earlier round on `16125df` stopped at clippy with exit 101: an assert without a message, fixed
+in `d729eeb`. `bin/gate sync` on this repository exits 0 and writes nothing ("4 generated, 0
+written, 0 removed").
