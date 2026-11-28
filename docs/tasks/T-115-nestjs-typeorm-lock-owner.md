@@ -85,6 +85,9 @@ negatives the page will list.
 
 ## Resume point
 
-The design is accepted (2026-11-27; note `T-115-design.md` in the lead's notes folder). The rule, its
-page, the tests and the CHANGELOG entry are written; next: the gates through the lane, then the
-comparison with the specification's figures (outside the repository), then the report to the lead.
+The design is accepted (2026-11-27). The rule, its page, the tests and the CHANGELOG entry are on the
+branch at `7d707a3e`. The gates ran on that commit through the lane: `cargo fmt --all --check`,
+`cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked` (1692 passed, 0 failed),
+`cargo deny --locked check` and `cargo build --release --locked`, each exit 0. The comparison with the
+specification's figures ran outside the repository and went to the lead. Next: review by a session
+that did not write it.
