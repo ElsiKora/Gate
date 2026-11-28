@@ -25,7 +25,7 @@ project when it moves to another repository.
 `gate list --origin` prints every setting of every project with the file and section it came from.
 
 ```toml
-#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.4/gate.schema.json
+#:schema https://github.com/ElsiKora/Gate/releases/download/v0.3.5/gate.schema.json
 ```
 
 ## ✅ Validation
@@ -49,7 +49,7 @@ file, the key and what is expected, with exit code `2`:
 
 ```toml
 [gate]
-version = "0.3.4"
+version = "0.3.5"
 ```
 
 | Key | Meaning |
@@ -208,7 +208,7 @@ in a monorepo, is read only when it is tracked and granted to each plugin that r
 
 ```toml
 [plugins]
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2", reads = ["tsconfig.base.json"] }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.3", reads = ["tsconfig.base.json"] }
 ```
 
 A base the plugin cannot read is reported once per run of the plugin, as a finding at the tsconfig
@@ -268,7 +268,7 @@ projects = ["apps/*"]
 
 [profiles.plugins]
 typescript = { source = "ElsiKora/Gate:typescript@0.3.1" }
-nestjs = { source = "ElsiKora/Gate:nestjs@0.3.2" }
+nestjs = { source = "ElsiKora/Gate:nestjs@0.3.3" }
 
 [profiles.rules]
 "typescript/parse" = "error"
